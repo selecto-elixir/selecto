@@ -5,7 +5,7 @@ defmodule Listable.Components do
   def view_panel(assigns) do
     ~H"""
       <div>
-      View <%= @listable.repo %>
+      View <%= inspect(@listable) %>
       </div>
     """
   end
