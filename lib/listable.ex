@@ -1,5 +1,5 @@
 defmodule Listable do
-  defstruct [:repo, :domain, :config]
+  defstruct [:repo, :domain, :config, :set]
 
   import Ecto.Query
 
@@ -20,7 +20,13 @@ defmodule Listable do
     %Listable{
       repo: repo,
       domain: domain,
-      config: walk_config(domain)
+      config: walk_config(domain),
+      set: %{
+        selected: [],
+        filtered: [],
+        order_by: [],
+        #group_by: [],
+      }
     }
   end
 
@@ -31,14 +37,13 @@ defmodule Listable do
     fields = walk_fields(:root, source.__schema__(:fields), source)
     IO.inspect(primary_key)
 
+    %{
+      primary_key: primary_key,
+      columns: fields
 
-    flatten_config(
-      %{
-        primary_key: primary_key,
-        columns: fields
-
-      }
-    ) |> IO.inspect
+    }
+    |> flatten_config( )
+    |> IO.inspect
   end
 
   defp walk_fields(join, fields, source) do
@@ -49,6 +54,27 @@ defmodule Listable do
   ### Put filters/columns/joins in one level with join meta
   defp flatten_config(config) do
     config
+  end
+
+  def select( listable, fields ) do
+    put_in( listable.set.selected, listable.set.selected ++ fields)
+  end
+
+  def filter( listable, filters ) do
+    put_in( listable.set.filtered, listable.set.filtered ++ filters)
+  end
+
+  def order_by( listable, orders) do
+    put_in( listable.set.order_by, listable.set.order_by ++ orders)
+  end
+
+  def gen_query( listable ) do
+
+
+  end
+
+  def execute( listable ) do
+    listable |> gen_query |> listable.repo.all()
   end
 
 end
