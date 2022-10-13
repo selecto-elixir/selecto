@@ -15,8 +15,6 @@ defmodule Listable do
 
   """
   def configure(repo, domain) do
-    q = from u in "users", select: %{id: u.id}
-    q |> repo.all() |> IO.inspect()
     %Listable{
       repo: repo,
       domain: domain,
