@@ -30,36 +30,47 @@ defmodule Listable do
     }
   end
 
-  defp configure_join(assoc, dep \\ nil) do
+  defp configure_join(association, dep) do
     %{
-      assoc: assoc,
+      assoc: association,
+      key: association.field,
       requires_join: dep,
     }
   end
   ### This is f'n weird, fix it TODO allow user: [:profiles] !
-  defp normalize_joins([assoc, subs | joins ], dep ) when is_atom(assoc) and is_list(subs) do
-    [configure_join(assoc, dep), normalize_joins(subs, assoc)] ++ normalize_joins(joins, dep)
+  defp normalize_joins(source, [assoc, subs | joins ], dep ) when is_atom(assoc) and is_list(subs) do
+    association = source.__schema__(:association, assoc) |> IO.inspect
+
+    [configure_join(association, dep),
+      normalize_joins(association.related, subs, assoc)] ++ normalize_joins(source, joins, dep)
   end
-  defp normalize_joins([assoc, subs ], dep ) when is_atom(assoc) and is_list(subs) do
-    [configure_join(assoc, dep), normalize_joins(subs, assoc)]
+  defp normalize_joins(source, [assoc, subs ], dep ) when is_atom(assoc) and is_list(subs) do
+    association = source.__schema__(:association, assoc) |> IO.inspect
+
+    [configure_join(association, dep),
+      normalize_joins(association.related, subs, assoc)]
   end
-  defp normalize_joins([assoc | joins ], dep ) when is_atom(assoc)  do
-    [configure_join(assoc, dep)] ++ normalize_joins(joins, dep)
+  defp normalize_joins(source, [assoc | joins ], dep ) when is_atom(assoc)  do
+    association = source.__schema__(:association, assoc) |> IO.inspect
+
+    [configure_join(association, dep)] ++ normalize_joins(source, joins, dep)
   end
-  defp normalize_joins([assoc], dep) when is_atom(assoc)  do
-    [configure_join(assoc, dep)]
+  defp normalize_joins(source, [assoc], dep) when is_atom(assoc)  do
+    association = source.__schema__(:association, assoc) |> IO.inspect
+
+    [configure_join(association, dep)]
   end
 
-  defp normalize_joins([] = _joins, _) do
+  defp normalize_joins(_source, [] = _joins, _) do
     []
   end
-  defp normalize_joins(nil, _) do
+  defp normalize_joins(_source, nil, _) do
     []
   end
 
 
-  defp recurse_joins(_source, joins) do
-    List.flatten(normalize_joins(joins, :root)) |> IO.inspect()
+  defp recurse_joins(source, joins) do
+    List.flatten(normalize_joins(source, joins, :root)) |> IO.inspect()
 
   end
 
