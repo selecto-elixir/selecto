@@ -70,13 +70,13 @@ defmodule Listable do
 
 
   defp recurse_joins(source, joins) do
-    List.flatten(normalize_joins(source, joins, :root)) |> IO.inspect()
+    List.flatten(normalize_joins(source, joins, nil)) |> IO.inspect()
 
   end
 
   defp walk_config(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
-    fields = walk_fields(:root, source.__schema__(:fields), source)
+    fields = walk_fields(nil, source.__schema__(:fields), source)
 
     IO.inspect(primary_key)
 
@@ -130,24 +130,5 @@ defmodule Listable do
       |> listable.repo.all()
       |> IO.inspect()
   end
-
-  # Example config
-  defp listable_domain(event) do
-    %{
-      source: EventSystems.Registration.Attendee,
-      joins: [
-        :registrations,
-        :stub,
-        :package,
-        :group,
-        user: [:profile],
-      ],
-      filters: [
-        :"registrations.event_id", event.id
-      ],
-      selected: [ :id, :registrations_id ]
-    }
-  end
-
 
 end
