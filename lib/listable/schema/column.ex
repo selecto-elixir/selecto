@@ -9,6 +9,7 @@ defmodule Listable.Schema.Column do
     {
       colid,
       %{
+        field: field,
         type: source.__schema__(:type, field),
         meta: if function_exported?(source, :listable_meta, 1) do source.listable_meta(field) else %{} end,
         requires_join: join

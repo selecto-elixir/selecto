@@ -31,22 +31,31 @@ defmodule Listable do
   end
 
   defp configure_join(association, dep) do
+
     %{
-      assoc: association,
-      key: association.field,
+      i_am: association.queryable,
+      joined_from: association.owner,
+      #assoc: association,
+      cardinality: association.cardinality,
+      owner_key: association.owner_key,
+      my_key: association.related_key,
+      name: association.field,
+      ## probably don't need 'where'
       requires_join: dep,
+      fields:  walk_fields(association.field, association.queryable.__schema__(:fields) -- association.queryable.__schema__(:redact_fields), association.queryable)
+
     }
   end
   ### This is f'n weird, fix it TODO allow user: [:profiles] !
   defp normalize_joins(source, [assoc, subs | joins ], dep ) when is_atom(assoc) and is_list(subs) do
     association = source.__schema__(:association, assoc)
     [configure_join(association, dep),
-      normalize_joins(association.related, subs, assoc)] ++ normalize_joins(source, joins, dep)
+      normalize_joins(association.queryable, subs, assoc)] ++ normalize_joins(source, joins, dep)
   end
   defp normalize_joins(source, [assoc, subs ], dep ) when is_atom(assoc) and is_list(subs) do
     association = source.__schema__(:association, assoc)
     [configure_join(association, dep),
-      normalize_joins(association.related, subs, assoc)]
+      normalize_joins(association.queryable, subs, assoc)]
   end
   defp normalize_joins(source, [assoc | joins ], dep ) when is_atom(assoc)  do
     association = source.__schema__(:association, assoc)
@@ -56,11 +65,7 @@ defmodule Listable do
     association = source.__schema__(:association, assoc)
     [configure_join(association, dep)]
   end
-
-  defp normalize_joins(_source, [] = _joins, _) do
-    []
-  end
-  defp normalize_joins(_source, nil, _) do
+  defp normalize_joins(_, _, _) do
     []
   end
 
@@ -72,7 +77,7 @@ defmodule Listable do
 
   defp walk_config(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
-    fields = walk_fields(nil, source.__schema__(:fields), source)
+    fields = walk_fields(nil, source.__schema__(:fields) -- source.__schema__(:redact_fields), source)
 
     joins = recurse_joins(source, domain.joins)
 
@@ -86,7 +91,7 @@ defmodule Listable do
   end
 
   defp walk_fields(join, fields, source) do
-    Enum.map( fields, &Column.configure(&1, join, source) )
+    fields |> Enum.map( &Column.configure(&1, join, source) )
     |> Map.new()
   end
 
