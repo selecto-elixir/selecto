@@ -39,25 +39,21 @@ defmodule Listable do
   end
   ### This is f'n weird, fix it TODO allow user: [:profiles] !
   defp normalize_joins(source, [assoc, subs | joins ], dep ) when is_atom(assoc) and is_list(subs) do
-    association = source.__schema__(:association, assoc) |> IO.inspect
-
+    association = source.__schema__(:association, assoc)
     [configure_join(association, dep),
       normalize_joins(association.related, subs, assoc)] ++ normalize_joins(source, joins, dep)
   end
   defp normalize_joins(source, [assoc, subs ], dep ) when is_atom(assoc) and is_list(subs) do
-    association = source.__schema__(:association, assoc) |> IO.inspect
-
+    association = source.__schema__(:association, assoc)
     [configure_join(association, dep),
       normalize_joins(association.related, subs, assoc)]
   end
   defp normalize_joins(source, [assoc | joins ], dep ) when is_atom(assoc)  do
-    association = source.__schema__(:association, assoc) |> IO.inspect
-
+    association = source.__schema__(:association, assoc)
     [configure_join(association, dep)] ++ normalize_joins(source, joins, dep)
   end
   defp normalize_joins(source, [assoc], dep) when is_atom(assoc)  do
-    association = source.__schema__(:association, assoc) |> IO.inspect
-
+    association = source.__schema__(:association, assoc)
     [configure_join(association, dep)]
   end
 
@@ -70,15 +66,13 @@ defmodule Listable do
 
 
   defp recurse_joins(source, joins) do
-    List.flatten(normalize_joins(source, joins, nil)) |> IO.inspect()
+    List.flatten(normalize_joins(source, joins, nil))
 
   end
 
   defp walk_config(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
     fields = walk_fields(nil, source.__schema__(:fields), source)
-
-    IO.inspect(primary_key)
 
     joins = recurse_joins(source, domain.joins)
 
