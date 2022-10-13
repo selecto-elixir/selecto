@@ -1,15 +1,13 @@
 defmodule Listable.Schema.Join do
 
+  #listable meta join can edit, add, alter this join!
 
-  def configure(assoc, join, source) do
-    meta = if function_exported?(source, :listable_meta_join, 1) do source.listable_meta_join(assoc) else %{} end
-
-    %{
-
-
-      join: join,
-      meta: meta
-    }
+  def configure(join) do
+    if function_exported?(join.i_am, :listable_meta_join, 1) do
+      join.i_am.listable_meta_join(join)
+    else
+      join
+    end
   end
 
 end

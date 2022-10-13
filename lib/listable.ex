@@ -29,7 +29,6 @@ defmodule Listable do
   end
 
   defp configure_join(association, dep) do
-
     %{
       i_am: association.queryable,
       joined_from: association.owner,
@@ -40,9 +39,11 @@ defmodule Listable do
       name: association.field,
       ## probably don't need 'where'
       requires_join: dep,
-      fields:  walk_fields(association.field, association.queryable.__schema__(:fields) -- association.queryable.__schema__(:redact_fields), association.queryable)
-
+      fields:  walk_fields(association.field,
+        association.queryable.__schema__(:fields) -- association.queryable.__schema__(:redact_fields),
+        association.queryable)
     }
+    |> Listable.Schema.Join.configure()
   end
   ### This is f'n weird, fix it TODO allow user: [:profiles] !
   defp normalize_joins(source, [assoc, subs | joins ], dep ) when is_atom(assoc) and is_list(subs) do

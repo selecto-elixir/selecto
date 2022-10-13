@@ -5,7 +5,7 @@ defmodule Listable.Components do
   def view_panel(assigns) do
     ~H"""
       <div>
-      View <%= inspect(@listable) %>
+        View
       </div>
     """
   end
@@ -13,7 +13,7 @@ defmodule Listable.Components do
   def filter_panel(assigns) do
     ~H"""
       <div>
-      Filter <%= @listable.repo %>
+        Filter <%= @listable.repo %>
       </div>
     """
   end
@@ -23,7 +23,7 @@ defmodule Listable.Components do
     assigns = assign( assigns, results: results)
     ~H"""
       <div>
-      Results <%= inspect( @results ) %>
+        Results <%= inspect( @results ) %>
       </div>
     """
   end
