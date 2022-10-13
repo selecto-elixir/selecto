@@ -3,7 +3,7 @@ defmodule Listable.Schema.Column do
   def configure(field, join, source) do
     colid = case join do
       nil -> field
-      _   -> "#{Atom.to_charlist(join)}.#{Atom.to_charlist(field)}"
+      _   -> "#{Atom.to_charlist(join)}[#{Atom.to_charlist(field)}]"
     end
 
     {
