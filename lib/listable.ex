@@ -113,7 +113,8 @@ defmodule Listable do
 
   #Configure columns
   defp walk_fields(join, fields, source) do
-    fields |> Enum.map( &Column.configure(&1, join, source) )
+    fields
+    |> Enum.map( &Column.configure(&1, join, source) )
     |> Map.new()
   end
 
@@ -132,6 +133,7 @@ defmodule Listable do
     put_in( listable.set.filtered, listable.set.filtered ++ filters)
   end
 
+  ### TODO
   def order_by( listable, orders) do
     put_in( listable.set.order_by, listable.set.order_by ++ orders)
   end
@@ -141,18 +143,16 @@ defmodule Listable do
     #select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
 
   defp apply_selections( query, config, selected ) do
-
     selected
     |> Enum.with_index()
     |> Enum.reduce( query, fn {s, i}, acc ->
       conf = config.columns[s]
-      case i do
+      case i do    ### Can I do this in One select: ?
         0 -> from {^conf.requires_join, owner} in acc,
-          select: map(owner, ^[conf.field])
+          select: %{^s => field(owner, ^conf.field) }
         _ -> from {^conf.requires_join, owner} in acc,
-          select_merge: map(owner, ^[conf.field])
+          select_merge: %{^s => field(owner, ^conf.field) }
       end
-
     end)
    # from {^join_map.requires_join, par} in query,
 
@@ -168,9 +168,7 @@ defmodule Listable do
     query = from root in listable.domain.source, as: :listable_root
 
     get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
-      |> Enum.reduce(query, fn j, acc ->
-        apply_join(listable.config, acc, j)
-      end )
+      |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end )
       |> apply_selections(listable.config, listable.set.selected)
       |> apply_filters(listable.config, listable.set.filtered)
 
