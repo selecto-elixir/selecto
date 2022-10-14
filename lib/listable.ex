@@ -89,6 +89,7 @@ defmodule Listable do
       joins: joins
     }
     |> flatten_config( )
+    #|> IO.inspect()
   end
 
   defp walk_fields(join, fields, source) do
@@ -117,7 +118,7 @@ defmodule Listable do
     IO.puts("Gen Query")
 
 
-    selected_by_join = selected_by_join(listable.config.columns, listable.set.selected ) |> IO.inspect()
+    selected_by_join = selected_by_join(listable.config.columns, listable.set.selected )
     filtered_by_join = filter_by_join()
 
     #sel =  Enum.reduce( selected_by_join.listable_root, %{}, fn s, acc -> Map.put(acc, s.colid, s.field) end)
@@ -125,33 +126,27 @@ defmodule Listable do
 
 
     query = get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
-      |> IO.inspect(label: "Join Order")
+      #|> IO.inspect(label: "Join Order")
       |> Enum.reduce(query, fn j, acc ->
         apply_join(listable.config.joins, acc, j,
           Map.get(selected_by_join, j, %{}),
           Map.get(filtered_by_join, j, %{}))
       end )
-      |> IO.inspect()
 
-
-
-
-    query |> IO.inspect( struct: false, label: "Query")
+    query
+    #|> IO.inspect( struct: false, label: "Query")
   end
 
   defp apply_join( _joins, query, :listable_root, selections, _filters ) do
-    IO.puts("Applying: listable_root")
-    IO.inspect(selections, label: "Joins")
     from [listable_root: a] in query,
       select: map( a, ^Enum.map(selections, fn s -> s.field end))
   end
 
 
   defp apply_join( joins, query, join, selections, _filters ) do
-    IO.puts("Applying: #{join} ")
     join_map = joins[join]
     from {^join_map.requires_join, par} in query,
-      join: b in ^join_map.i_am,
+      left_join: b in ^join_map.i_am,
       as: ^join,
       on: field(par, ^join_map.owner_key) == field(b, ^join_map.my_key),
       select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
@@ -160,20 +155,17 @@ defmodule Listable do
   defp get_join_order(joins, requested_joins) do
     ## look at each requested join, if it has a requires_join, push recursive call to get_join_order in front of it!
 
-    IO.inspect(requested_joins)
     requested_joins
     |> Enum.map(
       fn j ->
-        IO.puts("Looking #{j}")
         case Map.get( joins, j, %{} ) |> Map.get(:requires_join, nil) do
           nil -> j
           req ->
-            IO.inspect(req, label: "Pushing...")
             [get_join_order(joins, [req]), req, j]
         end
       end
     )
-    |> List.flatten() |> Enum.uniq() |> IO.inspect(label: "Join Order")
+    |> List.flatten() |> Enum.uniq()
   end
 
   defp filter_by_join() do
