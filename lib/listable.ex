@@ -70,15 +70,18 @@ defmodule Listable do
 
 
   defp recurse_joins(source, joins) do
-    List.flatten(normalize_joins(source, joins, nil))
+    List.flatten(normalize_joins(source, joins, :listable_root))
+    |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.name, j)  end)
 
   end
 
   defp walk_config(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
-    fields = walk_fields(nil, source.__schema__(:fields) -- source.__schema__(:redact_fields), source)
-
+    fields = walk_fields(:listable_root, source.__schema__(:fields) -- source.__schema__(:redact_fields), source)
     joins = recurse_joins(source, domain.joins)
+
+    fields = List.flatten( [fields | Enum.map(Map.values(joins), fn e -> e.fields end) ] )
+      |> Enum.reduce( %{} ,fn m, acc -> Map.merge(acc, m) end)
 
     %{
       primary_key: primary_key,
@@ -86,7 +89,6 @@ defmodule Listable do
       joins: joins
     }
     |> flatten_config( )
-    |> IO.inspect
   end
 
   defp walk_fields(join, fields, source) do
@@ -114,11 +116,64 @@ defmodule Listable do
   def gen_query( listable ) do
     IO.puts("Gen Query")
 
-    selections = listable.set.selected
 
-    query = from root in listable.domain.source,
-      select: map( root, ^selections )
-    query |> IO.inspect
+    selected_by_join = selected_by_join(listable.config.columns, listable.set.selected ) |> IO.inspect()
+    filtered_by_join = filter_by_join()
+
+    sel =  Enum.reduce( selected_by_join.listable_root, %{}, fn s, acc -> Map.put(acc, s.colid, s.field) end)
+    query = from root in listable.domain.source, select: ^sel
+
+
+    get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
+      |> IO.inspect(label: "Join Order")
+      |> Enum.reduce(query, fn j, acc ->
+        apply_join(listable.config.joins, acc, j,
+          Map.get(selected_by_join, j, %{}),
+          Map.get(filtered_by_join, j, %{}))
+      end )
+      |> IO.inspect()
+
+
+
+
+    query
+  end
+
+  defp apply_join( joins, query, :listable_root, selections, filters ) do
+    query
+  end
+
+
+  defp apply_join( joins, query, join, selections, filters ) do
+    #join_dyn = dynamic([q], )
+    #from q in query, where
+    query
+  end
+
+  defp get_join_order(joins, requested_joins) do
+    ## look at each requested join, if it has a requires_join, push recursive call to get_join_order in front of it!
+
+    requested_joins
+    |> Enum.map(
+      fn j ->
+        case Map.get( joins, j, %{} ) |> Map.get(:requires_joins, nil) do
+          nil -> j
+          req -> [get_join_order(joins, [req]) | j]
+        end
+      end
+    )
+    |> List.flatten()
+  end
+
+  defp filter_by_join() do
+    %{}
+  end
+  defp selected_by_join(fields, selected) do
+    selected
+      |> Enum.reduce( %{}, fn e, acc ->
+        field_def = fields[e]
+        Map.put( acc, field_def.requires_join, Map.get(acc, field_def.requires_join, []) ++ [field_def] )
+      end)
   end
 
   def execute( listable ) do
