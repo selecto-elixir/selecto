@@ -5,6 +5,14 @@ defmodule Listable do
 
   alias Listable.Schema.Column
 
+  @doc """
+  TODO
+    allow intermediate joins to not have selects (part_group[id])
+    filters
+
+  """
+
+
   @moduledoc """
   Documentation for `Listable`.
   """
