@@ -120,11 +120,11 @@ defmodule Listable do
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected ) |> IO.inspect()
     filtered_by_join = filter_by_join()
 
-    sel =  Enum.reduce( selected_by_join.listable_root, %{}, fn s, acc -> Map.put(acc, s.colid, s.field) end)
-    query = from root in listable.domain.source, select: ^sel
+    #sel =  Enum.reduce( selected_by_join.listable_root, %{}, fn s, acc -> Map.put(acc, s.colid, s.field) end)
+    query = from root in listable.domain.source, as: :listable_root #, select: ^sel
 
 
-    get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
+    query = get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
       |> IO.inspect(label: "Join Order")
       |> Enum.reduce(query, fn j, acc ->
         apply_join(listable.config.joins, acc, j,
@@ -136,18 +136,29 @@ defmodule Listable do
 
 
 
-    query
+    query |> IO.inspect( struct: false, label: "Query")
   end
 
   defp apply_join( joins, query, :listable_root, selections, filters ) do
-    query
+    fields = Enum.map(selections, fn s -> s.field end)
+    IO.inspect(selections, label: "Joins")
+    from [listable_root: a] in query,
+      select: map( a, ^fields)
   end
 
 
   defp apply_join( joins, query, join, selections, filters ) do
-    #join_dyn = dynamic([q], )
-    #from q in query, where
-    query
+    fields = Enum.map(selections, fn s -> s.field end)
+    join_map = joins[join]
+    join_repo = join_map.i_am
+    parent_id = join_map.owner_key
+    my_id = join_map.my_key
+    source = join_map.requires_join
+    from {^source, par} in query,
+      join: b in ^join_repo,
+      as: ^join,
+      on: field(par, ^parent_id) == field(b, ^my_id)
+
   end
 
   defp get_join_order(joins, requested_joins) do
