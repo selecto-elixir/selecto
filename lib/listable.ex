@@ -7,6 +7,7 @@ defmodule Listable do
 
   @doc """
   TODO
+    alias selects in case 2 cols have same name
     allow intermediate joins to not have selects (part_group[id])
     filters
     order by
