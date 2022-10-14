@@ -9,7 +9,15 @@ defmodule Listable do
   TODO
     allow intermediate joins to not have selects (part_group[id])
     filters
+    order by
+    group by
+    aggregates
 
+    combine all 'selects' to allow more efficient retr?
+
+  Mebbie:
+    windows?
+    ability to add synthetic root, joins, filters, columns
   """
 
 
@@ -36,6 +44,7 @@ defmodule Listable do
     }
   end
 
+  ### move this to the join module
   defp configure_join(association, dep) do
     %{
       i_am: association.queryable,
@@ -53,7 +62,8 @@ defmodule Listable do
     }
     |> Listable.Schema.Join.configure()
   end
-  ### This is f'n weird, fix it TODO allow user: [:profiles] !
+
+  ### This is f'n weird feels like it should only take half as many!
   defp normalize_joins(source, [assoc, subs | joins ], dep ) when is_atom(assoc) and is_list(subs) do
     association = source.__schema__(:association, assoc)
     [configure_join(association, dep),
@@ -76,13 +86,13 @@ defmodule Listable do
     []
   end
 
-
+  # we consume the join tree (atom/list) to a flat map of joins
   defp recurse_joins(source, joins) do
     List.flatten(normalize_joins(source, joins, :listable_root))
     |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.name, j)  end)
-
   end
 
+  # generate the listable configuration
   defp walk_config(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
     fields = walk_fields(:listable_root, source.__schema__(:fields) -- source.__schema__(:redact_fields), source)
@@ -100,6 +110,7 @@ defmodule Listable do
     #|> IO.inspect()
   end
 
+  #Configure columns
   defp walk_fields(join, fields, source) do
     fields |> Enum.map( &Column.configure(&1, join, source) )
     |> Map.new()
@@ -110,6 +121,7 @@ defmodule Listable do
     config
   end
 
+  ### todo - make these more flexible
   def select( listable, fields ) do
     put_in( listable.set.selected, listable.set.selected ++ fields)
   end
@@ -125,32 +137,29 @@ defmodule Listable do
   def gen_query( listable ) do
     IO.puts("Gen Query")
 
-
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected )
     filtered_by_join = filter_by_join()
 
-    #sel =  Enum.reduce( selected_by_join.listable_root, %{}, fn s, acc -> Map.put(acc, s.colid, s.field) end)
-    query = from root in listable.domain.source, as: :listable_root #, select: ^sel
-
+    query = from root in listable.domain.source, as: :listable_root
 
     query = get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
-      #|> IO.inspect(label: "Join Order")
       |> Enum.reduce(query, fn j, acc ->
         apply_join(listable.config.joins, acc, j,
           Map.get(selected_by_join, j, %{}),
           Map.get(filtered_by_join, j, %{}))
-      end )
+        end )
 
     query
     #|> IO.inspect( struct: false, label: "Query")
   end
 
+  #we don't need to join root!
   defp apply_join( _joins, query, :listable_root, selections, _filters ) do
     from [listable_root: a] in query,
       select: map( a, ^Enum.map(selections, fn s -> s.field end))
   end
 
-
+  #apply the join to the query
   defp apply_join( joins, query, join, selections, _filters ) do
     join_map = joins[join]
     from {^join_map.requires_join, par} in query,
@@ -160,9 +169,8 @@ defmodule Listable do
       select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
   end
 
+  ### We walk the joins pushing deps in front of joins recursively, then flatten and uniq to make final list
   defp get_join_order(joins, requested_joins) do
-    ## look at each requested join, if it has a requires_join, push recursive call to get_join_order in front of it!
-
     requested_joins
     |> Enum.map(
       fn j ->
@@ -173,12 +181,16 @@ defmodule Listable do
         end
       end
     )
-    |> List.flatten() |> Enum.uniq()
+    |> List.flatten()
+    |> Enum.uniq()
   end
 
+  #TODO
   defp filter_by_join() do
     %{}
   end
+
+  #get a map of joins to list of selected
   defp selected_by_join(fields, selected) do
     selected
       |> Enum.reduce( %{}, fn e, acc ->
@@ -187,6 +199,7 @@ defmodule Listable do
       end)
   end
 
+  #make it go
   def execute( listable ) do
     IO.puts("Execute Query")
     listable
