@@ -139,42 +139,41 @@ defmodule Listable do
     query |> IO.inspect( struct: false, label: "Query")
   end
 
-  defp apply_join( joins, query, :listable_root, selections, filters ) do
-    fields = Enum.map(selections, fn s -> s.field end)
+  defp apply_join( _joins, query, :listable_root, selections, _filters ) do
+    IO.puts("Applying: listable_root")
     IO.inspect(selections, label: "Joins")
     from [listable_root: a] in query,
-      select: map( a, ^fields)
+      select: map( a, ^Enum.map(selections, fn s -> s.field end))
   end
 
 
-  defp apply_join( joins, query, join, selections, filters ) do
-    fields = Enum.map(selections, fn s -> s.field end)
+  defp apply_join( joins, query, join, selections, _filters ) do
+    IO.puts("Applying: #{join} ")
     join_map = joins[join]
-    join_repo = join_map.i_am
-    parent_id = join_map.owner_key
-    my_id = join_map.my_key
-    source = join_map.requires_join
-    from {^source, par} in query,
-      join: b in ^join_repo,
+    from {^join_map.requires_join, par} in query,
+      join: b in ^join_map.i_am,
       as: ^join,
-      on: field(par, ^parent_id) == field(b, ^my_id),
-      select_merge: map(b, ^fields)
-
+      on: field(par, ^join_map.owner_key) == field(b, ^join_map.my_key),
+      select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
   end
 
   defp get_join_order(joins, requested_joins) do
     ## look at each requested join, if it has a requires_join, push recursive call to get_join_order in front of it!
 
+    IO.inspect(requested_joins)
     requested_joins
     |> Enum.map(
       fn j ->
-        case Map.get( joins, j, %{} ) |> Map.get(:requires_joins, nil) do
+        IO.puts("Looking #{j}")
+        case Map.get( joins, j, %{} ) |> Map.get(:requires_join, nil) do
           nil -> j
-          req -> [get_join_order(joins, [req]) | j]
+          req ->
+            IO.inspect(req, label: "Pushing...")
+            [get_join_order(joins, [req]), req, j]
         end
       end
     )
-    |> List.flatten()
+    |> List.flatten() |> Enum.uniq() |> IO.inspect(label: "Join Order")
   end
 
   defp filter_by_join() do
