@@ -140,12 +140,19 @@ defmodule Listable do
     #  select: map( a, ^Enum.map(selections, fn s -> s.field end))
     #select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
 
-  defp apply_selections( query, config, used_joins, selected ) do
+  defp apply_selections( query, config, selected ) do
 
-    Enum.reduce( selected, query, fn s, acc ->
+    selected
+    |> Enum.with_index()
+    |> Enum.reduce( query, fn {s, i}, acc ->
       conf = config.columns[s]
-      from {^conf.requires_join, owner} in acc,
-        select_merge: map(owner, ^[conf.field])
+      case i do
+        0 -> from {^conf.requires_join, owner} in acc,
+          select: map(owner, ^[conf.field])
+        _ -> from {^conf.requires_join, owner} in acc,
+          select_merge: map(owner, ^[conf.field])
+      end
+
     end)
    # from {^join_map.requires_join, par} in query,
 
@@ -158,14 +165,13 @@ defmodule Listable do
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected )
     filtered_by_join = filter_by_join(listable.config, listable.set.filtered)
 
-    used_joins = get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
     query = from root in listable.domain.source, as: :listable_root
 
-    used_joins
+    get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
       |> Enum.reduce(query, fn j, acc ->
         apply_join(listable.config, acc, j)
       end )
-      |> apply_selections(listable.config, used_joins, listable.set.selected)
+      |> apply_selections(listable.config, listable.set.selected)
       |> apply_filters(listable.config, listable.set.filtered)
 
   end
