@@ -38,7 +38,7 @@ defmodule Listable do
       config: walk_config(domain),
       set: %{
         selected: domain.selected,
-        filtered: [ domain.filters ],
+        filtered: domain.filters,
         order_by: [],
         #group_by: [],
       }
@@ -139,35 +139,61 @@ defmodule Listable do
     IO.puts("Gen Query")
 
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected )
-    filtered_by_join = filter_by_join()
+    filtered_by_join = filter_by_join(listable.config, listable.set.filtered) |> IO.inspect()
 
     query = from root in listable.domain.source, as: :listable_root
 
     query = get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
       |> Enum.reduce(query, fn j, acc ->
-        apply_join(listable.config.joins, acc, j,
+        apply_join(listable.config, acc, j,
           Map.get(selected_by_join, j, %{}),
-          Map.get(filtered_by_join, j, %{}))
+          Map.get(filtered_by_join, j, []))
         end )
 
     query
     #|> IO.inspect( struct: false, label: "Query")
   end
 
+  defp filters_recurse(query, config, %{}) do
+    query
+  end
+
+  defp filters_recurse(query, config, [fil] = in_filters) do
+    filconf = fil.def |> IO.inspect()
+    filval = fil.val |> IO.inspect()
+
+
+    from [{^filconf.requires_join, a}] in query,
+      where: field(a, ^filconf.field) == ^filval
+  end
+
+  defp apply_filters(query, _config, []) do
+    query
+  end
+
+  defp apply_filters(query,  config, filters ) do
+    IO.inspect(filters, label: "Apply Filters")
+    filters_recurse(query, config, filters)
+  end
+
+
   #we don't need to join root!
-  defp apply_join( _joins, query, :listable_root, selections, _filters ) do
+  defp apply_join( _config, query, :listable_root, selections, _filters ) do
     from [listable_root: a] in query,
       select: map( a, ^Enum.map(selections, fn s -> s.field end))
   end
 
+
   #apply the join to the query
-  defp apply_join( joins, query, join, selections, _filters ) do
-    join_map = joins[join]
-    from {^join_map.requires_join, par} in query,
+  defp apply_join( config, query, join, selections, filters ) do
+    join_map = config.joins[join]
+    query = from {^join_map.requires_join, par} in query,
       left_join: b in ^join_map.i_am,
       as: ^join,
       on: field(par, ^join_map.owner_key) == field(b, ^join_map.my_key),
       select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
+
+    query |> apply_filters(config, filters)
   end
 
   ### We walk the joins pushing deps in front of joins recursively, then flatten and uniq to make final list
@@ -187,8 +213,19 @@ defmodule Listable do
   end
 
   #TODO
-  defp filter_by_join() do
-    %{}
+  defp filter_by_join(config, filters) do
+    filters
+      |> Enum.chunk_every(2)
+      |> Enum.reduce( %{}, fn [fil, val], acc ->
+          field_def = config.columns[fil]
+          fmap = %{
+            fil: fil,
+            val: val,
+            def: field_def
+          }
+          Map.put(acc, field_def.requires_join, Map.get(acc, field_def.requires_join, []) ++ [fmap] )
+        end
+      )
   end
 
   #get a map of joins to list of selected
