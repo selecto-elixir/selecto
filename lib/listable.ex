@@ -139,7 +139,7 @@ defmodule Listable do
     IO.puts("Gen Query")
 
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected )
-    filtered_by_join = filter_by_join(listable.config, listable.set.filtered) |> IO.inspect()
+    filtered_by_join = filter_by_join(listable.config, listable.set.filtered)
 
     query = from root in listable.domain.source, as: :listable_root
 
@@ -158,22 +158,22 @@ defmodule Listable do
 
   defp filters_recurse(query, fil) do
     IO.inspect(fil)
-    filconf = fil.def
-    filval = fil.val
-    case filval do
+    table = fil.def.requires_join
+    field = fil.def.field
+    val = fil.val
+    case val do
+      x when is_nil(x) ->
+        from [{^table, a}] in query,
+        where: is_nil( field(a, ^field) )
       x when is_bitstring(x) or is_number(x) or is_boolean(x) ->
-        from [{^filconf.requires_join, a}] in query,
-        where: field(a, ^filconf.field) == ^filval
+        from [{^table, a}] in query,
+        where: field(a, ^field) == ^val
       x when is_list(x) ->
-        from [{^filconf.requires_join, a}] in query,
-        where: field(a, ^filconf.field) in ^filval
+        from [{^table, a}] in query,
+        where: field(a, ^field) in ^val
 
     end
   end
-
-  #defp apply_filters(query, _config, []) do
-  #  query
-  #end
 
   defp apply_filters(query, _config, filters ) do
     Enum.reduce(filters, query, fn f, acc ->
@@ -184,9 +184,11 @@ defmodule Listable do
 
 
   #we don't need to join root!
-  defp apply_join( _config, query, :listable_root, selections, _filters ) do
-    from [listable_root: a] in query,
+  defp apply_join( config, query, :listable_root, selections, filters ) do
+    query = from [listable_root: a] in query,
       select: map( a, ^Enum.map(selections, fn s -> s.field end))
+
+    query |> apply_filters(config, filters)
   end
 
 
@@ -218,7 +220,7 @@ defmodule Listable do
     |> Enum.uniq()
   end
 
-  #TODO
+  #Can only give us the joins.. make this recurse and handle :or, :and, etc
   defp filter_by_join(config, filters) do
     filters
       |> Enum.chunk_every(2)
@@ -249,7 +251,7 @@ defmodule Listable do
     listable
       |> gen_query
       |> listable.repo.all()
-      |> IO.inspect()
+      |> IO.inspect( label: "Results")
   end
 
 end
