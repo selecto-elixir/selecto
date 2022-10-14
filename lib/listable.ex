@@ -154,26 +154,32 @@ defmodule Listable do
     #|> IO.inspect( struct: false, label: "Query")
   end
 
-  defp filters_recurse(query, config, %{}) do
-    query
+
+
+  defp filters_recurse(query, fil) do
+    IO.inspect(fil)
+    filconf = fil.def
+    filval = fil.val
+    case filval do
+      x when is_bitstring(x) or is_number(x) or is_boolean(x) ->
+        from [{^filconf.requires_join, a}] in query,
+        where: field(a, ^filconf.field) == ^filval
+      x when is_list(x) ->
+        from [{^filconf.requires_join, a}] in query,
+        where: field(a, ^filconf.field) in ^filval
+
+    end
   end
 
-  defp filters_recurse(query, config, [fil] = in_filters) do
-    filconf = fil.def |> IO.inspect()
-    filval = fil.val |> IO.inspect()
+  #defp apply_filters(query, _config, []) do
+  #  query
+  #end
 
-
-    from [{^filconf.requires_join, a}] in query,
-      where: field(a, ^filconf.field) == ^filval
-  end
-
-  defp apply_filters(query, _config, []) do
-    query
-  end
-
-  defp apply_filters(query,  config, filters ) do
-    IO.inspect(filters, label: "Apply Filters")
-    filters_recurse(query, config, filters)
+  defp apply_filters(query, _config, filters ) do
+    Enum.reduce(filters, query, fn f, acc ->
+      filters_recurse(acc, f)
+    end
+    )
   end
 
 
