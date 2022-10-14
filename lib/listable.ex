@@ -136,24 +136,38 @@ defmodule Listable do
     put_in( listable.set.order_by, listable.set.order_by ++ orders)
   end
 
+    #  from [listable_root: a] in query
+    #  select: map( a, ^Enum.map(selections, fn s -> s.field end))
+    #select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
+
+  defp apply_selections( query, config, used_joins, selected ) do
+
+    Enum.reduce( selected, query, fn s, acc ->
+      conf = config.columns[s]
+      from {^conf.requires_join, owner} in acc,
+        select_merge: map(owner, ^[conf.field])
+    end)
+   # from {^join_map.requires_join, par} in query,
+
+
+  end
+
   def gen_query( listable ) do
     IO.puts("Gen Query")
 
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected )
     filtered_by_join = filter_by_join(listable.config, listable.set.filtered)
 
+    used_joins = get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
     query = from root in listable.domain.source, as: :listable_root
 
-    query = get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
+    used_joins
       |> Enum.reduce(query, fn j, acc ->
-        apply_join(listable.config, acc, j,
-          Map.get(selected_by_join, j, %{})
-        )
+        apply_join(listable.config, acc, j)
       end )
+      |> apply_selections(listable.config, used_joins, listable.set.selected)
+      |> apply_filters(listable.config, listable.set.filtered)
 
-    query |> apply_filters(listable.config, listable.set.filtered)
-
-    #|> IO.inspect( struct: false, label: "Query")
   end
 
   ### Not sure how to do this. hmmmm
@@ -181,36 +195,26 @@ defmodule Listable do
   end
 
   defp apply_filters(query, config, filters ) do
-    #### filter is list of tuples
-    #field_def = config.columns[fil]
-    #fmap = %{
-    #  fil: fil,
-    #  val: val,
-    #  def: field_def
-    #}
     Enum.reduce(filters, query, fn f, acc ->
-      filters_recurse(config, acc, f)
-    end
+        filters_recurse(config, acc, f)
+      end
     )
   end
 
 
   #we don't need to join root!
-  defp apply_join( _config, query, :listable_root, selections ) do
-    from [listable_root: a] in query,
-      select: map( a, ^Enum.map(selections, fn s -> s.field end))
-
+  defp apply_join( _config, query, :listable_root ) do
+    query
   end
 
 
   #apply the join to the query
-  defp apply_join( config, query, join, selections ) do
+  defp apply_join( config, query, join ) do
     join_map = config.joins[join]
     from {^join_map.requires_join, par} in query,
       left_join: b in ^join_map.i_am,
       as: ^join,
-      on: field(par, ^join_map.owner_key) == field(b, ^join_map.my_key),
-      select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
+      on: field(par, ^join_map.owner_key) == field(b, ^join_map.my_key)
   end
 
   ### We walk the joins pushing deps in front of joins recursively, then flatten and uniq to make final list
