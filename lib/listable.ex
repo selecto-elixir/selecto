@@ -157,7 +157,8 @@ defmodule Listable do
     from {^source, par} in query,
       join: b in ^join_repo,
       as: ^join,
-      on: field(par, ^parent_id) == field(b, ^my_id)
+      on: field(par, ^parent_id) == field(b, ^my_id),
+      select_merge: map(b, ^fields)
 
   end
 
