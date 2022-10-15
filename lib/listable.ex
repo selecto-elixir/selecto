@@ -140,11 +140,13 @@ defmodule Listable do
   end
 
   # Func and field with param (planned)
-  defp apply_selection(query, _config, {_func, _field, _param}) do
-    query
-  end
-
+  # CASE ... {:case, %{cond=>val, cond2=>val, :else=>val}}
+  # COALESCE ... ??
+  #defp apply_selection(query, _config, {_func, _field, _param}) do
+  #  query
+  #end
   #Func and Field ---- TODO redo when we learn macros?...
+  ## need more? upper, lower, ???, postgres specifics?
   defp apply_selection(query, config, {"count", field}) do
     conf = config.columns[field]
     from({^conf.requires_join, owner} in query, select_merge: %{^"count(#{field})" => count(field(owner, ^conf.field))} )
@@ -196,6 +198,7 @@ defmodule Listable do
     end)
   end
 
+  ### Move to new module since there will be a lot of pattern matching of atoms here...
   ### Not sure how to do this. hmmmm
   # defp filters_recurse(config, query, {mod, filter_list}) when is_atom(mod) and is_list(filter_list) do
   #  query
@@ -220,8 +223,16 @@ defmodule Listable do
         from([{^table, a}] in query,
           where: field(a, ^field) in ^val
         )
-
-        # todo add more options here
+      # todo add more options here
+      # >, >=,<=, <, !=
+      # :not_true (false or nil)
+      # date shortcuts (:today, :tomorrow, :last_week, etc )
+      # {:between, a, b}
+      # {:like}, {:ilike}
+      # {:or, [filters]}
+      # {:and, [filters]}
+      # {:case, %{filter=>}}
+      # {:exists, subq} # how to do subq????
     end
   end
 
