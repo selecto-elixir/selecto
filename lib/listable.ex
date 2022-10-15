@@ -10,9 +10,7 @@ defmodule Listable do
 
     TODO
     filters (complex queries)
-    order by
-    group by
-    aggregates
+    having
 
     select into tuple or list instead of map more efficient?
     ability to add synthetic root, joins, filters, columns
@@ -290,7 +288,6 @@ defmodule Listable do
   """
   def gen_query(listable) do
     IO.puts("Gen Query")
-
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected)
     filtered_by_join = filter_by_join(listable.config, listable.set.filtered)
     order_by_by_join = selected_by_join( listable.config.columns,
@@ -301,6 +298,8 @@ defmodule Listable do
         ))
     group_by_by_join = selected_by_join(listable.config.columns, listable.set.group_by)
 
+    ## We select nothing from the initial query because we are going to select_merge everything and
+    ## if we don't select empty map here, it will include the full * of our source!
     query = from(root in listable.domain.source, as: :listable_root, select: %{})
 
     get_join_order(
@@ -312,7 +311,6 @@ defmodule Listable do
     |> apply_filters(listable.config, listable.set.filtered)
     |> apply_group_by(listable.config, listable.set.group_by)
     |> apply_order_by(listable.config, listable.set.order_by)
-
   end
 
   # apply the join to the query
