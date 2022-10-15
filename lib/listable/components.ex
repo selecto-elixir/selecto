@@ -23,7 +23,10 @@ defmodule Listable.Components do
     assigns = assign( assigns, results: results)
     ~H"""
       <div>
-        Results <%= inspect( @results ) %>
+        Results TODO MAKE FANCY TABLE
+          <div :for={r <- @results}>
+            <%= inspect(r) %>
+          </div>
       </div>
     """
   end
