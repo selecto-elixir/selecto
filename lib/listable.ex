@@ -33,9 +33,9 @@ defmodule Listable do
       domain: domain,
       config: walk_config(domain),
       set: %{
-        selected: domain.selected,
-        filtered: domain.filters,
-        order_by: [],
+        selected: Map.get(domain, :required_selected, []),
+        filtered: Map.get(domain, :required_filters,[]),
+        order_by: Map.get(domain, :required_order_by,[]),
         #group_by: [],
       }
     }
@@ -134,6 +134,17 @@ defmodule Listable do
     put_in( listable.set.order_by, listable.set.order_by ++ orders)
   end
 
+  defp apply_order_by(query, config, order_bys) do
+    order_bys = order_bys |> Enum.map( fn
+      {dir, field} -> {dir,  dynamic([{^config.columns[field].requires_join, owner}], field(owner, ^config.columns[field].field))}
+      field ->        {:asc,  dynamic([{^config.columns[field].requires_join, owner}], field(owner, ^config.columns[field].field))}
+    end
+    )
+
+    from query,
+      order_by: ^order_bys
+  end
+
   ### applies the selections to the query
   defp apply_selections( query, config, selected ) do
     selected
@@ -142,7 +153,7 @@ defmodule Listable do
       conf = config.columns[s]
       case i do    ### Can I do this in One select: ?
         0 -> from {^conf.requires_join, owner} in acc,
-          select: %{^s => field(owner, ^conf.field) }
+          select:       %{^s => field(owner, ^conf.field) }
         _ -> from {^conf.requires_join, owner} in acc,
           select_merge: %{^s => field(owner, ^conf.field) }
       end
@@ -158,13 +169,23 @@ defmodule Listable do
 
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected )
     filtered_by_join = filter_by_join(listable.config, listable.set.filtered)
+    order_by_by_join = selected_by_join(listable.config.columns, Enum.map(
+      listable.set.order_by,
+      fn
+        {_dir, field} -> field
+        field -> field
+      end
+    ))
 
     query = from root in listable.domain.source, as: :listable_root
 
-    get_join_order(listable.config.joins, Map.keys(selected_by_join) ++ Map.keys(filtered_by_join))
+    get_join_order(listable.config.joins,
+      Map.keys(selected_by_join) ++ Map.keys(filtered_by_join) ++ Map.keys(order_by_by_join)
+    )
       |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end )
       |> apply_selections(listable.config, listable.set.selected)
       |> apply_filters(listable.config, listable.set.filtered)
+      |> apply_order_by(listable.config, listable.set.order_by)
 
   end
 
@@ -199,12 +220,10 @@ defmodule Listable do
     )
   end
 
-
   #we don't need to join root!
   defp apply_join( _config, query, :listable_root ) do
     query
   end
-
 
   #apply the join to the query
   defp apply_join( config, query, join ) do

@@ -3,7 +3,7 @@ defmodule Listable.Schema.Column do
   def configure(field, join, source) do
     colid = case join do
       :listable_root -> Atom.to_string(field)
-      _   -> "#{Atom.to_string(join)}[#{Atom.to_string(field)}]"
+      _ -> "#{Atom.to_string(join)}[#{Atom.to_string(field)}]"
     end
 
     {
