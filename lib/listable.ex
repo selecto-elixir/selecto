@@ -33,6 +33,10 @@ defmodule Listable do
     CTEs? recursive?
     first, last?? as limit, reverse_order
 
+  ERROR CHECKS
+   -- Has association by right name?
+
+
   """
 
   @doc """
