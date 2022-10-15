@@ -1,7 +1,6 @@
 defmodule Listable.MixProject do
   use Mix.Project
 
-
   def project do
     [
       app: :listable,
@@ -22,7 +21,6 @@ defmodule Listable.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-
       {:phoenix, "~> 1.6"},
       {:phoenix_live_view, "~> 0.18"},
       {:ecto_sql, "~> 3.6"}

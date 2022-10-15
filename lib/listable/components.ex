@@ -1,5 +1,4 @@
 defmodule Listable.Components do
-
   use Phoenix.Component
 
   def view_panel(assigns) do
@@ -19,8 +18,9 @@ defmodule Listable.Components do
   end
 
   def results_panel(assigns) do
-    results = Listable.execute( assigns.listable )
-    assigns = assign( assigns, results: results)
+    results = Listable.execute(assigns.listable)
+    assigns = assign(assigns, results: results)
+
     ~H"""
       <div>
         Results TODO MAKE FANCY TABLE
@@ -30,5 +30,4 @@ defmodule Listable.Components do
       </div>
     """
   end
-
 end
