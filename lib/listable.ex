@@ -233,10 +233,23 @@ defmodule Listable do
   def group_by(listable, groups) do
     put_in(listable.set.group_by, listable.set.group_by ++ groups)
   end
-
-  defp apply_group_by( query, config, group_bys ) do
+  defp apply_group_by( query, _config, [] ) do
     query
   end
+  defp apply_group_by( query, config, group_bys ) do
+    group_bys =
+      group_bys
+      |> Enum.map(fn
+        field ->
+           dynamic(
+             [{^config.columns[field].requires_join, owner}],
+             field(owner, ^config.columns[field].field)
+           )
+      end)
+
+    from(query,
+      group_by: ^group_bys
+    )  end
 
   @doc """
     Returns an Ecto.Query with all your filters and selections added
@@ -246,23 +259,19 @@ defmodule Listable do
 
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected)
     filtered_by_join = filter_by_join(listable.config, listable.set.filtered)
-
     order_by_by_join = selected_by_join( listable.config.columns,
         Enum.map( listable.set.order_by, fn
             {_dir, field} -> field
             field -> field
           end
         ))
-
-    ### Group by
     group_by_by_join = selected_by_join(listable.config.columns, listable.set.group_by)
-
 
     query = from(root in listable.domain.source, as: :listable_root)
 
     get_join_order(
       listable.config.joins,
-      selected_by_join ++ filtered_by_join ++order_by_by_join ++ group_by_by_join
+      Enum.uniq(selected_by_join ++ filtered_by_join ++ order_by_by_join ++ group_by_by_join)
     )
     |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end)
     |> apply_selections(listable.config, listable.set.selected)
@@ -272,12 +281,11 @@ defmodule Listable do
 
   end
 
+  # apply the join to the query
   # we don't need to join root!
   defp apply_join(_config, query, :listable_root) do
     query
   end
-
-  # apply the join to the query
   defp apply_join(config, query, join) do
     join_map = config.joins[join]
 
