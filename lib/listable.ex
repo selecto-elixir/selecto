@@ -136,9 +136,13 @@ defmodule Listable do
 
   ### Make this cleaner
   defp apply_order_by(query, config, order_bys) do
-    order_bys = order_bys |> Enum.map( fn
-      {dir, field} -> {dir,  dynamic([{^config.columns[field].requires_join, owner}], field(owner, ^config.columns[field].field))}
-      field ->        {:asc,  dynamic([{^config.columns[field].requires_join, owner}], field(owner, ^config.columns[field].field))}
+    order_bys = order_bys
+    |> Enum.map( fn
+      {dir, field} -> {dir, field}
+      field -> {:asc, field}
+    end)
+    |> Enum.map( fn
+      {dir, field} -> {dir, dynamic([{^config.columns[field].requires_join, owner}], field(owner, ^config.columns[field].field))}
     end
     )
     from query,
