@@ -139,24 +139,71 @@ defmodule Listable do
     put_in(listable.set.selected, listable.set.selected ++ fields)
   end
 
+  # Func and field with param (planned)
+  defp apply_selection(query, _config, _i, {_func, _field, _param}) do
+    query
+  end
+
+  #Func and Field ---- TODO redo when we learn macros?...
+  defp apply_selection(query, config, i, {"count", field}) do
+    conf = config.columns[field]
+    case i do
+      0 -> from({^conf.requires_join, owner} in query, select: %{^"count(#{field})" => count(field(owner, ^conf.field))} )
+      _ -> from({^conf.requires_join, owner} in query, select_merge: %{^"count(#{field})" => count(field(owner, ^conf.field))} )
+    end
+  end
+  defp apply_selection(query, config, i, {"max", field}) do
+    conf = config.columns[field]
+    case i do
+      0 -> from({^conf.requires_join, owner} in query, select: %{^"max(#{field})" => max(field(owner, ^conf.field))} )
+      _ -> from({^conf.requires_join, owner} in query, select_merge: %{^"max(#{field})" => max(field(owner, ^conf.field))} )
+    end
+  end
+  defp apply_selection(query, config, i, {"min", field}) do
+    conf = config.columns[field]
+    case i do
+      0 -> from({^conf.requires_join, owner} in query, select: %{^"min(#{field})" => min(field(owner, ^conf.field))} )
+      _ -> from({^conf.requires_join, owner} in query, select_merge: %{^"min(#{field})" => min(field(owner, ^conf.field))} )
+    end
+  end
+  defp apply_selection(query, config, i, {"avg", field}) do
+    conf = config.columns[field]
+    case i do
+      0 -> from({^conf.requires_join, owner} in query, select: %{^"avg(#{field})" => avg(field(owner, ^conf.field))} )
+      _ -> from({^conf.requires_join, owner} in query, select_merge: %{^"avg(#{field})" => avg(field(owner, ^conf.field))} )
+    end
+  end
+  defp apply_selection(query, config, i, {"sum", field}) do
+    conf = config.columns[field]
+    case i do
+      0 -> from({^conf.requires_join, owner} in query, select: %{^"sum(#{field})" => sum(field(owner, ^conf.field))} )
+      _ -> from({^conf.requires_join, owner} in query, select_merge: %{^"sum(#{field})" => sum(field(owner, ^conf.field))} )
+    end
+  end
+  ## Naked functions. Only count?
+  defp apply_selection(query, _config, i, {"count"}) do
+    case i do
+      0 -> from(query, select: %{"count" => count()} )
+      _ -> from(query, select_merge: %{"count" => count()} )
+    end
+  end
+  ### regular old fields
+  defp apply_selection(query, config, i, field) do
+    conf = config.columns[field]
+    case i do
+      0 -> from({^conf.requires_join, owner} in query, select: %{^field => field(owner, ^conf.field)} )
+      _ -> from({^conf.requires_join, owner} in query, select_merge: %{^field => field(owner, ^conf.field)} )
+    end
+
+  end
+
+
   ### applies the selections to the query
   defp apply_selections(query, config, selected) do
     selected
     |> Enum.with_index()
     |> Enum.reduce(query, fn {s, i}, acc ->
-      conf = config.columns[s]
-      ### Can I do this in One select: ?
-      case i do
-        0 ->
-          from({^conf.requires_join, owner} in acc,
-            select: %{^s => field(owner, ^conf.field)}
-          )
-
-        _ ->
-          from({^conf.requires_join, owner} in acc,
-            select_merge: %{^s => field(owner, ^conf.field)}
-          )
-      end
+      apply_selection(acc, config, i, s)
     end)
   end
 
@@ -324,6 +371,15 @@ defmodule Listable do
   # get a map of joins to list of selected
   defp selected_by_join(fields, selected) do
     selected
+    |> Enum.map( fn
+      {_f, s, _p} -> s
+      {_f, s} -> s
+      {_f} -> nil
+      s -> s
+      end
+    )
+    |> IO.inspect()
+    |> Enum.filter( fn s -> not is_nil(s) end)
     |> Enum.reduce(%{}, fn e, acc ->
       Map.put( acc, fields[e].requires_join, 1 )
     end)
