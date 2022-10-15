@@ -225,9 +225,6 @@ defmodule Listable do
 
   end
 
-
-
-
   #we don't need to join root!
   defp apply_join( _config, query, :listable_root ) do
     query
