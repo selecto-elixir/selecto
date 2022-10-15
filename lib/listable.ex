@@ -122,6 +122,23 @@ defmodule Listable do
     put_in( listable.set.selected, listable.set.selected ++ fields)
   end
 
+  ### applies the selections to the query
+  defp apply_selections( query, config, selected ) do
+    selected
+    |> Enum.with_index()
+    |> Enum.reduce( query, fn {s, i}, acc ->
+      conf = config.columns[s]
+      case i do    ### Can I do this in One select: ?
+        0 -> from {^conf.requires_join, owner} in acc,
+          select:       %{^s => field(owner, ^conf.field) }
+        _ -> from {^conf.requires_join, owner} in acc,
+          select_merge: %{^s => field(owner, ^conf.field) }
+      end
+    end)
+  end
+
+
+
   @doc """
     add a filter to listable. Send in a tuple with field name and filter value
   """
@@ -129,12 +146,42 @@ defmodule Listable do
     put_in( listable.set.filtered, listable.set.filtered ++ filters)
   end
 
-  ### TODO
+  defp apply_filters(query, config, filters ) do
+    Enum.reduce(filters, query, fn f, acc ->
+        filters_recurse(config, acc, f)
+      end
+    )
+  end
+  ### Not sure how to do this. hmmmm
+  #defp filters_recurse(config, query, {mod, filter_list}) when is_atom(mod) and is_list(filter_list) do
+  #  query
+  #end
+  defp filters_recurse(config, query, {name, val}) do
+    def = config.columns[name]
+    table = def.requires_join
+    field = def.field
+
+    case val do
+      x when is_nil(x) ->
+        from [{^table, a}] in query,
+        where: is_nil( field(a, ^field) )
+      x when is_bitstring(x) or is_number(x) or is_boolean(x) ->
+        from [{^table, a}] in query,
+        where: field(a, ^field) == ^val
+      x when is_list(x) ->
+        from [{^table, a}] in query,
+        where: field(a, ^field) in ^val
+      #todo add more options here
+    end
+  end
+
+  @doc """
+    Add to the Order By
+  """
   def order_by( listable, orders) do
     put_in( listable.set.order_by, listable.set.order_by ++ orders)
   end
 
-  ### Make this cleaner
   defp apply_order_by(query, config, order_bys) do
     order_bys = order_bys
     |> Enum.map( fn
@@ -149,21 +196,6 @@ defmodule Listable do
       order_by: ^order_bys
   end
 
-  ### applies the selections to the query
-  defp apply_selections( query, config, selected ) do
-    selected
-    |> Enum.with_index()
-    |> Enum.reduce( query, fn {s, i}, acc ->
-      conf = config.columns[s]
-      case i do    ### Can I do this in One select: ?
-        0 -> from {^conf.requires_join, owner} in acc,
-          select:       %{^s => field(owner, ^conf.field) }
-        _ -> from {^conf.requires_join, owner} in acc,
-          select_merge: %{^s => field(owner, ^conf.field) }
-      end
-    end)
-   # from {^join_map.requires_join, par} in query,
-  end
 
   @doc """
     Returns an Ecto.Query with all your filters and selections added
@@ -193,36 +225,8 @@ defmodule Listable do
 
   end
 
-  ### Not sure how to do this. hmmmm
-  #defp filters_recurse(config, query, {mod, filter_list}) when is_atom(mod) and is_list(filter_list) do
-  #  query
-  #end
 
-  defp filters_recurse(config, query, {name, val}) do
-    def = config.columns[name]
-    table = def.requires_join
-    field = def.field
 
-    case val do
-      x when is_nil(x) ->
-        from [{^table, a}] in query,
-        where: is_nil( field(a, ^field) )
-      x when is_bitstring(x) or is_number(x) or is_boolean(x) ->
-        from [{^table, a}] in query,
-        where: field(a, ^field) == ^val
-      x when is_list(x) ->
-        from [{^table, a}] in query,
-        where: field(a, ^field) in ^val
-      #todo add more options here
-    end
-  end
-
-  defp apply_filters(query, config, filters ) do
-    Enum.reduce(filters, query, fn f, acc ->
-        filters_recurse(config, acc, f)
-      end
-    )
-  end
 
   #we don't need to join root!
   defp apply_join( _config, query, :listable_root ) do
