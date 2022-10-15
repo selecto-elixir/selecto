@@ -5,20 +5,18 @@ defmodule Listable do
 
   alias Listable.Schema.Column
 
-  @doc """
+  @todo """
   TODO
-    alias selects in case 2 cols have same name
-    allow intermediate joins to not have selects (part_group[id])
-    filters
+    filters (complex queries)
     order by
     group by
     aggregates
 
-    combine all 'selects' to allow more efficient retr?
+    select into tuple or list instead of map more efficient?
+    ability to add synthetic root, joins, filters, columns
 
   Mebbie:
-    windows?
-    ability to add synthetic root, joins, filters, columns
+    windows? CTEs?
   """
 
 
