@@ -11,12 +11,27 @@ defmodule Listable do
     TODO
     filters (complex queries)
     having
+    json/embeds/arrays/maps?
+       json:  tablen[field].somejsonkey tablen[field][index].somekey...
+
+
+    distinct
 
     select into tuple or list instead of map more efficient?
     ability to add synthetic root, joins, filters, columns
 
+    union, union all, intersect, intersect all
+
+    limit, offset
+
+    subqueries :D
+
+    Multitenant w schema/prefix
+
   Mebbie:
-    windows? CTEs?
+    windows?
+    CTEs? recursive?
+    first, last?? as limit, reverse_order
 
   """
 
@@ -119,7 +134,6 @@ defmodule Listable do
       joins: joins
     }
 
-    # |> IO.inspect()
   end
 
   # Configure columns
@@ -137,14 +151,19 @@ defmodule Listable do
     put_in(listable.set.selected, listable.set.selected ++ fields)
   end
 
-  # Func and field with param (planned)
-  # CASE ... {:case, %{cond=>val, cond2=>val, :else=>val}}
+  #### Selects
+  ### Add parameterized select functions...
+  # { :func, field, params}
+  # ARRAY - auto gen array from otherwise denorm'ing selects using postgres 'array' func
+  # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
+    # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
+    # to one of the main query joins
+  # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
   # COALESCE ... ??
-  #defp apply_selection(query, _config, {_func, _field, _param}) do
-  #  query
-  #end
-  #Func and Field ---- TODO redo when we learn macros?...
   ## need more? upper, lower, ???, postgres specifics?
+  #Func and Field ---- TODO redo when we learn macros?...
+
+  ### TODO test can we use atoms here instead of strings and allow us to compose with fragments?
   defp apply_selection(query, config, {"count", field}) do
     conf = config.columns[field]
     from({^conf.requires_join, owner} in query, select_merge: %{^"count(#{field})" => count(field(owner, ^conf.field))} )
@@ -165,12 +184,12 @@ defmodule Listable do
     conf = config.columns[field]
     from({^conf.requires_join, owner} in query, select_merge: %{^"sum(#{field})" => sum(field(owner, ^conf.field))} )
   end
-  ## Naked functions. Only count?
+  ## Naked functions. Only count? Switch to atom?
   defp apply_selection(query, _config, {"count"}) do
     from(query, select_merge: %{"count" => count()} )
   end
-  ### regular old fields
-  defp apply_selection(query, config, field) do
+  ### regular old fields. Allow atoms?
+  defp apply_selection(query, config, field) when is_binary(field) do
     conf = config.columns[field]
     from({^conf.requires_join, owner} in query, select_merge: %{^field => field(owner, ^conf.field)} )
   end
@@ -363,7 +382,6 @@ defmodule Listable do
       s -> s
       end
     )
-    |> IO.inspect()
     |> Enum.filter( fn s -> not is_nil(s) end)
     |> Enum.reduce(%{}, fn e, acc ->
       Map.put( acc, fields[e].requires_join, 1 )
