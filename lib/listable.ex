@@ -5,8 +5,10 @@ defmodule Listable do
 
   alias Listable.Schema.Column
 
-  @todo """
-  TODO
+  @moduledoc """
+  Documentation for `Listable,` a query writer and report generator for Elixir/Ecto
+
+    TODO
     filters (complex queries)
     order by
     group by
@@ -17,17 +19,13 @@ defmodule Listable do
 
   Mebbie:
     windows? CTEs?
-  """
 
-
-  @moduledoc """
-  Documentation for `Listable`.
   """
 
   @doc """
     Generate a listable structure from this Repo following
-    the instructinos in Domain
-
+    the instructinos in Domain map
+    TODO struct-ize the domain map?
   """
   def configure(repo, domain) do
     %Listable{
@@ -105,7 +103,6 @@ defmodule Listable do
       columns: fields,
       joins: joins
     }
-    |> flatten_config( )
     #|> IO.inspect()
   end
 
@@ -116,17 +113,18 @@ defmodule Listable do
     |> Map.new()
   end
 
-  ### Put filters/columns/joins in one level with join meta
-  defp flatten_config(config) do
-    config
-  end
 
-  ### todo - make these more flexible
+  @doc """
+    add a field to the Select list. Send in a list of field names
+    TODO allow to send single, and special forms..
+  """
   def select( listable, fields ) do
     put_in( listable.set.selected, listable.set.selected ++ fields)
   end
 
-  ### Make sure to tupleize these!
+  @doc """
+    add a filter to listable. Send in a tuple with field name and filter value
+  """
   def filter( listable, filters ) do
     put_in( listable.set.filtered, listable.set.filtered ++ filters)
   end
@@ -136,10 +134,7 @@ defmodule Listable do
     put_in( listable.set.order_by, listable.set.order_by ++ orders)
   end
 
-    #  from [listable_root: a] in query
-    #  select: map( a, ^Enum.map(selections, fn s -> s.field end))
-    #select_merge: map(b, ^Enum.map(selections, fn s -> s.field end))
-
+  ### applies the selections to the query
   defp apply_selections( query, config, selected ) do
     selected
     |> Enum.with_index()
@@ -153,10 +148,11 @@ defmodule Listable do
       end
     end)
    # from {^join_map.requires_join, par} in query,
-
-
   end
 
+  @doc """
+    Returns an Ecto.Query with all your filters and selections added
+  """
   def gen_query( listable ) do
     IO.puts("Gen Query")
 
@@ -192,7 +188,7 @@ defmodule Listable do
       x when is_list(x) ->
         from [{^table, a}] in query,
         where: field(a, ^field) in ^val
-
+      #todo add more options here
     end
   end
 
@@ -254,7 +250,9 @@ defmodule Listable do
       end)
   end
 
-  #make it go
+  @doc """
+    Generate and run the query, returning list of maps (for now...)
+  """
   def execute( listable ) do
     IO.puts("Execute Query")
     listable
