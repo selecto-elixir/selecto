@@ -168,6 +168,17 @@ defmodule Listable do
   #Func and Field ---- TODO redo when we learn macros?...
 
   ### TODO test can we use atoms here instead of strings and allow us to compose with fragments?
+  ## use quote/unquote??? HOWWWWWW
+  # defp apply_selection(query, config, {func, field}) when is_atom(func) do
+  #    conf = config.columns[field]
+  #    quote do
+  #       from({^conf.requires_join, owner}in query,
+  #         select_merge: %{
+  #           ^"#{func}(#{field})" => fragment(unquote(func) <> "(?)",field(owner, ^conf.field))
+  #       })
+  #    end
+  #  end
+
   defp apply_selection(query, config, {"count", field}) do
     conf = config.columns[field]
     from({^conf.requires_join, owner} in query, select_merge: %{^"count(#{field})" => count(field(owner, ^conf.field))} )
