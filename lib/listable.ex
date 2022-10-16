@@ -183,10 +183,20 @@ defmodule Listable do
     from({:listable_root, owner} in query, select_merge: %{^name => ^value} )
   end
   ### works with any func/agg of normal form
+  ### TODO allow literal
+
   defp apply_selection(query, config, {func, field}) when is_atom(func) do
     use_as = "#{func}(#{field})"
     apply_selection(query, config, {func, field, use_as})
   end
+  defp apply_selection(query, config, {func, {:literal, field}, as}) when is_atom(func) do
+    func = Atom.to_string(func)
+     from(query,
+       select_merge: %{
+         ^"#{as}" => fragment("?(?)", literal(^func), ^field)
+     })
+ end
+
   defp apply_selection(query, config, {func, field, as}) when is_atom(func) do
      conf = config.columns[field]
      func = Atom.to_string(func)
@@ -195,6 +205,7 @@ defmodule Listable do
           ^"#{as}" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
       })
   end
+
   defp apply_selection(query, _config, {:count = func}) when is_atom(func) do
     func = Atom.to_string(func)
     from(query, select_merge: %{^func => fragment("?(*)", literal(^func))} )
@@ -402,7 +413,10 @@ defmodule Listable do
       end
     )
     |> List.flatten()
-    |> Enum.filter( fn s -> not is_nil(s) and Map.get(fields, s) end)
+    |> Enum.filter( fn
+        {:literal, _s} -> false
+        s -> not is_nil(s) and Map.get(fields, s)
+    end)
     |> Enum.reduce(%{}, fn e, acc ->
       Map.put( acc, fields[e].requires_join, 1 )
     end)
