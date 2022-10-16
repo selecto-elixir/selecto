@@ -206,9 +206,8 @@ defmodule Listable do
       })
   end
 
-  defp apply_selection(query, _config, {:count = func}) when is_atom(func) do
-    func = Atom.to_string(func)
-    from(query, select_merge: %{^func => fragment("?(*)", literal(^func))} )
+  defp apply_selection(query, _config, {:count = func}) do
+    from(query, select_merge: %{"count" => fragment("count(*)")} )
   end
   defp apply_selection(query, _config, {func}) when is_atom(func) do
     func = Atom.to_string(func)
