@@ -21,6 +21,8 @@ defmodule Listable do
     ability to add synthetic root, joins, filters, columns
 
     union, union all, intersect, intersect all
+    -- pass in lists of alternative filters
+    -- allow multiple unions
 
     limit, offset
 
@@ -167,41 +169,18 @@ defmodule Listable do
   ## need more? upper, lower, ???, postgres specifics?
   #Func and Field ---- TODO redo when we learn macros?...
 
-  ### TODO test can we use atoms here instead of strings and allow us to compose with fragments?
-  ## use quote/unquote??? HOWWWWWW
-  # defp apply_selection(query, config, {func, field}) when is_atom(func) do
-  #    conf = config.columns[field]
-  #    quote do
-  #       from({^conf.requires_join, owner}in query,
-  #         select_merge: %{
-  #           ^"#{func}(#{field})" => fragment(unquote(func) <> "(?)",field(owner, ^conf.field))
-  #       })
-  #    end
-  #  end
 
-  defp apply_selection(query, config, {"count", field}) do
-    conf = config.columns[field]
-    from({^conf.requires_join, owner} in query, select_merge: %{^"count(#{field})" => count(field(owner, ^conf.field))} )
+  defp apply_selection(query, config, {func, field}) when is_atom(func) do
+     conf = config.columns[field]
+     func = Atom.to_string(func)
+      from({^conf.requires_join, owner}in query,
+        select_merge: %{
+          ^"#{func}(#{field})" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
+      })
   end
-  defp apply_selection(query, config, {"max", field}) do
-    conf = config.columns[field]
-    from({^conf.requires_join, owner} in query, select_merge: %{^"max(#{field})" => max(field(owner, ^conf.field))} )
-  end
-  defp apply_selection(query, config, {"min", field}) do
-    conf = config.columns[field]
-    from({^conf.requires_join, owner} in query, select_merge: %{^"min(#{field})" => min(field(owner, ^conf.field))} )
-  end
-  defp apply_selection(query, config, {"avg", field}) do
-    conf = config.columns[field]
-    from({^conf.requires_join, owner} in query, select_merge: %{^"avg(#{field})" => avg(field(owner, ^conf.field))} )
-  end
-  defp apply_selection(query, config, {"sum", field}) do
-    conf = config.columns[field]
-    from({^conf.requires_join, owner} in query, select_merge: %{^"sum(#{field})" => sum(field(owner, ^conf.field))} )
-  end
-  ## Naked functions. Only count? Switch to atom?
-  defp apply_selection(query, _config, {"count"}) do
-    from(query, select_merge: %{"count" => count()} )
+  defp apply_selection(query, _config, {func}) when is_atom(func) do
+    func = Atom.to_string(func)
+    from(query, select_merge: %{"count" => fragment("?(*)", literal(^func))} )
   end
   ### regular old fields. Allow atoms?
   defp apply_selection(query, config, field) when is_binary(field) do
