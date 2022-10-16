@@ -182,9 +182,8 @@ defmodule Listable do
   defp apply_selection(query, config, {:literal, name, value}) do
     from({:listable_root, owner} in query, select_merge: %{^name => ^value} )
   end
-  ### works with any func/agg of normal form
-  ### TODO allow literal
 
+  ### works with any func/agg of normal form
   defp apply_selection(query, config, {func, field}) when is_atom(func) do
     use_as = "#{func}(#{field})"
     apply_selection(query, config, {func, field, use_as})
@@ -195,7 +194,7 @@ defmodule Listable do
        select_merge: %{
          ^"#{as}" => fragment("?(?)", literal(^func), ^field)
      })
- end
+  end
 
   defp apply_selection(query, config, {func, field, as}) when is_atom(func) do
      conf = config.columns[field]
