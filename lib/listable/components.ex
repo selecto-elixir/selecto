@@ -19,12 +19,9 @@ defmodule Listable.Components do
     """
   end
 
-
   def results_panel(assigns) do
     results = Listable.execute(assigns.listable)
     assigns = assign(assigns, results: results)
-
-
 
     ~H"""
       <div>

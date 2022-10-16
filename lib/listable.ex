@@ -55,7 +55,7 @@ defmodule Listable do
         selected: Map.get(domain, :required_selected, []),
         filtered: Map.get(domain, :required_filters, []),
         order_by: Map.get(domain, :required_order_by, []),
-        group_by: Map.get(domain, :required_group_by, []),
+        group_by: Map.get(domain, :required_group_by, [])
       }
     }
   end
@@ -139,7 +139,6 @@ defmodule Listable do
       columns: fields,
       joins: joins
     }
-
   end
 
   # Configure columns
@@ -164,15 +163,17 @@ defmodule Listable do
 
   # ARRAY - auto gen array from otherwise denorm'ing selects using postgres 'array' func
   # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
-    # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
-    # to one of the main query joins
+  # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
+  # to one of the main query joins
   defp apply_selection(query, config, {:array, field, selects}) do
     query
   end
+
   # COALESCE ... ??
   defp apply_selection(query, config, {:coalesce, field, selects}) do
     query
   end
+
   # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
   defp apply_selection(query, config, {:case, field, case_map}) do
     query
@@ -180,7 +181,7 @@ defmodule Listable do
 
   ## Todo why this does not work with numbers?
   defp apply_selection(query, config, {:literal, name, value}) do
-    from({:listable_root, owner} in query, select_merge: %{^name => ^value} )
+    from({:listable_root, owner} in query, select_merge: %{^name => ^value})
   end
 
   ### works with any func/agg of normal form
@@ -188,34 +189,44 @@ defmodule Listable do
     use_as = "#{func}(#{field})"
     apply_selection(query, config, {func, field, use_as})
   end
+
   defp apply_selection(query, config, {func, {:literal, field}, as}) when is_atom(func) do
     func = Atom.to_string(func)
-     from(query,
-       select_merge: %{
-         ^"#{as}" => fragment("?(?)", literal(^func), ^field)
-     })
+
+    from(query,
+      select_merge: %{
+        ^"#{as}" => fragment("?(?)", literal(^func), ^field)
+      }
+    )
   end
 
   defp apply_selection(query, config, {func, field, as}) when is_atom(func) do
-     conf = config.columns[field]
-     func = Atom.to_string(func)
-      from({^conf.requires_join, owner}in query,
-        select_merge: %{
-          ^"#{as}" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
-      })
+    conf = config.columns[field]
+    func = Atom.to_string(func)
+
+    from({^conf.requires_join, owner} in query,
+      select_merge: %{
+        ^"#{as}" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
+      }
+    )
   end
 
   defp apply_selection(query, _config, {:count = func}) do
-    from(query, select_merge: %{"count" => fragment("count(*)")} )
+    from(query, select_merge: %{"count" => fragment("count(*)")})
   end
+
   defp apply_selection(query, _config, {func}) when is_atom(func) do
     func = Atom.to_string(func)
-    from(query, select_merge: %{^func => fragment("?()", literal(^func))} )
+    from(query, select_merge: %{^func => fragment("?()", literal(^func))})
   end
+
   ### regular old fields. Allow atoms?
   defp apply_selection(query, config, field) when is_binary(field) do
     conf = config.columns[field]
-    from({^conf.requires_join, owner} in query, select_merge: %{^field => field(owner, ^conf.field)} )
+
+    from({^conf.requires_join, owner} in query,
+      select_merge: %{^field => field(owner, ^conf.field)}
+    )
   end
 
   ### applies the selections to the query
@@ -264,16 +275,17 @@ defmodule Listable do
         from([{^table, a}] in query,
           where: field(a, ^field) in ^val
         )
-      # todo add more options here
-      # >, >=,<=, <, !=
-      # :not_true (false or nil)
-      # date shortcuts (:today, :tomorrow, :last_week, etc )
-      # {:between, a, b}
-      # {:like}, {:ilike}
-      # {:or, [filters]}
-      # {:and, [filters]}
-      # {:case, %{filter=>}}
-      # {:exists, subq} # how to do subq????
+
+        # todo add more options here
+        # >, >=,<=, <, !=
+        # :not_true (false or nil)
+        # date shortcuts (:today, :tomorrow, :last_week, etc )
+        # {:between, a, b}
+        # {:like}, {:ilike}
+        # {:or, [filters]}
+        # {:and, [filters]}
+        # {:case, %{filter=>}}
+        # {:exists, subq} # how to do subq????
     end
   end
 
@@ -308,23 +320,26 @@ defmodule Listable do
   def group_by(listable, groups) do
     put_in(listable.set.group_by, listable.set.group_by ++ groups)
   end
-  defp apply_group_by( query, _config, [] ) do
+
+  defp apply_group_by(query, _config, []) do
     query
   end
-  defp apply_group_by( query, config, group_bys ) do
+
+  defp apply_group_by(query, config, group_bys) do
     group_bys =
       group_bys
       |> Enum.map(fn
         field ->
-           dynamic(
-             [{^config.columns[field].requires_join, owner}],
-             field(owner, ^config.columns[field].field)
-           )
+          dynamic(
+            [{^config.columns[field].requires_join, owner}],
+            field(owner, ^config.columns[field].field)
+          )
       end)
 
     from(query,
       group_by: ^group_bys
-    )  end
+    )
+  end
 
   @doc """
     Returns an Ecto.Query with all your filters and selections added
@@ -333,12 +348,16 @@ defmodule Listable do
     IO.puts("Gen Query")
     selected_by_join = selected_by_join(listable.config.columns, listable.set.selected)
     filtered_by_join = filter_by_join(listable.config, listable.set.filtered)
-    order_by_by_join = selected_by_join( listable.config.columns,
-        Enum.map( listable.set.order_by, fn
-            {_dir, field} -> field
-            field -> field
-          end
-        ))
+
+    order_by_by_join =
+      selected_by_join(
+        listable.config.columns,
+        Enum.map(listable.set.order_by, fn
+          {_dir, field} -> field
+          field -> field
+        end)
+      )
+
     group_by_by_join = selected_by_join(listable.config.columns, listable.set.group_by)
 
     ## We select nothing from the initial query because we are going to select_merge everything and
@@ -361,6 +380,7 @@ defmodule Listable do
   defp apply_join(_config, query, :listable_root) do
     query
   end
+
   defp apply_join(config, query, join) do
     join_map = config.joins[join]
 
@@ -399,24 +419,23 @@ defmodule Listable do
   # get a map of joins to list of selected
   defp selected_by_join(fields, selected) do
     selected
-    |> Enum.map( fn
+    |> Enum.map(fn
       {:array, _n, sels} -> sels
       {:coalesce, _n, sels} -> sels
-      {:case, _n, case_map} -> Map.values( case_map )
+      {:case, _n, case_map} -> Map.values(case_map)
       {:literal, _a, _b} -> []
       {_f, s, _p} -> s
       {_f, s} -> s
       {_f} -> nil
       s -> s
-      end
-    )
+    end)
     |> List.flatten()
-    |> Enum.filter( fn
-        {:literal, _s} -> false
-        s -> not is_nil(s) and Map.get(fields, s)
+    |> Enum.filter(fn
+      {:literal, _s} -> false
+      s -> not is_nil(s) and Map.get(fields, s)
     end)
     |> Enum.reduce(%{}, fn e, acc ->
-      Map.put( acc, fields[e].requires_join, 1 )
+      Map.put(acc, fields[e].requires_join, 1)
     end)
     |> Map.keys()
   end
@@ -426,6 +445,7 @@ defmodule Listable do
   """
   def execute(listable) do
     IO.puts("Execute Query")
+
     listable
     |> gen_query
     |> listable.repo.all()
