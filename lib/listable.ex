@@ -159,28 +159,44 @@ defmodule Listable do
 
   #### Selects
   ### Add parameterized select functions...
-  # { :func, field, params}
+
+  ## need more? upper, lower, ???, postgres specifics?
+
   # ARRAY - auto gen array from otherwise denorm'ing selects using postgres 'array' func
   # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
     # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
     # to one of the main query joins
-  # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
+  defp apply_selection(query, config, {:array, field, selects}) do
+    query
+  end
   # COALESCE ... ??
-  ## need more? upper, lower, ???, postgres specifics?
-  #Func and Field ---- TODO redo when we learn macros?...
+  defp apply_selection(query, config, {:coalesce, field, selects}) do
+    query
+  end
+  # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
+  defp apply_selection(query, config, {:case, field, case_map}) do
+    query
+  end
 
-
+  ## Todo why this does not work with numbers?
+  defp apply_selection(query, config, {:literal, name, value}) do
+    from({:listable_root, owner} in query, select_merge: %{^name => ^value} )
+  end
+  ### works with any func/agg of normal form
   defp apply_selection(query, config, {func, field}) when is_atom(func) do
+    use_as = "#{func}(#{field})"
+    apply_selection(query, config, {func, field, use_as})
+  end
+  defp apply_selection(query, config, {func, field, as}) when is_atom(func) do
      conf = config.columns[field]
      func = Atom.to_string(func)
       from({^conf.requires_join, owner}in query,
         select_merge: %{
-          ^"#{func}(#{field})" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
+          ^"#{as}" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
       })
   end
-  defp apply_selection(query, _config, {func}) when is_atom(func) do
-    func = Atom.to_string(func)
-    from(query, select_merge: %{"count" => fragment("?(*)", literal(^func))} )
+  defp apply_selection(query, _config, {:count}) do
+    from(query, select_merge: %{"count" => fragment("count(*)")} )
   end
   ### regular old fields. Allow atoms?
   defp apply_selection(query, config, field) when is_binary(field) do
@@ -370,13 +386,18 @@ defmodule Listable do
   defp selected_by_join(fields, selected) do
     selected
     |> Enum.map( fn
+      {:array, _n, sels} -> sels
+      {:coalesce, _n, sels} -> sels
+      {:case, _n, case_map} -> Map.values( case_map )
+      {:literal, _a, _b} -> []
       {_f, s, _p} -> s
       {_f, s} -> s
       {_f} -> nil
       s -> s
       end
     )
-    |> Enum.filter( fn s -> not is_nil(s) end)
+    |> List.flatten()
+    |> Enum.filter( fn s -> not is_nil(s) and Map.get(fields, s) end)
     |> Enum.reduce(%{}, fn e, acc ->
       Map.put( acc, fields[e].requires_join, 1 )
     end)
