@@ -113,7 +113,8 @@ defmodule Listable do
 
   # we consume the join tree (atom/list) to a flat map of joins
   defp recurse_joins(source, joins) do
-    List.flatten(normalize_joins(source, joins, :listable_root))
+    normalize_joins(source, joins, :listable_root)
+    |> List.flatten()
     |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.name, j) end)
   end
 
