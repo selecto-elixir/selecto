@@ -1,25 +1,30 @@
 defmodule Listable.Components do
   use Phoenix.Component
+  use PetalComponents
 
   def view_panel(assigns) do
     ~H"""
-      <div>
-        View
-      </div>
+      <.accordion>
+        <:item heading="View Options">
+          VIEW OPTS
+        </:item>
+        <:item heading="Filter Options">
+          Filter OPTS
+        </:item>
+        <:item heading="Export Options">
+          Export OPTS
+        </:item>
+      </.accordion>
+
     """
   end
 
-  def filter_panel(assigns) do
-    ~H"""
-      <div>
-        Filter <%= @listable.repo %>
-      </div>
-    """
-  end
 
   def results_panel(assigns) do
     results = Listable.execute(assigns.listable)
     assigns = assign(assigns, results: results)
+
+
 
     ~H"""
       <div>
