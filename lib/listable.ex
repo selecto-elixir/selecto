@@ -195,8 +195,13 @@ defmodule Listable do
           ^"#{as}" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
       })
   end
-  defp apply_selection(query, _config, {:count}) do
-    from(query, select_merge: %{"count" => fragment("count(*)")} )
+  defp apply_selection(query, _config, {:count = func}) when is_atom(func) do
+    func = Atom.to_string(func)
+    from(query, select_merge: %{^func => fragment("?(*)", literal(^func))} )
+  end
+  defp apply_selection(query, _config, {func}) when is_atom(func) do
+    func = Atom.to_string(func)
+    from(query, select_merge: %{^func => fragment("?()", literal(^func))} )
   end
   ### regular old fields. Allow atoms?
   defp apply_selection(query, config, field) when is_binary(field) do
