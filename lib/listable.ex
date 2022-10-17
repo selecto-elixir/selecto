@@ -202,6 +202,7 @@ defmodule Listable do
   end
 
   ## Check for SQL INJ TODO
+  ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
   defp apply_selection(query, config, {func, field, as}) when is_atom(func) do
     conf = config.columns[field]
     func = Atom.to_string(func)
