@@ -164,6 +164,7 @@ defmodule Listable do
 
   # ARRAY - auto gen array from otherwise denorm'ing selects using postgres 'array' func
   # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
+  # ---- postgres has functions to put those into json!
   # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
   # to one of the main query joins
   defp apply_selection({query, aliases}, _config, {:array, _field, _selects}) do
@@ -192,6 +193,7 @@ defmodule Listable do
     apply_selection({query, aliases}, config, {func, field, use_as})
   end
 
+  ## Case of literal value arg
   defp apply_selection({query, aliases}, _config, {func, {:literal, field}, as}) when is_atom(func) do
     func = Atom.to_string(func)
 
@@ -203,8 +205,11 @@ defmodule Listable do
     {query, [as | aliases]}
   end
 
+  #Case for func call with field as arg
   ## Check for SQL INJ TODO
+  ## TODO allow for func call args
   ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
+  ## ^^ and mixed lit/field args - field as list?
   defp apply_selection({query, aliases}, config, {func, field, as}) when is_atom(func) do
     conf = config.columns[field]
     func = Atom.to_string(func)
@@ -217,17 +222,18 @@ defmodule Listable do
     {query, [as | aliases]}
   end
 
+  #Case of 'count(*)' which we can just ref as count
   defp apply_selection({query, aliases}, _config, {:count}) do
     query = from(query, select_merge: %{"count" => fragment("count(*)")})
     {query, ["count" | aliases]}
 
   end
 
+  #case of other non-arg funcs eg now()
   defp apply_selection({query, aliases}, _config, {func}) when is_atom(func) do
     func = Atom.to_string(func)
     from(query, select_merge: %{^func => fragment("?()", literal(^func))})
     {query, [func | aliases]}
-
   end
 
   ### regular old fields. Allow atoms?
