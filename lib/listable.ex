@@ -166,22 +166,22 @@ defmodule Listable do
   # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
   # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
   # to one of the main query joins
-  defp apply_selection(query, config, {:array, field, selects}) do
+  defp apply_selection(query,_config, {:array, _field, _selects}) do
     query
   end
 
   # COALESCE ... ??
-  defp apply_selection(query, config, {:coalesce, field, selects}) do
+  defp apply_selection(query, _config, {:coalesce, _field, _selects}) do
     query
   end
 
   # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
-  defp apply_selection(query, config, {:case, field, case_map}) do
+  defp apply_selection(query, _config, {:case, _field, _case_map}) do
     query
   end
 
   ## Todo why this does not work with numbers?
-  defp apply_selection(query, config, {:literal, name, value}) do
+  defp apply_selection(query, _config, {:literal, name, value}) do
     from({:listable_root, owner} in query, select_merge: %{^name => ^value})
   end
 
@@ -191,7 +191,7 @@ defmodule Listable do
     apply_selection(query, config, {func, field, use_as})
   end
 
-  defp apply_selection(query, config, {func, {:literal, field}, as}) when is_atom(func) do
+  defp apply_selection(query, _config, {func, {:literal, field}, as}) when is_atom(func) do
     func = Atom.to_string(func)
 
     from(query,
@@ -212,7 +212,7 @@ defmodule Listable do
     )
   end
 
-  defp apply_selection(query, _config, {:count = func}) do
+  defp apply_selection(query, _config, {:count}) do
     from(query, select_merge: %{"count" => fragment("count(*)")})
   end
 
@@ -452,4 +452,13 @@ defmodule Listable do
     |> listable.repo.all()
     |> IO.inspect(label: "Results")
   end
+
+  def available_columns(listable) do
+    listable.config.columns
+  end
+  def available_filters(listable) do
+    listable.config.filters
+  end
+
+
 end
