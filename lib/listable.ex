@@ -166,78 +166,89 @@ defmodule Listable do
   # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
   # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
   # to one of the main query joins
-  defp apply_selection(query,_config, {:array, _field, _selects}) do
-    query
+  defp apply_selection({query, aliases}, _config, {:array, _field, _selects}) do
+    {query, aliases}
   end
 
   # COALESCE ... ??
-  defp apply_selection(query, _config, {:coalesce, _field, _selects}) do
-    query
+  defp apply_selection({query, aliases}, _config, {:coalesce, _field, _selects}) do
+    {query, aliases}
   end
 
   # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
-  defp apply_selection(query, _config, {:case, _field, _case_map}) do
-    query
+  defp apply_selection({query, aliases}, _config, {:case, _field, _case_map}) do
+    {query, aliases}
   end
 
   ## Todo why this does not work with numbers?
-  defp apply_selection(query, _config, {:literal, name, value}) do
-    from({:listable_root, owner} in query, select_merge: %{^name => ^value})
+  defp apply_selection({query, aliases}, _config, {:literal, name, value}) do
+    query = from({:listable_root, owner} in query, select_merge: %{^name => ^value})
+    {query, [name | aliases]}
   end
 
   ### works with any func/agg of normal form
-  defp apply_selection(query, config, {func, field}) when is_atom(func) do
+  defp apply_selection({query, aliases}, config, {func, field}) when is_atom(func) do
     use_as = "#{func}(#{field})"
-    apply_selection(query, config, {func, field, use_as})
+    apply_selection({query, aliases}, config, {func, field, use_as})
   end
 
-  defp apply_selection(query, _config, {func, {:literal, field}, as}) when is_atom(func) do
+  defp apply_selection({query, aliases}, _config, {func, {:literal, field}, as}) when is_atom(func) do
     func = Atom.to_string(func)
 
-    from(query,
+    query = from(query,
       select_merge: %{
         ^"#{as}" => fragment("?(?)", literal(^func), ^field)
       }
     )
+    {query, [as | aliases]}
   end
 
   ## Check for SQL INJ TODO
   ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
-  defp apply_selection(query, config, {func, field, as}) when is_atom(func) do
+  defp apply_selection({query, aliases}, config, {func, field, as}) when is_atom(func) do
     conf = config.columns[field]
     func = Atom.to_string(func)
 
-    from({^conf.requires_join, owner} in query,
+    query = from({^conf.requires_join, owner} in query,
       select_merge: %{
         ^"#{as}" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
       }
     )
+    {query, [as | aliases]}
   end
 
-  defp apply_selection(query, _config, {:count}) do
-    from(query, select_merge: %{"count" => fragment("count(*)")})
+  defp apply_selection({query, aliases}, _config, {:count}) do
+    query = from(query, select_merge: %{"count" => fragment("count(*)")})
+    {query, ["count" | aliases]}
+
   end
 
-  defp apply_selection(query, _config, {func}) when is_atom(func) do
+  defp apply_selection({query, aliases}, _config, {func}) when is_atom(func) do
     func = Atom.to_string(func)
     from(query, select_merge: %{^func => fragment("?()", literal(^func))})
+    {query, [func | aliases]}
+
   end
 
   ### regular old fields. Allow atoms?
-  defp apply_selection(query, config, field) when is_binary(field) do
+  defp apply_selection({query, aliases}, config, field) when is_binary(field) do
     conf = config.columns[field]
 
-    from({^conf.requires_join, owner} in query,
+    query = from({^conf.requires_join, owner} in query,
       select_merge: %{^field => field(owner, ^conf.field)}
     )
+    {query, [field | aliases]}
+
   end
 
   ### applies the selections to the query
   defp apply_selections(query, config, selected) do
-    selected
-    |> Enum.reduce(query, fn s, acc ->
+    {query, aliases} = selected
+    |> Enum.reduce({query, []}, fn s, acc ->
       apply_selection(acc, config, s)
     end)
+    IO.inspect(aliases)
+    { query, Enum.reverse( aliases ) }
   end
 
   @doc """
@@ -367,15 +378,19 @@ defmodule Listable do
     ## if we don't select empty map here, it will include the full * of our source!
     query = from(root in listable.domain.source, as: :listable_root, select: %{})
 
-    get_join_order(
+    {query, aliases} = get_join_order(
       listable.config.joins,
       Enum.uniq(selected_by_join ++ filtered_by_join ++ order_by_by_join ++ group_by_by_join)
     )
     |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end)
     |> apply_selections(listable.config, listable.set.selected)
+
+    query = query
     |> apply_filters(listable.config, listable.set.filtered)
     |> apply_group_by(listable.config, listable.set.group_by)
     |> apply_order_by(listable.config, listable.set.order_by)
+
+    {query, aliases}
   end
 
   # apply the join to the query
@@ -449,10 +464,14 @@ defmodule Listable do
   def execute(listable) do
     IO.puts("Execute Query")
 
-    listable
-    |> gen_query
+    {query, aliases} = listable
+    |> gen_query()
+
+    results = query
     |> listable.repo.all()
     |> IO.inspect(label: "Results")
+
+    {results, aliases}
   end
 
   def available_columns(listable) do
