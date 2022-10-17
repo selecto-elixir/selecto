@@ -201,6 +201,7 @@ defmodule Listable do
     )
   end
 
+  ## Check for SQL INJ TODO
   defp apply_selection(query, config, {func, field, as}) when is_atom(func) do
     conf = config.columns[field]
     func = Atom.to_string(func)
