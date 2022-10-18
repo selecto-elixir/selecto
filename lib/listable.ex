@@ -62,37 +62,22 @@ defmodule Listable do
 
 
 
-  defp normalize_joins(source, domain, joins, dep) do
-    Enum.reduce( joins, [], fn {id, config}, acc ->
-      ### Todo allow this to be non-configured assoc
-      association = source.__schema__(:association, id)
-      acc = acc ++ [Listable.Schema.Join.configure(domain, association, config, dep)]
-      case Map.get(config, :joins) do
-        nil -> acc
-        _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
-      end
-    end)
-  end
 
-  # we consume the join tree (atom/list) to a flat map of joins
-  defp recurse_joins(source, domain) do
-    normalize_joins(source, domain, domain.joins, :listable_root)
-    |> List.flatten()
-    |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.id, j) end)
-  end
 
   # generate the listable configuration
   defp walk_config(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
 
     fields =
-      walk_fields(
+      Listable.Schema.Column.configure_columns(
         :listable_root,
         source.__schema__(:fields) -- source.__schema__(:redact_fields),
         source
       )
 
-    joins = recurse_joins(source, domain)
+    joins = Listable.Schema.Join.recurse_joins(source, domain)
+
+    ##Combine fields from Joins into fields list
     fields =
       List.flatten([fields | Enum.map(Map.values(joins), fn e -> e.fields end)])
       |> Enum.reduce(%{}, fn m, acc -> Map.merge(acc, m) end)
@@ -102,13 +87,6 @@ defmodule Listable do
       columns: fields,
       joins: joins
     }
-  end
-
-  # Configure columns - move to column
-  def walk_fields(join, fields, source) do
-    fields
-    |> Enum.map(&Column.configure(&1, join, source))
-    |> Map.new()
   end
 
   @doc """

@@ -1,4 +1,12 @@
 defmodule Listable.Schema.Column do
+
+  # Configure columns - move to column
+  def configure_columns(join, fields, source) do
+    fields
+    |> Enum.map(&configure(&1, join, source))
+    |> Map.new()
+  end
+
   def configure(field, join, source) do
     colid =
       case join do
