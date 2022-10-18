@@ -38,7 +38,8 @@ defmodule Listable.Schema.Join do
           association.field,
           association.queryable.__schema__(:fields) --
             association.queryable.__schema__(:redact_fields),
-          association.queryable
+          association.queryable,
+          config
         )
     }
     if function_exported?(join.i_am, :listable_meta_join, 1) do

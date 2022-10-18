@@ -72,7 +72,8 @@ defmodule Listable do
       Listable.Schema.Column.configure_columns(
         :listable_root,
         source.__schema__(:fields) -- source.__schema__(:redact_fields),
-        source
+        source,
+        domain
       )
 
     joins = Listable.Schema.Join.recurse_joins(source, domain)
