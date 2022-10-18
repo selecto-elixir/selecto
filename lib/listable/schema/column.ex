@@ -11,6 +11,7 @@ defmodule Listable.Schema.Column do
       %{
         colid: colid,
         field: field,
+        name: if :listable_root == join do field else "#{join}: #{field}" end,
         type: source.__schema__(:type, field),
         meta:
           if function_exported?(source, :listable_meta, 1) do
