@@ -50,7 +50,7 @@ defmodule Listable do
     %Listable{
       repo: repo,
       domain: domain,
-      config: walk_config(domain),
+      config: configure(domain),
       set: %{
         selected: Map.get(domain, :required_selected, []),
         filtered: Map.get(domain, :required_filters, []),
@@ -65,7 +65,7 @@ defmodule Listable do
 
 
   # generate the listable configuration
-  defp walk_config(%{source: source} = domain) do
+  defp configure(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
 
     fields =
