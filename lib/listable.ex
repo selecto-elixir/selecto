@@ -154,7 +154,7 @@ defmodule Listable do
     TODO allow to send single, and special forms..
   """
   def select(listable, fields) do
-    put_in(listable.set.selected, listable.set.selected ++ fields)
+    put_in(listable.set.selected, Enum.uniq(listable.set.selected ++ fields))
   end
 
   #### Selects
