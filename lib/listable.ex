@@ -3,8 +3,6 @@ defmodule Listable do
 
   import Ecto.Query
 
-  alias Listable.Schema.Column
-
   @moduledoc """
   Documentation for `Listable,` a query writer and report generator for Elixir/Ecto
 
@@ -50,7 +48,7 @@ defmodule Listable do
     %Listable{
       repo: repo,
       domain: domain,
-      config: configure(domain),
+      config: configure_domain(domain),
       set: %{
         selected: Map.get(domain, :required_selected, []),
         filtered: Map.get(domain, :required_filters, []),
@@ -60,18 +58,14 @@ defmodule Listable do
     }
   end
 
-
-
-
-
   # generate the listable configuration
-  defp configure(%{source: source} = domain) do
+  defp configure_domain(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
 
     fields =
       Listable.Schema.Column.configure_columns(
         :listable_root,
-        source.__schema__(:fields) -- source.__schema__(:redact_fields),
+        source.__schema__(:fields) -- source.__schema__(:redact_fields), ## Add in keys from domain.columns ...
         source,
         domain
       )
