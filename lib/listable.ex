@@ -61,7 +61,8 @@ defmodule Listable do
   end
 
   ### move this to the join module
-  defp configure_join(domain, association, dep) do
+  defp configure_join(domain, association, config, dep) do
+    IO.puts("configuring #{ association.field}")
     %{
       i_am: association.queryable,
       joined_from: association.owner,
@@ -69,7 +70,8 @@ defmodule Listable do
       cardinality: association.cardinality,
       owner_key: association.owner_key,
       my_key: association.related_key,
-      name: association.field,
+      id: association.field,
+      name: config.name,
       ## probably don't need 'where'
       requires_join: dep,
       fields:
@@ -83,47 +85,23 @@ defmodule Listable do
     |> Listable.Schema.Join.configure(domain)
   end
 
-  ### This is f'n weird feels like it should only take half as many!
-  defp normalize_joins(source, domain, [assoc, subs | joins], dep)
-       when is_atom(assoc) and is_list(subs) do
-    association = source.__schema__(:association, assoc)
-
-    [
-      configure_join(domain, association, dep),
-      normalize_joins(association.queryable, domain, subs, assoc)
-    ] ++
-      normalize_joins(source, domain, joins, dep)
-  end
-
-  defp normalize_joins(source, domain, [assoc, subs], dep)
-       when is_atom(assoc) and is_list(subs) do
-    association = source.__schema__(:association, assoc)
-
-    [
-      configure_join(domain, association, dep),
-      normalize_joins(association.queryable, domain, subs, assoc)
-    ]
-  end
-
-  defp normalize_joins(source, domain, [assoc | joins], dep) when is_atom(assoc) do
-    association = source.__schema__(:association, assoc)
-    [configure_join(domain, association, dep)] ++ normalize_joins(source, domain, joins, dep)
-  end
-
-  defp normalize_joins(source, domain, [assoc], dep) when is_atom(assoc) do
-    association = source.__schema__(:association, assoc)
-    [configure_join(domain, association, dep)]
-  end
-
-  defp normalize_joins(_, _, _, _) do
-    []
+  defp normalize_joins(source, domain, joins, dep) do
+    Enum.reduce( joins, [], fn {id, config}, acc ->
+      ### Todo allow this to be non-configured assoc
+      association = source.__schema__(:association, id)
+      acc = acc ++ [configure_join(domain, association, config, dep)]
+      case Map.get(config, :joins) do
+        nil -> acc
+        _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
+      end
+    end)
   end
 
   # we consume the join tree (atom/list) to a flat map of joins
   defp recurse_joins(source, domain) do
     normalize_joins(source, domain, domain.joins, :listable_root)
     |> List.flatten()
-    |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.name, j) end)
+    |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.id, j) end)
   end
 
   # generate the listable configuration
@@ -138,7 +116,6 @@ defmodule Listable do
       )
 
     joins = recurse_joins(source, domain)
-
     fields =
       List.flatten([fields | Enum.map(Map.values(joins), fn e -> e.fields end)])
       |> Enum.reduce(%{}, fn m, acc -> Map.merge(acc, m) end)
