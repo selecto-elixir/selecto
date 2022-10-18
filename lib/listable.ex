@@ -60,36 +60,13 @@ defmodule Listable do
     }
   end
 
-  ### move this to the join module
-  defp configure_join(domain, association, config, dep) do
-    IO.puts("configuring #{ association.field}")
-    %{
-      i_am: association.queryable,
-      joined_from: association.owner,
-      # assoc: association,
-      cardinality: association.cardinality,
-      owner_key: association.owner_key,
-      my_key: association.related_key,
-      id: association.field,
-      name: config.name,
-      ## probably don't need 'where'
-      requires_join: dep,
-      fields:
-        walk_fields(
-          association.field,
-          association.queryable.__schema__(:fields) --
-            association.queryable.__schema__(:redact_fields),
-          association.queryable
-        )
-    }
-    |> Listable.Schema.Join.configure(domain)
-  end
+
 
   defp normalize_joins(source, domain, joins, dep) do
     Enum.reduce( joins, [], fn {id, config}, acc ->
       ### Todo allow this to be non-configured assoc
       association = source.__schema__(:association, id)
-      acc = acc ++ [configure_join(domain, association, config, dep)]
+      acc = acc ++ [Listable.Schema.Join.configure(domain, association, config, dep)]
       case Map.get(config, :joins) do
         nil -> acc
         _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
@@ -127,8 +104,8 @@ defmodule Listable do
     }
   end
 
-  # Configure columns
-  defp walk_fields(join, fields, source) do
+  # Configure columns - move to column
+  def walk_fields(join, fields, source) do
     fields
     |> Enum.map(&Column.configure(&1, join, source))
     |> Map.new()
