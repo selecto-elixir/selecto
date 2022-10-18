@@ -11,7 +11,12 @@ defmodule Listable.Schema.Column do
       %{
         colid: colid,
         field: field,
-        name: if :listable_root == join do field else "#{join}: #{field}" end,
+        name:
+          if :listable_root == join do
+            field
+          else
+            "#{join}: #{field}"
+          end,
         type: source.__schema__(:type, field),
         requires_join: join
       }
@@ -22,6 +27,5 @@ defmodule Listable.Schema.Column do
     else
       col
     end
-
   end
 end

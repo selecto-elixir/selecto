@@ -84,20 +84,28 @@ defmodule Listable do
   end
 
   ### This is f'n weird feels like it should only take half as many!
-  defp normalize_joins(source,domain,  [assoc, subs | joins], dep)
+  defp normalize_joins(source, domain, [assoc, subs | joins], dep)
        when is_atom(assoc) and is_list(subs) do
     association = source.__schema__(:association, assoc)
 
-    [configure_join(domain, association, dep), normalize_joins(association.queryable, domain, subs, assoc)] ++
+    [
+      configure_join(domain, association, dep),
+      normalize_joins(association.queryable, domain, subs, assoc)
+    ] ++
       normalize_joins(source, domain, joins, dep)
   end
 
-  defp normalize_joins(source,domain,  [assoc, subs], dep) when is_atom(assoc) and is_list(subs) do
+  defp normalize_joins(source, domain, [assoc, subs], dep)
+       when is_atom(assoc) and is_list(subs) do
     association = source.__schema__(:association, assoc)
-    [configure_join(domain, association, dep), normalize_joins(association.queryable, domain, subs, assoc)]
+
+    [
+      configure_join(domain, association, dep),
+      normalize_joins(association.queryable, domain, subs, assoc)
+    ]
   end
 
-  defp normalize_joins(source,domain,  [assoc | joins], dep) when is_atom(assoc) do
+  defp normalize_joins(source, domain, [assoc | joins], dep) when is_atom(assoc) do
     association = source.__schema__(:association, assoc)
     [configure_join(domain, association, dep)] ++ normalize_joins(source, domain, joins, dep)
   end
