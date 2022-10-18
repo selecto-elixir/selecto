@@ -194,18 +194,21 @@ defmodule Listable do
   end
 
   ## Case of literal value arg
-  defp apply_selection({query, aliases}, _config, {func, {:literal, field}, as}) when is_atom(func) do
+  defp apply_selection({query, aliases}, _config, {func, {:literal, field}, as})
+       when is_atom(func) do
     func = Atom.to_string(func)
 
-    query = from(query,
-      select_merge: %{
-        ^"#{as}" => fragment("?(?)", literal(^func), ^field)
-      }
-    )
+    query =
+      from(query,
+        select_merge: %{
+          ^"#{as}" => fragment("?(?)", literal(^func), ^field)
+        }
+      )
+
     {query, [as | aliases]}
   end
 
-  #Case for func call with field as arg
+  # Case for func call with field as arg
   ## Check for SQL INJ TODO
   ## TODO allow for func call args
   ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
@@ -214,22 +217,23 @@ defmodule Listable do
     conf = config.columns[field]
     func = Atom.to_string(func)
 
-    query = from({^conf.requires_join, owner} in query,
-      select_merge: %{
-        ^"#{as}" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
-      }
-    )
+    query =
+      from({^conf.requires_join, owner} in query,
+        select_merge: %{
+          ^"#{as}" => fragment("?(?)", literal(^func), field(owner, ^conf.field))
+        }
+      )
+
     {query, [as | aliases]}
   end
 
-  #Case of 'count(*)' which we can just ref as count
+  # Case of 'count(*)' which we can just ref as count
   defp apply_selection({query, aliases}, _config, {:count}) do
     query = from(query, select_merge: %{"count" => fragment("count(*)")})
     {query, ["count" | aliases]}
-
   end
 
-  #case of other non-arg funcs eg now()
+  # case of other non-arg funcs eg now()
   defp apply_selection({query, aliases}, _config, {func}) when is_atom(func) do
     func = Atom.to_string(func)
     from(query, select_merge: %{^func => fragment("?()", literal(^func))})
@@ -240,21 +244,24 @@ defmodule Listable do
   defp apply_selection({query, aliases}, config, field) when is_binary(field) do
     conf = config.columns[field]
 
-    query = from({^conf.requires_join, owner} in query,
-      select_merge: %{^field => field(owner, ^conf.field)}
-    )
-    {query, [field | aliases]}
+    query =
+      from({^conf.requires_join, owner} in query,
+        select_merge: %{^field => field(owner, ^conf.field)}
+      )
 
+    {query, [field | aliases]}
   end
 
   ### applies the selections to the query
   defp apply_selections(query, config, selected) do
-    {query, aliases} = selected
-    |> Enum.reduce({query, []}, fn s, acc ->
-      apply_selection(acc, config, s)
-    end)
+    {query, aliases} =
+      selected
+      |> Enum.reduce({query, []}, fn s, acc ->
+        apply_selection(acc, config, s)
+      end)
+
     IO.inspect(aliases)
-    { query, Enum.reverse( aliases ) }
+    {query, Enum.reverse(aliases)}
   end
 
   @doc """
@@ -384,17 +391,19 @@ defmodule Listable do
     ## if we don't select empty map here, it will include the full * of our source!
     query = from(root in listable.domain.source, as: :listable_root, select: %{})
 
-    {query, aliases} = get_join_order(
-      listable.config.joins,
-      Enum.uniq(selected_by_join ++ filtered_by_join ++ order_by_by_join ++ group_by_by_join)
-    )
-    |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end)
-    |> apply_selections(listable.config, listable.set.selected)
+    {query, aliases} =
+      get_join_order(
+        listable.config.joins,
+        Enum.uniq(selected_by_join ++ filtered_by_join ++ order_by_by_join ++ group_by_by_join)
+      )
+      |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end)
+      |> apply_selections(listable.config, listable.set.selected)
 
-    query = query
-    |> apply_filters(listable.config, listable.set.filtered)
-    |> apply_group_by(listable.config, listable.set.group_by)
-    |> apply_order_by(listable.config, listable.set.order_by)
+    query =
+      query
+      |> apply_filters(listable.config, listable.set.filtered)
+      |> apply_group_by(listable.config, listable.set.group_by)
+      |> apply_order_by(listable.config, listable.set.order_by)
 
     {query, aliases}
   end
@@ -470,12 +479,14 @@ defmodule Listable do
   def execute(listable) do
     IO.puts("Execute Query")
 
-    {query, aliases} = listable
-    |> gen_query()
+    {query, aliases} =
+      listable
+      |> gen_query()
 
-    results = query
-    |> listable.repo.all()
-    |> IO.inspect(label: "Results")
+    results =
+      query
+      |> listable.repo.all()
+      |> IO.inspect(label: "Results")
 
     {results, aliases}
   end
@@ -483,9 +494,8 @@ defmodule Listable do
   def available_columns(listable) do
     listable.config.columns
   end
+
   def available_filters(listable) do
     listable.config.filters
   end
-
-
 end
