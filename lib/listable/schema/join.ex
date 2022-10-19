@@ -32,7 +32,7 @@ defmodule Listable.Schema.Join do
       owner_key: association.owner_key,
       my_key: association.related_key,
       id: id,
-      name: config.name,
+      name: Map.get(config, :name, id),
       ## probably don't need 'where'
       requires_join: dep,
       fields:

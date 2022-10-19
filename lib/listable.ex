@@ -61,7 +61,7 @@ defmodule Listable do
   # generate the listable configuration
   defp configure_domain(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
-
+IO.puts("here")
     fields =
       Listable.Schema.Column.configure_columns(
         :listable_root,
@@ -70,9 +70,9 @@ defmodule Listable do
         source,
         domain
       )
-
+      IO.puts("here")
     joins = Listable.Schema.Join.recurse_joins(source, domain)
-
+    IO.puts("here")
     ## Combine fields from Joins into fields list
     fields =
       List.flatten([fields | Enum.map(Map.values(joins), fn e -> e.fields end)])
