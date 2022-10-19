@@ -61,7 +61,6 @@ defmodule Listable do
   # generate the listable configuration
   defp configure_domain(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
-IO.puts("here")
     fields =
       Listable.Schema.Column.configure_columns(
         :listable_root,
