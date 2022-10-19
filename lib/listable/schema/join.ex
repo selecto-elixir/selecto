@@ -2,10 +2,11 @@ defmodule Listable.Schema.Join do
   # listable meta join can edit, add, alter this join!
 
   defp normalize_joins(source, domain, joins, dep) do
-    Enum.reduce( joins, [], fn {id, config}, acc ->
+    Enum.reduce(joins, [], fn {id, config}, acc ->
       ### Todo allow this to be non-configured assoc
       association = source.__schema__(:association, id)
       acc = acc ++ [Listable.Schema.Join.configure(id, association, config, dep)]
+
       case Map.get(config, :joins) do
         nil -> acc
         _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
@@ -21,7 +22,8 @@ defmodule Listable.Schema.Join do
   end
 
   def configure(id, association, config, dep) do
-    IO.puts("configuring #{ association.field}")
+    IO.puts("configuring #{association.field}")
+
     join = %{
       i_am: association.queryable,
       joined_from: association.owner,
@@ -42,12 +44,11 @@ defmodule Listable.Schema.Join do
           config
         )
     }
+
     if function_exported?(join.i_am, :listable_meta_join, 1) do
       join.i_am.listable_meta_join(join)
     else
       join
     end
-
   end
-
 end

@@ -1,5 +1,4 @@
 defmodule Listable.Schema.Column do
-
   # Configure columns - move to column
   def configure_columns(join, fields, source, domain) do
     fields
@@ -16,7 +15,12 @@ defmodule Listable.Schema.Column do
 
     config = get_in(domain, [:columns, field])
 
-    name = if config do config.name else field end
+    name =
+      if config do
+        config.name
+      else
+        field
+      end
 
     col = {
       colid,

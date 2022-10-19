@@ -65,14 +65,15 @@ defmodule Listable do
     fields =
       Listable.Schema.Column.configure_columns(
         :listable_root,
-        source.__schema__(:fields) -- source.__schema__(:redact_fields), ## Add in keys from domain.columns ...
+        ## Add in keys from domain.columns ...
+        source.__schema__(:fields) -- source.__schema__(:redact_fields),
         source,
         domain
       )
 
     joins = Listable.Schema.Join.recurse_joins(source, domain)
 
-    ##Combine fields from Joins into fields list
+    ## Combine fields from Joins into fields list
     fields =
       List.flatten([fields | Enum.map(Map.values(joins), fn e -> e.fields end)])
       |> Enum.reduce(%{}, fn m, acc -> Map.merge(acc, m) end)
