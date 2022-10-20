@@ -1,16 +1,12 @@
 defmodule Listable.Schema.Column do
   # Configure columns - move to column
   def configure_columns(join, fields, source, domain) do
-    IO.puts("HRE")
     fields
-    |> IO.inspect()
     |> Enum.map(&configure(&1, join, source, domain))
-    |> IO.inspect()
     |> Map.new()
   end
 
   def configure(field, join, source, domain) do
-    IO.puts("HERE #{field} #{join}")
     colid =
       case join do
         :listable_root -> Atom.to_string(field)

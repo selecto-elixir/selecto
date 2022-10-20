@@ -69,9 +69,7 @@ defmodule Listable do
         source,
         domain
       )
-      IO.puts("here")
     joins = Listable.Schema.Join.recurse_joins(source, domain)
-    IO.puts("here")
     ## Combine fields from Joins into fields list
     fields =
       List.flatten([fields | Enum.map(Map.values(joins), fn e -> e.fields end)])
@@ -195,7 +193,7 @@ defmodule Listable do
         apply_selection(acc, config, s)
       end)
 
-    IO.inspect(aliases)
+    #IO.inspect(aliases)
     {query, Enum.reverse(aliases)}
   end
 
@@ -421,7 +419,7 @@ defmodule Listable do
     results =
       query
       |> listable.repo.all()
-      |> IO.inspect(label: "Results")
+      #|> IO.inspect(label: "Results")
 
     {results, aliases}
   end

@@ -22,8 +22,6 @@ defmodule Listable.Schema.Join do
   end
 
   def configure(id, association, config, dep) do
-    IO.puts("configuring #{association.field}")
-
     join = %{
       i_am: association.queryable,
       joined_from: association.owner,
