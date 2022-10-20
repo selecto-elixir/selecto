@@ -114,6 +114,19 @@ defmodule Listable do
     {query, aliases}
   end
 
+  defp apply_selection({query, aliases}, config, {:to_char, {field, format}, as}) do
+    conf = config.columns[field]
+
+    query =
+      from({^conf.requires_join, owner} in query,
+        select_merge: %{
+          ^"#{as}" => fragment("to_char(?, ?)", field(owner, ^conf.field), ^format)
+        }
+      )
+
+    {query, [as | aliases]}
+  end
+
   ## Todo why this does not work with numbers?
   defp apply_selection({query, aliases}, _config, {:literal, name, value}) do
     query = from({:listable_root, owner} in query, select_merge: %{^name => ^value})
@@ -146,6 +159,9 @@ defmodule Listable do
   ## TODO allow for func call args
   ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
   ## ^^ and mixed lit/field args - field as list?
+
+
+
   defp apply_selection({query, aliases}, config, {func, field, as}) when is_atom(func) do
     conf = config.columns[field]
     func = Atom.to_string(func)
@@ -390,6 +406,7 @@ defmodule Listable do
       {:coalesce, _n, sels} -> sels
       {:case, _n, case_map} -> Map.values(case_map)
       {:literal, _a, _b} -> []
+      {_f, {s, _d}, _p} -> s
       {_f, s, _p} -> s
       {_f, s} -> s
       {_f} -> nil
