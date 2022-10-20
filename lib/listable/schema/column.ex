@@ -33,7 +33,7 @@ defmodule Listable.Schema.Column do
         field: field,
         name:
           if :listable_root == join do
-            name
+            "#{domain.name}: #{name}"
           else
             "#{domain.name}: #{name}"
           end,
