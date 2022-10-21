@@ -226,7 +226,7 @@ defmodule Listable do
     end)
   end
 
-  ### Move to new module since there will be a lot of pattern matching of atoms here...
+  ### Move to new module since there will be a lot of pattern matching here...
   ### Not sure how to do this. hmmmm
   # defp filters_recurse(config, query, {mod, filter_list}) when is_atom(mod) and is_list(filter_list) do
   #  query
@@ -235,6 +235,8 @@ defmodule Listable do
     def = config.columns[name]
     table = def.requires_join
     field = def.field
+
+    ### how to allow function calls in field and val?
 
     case val do
       x when is_nil(x) ->
@@ -251,9 +253,18 @@ defmodule Listable do
         from([{^table, a}] in query,
           where: field(a, ^field) in ^val
         )
+      #sucks to not be able to do these 6 in one with a fragment!
+      {x, v} when x == "!=" ->
+        from([{^table, a}] in query, where: field(a, ^field) != ^v )
+      {x, v} when x == "<" ->
+        from([{^table, a}] in query, where: field(a, ^field) < ^v )
+      {x, v} when x == ">" ->
+        from([{^table, a}] in query, where: field(a, ^field) > ^v )
+      {x, v} when x == "<=" ->
+        from([{^table, a}] in query, where: field(a, ^field) <= ^v )
+      {x, v} when x == ">=" ->
+        from([{^table, a}] in query, where: field(a, ^field) >= ^v )
 
-        # todo add more options here
-        # >, >=,<=, <, !=
         # :not_true (false or nil)
         # date shortcuts (:today, :tomorrow, :last_week, etc )
         # {:between, a, b}
@@ -261,7 +272,7 @@ defmodule Listable do
         # {:or, [filters]}
         # {:and, [filters]}
         # {:case, %{filter=>}}
-        # {:exists, subq} # how to do subq????
+        # {:exists, etc-, subq} # how to do subq????
     end
   end
 
