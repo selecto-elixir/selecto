@@ -213,11 +213,39 @@ defmodule Listable do
     {query, Enum.reverse(aliases)}
   end
 
+  # get a map of joins to list of selected
+  defp joins_from_selects(fields, selected) do
+    selected
+    |> Enum.map(fn
+      {:array, _n, sels} -> sels
+      {:coalesce, _n, sels} -> sels
+      {:case, _n, case_map} -> Map.values(case_map)
+      {:literal, _a, _b} -> []
+      {_f, {s, _d}, _p} -> s
+      {_f, s, _p} -> s
+      {_f, s} -> s
+      {_f} -> nil
+      s -> s
+    end)
+    |> List.flatten()
+    |> Enum.filter(fn
+      {:literal, _s} -> false
+      s -> not is_nil(s) and Map.get(fields, s)
+    end)
+    |> Enum.reduce(%{}, fn e, acc ->
+      Map.put(acc, fields[e].requires_join, 1)
+    end)
+    |> Map.keys()
+  end
+
   @doc """
     add a filter to listable. Send in a tuple with field name and filter value
   """
-  def filter(listable, filters) do
+  def filter(listable, filters) when is_list(filters) do
     put_in(listable.set.filtered, listable.set.filtered ++ filters)
+  end
+  def filter(listable, filters) do
+    put_in(listable.set.filtered, listable.set.filtered ++ [filters])
   end
 
   defp apply_filters(query, config, filters) do
@@ -236,23 +264,18 @@ defmodule Listable do
     table = def.requires_join
     field = def.field
 
-    ### how to allow function calls in field and val?
+    ### how to allow function calls/subqueries in field and val?
+
 
     case val do
       x when is_nil(x) ->
-        from([{^table, a}] in query,
-          where: is_nil(field(a, ^field))
-        )
-
+        from([{^table, a}] in query, where: is_nil(field(a, ^field)) )
       x when is_bitstring(x) or is_number(x) or is_boolean(x) ->
-        from([{^table, a}] in query,
-          where: field(a, ^field) == ^val
-        )
-
+        from([{^table, a}] in query, where: field(a, ^field) == ^val )
       x when is_list(x) ->
-        from([{^table, a}] in query,
-          where: field(a, ^field) in ^val
-        )
+        from([{^table, a}] in query, where: field(a, ^field) in ^val )
+      # TODO not-in
+
       #sucks to not be able to do these 6 in one with a fragment!
       {x, v} when x == "!=" ->
         from([{^table, a}] in query, where: field(a, ^field) != ^v )
@@ -275,6 +298,16 @@ defmodule Listable do
         # {:exists, etc-, subq} # how to do subq????
     end
   end
+
+  # Can only give us the joins.. make this recurse and handle :or, :and, etc
+  defp joins_from_filters(config, filters) do
+    filters
+    |> Enum.reduce(%{}, fn {fil, _val}, acc ->
+      Map.put(acc, config.columns[fil].requires_join, 1)
+    end)
+    |> Map.keys()
+  end
+
 
   @doc """
     Add to the Order By
@@ -333,11 +366,11 @@ defmodule Listable do
   """
   def gen_query(listable) do
     IO.puts("Gen Query")
-    selected_by_join = selected_by_join(listable.config.columns, listable.set.selected)
-    filtered_by_join = filter_by_join(listable.config, listable.set.filtered)
+    joins_from_selects = joins_from_selects(listable.config.columns, listable.set.selected)
+    filtered_by_join = joins_from_filters(listable.config, listable.set.filtered)
 
-    order_by_by_join =
-      selected_by_join(
+    joins_from_order_by =
+      joins_from_selects(
         listable.config.columns,
         Enum.map(listable.set.order_by, fn
           {_dir, field} -> field
@@ -345,7 +378,7 @@ defmodule Listable do
         end)
       )
 
-    group_by_by_join = selected_by_join(listable.config.columns, listable.set.group_by)
+    joins_from_group_by = joins_from_selects(listable.config.columns, listable.set.group_by)
 
     ## We select nothing from the initial query because we are going to select_merge everything and
     ## if we don't select empty map here, it will include the full * of our source!
@@ -354,7 +387,7 @@ defmodule Listable do
     {query, aliases} =
       get_join_order(
         listable.config.joins,
-        Enum.uniq(selected_by_join ++ filtered_by_join ++ order_by_by_join ++ group_by_by_join)
+        Enum.uniq(joins_from_selects ++ filtered_by_join ++ joins_from_order_by ++ joins_from_group_by)
       )
       |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end)
       |> apply_selections(listable.config, listable.set.selected)
@@ -400,39 +433,6 @@ defmodule Listable do
     |> Enum.uniq()
   end
 
-  # Can only give us the joins.. make this recurse and handle :or, :and, etc
-  defp filter_by_join(config, filters) do
-    filters
-    |> Enum.reduce(%{}, fn {fil, _val}, acc ->
-      Map.put(acc, config.columns[fil].requires_join, 1)
-    end)
-    |> Map.keys()
-  end
-
-  # get a map of joins to list of selected
-  defp selected_by_join(fields, selected) do
-    selected
-    |> Enum.map(fn
-      {:array, _n, sels} -> sels
-      {:coalesce, _n, sels} -> sels
-      {:case, _n, case_map} -> Map.values(case_map)
-      {:literal, _a, _b} -> []
-      {_f, {s, _d}, _p} -> s
-      {_f, s, _p} -> s
-      {_f, s} -> s
-      {_f} -> nil
-      s -> s
-    end)
-    |> List.flatten()
-    |> Enum.filter(fn
-      {:literal, _s} -> false
-      s -> not is_nil(s) and Map.get(fields, s)
-    end)
-    |> Enum.reduce(%{}, fn e, acc ->
-      Map.put(acc, fields[e].requires_join, 1)
-    end)
-    |> Map.keys()
-  end
 
   @doc """
     Generate and run the query, returning list of maps (for now...)
