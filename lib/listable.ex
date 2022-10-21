@@ -254,6 +254,19 @@ defmodule Listable do
     end)
   end
 
+  defmacro binary_op_fragment(x, table, query, field, v) do
+    template = "? #{x} ?"
+    Code.eval_string(
+      "
+        from([{^table, a}] in query,
+          where: fragment(\"template\", field(a, ^field), ^v))
+      ",
+      [table: table, template: template, field: field, v: v, query: query],
+      file: __ENV__.file, line: __ENV__.line
+    )
+  end
+
+
   ### Move to new module since there will be a lot of pattern matching here...
   ### Not sure how to do this. hmmmm
   # defp filters_recurse(config, query, {mod, filter_list}) when is_atom(mod) and is_list(filter_list) do
@@ -276,6 +289,9 @@ defmodule Listable do
         from([{^table, a}] in query, where: field(a, ^field) in ^val )
       # TODO not-in
 
+      #{x, v} when x in ~w(!= <> < > <= >=) ->
+      #  binary_op_fragment(x, table, query, field, v)
+
       #sucks to not be able to do these 6 in one with a fragment!
       {x, v} when x == "!=" ->
         from([{^table, a}] in query, where: field(a, ^field) != ^v )
@@ -287,10 +303,14 @@ defmodule Listable do
         from([{^table, a}] in query, where: field(a, ^field) <= ^v )
       {x, v} when x == ">=" ->
         from([{^table, a}] in query, where: field(a, ^field) >= ^v )
+      {"between", min, max} ->
+        from([{^table, a}] in query, where: fragment("? between ? and ?",  field(a, ^field), ^min, ^max ) )
 
-        # :not_true (false or nil)
+      :not_true ->
+        from([{^table, a}] in query,
+          where: not field(a, ^field))
+
         # date shortcuts (:today, :tomorrow, :last_week, etc )
-        # {:between, a, b}
         # {:like}, {:ilike}
         # {:or, [filters]}
         # {:and, [filters]}
