@@ -248,6 +248,8 @@ defmodule Listable do
     put_in(listable.set.filtered, listable.set.filtered ++ [filters])
   end
 
+
+  # Thanks to https://medium.com/swlh/how-to-write-a-nested-and-or-query-using-elixirs-ecto-library-b7755de79b80
   defp combine_fragments_with_and(fragments) do
     conditions = false
     Enum.reduce( fragments, conditions, fn fragment, conditions ->
@@ -270,8 +272,6 @@ defmodule Listable do
     end)
   end
 
-
-
   defp apply_filters(query, config, filters) do
     filter = Enum.map(filters, fn f ->
       filters_recurse(config, f)
@@ -280,11 +280,6 @@ defmodule Listable do
     query |> where(^filter)
   end
 
-  ### Move to new module since there will be a lot of pattern matching here...
-  ### Not sure how to do this. hmmmm
-  # defp filters_recurse(config, query, {mod, filter_list}) when is_atom(mod) and is_list(filter_list) do
-  #  query
-  # end
   defp filters_recurse(config, {:or, filters}) do
     Enum.map(filters, fn f ->
       filters_recurse(config, f)
@@ -307,10 +302,6 @@ defmodule Listable do
     field = def.field
 
     ### how to allow function calls/subqueries in field and val?
-
-    #where_type = :where
-    #fld = dynamic([{^table, a}], field(a, ^field))
-
     case val do
       x when is_nil(x) ->
         dynamic( [{^table, a}], is_nil(field(a, ^field)) )
@@ -346,16 +337,6 @@ defmodule Listable do
     end
   end
 
-  # def and_filters(config, query, filters) do
-  # end
-
-  # def or_filters(config, query, filters) do
-  #   conditions = false
-  #   conditions = Enum.reduce( filters, conditions, fn filter, conditions ->
-  #     new_filter = fragment() ...
-  # https://medium.com/swlh/how-to-write-a-nested-and-or-query-using-elixirs-ecto-library-b7755de79b80
-  #   end)
-  # end
 
 
   # Can only give us the joins.. make this recurse and handle :or, :and, etc
