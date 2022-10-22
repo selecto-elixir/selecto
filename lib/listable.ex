@@ -248,33 +248,57 @@ defmodule Listable do
     put_in(listable.set.filtered, listable.set.filtered ++ [filters])
   end
 
-  defp apply_filters(query, config, filters) do
-
-    Enum.map(filters, fn f ->
-      filters_recurse(config, f)
+  defp combine_fragments_with_and(fragments) do
+    conditions = false
+    Enum.reduce( fragments, conditions, fn fragment, conditions ->
+      if !conditions do
+        dynamic([q], ^fragment)
+      else
+        dynamic([q], ^conditions and ^fragment)
+      end
     end)
-
-    |> Enum.reduce(query, fn dyn, query ->
-      query |> where(^dyn)
-    end)
-
   end
 
-  # defp apply_filters(query, config, filters, :or) do
-  #   Enum.map(filters, query, fn f, acc ->
-  #     filters_recurse(config, acc, f)
-  #   end)
-  #   |> Enum.reduce(query, fn dyn ->
-  #   end)
-  # end
+  defp combine_fragments_with_or(fragments) do
+    conditions = false
+    Enum.reduce( fragments, conditions, fn fragment, conditions ->
+      if !conditions do
+        dynamic([q], ^fragment)
+      else
+        dynamic([q], ^conditions or ^fragment)
+      end
+    end)
+  end
 
 
+
+  defp apply_filters(query, config, filters) do
+    filter = Enum.map(filters, fn f ->
+      filters_recurse(config, f)
+    end)
+    |> combine_fragments_with_and()
+    query |> where(^filter)
+  end
 
   ### Move to new module since there will be a lot of pattern matching here...
   ### Not sure how to do this. hmmmm
   # defp filters_recurse(config, query, {mod, filter_list}) when is_atom(mod) and is_list(filter_list) do
   #  query
   # end
+  defp filters_recurse(config, {:or, filters}) do
+    Enum.map(filters, fn f ->
+      filters_recurse(config, f)
+    end)
+    |> combine_fragments_with_or( )
+  end
+
+  defp filters_recurse(config, {:and, filters}) do
+    Enum.map(filters, fn f ->
+      filters_recurse(config, f)
+    end)
+    |> combine_fragments_with_and( )
+  end
+
   defp filters_recurse(config, {name, val}) do
     IO.puts("Looking #{name}")
     def = config.columns[name]
@@ -315,9 +339,6 @@ defmodule Listable do
 
         # date shortcuts (:today, :tomorrow, :last_week, etc )
         # {:like}, {:ilike}
-      #{:or, filters} ->
-      #  joined_fragments = or_filters(config, query, filters)
-      #  query |> where(^joined_fragments)
 
         # {:and, [filters]}
         # {:case, %{filter=>}}
@@ -340,8 +361,9 @@ defmodule Listable do
   # Can only give us the joins.. make this recurse and handle :or, :and, etc
   defp joins_from_filters(config, filters) do
     filters
-    |> Enum.reduce(%{}, fn {fil, _val}, acc ->
-      Map.put(acc, config.columns[fil].requires_join, 1)
+    |> Enum.reduce(%{}, fn
+      {:or, list}, acc -> Map.merge( acc, Enum.reduce(joins_from_filters(config, list), %{}, fn i, acc -> Map.put(acc, i, 1) end))
+      {fil, _val}, acc -> Map.put(acc, config.columns[fil].requires_join, 1)
     end)
     |> Map.keys()
   end
