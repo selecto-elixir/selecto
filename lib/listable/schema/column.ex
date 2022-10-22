@@ -38,7 +38,7 @@ defmodule Listable.Schema.Column do
     if function_exported?(source, :listable_meta, 1) do
       source.listable_meta(col)
     else
-      col |> IO.inspect()
+      col
     end
   end
 end
