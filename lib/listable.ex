@@ -317,7 +317,6 @@ defmodule Listable do
         dynamic( [{^table, a}], field(a, ^field) == ^val  )
 
       x when is_list(x) ->
-        #from([{^table, a}] in query, where: field(a, ^field) in ^val )
         dynamic( [{^table, a}], field(a, ^field) in ^val )
       # TODO not-in
 
