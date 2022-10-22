@@ -33,6 +33,7 @@ defmodule Listable.Schema.Join do
       name: Map.get(config, :name, id),
       ## probably don't need 'where'
       requires_join: dep,
+      filters: Map.get(config, :filters, %{}),
       fields:
         Listable.Schema.Column.configure_columns(
           association.field,

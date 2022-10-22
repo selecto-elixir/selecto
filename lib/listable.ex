@@ -73,12 +73,24 @@ defmodule Listable do
     ## Combine fields from Joins into fields list
     fields =
       List.flatten([fields | Enum.map(Map.values(joins), fn e -> e.fields end)])
-      |> Enum.reduce(%{}, fn m, acc -> Map.merge(acc, m) end)
+      |> Enum.reduce(%{}, fn m, acc -> Map.merge(m, acc) end)
+
+    ### Extra filters (all normal fields can be a filter)
+    filters = Map.get(domain, :filters, %{})
+    filters = Enum.reduce(
+      Map.values(joins), filters,
+      fn e, acc ->
+        Map.merge( Map.get(e, :filters, %{}), acc)
+      end
+    )
+
+    IO.inspect(filters)
 
     %{
       primary_key: primary_key,
       columns: fields,
-      joins: joins
+      joins: joins,
+      filters: filters
     }
   end
 
