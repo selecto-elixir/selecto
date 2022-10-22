@@ -299,8 +299,9 @@ defmodule Listable do
     |> combine_fragments_with_and( )
   end
 
+  ### TODO add :not
+
   defp filters_recurse(config, {name, val}) do
-    IO.puts("Looking #{name}")
     def = config.columns[name]
     table = def.requires_join
     field = def.field
