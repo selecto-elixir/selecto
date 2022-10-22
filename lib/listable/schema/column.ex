@@ -7,20 +7,17 @@ defmodule Listable.Schema.Column do
   end
 
   def configure(field, join, source, domain) do
+
+    config = Map.get(Map.get(domain, :columns, %{}), field, %{})
+
     colid =
-      case join do
-        :listable_root -> Atom.to_string(field)
-        _ -> "#{Atom.to_string(join)}[#{Atom.to_string(field)}]"
-      end
-
-    config = get_in(domain, [:columns, field])
-
-    name =
-      if config do
-        config.name
-      else
-        field
-      end
+      Map.get(config, :id,
+        case join do
+          :listable_root -> Atom.to_string(field)
+          _ -> "#{Atom.to_string(join)}[#{Atom.to_string(field)}]"
+        end
+      )
+    name = Map.get(config, :name, field)
 
     col = {
       colid,
@@ -41,7 +38,7 @@ defmodule Listable.Schema.Column do
     if function_exported?(source, :listable_meta, 1) do
       source.listable_meta(col)
     else
-      col
+      col |> IO.inspect()
     end
   end
 end

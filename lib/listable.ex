@@ -356,7 +356,9 @@ defmodule Listable do
     filters
     |> Enum.reduce(%{}, fn
       {:or, list}, acc -> Map.merge( acc, Enum.reduce(joins_from_filters(config, list), %{}, fn i, acc -> Map.put(acc, i, 1) end))
-      {fil, _val}, acc -> Map.put(acc, config.columns[fil].requires_join, 1)
+      {fil, _val}, acc ->
+        IO.inspect(fil)
+        Map.put(acc, config.columns[fil].requires_join, 1)
     end)
     |> Map.keys()
   end
