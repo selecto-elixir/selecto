@@ -292,7 +292,7 @@ defmodule Listable do
       x when is_bitstring(x) or is_number(x) or is_boolean(x) ->
         dynamic( [{^table, a}], field(a, ^field) == ^val  )
 
-        x when is_list(x) ->
+      x when is_list(x) ->
         #from([{^table, a}] in query, where: field(a, ^field) in ^val )
         dynamic( [{^table, a}], field(a, ^field) in ^val )
       # TODO not-in
