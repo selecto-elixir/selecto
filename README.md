@@ -35,6 +35,10 @@ The domain is a map, and contains:
 Listable will walk through the configuration and flatten out the list of columns. 
 
 
+
+
+
+
 disregard all this for now, you have to install from github if you're 
 pulling this into another app:
 
