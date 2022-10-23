@@ -20,7 +20,7 @@ and what filters are available (currently its generated from the list of
 columns, but that will also be expanded to ad hoc filters).
 
 ```elixir
-listable = Listable.configure( %{} = domain )
+listable = Listable.configure( YourApp.Repo,  %{} = domain )
 ```
 
 The domain is a map, and contains: 
@@ -51,7 +51,7 @@ Listable will add the joins needed to build the query for the requested selectio
 
 To get results, use Listable.execute
 ```elixir
-Listable.execute(YourApp.Repo, listable)
+Listable.execute(listable)
 ```
 Which will return a list of maps, one per row. 
 
