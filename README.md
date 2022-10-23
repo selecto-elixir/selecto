@@ -85,6 +85,17 @@ The selects and filters are composed into an Ecto.Query and you can get that by
 Listable.gen_query(listable)
 ```
 
+Planned Features: 
+
+ - ability to filter on field-comp-field 
+ - ability to wrap filter fields and values in SQL functions
+ - custom filters and columns
+ - subqueries in selects and filters
+ - ability to tell listable to put some selects into an array from a subquery 
+ - ability to configure without requiring domain structure
+ - API
+ - Components (in progress for [tailwind/liveview](https://github.com/seeken/listable_components_tailwind) )
+ - tests (when domain/filters/select is stabilized)
 
 
 
