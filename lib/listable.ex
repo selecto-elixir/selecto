@@ -61,6 +61,7 @@ defmodule Listable do
   # generate the listable configuration
   defp configure_domain(%{source: source} = domain) do
     primary_key = source.__schema__(:primary_key)
+
     fields =
       Listable.Schema.Column.configure_columns(
         :listable_root,
@@ -69,6 +70,7 @@ defmodule Listable do
         source,
         domain
       )
+
     joins = Listable.Schema.Join.recurse_joins(source, domain)
     ## Combine fields from Joins into fields list
     fields =
@@ -77,12 +79,15 @@ defmodule Listable do
 
     ### Extra filters (all normal fields can be a filter)
     filters = Map.get(domain, :filters, %{})
-    filters = Enum.reduce(
-      Map.values(joins), filters,
-      fn e, acc ->
-        Map.merge( Map.get(e, :filters, %{}), acc)
-      end
-    )
+
+    filters =
+      Enum.reduce(
+        Map.values(joins),
+        filters,
+        fn e, acc ->
+          Map.merge(Map.get(e, :filters, %{}), acc)
+        end
+      )
 
     %{
       primary_key: primary_key,
@@ -101,9 +106,8 @@ defmodule Listable do
   end
 
   def select(listable, field) do
-    Listable.select(listable, [ field ])
+    Listable.select(listable, [field])
   end
-
 
   #### Selects
   ### Add parameterized select functions...
@@ -174,8 +178,6 @@ defmodule Listable do
   ## TODO allow for func call args
   ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
   ## ^^ and mixed lit/field args - field as list?
-
-
 
   defp apply_selection({query, aliases}, config, {func, field, as}) when is_atom(func) do
     conf = config.columns[field]
@@ -258,15 +260,16 @@ defmodule Listable do
   def filter(listable, filters) when is_list(filters) do
     put_in(listable.set.filtered, listable.set.filtered ++ filters)
   end
+
   def filter(listable, filters) do
     put_in(listable.set.filtered, listable.set.filtered ++ [filters])
   end
 
-
   # Thanks to https://medium.com/swlh/how-to-write-a-nested-and-or-query-using-elixirs-ecto-library-b7755de79b80
   defp combine_fragments_with_and(fragments) do
     conditions = false
-    Enum.reduce( fragments, conditions, fn fragment, conditions ->
+
+    Enum.reduce(fragments, conditions, fn fragment, conditions ->
       if !conditions do
         dynamic([q], ^fragment)
       else
@@ -277,7 +280,8 @@ defmodule Listable do
 
   defp combine_fragments_with_or(fragments) do
     conditions = false
-    Enum.reduce( fragments, conditions, fn fragment, conditions ->
+
+    Enum.reduce(fragments, conditions, fn fragment, conditions ->
       if !conditions do
         dynamic([q], ^fragment)
       else
@@ -287,10 +291,12 @@ defmodule Listable do
   end
 
   defp apply_filters(query, config, filters) do
-    filter = Enum.map(filters, fn f ->
-      filters_recurse(config, f)
-    end)
-    |> combine_fragments_with_and()
+    filter =
+      Enum.map(filters, fn f ->
+        filters_recurse(config, f)
+      end)
+      |> combine_fragments_with_and()
+
     query |> where(^filter)
   end
 
@@ -298,14 +304,14 @@ defmodule Listable do
     Enum.map(filters, fn f ->
       filters_recurse(config, f)
     end)
-    |> combine_fragments_with_or( )
+    |> combine_fragments_with_or()
   end
 
   defp filters_recurse(config, {:and, filters}) do
     Enum.map(filters, fn f ->
       filters_recurse(config, f)
     end)
-    |> combine_fragments_with_and( )
+    |> combine_fragments_with_and()
   end
 
   ### TODO add :not
@@ -318,29 +324,37 @@ defmodule Listable do
     ### how to allow function calls/subqueries in field and val?
     case val do
       x when is_nil(x) ->
-        dynamic( [{^table, a}], is_nil(field(a, ^field)) )
+        dynamic([{^table, a}], is_nil(field(a, ^field)))
+
       x when is_bitstring(x) or is_number(x) or is_boolean(x) ->
-        dynamic( [{^table, a}], field(a, ^field) == ^val  )
+        dynamic([{^table, a}], field(a, ^field) == ^val)
 
       x when is_list(x) ->
-        dynamic( [{^table, a}], field(a, ^field) in ^val )
+        dynamic([{^table, a}], field(a, ^field) in ^val)
+
       # TODO not-in
 
-      #sucks to not be able to do these 6 in one with a fragment!
+      # sucks to not be able to do these 6 in one with a fragment!
       {x, v} when x == "!=" ->
-        dynamic( [{^table, a}], field(a, ^field) != ^v )
+        dynamic([{^table, a}], field(a, ^field) != ^v)
+
       {x, v} when x == "<" ->
-        dynamic( [{^table, a}], field(a, ^field) < ^v )
+        dynamic([{^table, a}], field(a, ^field) < ^v)
+
       {x, v} when x == ">" ->
-        dynamic( [{^table, a}], field(a, ^field) > ^v )
+        dynamic([{^table, a}], field(a, ^field) > ^v)
+
       {x, v} when x == "<=" ->
-        dynamic( [{^table, a}], field(a, ^field) <= ^v )
+        dynamic([{^table, a}], field(a, ^field) <= ^v)
+
       {x, v} when x == ">=" ->
-        dynamic( [{^table, a}], field(a, ^field) >= ^v )
+        dynamic([{^table, a}], field(a, ^field) >= ^v)
+
       {"between", min, max} ->
-        dynamic( [{^table, a}], fragment("? between ? and ?",  field(a, ^field), ^min, ^max ))
+        dynamic([{^table, a}], fragment("? between ? and ?", field(a, ^field), ^min, ^max))
+
       :not_true ->
-        dynamic( [{^table, a}], not field(a, ^field) )
+        dynamic([{^table, a}], not field(a, ^field))
 
         # date shortcuts (:today, :tomorrow, :last_week, etc )
         # {:like}, {:ilike}
@@ -351,18 +365,21 @@ defmodule Listable do
     end
   end
 
-
-
   # Can only give us the joins.. make this recurse and handle :or, :and, etc
   defp joins_from_filters(config, filters) do
     filters
     |> Enum.reduce(%{}, fn
-      {:or, list}, acc -> Map.merge( acc, Enum.reduce(joins_from_filters(config, list), %{}, fn i, acc -> Map.put(acc, i, 1) end))
-      {fil, _val}, acc -> Map.put(acc, config.columns[fil].requires_join, 1)
+      {:or, list}, acc ->
+        Map.merge(
+          acc,
+          Enum.reduce(joins_from_filters(config, list), %{}, fn i, acc -> Map.put(acc, i, 1) end)
+        )
+
+      {fil, _val}, acc ->
+        Map.put(acc, config.columns[fil].requires_join, 1)
     end)
     |> Map.keys()
   end
-
 
   @doc """
     Add to the Order By
@@ -443,7 +460,9 @@ defmodule Listable do
     {query, aliases} =
       get_join_order(
         listable.config.joins,
-        Enum.uniq(joins_from_selects ++ filtered_by_join ++ joins_from_order_by ++ joins_from_group_by)
+        Enum.uniq(
+          joins_from_selects ++ filtered_by_join ++ joins_from_order_by ++ joins_from_group_by
+        )
       )
       |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end)
       |> apply_selections(listable.config, listable.set.selected)
@@ -458,7 +477,6 @@ defmodule Listable do
   end
 
   def gen_sql(listable) do
-
   end
 
   # apply the join to the query
@@ -493,7 +511,6 @@ defmodule Listable do
     |> Enum.uniq()
   end
 
-
   @doc """
     Generate and run the query, returning list of maps (for now...)
   """
@@ -507,7 +524,8 @@ defmodule Listable do
     results =
       query
       |> listable.repo.all()
-      #|> IO.inspect(label: "Results")
+
+    # |> IO.inspect(label: "Results")
 
     {results, aliases}
   end

@@ -3,25 +3,23 @@ defmodule Listable.Schema.Join do
 
   defp normalize_joins(source, domain, joins, dep) do
     Enum.reduce(joins, [], fn
+      {id, %{not_assoc: true} = config}, acc ->
+        acc = acc ++ [Listable.Schema.Join.configure_non_assoc(id, source, config, dep)]
 
-    {id, %{not_assoc: true} = config}, acc ->
-      acc = acc ++ [Listable.Schema.Join.configure_non_assoc(id, source, config, dep)]
-      case Map.get(config, :joins) do
-        _ -> acc ## how to add joins here
-      end
+        case Map.get(config, :joins) do
+          ## how to add joins here
+          _ -> acc
+        end
 
+      {id, config}, acc ->
+        ### Todo allow this to be non-configured assoc
+        association = source.__schema__(:association, id)
+        acc = acc ++ [Listable.Schema.Join.configure(id, association, config, dep)]
 
-    {id, config}, acc ->
-      ### Todo allow this to be non-configured assoc
-      association = source.__schema__(:association, id)
-      acc = acc ++ [Listable.Schema.Join.configure(id, association, config, dep)]
-
-      case Map.get(config, :joins) do
-        nil -> acc
-        _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
-      end
-
-
+        case Map.get(config, :joins) do
+          nil -> acc
+          _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
+        end
     end)
   end
 
@@ -33,15 +31,12 @@ defmodule Listable.Schema.Join do
   end
 
   def configure_non_assoc(id, source, config, dep) do
-    join = %{ ### TODO
+    ### TODO
+    join = %{
       id: id,
       fields: []
-
     }
-
-
   end
-
 
   def configure(id, association, config, dep) do
     join = %{

@@ -7,16 +7,18 @@ defmodule Listable.Schema.Column do
   end
 
   def configure(field, join, source, domain) do
-
     config = Map.get(Map.get(domain, :columns, %{}), field, %{})
 
     colid =
-      Map.get(config, :id,
+      Map.get(
+        config,
+        :id,
         case join do
           :listable_root -> Atom.to_string(field)
           _ -> "#{Atom.to_string(join)}[#{Atom.to_string(field)}]"
         end
       )
+
     name = Map.get(config, :name, field)
 
     col = {
