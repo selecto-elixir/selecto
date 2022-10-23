@@ -80,7 +80,10 @@ A filter is given as a tuple with the following forms allowed:
 - {:or, [list of filters]} -> recurses, joining items in the list with OR puts the result in () 
 - {:and, [list of filters]} -> recurses and puts the result in () 
 
-
+The selects and filters are composed into an Ecto.Query and you can get that by
+```elixir
+Listable.gen_query(listable)
+```
 
 
 
