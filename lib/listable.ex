@@ -96,9 +96,14 @@ defmodule Listable do
     add a field to the Select list. Send in a list of field names
     TODO allow to send single, and special forms..
   """
-  def select(listable, fields) do
+  def select(listable, fields) when is_list(fields) do
     put_in(listable.set.selected, Enum.uniq(listable.set.selected ++ fields))
   end
+
+  def select(listable, field) do
+    Listable.select(listable, [ field ])
+  end
+
 
   #### Selects
   ### Add parameterized select functions...

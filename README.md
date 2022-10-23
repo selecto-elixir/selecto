@@ -46,14 +46,40 @@ To filter data, use Listable.filter:
 ```elixir
 Listable.filter(listable, [ {"id", 1} ])
 ```
+Listable will add the joins needed to build the query for the requested selections.
+
 
 To get results, use Listable.execute
 ```elixir
-Listable.execute(listable)
+Listable.execute(YourApp.Repo, listable)
 ```
 Which will return a list of maps, one per row. 
 
 Selections in Detail
+
+When a func is referenced below, it is referring to a SQL function
+
+ - "field" Just select the column
+ - {:count} select count of returns (aggregate)
+ - {func, field, as} when is_atom(func) select func(field) as "as" 
+ - {func, field} when is_atom(func) select func(field)
+ - {func, {:literal, value}, as} when is_atom(func) select func(value) as "as" 
+ - {:literal, name, value} select this literal value as "as"
+ - planned: case, coalesce, array
+
+Filters in Detail
+
+A filter is given as a tuple with the following forms allowed:
+
+- {field, value} (value is string, numbe, boolean) -> regular old = 
+- {field, nil} -> is null clause
+- {field, list_of_valeus } -> in clause
+- {field, {comp, value}} -> comp is !=, >, <, >=, <=
+- {field, {between, min, max}}-> you get it
+- {field, :not_true} -> gives not(field) (should be a bool...)
+- {:or, [list of filters]} -> recurses, joining items in the list with OR puts the result in () 
+- {:and, [list of filters]} -> recurses and puts the result in () 
+
 
 
 
