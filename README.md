@@ -90,7 +90,7 @@ Listable.gen_query(listable)
 
 
 
-disregard all this for now, you have to install from github if you're 
+Disregard all this below for now since we're not on hex, you have to install from github if you're 
 pulling this into another app:
 
 ## Installation
