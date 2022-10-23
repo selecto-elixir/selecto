@@ -224,7 +224,6 @@ defmodule Listable do
         apply_selection(acc, config, s)
       end)
 
-    #IO.inspect(aliases)
     {query, Enum.reverse(aliases)}
   end
 

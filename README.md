@@ -5,6 +5,7 @@ A Query and Report Writing system (Name is subject to change)
 This is very young software and might spill milk in your computer.
 
 Documentation is planned once the API is finalized. For now please 
+
 see the notes in the listable_test repo.
 
 A note: I use the word filter to mean a couple different things: 
@@ -87,15 +88,17 @@ Listable.gen_query(listable)
 
 Planned Features: 
 
+ - Many 'TODO' sprinkled around the code + 
  - ability to filter on field-comp-field 
  - ability to wrap filter fields and values in SQL functions
  - custom filters and columns
  - subqueries in selects and filters
  - ability to tell listable to put some selects into an array from a subquery 
  - ability to configure without requiring domain structure
- - API
+ - API & Vue lib
  - Components (in progress for [tailwind/liveview](https://github.com/seeken/listable_components_tailwind) )
  - tests (when domain/filters/select is stabilized)
+ - Documentation
 
 
 
