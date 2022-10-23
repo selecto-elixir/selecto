@@ -51,7 +51,7 @@ defmodule Listable do
       config: configure_domain(domain),
       set: %{
         selected: Map.get(domain, :required_selected, []),
-        filtered: Map.get(domain, :required_filters, []),
+        filtered: [],
         order_by: Map.get(domain, :required_order_by, []),
         group_by: Map.get(domain, :required_group_by, [])
       }
@@ -418,7 +418,8 @@ defmodule Listable do
   def gen_query(listable) do
     IO.puts("Gen Query")
     joins_from_selects = joins_from_selects(listable.config.columns, listable.set.selected)
-    filtered_by_join = joins_from_filters(listable.config, listable.set.filtered)
+    filters_to_use = Map.get(listable.domain, :required_filters, []) ++ listable.set.filtered
+    filtered_by_join = joins_from_filters(listable.config, filters_to_use)
 
     joins_from_order_by =
       joins_from_selects(
@@ -445,7 +446,7 @@ defmodule Listable do
 
     query =
       query
-      |> apply_filters(listable.config, listable.set.filtered)
+      |> apply_filters(listable.config, filters_to_use)
       |> apply_group_by(listable.config, listable.set.group_by)
       |> apply_order_by(listable.config, listable.set.order_by)
 
