@@ -4,9 +4,7 @@ A Query and Report Writing system (Name is subject to change)
 
 This is very young software and might spill milk in your computer.
 
-Documentation is planned once the API is finalized. For now please 
-
-see the notes in the listable_test repo.
+Better documentation is planned once the API is finalized.
 
 A note: I use the word filter to mean a couple different things: 
  - A configuration that tells Listable how to build a predicate in the where clause
