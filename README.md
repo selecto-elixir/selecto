@@ -32,7 +32,29 @@ The domain is a map, and contains:
  Listable to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context.
  - required_*: these might go away
 
-Listable will walk through the configuration and flatten out the list of columns. 
+Listable will walk through the configuration and configure columns from the ecto schema. From the source table, 
+they will be named as a string of the column name. Columns in associated tables will be given name as association atom 
+and the column name in brackets, eg "assoctable[id]".
+
+To select data, use Listable.select: 
+
+```elixir
+Listable.select(listable, ["id", "name", "assoctable[id]" ])
+```
+
+To filter data, use Listable.filter: 
+```elixir
+Listable.filter(listable, [ {"id", 1} ])
+```
+
+To get results, use Listable.execute
+```elixir
+Listable.execute(listable)
+```
+Which will return a list of maps, one per row. 
+
+Selections in Detail
+
 
 
 
