@@ -45,7 +45,7 @@ To filter data, use Listable.filter:
 ```elixir
 Listable.filter(listable, [ {"id", 1} ])
 ```
-Listable will add the joins needed to build the query for the requested selections.
+Listable will add the joins needed to build the query for the requested selections. It currently uses left joins only, but I will add support to specify join type.
 
 
 To get results, use Listable.execute
@@ -97,6 +97,11 @@ Planned Features:
  - Components (in progress for [tailwind/liveview](https://github.com/seeken/listable_components_tailwind) )
  - tests (when domain/filters/select is stabilized)
  - Documentation
+ - CTEs
+ - Window functions
+ - UNion, etc
+ - index hints
+ - join controls
 
 
 
