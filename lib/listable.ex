@@ -350,7 +350,7 @@ defmodule Listable do
       {x, v} when x == ">=" ->
         dynamic([{^table, a}], field(a, ^field) >= ^v)
 
-      {"between", min, max} ->
+      {:between, min, max} ->
         dynamic([{^table, a}], fragment("? between ? and ?", field(a, ^field), ^min, ^max))
 
       :not_true ->
