@@ -133,6 +133,20 @@ defmodule Listable do
     {query, aliases}
   end
 
+  defp apply_selection({query, aliases}, config, {:extract, field, format}) do
+    conf = config.columns[field]
+    as = "#{format} from #{field}"
+    query =
+      from({^conf.requires_join, owner} in query,
+        select_merge: %{
+          ^"#{as}" => fragment("extract(? from ?)", literal(^format), field(owner, ^conf.field))
+        }
+      )
+
+    {query, [as | aliases]}
+  end
+
+
   defp apply_selection({query, aliases}, config, {:to_char, {field, format}, as}) do
     conf = config.columns[field]
 
@@ -421,6 +435,11 @@ defmodule Listable do
     group_bys =
       group_bys
       |> Enum.map(fn
+        {:extract, field, format} ->
+          dynamic(
+            [{^config.columns[field].requires_join, owner}],
+            fragment( "extract( ? from ? )", literal(^format), field(owner, ^config.columns[field].field))
+          )
         field ->
           dynamic(
             [{^config.columns[field].requires_join, owner}],
