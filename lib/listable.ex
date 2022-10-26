@@ -434,7 +434,7 @@ defmodule Listable do
   defp apply_group_by(query, config, group_bys) do
     group_bys =
       group_bys
-      |> Enum.map(fn
+      |> Enum.map(fn  #add additional here
         {:extract, field, format} ->
           dynamic(
             [{^config.columns[field].requires_join, owner}],
