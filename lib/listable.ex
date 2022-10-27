@@ -113,6 +113,27 @@ defmodule Listable do
   ### Add parameterized select functions...
 
   ## need more? upper, lower, ???, postgres specifics?
+  defp apply_selection({query, aliases}, config, {:subquery, func, field}) do
+    conf = config.columns[field]
+    join = config.joins[conf.requires_join]
+    my_func = Atom.to_string(func)
+    my_key = Atom.to_string(join.my_key)
+    my_field = Atom.to_string(conf.field)
+
+    as = "#{func}(#{field})"
+    dyn = %{
+      as =>
+        dynamic([{^join.requires_join, par }],
+            fragment("(select ?(?) from ? where ? = ?)",
+            literal(^my_func),
+            literal(^my_field),
+            literal(^join.source),
+            literal(^my_key), par.id)
+      )
+    }
+    query = from a in query, select_merge: ^dyn
+    {query, [as | aliases]}
+  end
 
   # ARRAY - auto gen array from otherwise denorm'ing selects using postgres 'array' func
   # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
@@ -475,6 +496,11 @@ defmodule Listable do
     ## We select nothing from the initial query because we are going to select_merge everything and
     ## if we don't select empty map here, it will include the full * of our source!
     query = from(root in listable.domain.source, as: :listable_root, select: %{})
+    IO.inspect(query)
+
+    ##### If we are GROUP BY and have AGGREGATES that live on a join path with any :many
+    ##### cardinality we have to force the aggregates to subquery
+
 
     {query, aliases} =
       get_join_order(
@@ -485,12 +511,13 @@ defmodule Listable do
       )
       |> Enum.reduce(query, fn j, acc -> apply_join(listable.config, acc, j) end)
       |> apply_selections(listable.config, listable.set.selected)
-
+      IO.inspect(query, label: "Second Last")
     query =
       query
       |> apply_filters(listable.config, filters_to_use)
       |> apply_group_by(listable.config, listable.set.group_by)
       |> apply_order_by(listable.config, listable.set.order_by)
+      IO.inspect(query, label: "Last")
 
     {query, aliases}
   end
@@ -540,6 +567,8 @@ defmodule Listable do
     {query, aliases} =
       listable
       |> gen_query()
+
+    IO.inspect(query, label: "Exe")
 
     results =
       query

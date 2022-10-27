@@ -46,6 +46,7 @@ defmodule Listable.Schema.Join do
       cardinality: association.cardinality,
       owner_key: association.owner_key,
       my_key: association.related_key,
+      source: association.queryable.__schema__(:source),
       id: id,
       name: Map.get(config, :name, id),
       ## probably don't need 'where'
