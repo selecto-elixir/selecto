@@ -496,6 +496,7 @@ defmodule Listable do
   end
 
   def gen_sql(listable) do
+    #TODO
   end
 
   # apply the join to the query
