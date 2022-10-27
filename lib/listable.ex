@@ -499,7 +499,6 @@ defmodule Listable do
     ## We select nothing from the initial query because we are going to select_merge everything and
     ## if we don't select empty map here, it will include the full * of our source!
     query = from(root in listable.domain.source, as: :listable_root, select: %{})
-    IO.inspect(query)
 
     ##### If we are GROUP BY and have AGGREGATES that live on a join path with any :many
     ##### cardinality we have to force the aggregates to subquery
