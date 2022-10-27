@@ -93,7 +93,8 @@ defmodule Listable do
       primary_key: primary_key,
       columns: fields,
       joins: joins,
-      filters: filters
+      filters: filters,
+      domain_data: Map.get(domain, :domain_data)
     }
   end
 
