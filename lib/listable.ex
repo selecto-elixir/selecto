@@ -115,11 +115,14 @@ defmodule Listable do
   ## need more? upper, lower, ???, postgres specifics?
   defp apply_selection({query, aliases}, config, {:subquery, func, field}) do
     conf = config.columns[field]
+
     join = config.joins[conf.requires_join]
     my_func = Atom.to_string(func)
     my_key = Atom.to_string(join.my_key)
     my_field = Atom.to_string(conf.field)
 
+    #from a in ListableTest.Test.SolarSystem, select: {fragment("(select json_agg(planets) from planets where solar_system_id = ?)", a.id)}
+    #from a in ListableTest.Test.SolarSystem, select: {fragment("(select count(id) from planets where solar_system_id = ?)", a.id)}
     as = "#{func}(#{field})"
     dyn = %{
       as =>
