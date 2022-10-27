@@ -577,7 +577,7 @@ defmodule Listable do
       query
       |> listable.repo.all()
 
-    # |> IO.inspect(label: "Results")
+     |> IO.inspect(label: "Results")
 
     {results, aliases}
   end

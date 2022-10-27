@@ -33,7 +33,8 @@ defmodule Listable.Schema.Column do
             "#{domain.name}: #{name}"
           end,
         type: source.__schema__(:type, field),
-        requires_join: join
+        requires_join: join,
+        format: Map.get(config, :format)
       }
     }
 
