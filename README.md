@@ -11,7 +11,7 @@ table to start at, which tables it can join (assocs are supported now,
 but I will be adding support for non-assoc & parameterized joins), 
 what columns are available (currently it's the columns from the schema, but guess what),
 and what filters are available (currently its generated from the list of
-columns, but that will also be expanded to ad hoc filters).
+columns, but that will also be expanded to custom filters).
 
 For now, see [selecto_test](https://github.com/seeken/selecto_test) for some examples of domains.
 
@@ -25,7 +25,7 @@ The domain is a map, and contains:
 - columns: A map of definitions and metadata for schema columns and ad hoc columns
 - filters: A map of ad hoc filters. But it does not work yet. 
 - joins: A map containing assoc names (the atom!) which can also recursively contain joins, columns, filters, and name
-- required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context. 
+- required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context. A quirk of the way filters are converted means that a fitler is required, or the system will add 'false'
 - required_*: these might go away
 
 Selecto will walk through the configuration and configure columns from the ecto schema. From the source table, 
