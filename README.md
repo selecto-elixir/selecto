@@ -105,6 +105,46 @@ Planned Features:
 Disregard all this below for now since we're not on hex, you have to install from github if you're
 pulling this into another app:
 
+PLANNED FORMAT for predicates and selectors (not for initial version)
+
+```elixir
+    #standardize predicate format
+
+    {SELECTOR, nil} #is null
+    {SELECTOR, :not_nil} #is not null
+    {SELECTOR, SELECTOR} #=
+    {SELECTOR, [SELECTOR2, ...]}# in ()
+    {SELECTOR, {comp, SELECTOR2}} #<= etc
+    {SELECTOR, {:between, SELECTOR2, SELECTOR2}
+    {:not, PREDICATE}
+    {:and, [PREDICATES]}
+    {:or, [PREDICATES]}
+    {:in, SUBQUERY}
+    {:exists, SUBQUERY}
+
+    #Standardize selectors to make more complex queries possible
+
+    "field" # - plain old field from one of the tables
+    {:field, field } #- same as above disamg for predicate second+ position
+    {:literal, "value"} #- for literal values
+    {:literal, 1.0}
+    {:literal, 1}
+    {:literal, datetime} etc
+    {:func, SELECTOR}
+    {:count, *} (for count(*))
+    {:func, SELECTOR, SELECTOR}
+    {:func, SELECTOR, SELECTOR, SELECTOR} #...
+    {:extract, part, SELECTOR}
+    {:case, [PREDICATE, SELECTOR, ..., :else, SELECTOR]}
+
+    {:coalese, [SELECTOR, SELECTOR, ...]}
+    {:greatest, [SELECTOR, SELECTOR, ...]}
+    {:least, [SELECTOR, SELECTOR, ...]}
+    {:nullif, [SELECTOR, LITERAL_SELECTOR]} #LITERAL_SELECTOR means naked value treated as lit not field
+
+    {:subquery, [SELECTOR, SELECTOR, ...], PREDICATE}
+```
+
 ## Installation
 
 If [available in Hex](https://hex.pm/docs/publish), the package can be installed
