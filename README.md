@@ -13,6 +13,8 @@ what columns are available (currently it's the columns from the schema, but gues
 and what filters are available (currently its generated from the list of
 columns, but that will also be expanded to ad hoc filters).
 
+For now, see [selecto_test](https://github.com/seeken/selecto_test) for some examples of domains.
+
 ```elixir
 selecto = Selecto.configure( YourApp.Repo,  %{} = domain )
 ```
@@ -23,8 +25,7 @@ The domain is a map, and contains:
 - columns: A map of definitions and metadata for schema columns and ad hoc columns
 - filters: A map of ad hoc filters. But it does not work yet. 
 - joins: A map containing assoc names (the atom!) which can also recursively contain joins, columns, filters, and name
-- required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling 
-Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context.
+- required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context. 
 - required_*: these might go away
 
 Selecto will walk through the configuration and configure columns from the ecto schema. From the source table, 
@@ -55,7 +56,7 @@ Which will return a list of maps, one per row.
 
 Selections in Detail
 
-When a func is referenced below, it is referring to a SQL function
+When func is referenced below, it is referring to a SQL function
 
 - "field" Just select the column
 - {:count} select count of returns (aggregate)
@@ -87,28 +88,28 @@ Selecto.gen_query(selecto)
 Planned Features:
 
 - Many 'TODO' sprinkled around the code +
-- custom filters and columns
+- custom filters, joins, columns, self join
+- parameterized joins (eg joining against a flags or tags table )
+- json/array selects and predicates
 - subqueries in filters
 - ability to tell selecto to put some selects into an array from a subquery
+- ability to select full schema structs / arrays of schema structs
 - ability to configure without requiring domain structure
+- generate SQL directly
 - API & Vue lib
 - Components (in progress for [tailwind/liveview](https://github.com/seeken/selecto_components) )
 - tests (when domain/filters/select is stabilized)
 - Documentation
 - CTEs
 - Window functions
-- UNion, etc
+- UNion, etc - pass in list of predicates and query will union all the alts together
 - index hints
-- join controls
-- more flexable selector and predicate structures
-
-Disregard all this below for now since we're not on hex, you have to install from github if you're
-pulling this into another app:
-
-PLANNED FORMAT for predicates and selectors (not for initial version)
+- join controls - eg manually add a join and tell Selecto which join variant
+- form integration for validation selections and providing options to form elements
+- more flexable selector and predicate structures, allow joins to use any predicates:
 
 ```elixir
-    #standardize predicate format
+    #standardize predicate format FUTURE
 
     {SELECTOR, nil} #is null
     {SELECTOR, :not_nil} #is not null
