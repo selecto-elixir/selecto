@@ -1,8 +1,8 @@
-defmodule ListableTest do
+defmodule SelectoTest do
   use ExUnit.Case
-  doctest Listable
+  doctest Selecto
 
   test "greets the world" do
-    assert Listable.hello() == :world
+    assert Selecto.hello() == :world
   end
 end

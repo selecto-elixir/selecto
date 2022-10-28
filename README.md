@@ -1,4 +1,4 @@
-# Listable
+# Selecto
 
 A Query and Report Writing system (Name is subject to change)
 
@@ -7,11 +7,11 @@ This is very young software and might spill milk in your computer.
 Better documentation is planned once the API is finalized.
 
 A note: I use the word filter to mean a couple different things: 
- - A configuration that tells Listable how to build a predicate in the where clause
+ - A configuration that tells Selecto how to build a predicate in the where clause
  - A specific invocation of one of those configurations
 
 
-Listable is configured by passing in a 'domain' which tells it which 
+Selecto is configured by passing in a 'domain' which tells it which 
 table to start at, which tables it can join (assocs are supported now, 
 but I will be adding support for non-assoc & parameterized joins), 
 what columns are available (currently it's the columns from the schema, but guess what),
@@ -19,7 +19,7 @@ and what filters are available (currently its generated from the list of
 columns, but that will also be expanded to ad hoc filters).
 
 ```elixir
-listable = Listable.configure( YourApp.Repo,  %{} = domain )
+selecto = Selecto.configure( YourApp.Repo,  %{} = domain )
 ```
 
 The domain is a map, and contains: 
@@ -28,29 +28,29 @@ The domain is a map, and contains:
  - filters: A map of ad hoc filters. But it does not work yet. 
  - joins: A map containing assoc names (the atom!) which can also recursively contain joins, columns, filters, and name
  - required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling 
- Listable to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context.
+ Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context.
  - required_*: these might go away
 
-Listable will walk through the configuration and configure columns from the ecto schema. From the source table, 
+Selecto will walk through the configuration and configure columns from the ecto schema. From the source table, 
 they will be named as a string of the column name. Columns in associated tables will be given name as association atom 
 and the column name in brackets, eg "assoctable[id]".
 
-To select data, use Listable.select: 
+To select data, use Selecto.select: 
 
 ```elixir
-Listable.select(listable, ["id", "name", "assoctable[id]" ])
+Selecto.select(selecto, ["id", "name", "assoctable[id]" ])
 ```
 
-To filter data, use Listable.filter: 
+To filter data, use Selecto.filter: 
 ```elixir
-Listable.filter(listable, [ {"id", 1} ])
+Selecto.filter(selecto, [ {"id", 1} ])
 ```
-Listable will add the joins needed to build the query for the requested selections. It currently uses left joins only, but I will add support to specify join type.
+Selecto will add the joins needed to build the query for the requested selections. It currently uses left joins only, but I will add support to specify join type.
 
 
-To get results, use Listable.execute
+To get results, use Selecto.execute
 ```elixir
-Listable.execute(listable)
+Selecto.execute(selecto)
 ```
 Which will return a list of maps, one per row. 
 
@@ -81,7 +81,7 @@ A filter is given as a tuple with the following forms allowed:
 
 The selects and filters are composed into an Ecto.Query and you can get that by
 ```elixir
-Listable.gen_query(listable)
+Selecto.gen_query(selecto)
 ```
 
 Planned Features: 
@@ -91,10 +91,10 @@ Planned Features:
  - ability to wrap filter fields and values in SQL functions
  - custom filters and columns
  - subqueries in selects and filters
- - ability to tell listable to put some selects into an array from a subquery 
+ - ability to tell selecto to put some selects into an array from a subquery 
  - ability to configure without requiring domain structure
  - API & Vue lib
- - Components (in progress for [tailwind/liveview](https://github.com/seeken/listable_components_tailwind) )
+ - Components (in progress for [tailwind/liveview](https://github.com/seeken/selecto_components) )
  - tests (when domain/filters/select is stabilized)
  - Documentation
  - CTEs
@@ -113,12 +113,12 @@ pulling this into another app:
 ## Installation
 
 If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `listable` to your list of dependencies in `mix.exs`:
+by adding `selecto` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:listable, "~> 0.1.0"}
+    {:selecto, "~> 0.1.0"}
   ]
 end
 ```
@@ -129,5 +129,5 @@ end
 
 Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
 and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/listable>.
+be found at <https://hexdocs.pm/selecto>.
 
