@@ -122,20 +122,26 @@ defmodule Selecto do
     my_key = Atom.to_string(join.my_key)
     my_field = Atom.to_string(conf.field)
 
-    #from a in SelectoTest.Test.SolarSystem, select: {fragment("(select json_agg(planets) from planets where solar_system_id = ?)", a.id)}
-    #from a in SelectoTest.Test.SolarSystem, select: {fragment("(select count(id) from planets where solar_system_id = ?)", a.id)}
+    # from a in SelectoTest.Test.SolarSystem, select: {fragment("(select json_agg(planets) from planets where solar_system_id = ?)", a.id)}
+    # from a in SelectoTest.Test.SolarSystem, select: {fragment("(select count(id) from planets where solar_system_id = ?)", a.id)}
     as = "#{func}(#{field})"
+
     dyn = %{
       as =>
-        dynamic([{^join.requires_join, par }],
-            fragment("(select ?(?) from ? where ? = ?)",
+        dynamic(
+          [{^join.requires_join, par}],
+          fragment(
+            "(select ?(?) from ? where ? = ?)",
             literal(^my_func),
             literal(^my_field),
             literal(^join.source),
-            literal(^my_key), par.id)
-      )
+            literal(^my_key),
+            par.id
+          )
+        )
     }
-    query = from a in query, select_merge: ^dyn
+
+    query = from(a in query, select_merge: ^dyn)
     {query, [as | aliases]}
   end
 
@@ -161,6 +167,7 @@ defmodule Selecto do
   defp apply_selection({query, aliases}, config, {:extract, field, format}) do
     conf = config.columns[field]
     as = "#{format} from #{field}"
+
     query =
       from({^conf.requires_join, owner} in query,
         select_merge: %{
@@ -170,7 +177,6 @@ defmodule Selecto do
 
     {query, [as | aliases]}
   end
-
 
   defp apply_selection({query, aliases}, config, {:to_char, {field, format}, as}) do
     conf = config.columns[field]
@@ -459,12 +465,18 @@ defmodule Selecto do
   defp apply_group_by(query, config, group_bys) do
     group_bys =
       group_bys
-      |> Enum.map(fn  #add additional here
+      # add additional here
+      |> Enum.map(fn
         {:extract, field, format} ->
           dynamic(
             [{^config.columns[field].requires_join, owner}],
-            fragment( "extract( ? from ? )", literal(^format), field(owner, ^config.columns[field].field))
+            fragment(
+              "extract( ? from ? )",
+              literal(^format),
+              field(owner, ^config.columns[field].field)
+            )
           )
+
         field ->
           dynamic(
             [{^config.columns[field].requires_join, owner}],
@@ -504,7 +516,6 @@ defmodule Selecto do
     ##### If we are GROUP BY and have AGGREGATES that live on a join path with any :many
     ##### cardinality we have to force the aggregates to subquery
 
-
     {query, aliases} =
       get_join_order(
         selecto.config.joins,
@@ -514,19 +525,22 @@ defmodule Selecto do
       )
       |> Enum.reduce(query, fn j, acc -> apply_join(selecto.config, acc, j) end)
       |> apply_selections(selecto.config, selecto.set.selected)
-      IO.inspect(query, label: "Second Last")
+
+    IO.inspect(query, label: "Second Last")
+
     query =
       query
       |> apply_filters(selecto.config, filters_to_use)
       |> apply_group_by(selecto.config, selecto.set.group_by)
       |> apply_order_by(selecto.config, selecto.set.order_by)
-      IO.inspect(query, label: "Last")
+
+    IO.inspect(query, label: "Last")
 
     {query, aliases}
   end
 
   def gen_sql(selecto) do
-    #TODO
+    # TODO
   end
 
   # apply the join to the query
@@ -576,8 +590,7 @@ defmodule Selecto do
     results =
       query
       |> selecto.repo.all()
-
-     |> IO.inspect(label: "Results")
+      |> IO.inspect(label: "Results")
 
     {results, aliases}
   end
