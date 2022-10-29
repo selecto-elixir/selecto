@@ -113,14 +113,23 @@ defmodule Selecto do
   #### Selects
   ### Add parameterized select functions...
 
+  defp check_string( string ) do
+    if string |> String.match?(~r/^[^a-zA-Z0-9_]+$/) do
+      raise "Invalid String #{string}"
+    end
+    string
+  end
+
   ## need more? upper, lower, ???, postgres specifics?
   defp apply_selection({query, aliases}, config, {:subquery, func, field}) do
     conf = config.columns[field]
 
     join = config.joins[conf.requires_join]
-    my_func = Atom.to_string(func)
+    my_func = check_string( Atom.to_string(func) )
     my_key = Atom.to_string(join.my_key)
     my_field = Atom.to_string(conf.field)
+
+
 
     # from a in SelectoTest.Test.SolarSystem, select: {fragment("(select json_agg(planets) from planets where solar_system_id = ?)", a.id)}
     # from a in SelectoTest.Test.SolarSystem, select: {fragment("(select count(id) from planets where solar_system_id = ?)", a.id)}
@@ -168,6 +177,8 @@ defmodule Selecto do
     conf = config.columns[field]
     as = "#{format} from #{field}"
 
+    check_string(format)
+
     query =
       from({^conf.requires_join, owner} in query,
         select_merge: %{
@@ -206,7 +217,7 @@ defmodule Selecto do
   ## Case of literal value arg
   defp apply_selection({query, aliases}, _config, {func, {:literal, field}, as})
        when is_atom(func) do
-    func = Atom.to_string(func)
+    func = Atom.to_string(func) |> check_string()
 
     query =
       from(query,
@@ -226,7 +237,7 @@ defmodule Selecto do
 
   defp apply_selection({query, aliases}, config, {func, field, as}) when is_atom(func) do
     conf = config.columns[field]
-    func = Atom.to_string(func)
+    func = Atom.to_string(func) |> check_string()
 
     query =
       from({^conf.requires_join, owner} in query,
@@ -246,7 +257,7 @@ defmodule Selecto do
 
   # case of other non-arg funcs eg now()
   defp apply_selection({query, aliases}, _config, {func}) when is_atom(func) do
-    func = Atom.to_string(func)
+    func = Atom.to_string(func) |> check_string()
     from(query, select_merge: %{^func => fragment("?()", literal(^func))})
     {query, [func | aliases]}
   end
@@ -468,6 +479,7 @@ defmodule Selecto do
       # add additional here
       |> Enum.map(fn
         {:extract, field, format} ->
+          check_string(format)
           dynamic(
             [{^config.columns[field].requires_join, owner}],
             fragment(
