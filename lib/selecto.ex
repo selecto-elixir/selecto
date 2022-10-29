@@ -412,10 +412,15 @@ defmodule Selecto do
       :not_true ->
         dynamic([{^table, a}], not field(a, ^field))
 
-        # date shortcuts (:today, :tomorrow, :last_week, etc )
-        # {:like}, {:ilike}
+      {:like, v} ->
+          dynamic([{^table, a}], like(field(a, ^field), ^v))
 
-        # {:and, [filters]}
+      {:ilike, v} ->
+        dynamic([{^table, a}], ilike(field(a, ^field), ^v))
+
+      _ -> raise "Filter Recurse not implemented for #{inspect(val)}"
+        # date shortcuts (:today, :tomorrow, :last_week, etc )
+
         # {:case, %{filter=>}}
         # {:exists, etc-, subq} # how to do subq????
     end
