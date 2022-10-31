@@ -474,11 +474,46 @@ defmodule Selecto do
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
 
-  defp apply_group_by(query, _config, []) do
+  # defp x_qs(groups) do
+  #   groups |> Enum.with_index() |> Enum.map(fn {_e, i} -> i end ) |> Enum.join(",") |> IO.inspect
+  # end
+
+  # defmacro rollup_macro(groups) do
+  #   rollup_func(groups)
+
+
+  # end
+
+  # defp rollup_func(groups) do
+  #   query = x_qs(groups) |> IO.inspect
+  #   quote do: fragment(unquote(" ROLLUP (" <> query <> ")"))
+  # end
+
+  # defp apply_rollup(query, config, group_bys) do
+  #   from( query,
+  #     group_by: rollup_macro( group_bys ))
+
+  # end
+
+
+
+  defmacro rollup(columns), do: mkquery(columns, "ROLLUP")
+
+  defp mkquery(data, name) do
+    quote do: fragment(unquote(name <> " ?"), unquote(fragment_list(data)))
+  end
+
+  defp fragment_list(list) when is_list(list) do
+    query = "?" |> List.duplicate(Enum.count(list)) |> Enum.join(",")
+IO.inspect(query)
+    quote do: fragment(unquote("(" <> query <> ")"), unquote_splicing(list))
+  end
+
+  defp apply_group_by(query, _config, [], _) do
     query
   end
 
-  defp apply_group_by(query, config, group_bys) do
+  defp apply_group_by(query, config, group_bys, mode) do
     group_bys =
       group_bys
       # add additional here
@@ -500,17 +535,22 @@ defmodule Selecto do
             field(owner, ^config.columns[field].field)
           )
       end)
-
-    from(query,
-      group_by: ^group_bys
-    )
+    case mode do
+      :group -> from(query, group_by: ^group_bys )
+      :rollup -> IO.inspect(group_bys, label: "rollup")
+        from(query, group_by: ^group_bys )
+        #from(query, group_by: rollup(group_bys) )
+    end
   end
 
   @doc """
     Returns an Ecto.Query with all your filters and selections added..eventually!
   """
-  def gen_query(selecto) do
+  def gen_query(selecto, opts \\ []) do
     IO.puts("Gen Query")
+
+    {group_by_type, opts} = Keyword.pop(opts, :group_by_type, :group)
+
     joins_from_selects = joins_from_selects(selecto.config.columns, selecto.set.selected)
     filters_to_use = Map.get(selecto.domain, :required_filters, []) ++ selecto.set.filtered
     filtered_by_join = joins_from_filters(selecto.config, filters_to_use)
@@ -548,7 +588,7 @@ defmodule Selecto do
     query =
       query
       |> apply_filters(selecto.config, filters_to_use)
-      |> apply_group_by(selecto.config, selecto.set.group_by)
+      |> apply_group_by(selecto.config, selecto.set.group_by, group_by_type)
       |> apply_order_by(selecto.config, selecto.set.order_by)
 
     IO.inspect(query, label: "Last")
@@ -595,12 +635,12 @@ defmodule Selecto do
   @doc """
     Generate and run the query, returning list of maps (for now...)
   """
-  def execute(selecto) do
+  def execute(selecto, opts \\ []) do
     IO.puts("Execute Query")
 
     {query, aliases} =
       selecto
-      |> gen_query()
+      |> gen_query(opts)
 
     IO.inspect(query, label: "Exe")
 
