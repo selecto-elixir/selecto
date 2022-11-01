@@ -454,7 +454,7 @@ defmodule Selecto do
       order_bys
       |> Enum.map(fn
         {dir, field} -> {dir, field}
-        field -> {:asc, field}
+        field -> {:asc_nulls_first, field}
       end)
       |> Enum.map(fn
         {dir, field} ->
