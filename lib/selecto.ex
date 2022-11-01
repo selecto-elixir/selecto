@@ -506,10 +506,20 @@ defmodule Selecto do
             field(owner, ^config.columns[field].field)
           )
         )
-      {:rollup, group_bys} ->
-        "Seems Impossible to rollup :("
-        #subs= Enum.map(group_bys, fn g -> recurse_group_by(config, g ) end)
-        #dynamic([], rollup(^subs))
+      {:rollup, [a]} ->
+        dynamic([], rollup( [^recurse_group_by(config, a)] ) )
+
+      {:rollup, [a, b]} ->
+        dynamic([], rollup( [^recurse_group_by(config, a), ^recurse_group_by(config, b) ] ) )
+
+      {:rollup, [a, b, c]} ->
+        dynamic([], rollup( [^recurse_group_by(config, a), ^recurse_group_by(config, b),
+        ^recurse_group_by(config, c) ] ) )
+
+      {:rollup, [a, b, c, d]} ->
+        dynamic([], rollup( [^recurse_group_by(config, a), ^recurse_group_by(config, b),
+        ^recurse_group_by(config, c), ^recurse_group_by(config, d) ] ) )
+
 
       field ->
         dynamic(
@@ -583,7 +593,7 @@ defmodule Selecto do
   end
 
   def gen_sql(selecto) do
-    # TODO
+
   end
 
   # apply the join to the query

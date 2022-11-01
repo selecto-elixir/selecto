@@ -26,12 +26,7 @@ defmodule Selecto.Schema.Column do
       %{
         colid: colid,
         field: field,
-        name:
-          if :selecto_root == join do
-            "#{domain.name}: #{name}"
-          else
-            "#{domain.name}: #{name}"
-          end,
+        name: "#{domain.name}: #{name}",
         type: source.__schema__(:type, field),
         requires_join: join,
         format: Map.get(config, :format)
