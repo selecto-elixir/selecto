@@ -474,26 +474,6 @@ defmodule Selecto do
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
 
-  # defp x_qs(groups) do
-  #   groups |> Enum.with_index() |> Enum.map(fn {_e, i} -> i end ) |> Enum.join(",") |> IO.inspect
-  # end
-
-  # defmacro rollup_macro(groups) do
-  #   rollup_func(groups)
-
-
-  # end
-
-  # defp rollup_func(groups) do
-  #   query = x_qs(groups) |> IO.inspect
-  #   quote do: fragment(unquote(" ROLLUP (" <> query <> ")"))
-  # end
-
-  # defp apply_rollup(query, config, group_bys) do
-  #   from( query,
-  #     group_by: rollup_macro( group_bys ))
-
-  # end
 
 
 
@@ -505,7 +485,6 @@ defmodule Selecto do
 
   defp fragment_list(list) when is_list(list) do
     query = "?" |> List.duplicate(Enum.count(list)) |> Enum.join(",")
-IO.inspect(query)
     quote do: fragment(unquote("(" <> query <> ")"), unquote_splicing(list))
   end
 
@@ -513,33 +492,40 @@ IO.inspect(query)
     query
   end
 
-  defp apply_group_by(query, config, group_bys, mode) do
-    group_bys =
-      group_bys
-      # add additional here
-      |> Enum.map(fn
-        {:extract, field, format} ->
-          check_string(format)
-          dynamic(
-            [{^config.columns[field].requires_join, owner}],
-            fragment(
-              "extract( ? from ? )",
-              literal(^format),
-              field(owner, ^config.columns[field].field)
-            )
-          )
 
-        field ->
-          dynamic(
-            [{^config.columns[field].requires_join, owner}],
+  defp recurse_group_by(config, group_by) do
+    IO.inspect(group_by)
+    case group_by do
+      {:extract, field, format} ->
+        check_string(format)
+        dynamic(
+          [{^config.columns[field].requires_join, owner}],
+          fragment(
+            "extract( ? from ? )",
+            literal(^format),
             field(owner, ^config.columns[field].field)
           )
-      end)
+        )
+      {:rollup, group_bys} ->
+        "Seems Impossible to rollup :("
+        #subs= Enum.map(group_bys, fn g -> recurse_group_by(config, g ) end)
+        #dynamic([], rollup(^subs))
+
+      field ->
+        dynamic(
+          [{^config.columns[field].requires_join, owner}],
+          field(owner, ^config.columns[field].field)
+        )
+    end
+
+  end
+
+  defp apply_group_by(query, config, group_bys, mode) do
+    group_bys =
+      group_bys |> Enum.map(fn g -> recurse_group_by(config, g) end)
     case mode do
-      :group -> from(query, group_by: ^group_bys )
-      :rollup -> IO.inspect(group_bys, label: "rollup")
-        from(query, group_by: ^group_bys )
-        #from(query, group_by: rollup(group_bys) )
+      _ -> from(query, group_by: ^group_bys )
+
     end
   end
 
