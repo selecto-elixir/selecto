@@ -495,7 +495,8 @@ defmodule Selecto do
 
 
   defp recurse_group_by(config, group_by) do
-    IO.inspect(group_by)
+    ## Todo make these use 1, 2, 3 etc when possible
+
     case group_by do
       {:extract, field, format} ->
         check_string(format)
@@ -507,6 +508,8 @@ defmodule Selecto do
             field(owner, ^config.columns[field].field)
           )
         )
+
+      ### how to dedupe?!?!
       {:rollup, [a]} ->
         dynamic([], rollup( [^recurse_group_by(config, a)] ) )
 
