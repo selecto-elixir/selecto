@@ -476,7 +476,7 @@ defmodule Selecto do
 
 
 
-
+ # From Ecto.OLAP Copyright (c) 2017 Łukasz Jan Niemier THANKS!
   defmacro rollup(columns), do: mkquery(columns, "ROLLUP")
 
   defp mkquery(data, name) do
@@ -487,6 +487,7 @@ defmodule Selecto do
     query = "?" |> List.duplicate(Enum.count(list)) |> Enum.join(",")
     quote do: fragment(unquote("(" <> query <> ")"), unquote_splicing(list))
   end
+  ###
 
   defp apply_group_by(query, _config, [], _) do
     query
