@@ -28,6 +28,25 @@ The domain is a map, and contains:
 - required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context. A quirk of the way filters are converted means that a fitler is required, or the system will add 'false'
 - required_*: these might go away
 
+```elixir
+domain = %{
+  name: "Solar System",
+  source: SelectoTest.Test.SolarSystem,
+  joins: [
+    planets: %{
+      name: "Planet",
+      joins: [
+        satellites: %{
+          name: "Satellites"
+        }
+      ],
+    }
+  ],
+  ### These filters will always be applied to a query in the domain
+  required_filters: [{"id", [1, 2, 3, 4, 5, 6]}]
+}
+```
+
 Selecto will walk through the configuration and configure columns from the ecto schema. From the source table, 
 they will be named as a string of the column name. Columns in associated tables will be given name as association atom 
 and the column name in brackets, eg "assoctable[id]".
