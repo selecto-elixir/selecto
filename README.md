@@ -1,10 +1,16 @@
 # Selecto
 
-A Query and Report Writing system
+A Query Writing System
+
+Selecto allows you to create queries within a configured domain. The domain has a main table that will
+always be included in queries, required filters that will always be applied, and a tree of available 
+tables for joins.
 
 This is very young software and might spill milk in your computer.
 
 Better documentation is planned once the API is finalized.
+
+For now, see [selecto_test](https://github.com/seeken/selecto_test).
 
 Selecto is configured by passing in a 'domain' which tells it which 
 table to start at, which tables it can join (assocs are supported now, 
@@ -13,20 +19,17 @@ what columns are available (currently it's the columns from the schema, but gues
 and what filters are available (currently its generated from the list of
 columns, but that will also be expanded to custom filters).
 
-For now, see [selecto_test](https://github.com/seeken/selecto_test) for some examples of domains.
-
 ```elixir
-selecto = Selecto.configure( YourApp.Repo,  %{} = domain )
+selecto = Selecto.configure( YourApp.Repo,  domain )
 ```
 
 The domain is a map, and contains:
 
 - source: (req) This is the starting point, the table that will always be included in the query, as the module name, Eg YourApp.Accounts.Users
-- columns: A map of definitions and metadata for schema columns and ad hoc columns
+- columns: A map of definitions and metadata for schema columns and (planned) ad hoc columns
 - filters: A map of ad hoc filters. But it does not work yet. 
-- joins: A map containing assoc names (the atom!) which can also recursively contain joins, columns, filters, and name
+- joins: A map containing associ names (the atom!) which can also recursively contain joins, columns, filters, and name
 - required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context. A quirk of the way filters are converted means that a fitler is required, or the system will add 'false'
-- required_*: these might go away
 
 ```elixir
 domain = %{
@@ -127,9 +130,12 @@ Planned Features:
 - form integration for validation selections and providing options to form elements
 - more flexable selector and predicate structures, allow joins to use any predicates:
 
+Planned new format :
+
 ```elixir
     #standardize predicate format FUTURE
 
+    {SELECTOR} # for boolean fields
     {SELECTOR, nil} #is null
     {SELECTOR, :not_nil} #is not null
     {SELECTOR, SELECTOR} #=
