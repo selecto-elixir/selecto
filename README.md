@@ -28,7 +28,7 @@ The domain is a map, and contains:
 - source: (req) This is the starting point, the table that will always be included in the query, as the module name, Eg YourApp.Accounts.Users
 - columns: A map of definitions and metadata for schema columns and (planned) ad hoc columns
 - filters: A map of ad hoc filters. But it does not work yet. 
-- joins: A map containing associ names (the atom!) which can also recursively contain joins, columns, filters, and name
+- joins: A keyword list containing assoc names to maps which can also recursively contain joins, columns, filters, and name (name is required currently)
 - required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context. A quirk of the way filters are converted means that a fitler is required, or the system will add 'false'
 
 ```elixir
