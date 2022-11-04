@@ -145,7 +145,9 @@ Planned new format :
     {:not, PREDICATE}
     {:and, [PREDICATES]}
     {:or, [PREDICATES]}
-    {:in, SUBQUERY}
+    {SELECTOR, :in, SUBQUERY}
+    {SELECTOR, comp, :any, SUBQUERY}
+    {SELECTOR, comp, :all, SUBQUERY}
     {:exists, SUBQUERY}
 
     #Standardize selectors to make more complex queries possible
