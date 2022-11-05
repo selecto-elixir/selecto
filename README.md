@@ -28,14 +28,14 @@ The domain is a map, and contains:
 - source: (req) This is the starting point, the table that will always be included in the query, as the module name, Eg YourApp.Accounts.Users
 - columns: A map of definitions and metadata for schema columns and (planned) ad hoc columns
 - filters: A map of ad hoc filters. But it does not work yet. 
-- joins: A keyword list containing assoc names to maps which can also recursively contain joins, columns, filters, and name (name is required currently)
+- joins: A keyword list containing assoc names to maps which can also recursively contain joins, columns, filters, and name (name is required currently). The joins need to be set up as proper associatinos in your schema!
 - required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context. A quirk of the way filters are converted means that a fitler is required, or the system will add 'false'
 
 ```elixir
 domain = %{
   name: "Solar System",
   source: SelectoTest.Test.SolarSystem,
-  joins: [
+  joins: [ ### Joins require a Name currently-- may change and allow a format similar to the list from preload
     planets: %{
       name: "Planet",
       joins: [
@@ -45,7 +45,8 @@ domain = %{
       ],
     }
   ],
-  ### These filters will always be applied to a query in the domain
+  ### These filters will always be applied to a query in the domain. Note due to a bug/feature, if no filters are provided 
+  ### you will not get any rows returned
   required_filters: [{"id", [1, 2, 3, 4, 5, 6]}]
 }
 ```
@@ -133,7 +134,7 @@ Planned Features:
 Planned new format :
 
 ```elixir
-    #standardize predicate format FUTURE
+    #standardize predicate format FUTURE NOT AVAILABLE YET! 
 
     {SELECTOR} # for boolean fields
     {SELECTOR, nil} #is null
