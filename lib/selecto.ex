@@ -7,8 +7,9 @@ defmodule Selecto do
   Documentation for `Selecto,` a query writer and report generator for Elixir/Ecto
 
     TODO
-    filters (complex queries)
+
     having
+
     json/embeds/arrays/maps?
        json:  tablen[field].somejsonkey tablen[field][index].somekey...
 
@@ -24,9 +25,7 @@ defmodule Selecto do
 
     limit, offset
 
-    subqueries :D
-
-    Multitenant w schema/prefix
+    subqueries
 
   Mebbie:
     windows?
@@ -42,7 +41,6 @@ defmodule Selecto do
   @doc """
     Generate a selecto structure from this Repo following
     the instructinos in Domain map
-    TODO struct-ize the domain map?
   """
   def configure(repo, domain) do
     %Selecto{
@@ -99,7 +97,7 @@ defmodule Selecto do
   end
 
   @doc """
-    add a field to the Select list. Send in a list of field names
+    add a field to the Select list. Send in one or a list of field names or selectable tuples
     TODO allow to send single, and special forms..
   """
   def select(selecto, fields) when is_list(fields) do
@@ -159,19 +157,20 @@ defmodule Selecto do
   # ---- postgres has functions to put those into json!
   # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
   # to one of the main query joins
-  defp apply_selection({query, aliases}, _config, {:array, _field, _selects}) do
-    {query, aliases}
-  end
+  #TODOs
+  # defp apply_selection({query, aliases}, _config, {:array, _field, _selects}) do
+  #   {query, aliases}
+  # end
 
-  # COALESCE ... ??
-  defp apply_selection({query, aliases}, _config, {:coalesce, _field, _selects}) do
-    {query, aliases}
-  end
+  # # COALESCE ... ??
+  # defp apply_selection({query, aliases}, _config, {:coalesce, _field, _selects}) do
+  #   {query, aliases}
+  # end
 
-  # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
-  defp apply_selection({query, aliases}, _config, {:case, _field, _case_map}) do
-    {query, aliases}
-  end
+  # # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
+  # defp apply_selection({query, aliases}, _config, {:case, _field, _case_map}) do
+  #   {query, aliases}
+  # end
 
   defp apply_selection({query, aliases}, config, {:extract, field, format}) do
     conf = config.columns[field]
@@ -474,7 +473,9 @@ defmodule Selecto do
       order_by: ^order_bys
     )
   end
-
+  @doc """
+    Add to the Group By
+  """
   def group_by(selecto, groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
@@ -602,7 +603,7 @@ defmodule Selecto do
   end
 
   def gen_sql(selecto) do
-
+    #todo!
   end
 
   # apply the join to the query

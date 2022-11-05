@@ -8,7 +8,10 @@ defmodule Selecto.MixProject do
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      name: "Selecto"
+      name: "Selecto",
+      description: "A query builder for Ecto",
+      licenses: "MIT",
+      package: package()
     ]
   end
 
@@ -28,4 +31,13 @@ defmodule Selecto.MixProject do
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
     ]
   end
+
+  defp package() do
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/seeken/selecto"},
+      source_url: "https://github.com/seeken/selecto"
+    ]
+  end
+
 end
