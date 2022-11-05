@@ -435,6 +435,11 @@ defmodule Selecto do
           acc,
           Enum.reduce(joins_from_filters(config, list), %{}, fn i, acc -> Map.put(acc, i, 1) end)
         )
+      {:and, list}, acc ->
+        Map.merge(
+          acc,
+          Enum.reduce(joins_from_filters(config, list), %{}, fn i, acc -> Map.put(acc, i, 1) end)
+        )
 
       {fil, _val}, acc ->
         Map.put(acc, config.columns[fil].requires_join, 1)
