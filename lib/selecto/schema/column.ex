@@ -1,9 +1,21 @@
 defmodule Selecto.Schema.Column do
   # Configure columns - move to column
   def configure_columns(join, fields, source, domain) do
-    fields
+    columns = fields
     |> Enum.map(&configure(&1, join, source, domain))
-    |> Map.new()
+
+    custom_columns = [] # get_custom_columns(join, source, domain)
+
+    columns ++ custom_columns |> Map.new()
+  end
+
+  ### how to do custom columns?
+  def get_custom_columns(join, source, domain) do
+    ### TODO
+    config = Map.get(domain, :custom_columns, %{})
+
+    Enum.each(config, fn {k,v} -> {k,v} end)
+
   end
 
   def configure(field, join, source, domain) do
