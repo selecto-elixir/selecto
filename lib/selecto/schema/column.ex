@@ -4,7 +4,7 @@ defmodule Selecto.Schema.Column do
     columns = fields
     |> Enum.map(&configure(&1, join, source, domain))
 
-    custom_columns = [] # get_custom_columns(join, source, domain)
+    custom_columns = get_custom_columns(join, source, domain)
 
     columns ++ custom_columns |> Map.new()
   end
@@ -12,10 +12,22 @@ defmodule Selecto.Schema.Column do
   ### how to do custom columns?
   def get_custom_columns(join, source, domain) do
     ### TODO
-    config = Map.get(domain, :custom_columns, %{})
+    Map.get(domain, :custom_columns, %{})
+    |> Enum.reduce([], fn {f, v}, acc ->
+      [{
+        f,
+        Map.merge(
+          v,
+          %{
+            colid: f,
+            type: :custom,
+            requires_join: join
+          }
 
-    Enum.each(config, fn {k,v} -> {k,v} end)
+        )
+      } | acc]
 
+    end) |> IO.inspect( label: "cc3")
   end
 
   def configure(field, join, source, domain) do
