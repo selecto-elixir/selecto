@@ -27,7 +27,7 @@ defmodule Selecto.Schema.Column do
         )
       } | acc]
 
-    end) |> IO.inspect( label: "cc3")
+    end)
   end
 
   def configure(field, join, source, domain) do
