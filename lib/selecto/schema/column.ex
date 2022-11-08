@@ -20,7 +20,7 @@ defmodule Selecto.Schema.Column do
           v,
           %{
             colid: f,
-            type: :custom,
+            type: :custom_column,
             requires_join: join
           }
 
