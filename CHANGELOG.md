@@ -1,7 +1,6 @@
 
+V 0.1.2
 
-V 0.1.1
-
-
+- Support for custom cols
 
 V 0.1.0 Initial Release
