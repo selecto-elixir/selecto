@@ -119,6 +119,15 @@ defmodule Selecto do
   end
 
   ## need more? upper, lower, ???, postgres specifics?
+  defp apply_selection({query, aliases}, config, {:subquery, {:dyn, as, dynamic}}) do
+    dyn = %{
+      as => dynamic
+    }
+    query = from(a in query, select_merge: ^dyn)
+    {query, [as | aliases]}
+  end
+
+
   defp apply_selection({query, aliases}, config, {:subquery, func, field}) do
     conf = config.columns[field]
 
@@ -613,13 +622,21 @@ defmodule Selecto do
   end
 
   defp apply_join(config, query, join) do
+
     join_map = config.joins[join]
 
-    from({^join_map.requires_join, par} in query,
-      left_join: b in ^join_map.i_am,
-      as: ^join,
-      on: field(par, ^join_map.owner_key) == field(b, ^join_map.my_key)
-    )
+    case join_map do
+      # %{ through_path: path } ->
+      #   IO.inspect(path)
+      #   query
+      _ ->
+        IO.puts("here")
+        from({^join_map.requires_join, par} in query,
+          left_join: b in ^join_map.i_am,
+          as: ^join,
+          on: field(par, ^join_map.owner_key) == field(b, ^join_map.my_key)
+        )
+    end
   end
 
   ### We walk the joins pushing deps in front of joins recursively, then flatten and uniq to make final list
