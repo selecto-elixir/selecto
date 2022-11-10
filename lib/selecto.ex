@@ -665,12 +665,12 @@ defmodule Selecto do
       selecto
       |> gen_query(opts)
 
-    IO.inspect(query, label: "Exe")
+    #IO.inspect(query, label: "Exe")
 
     results =
       query
       |> selecto.repo.all()
-      |> IO.inspect(label: "Results")
+      #|> IO.inspect(label: "Results")
 
     {results, aliases}
   end
