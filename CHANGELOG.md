@@ -1,4 +1,6 @@
 
+- support for subqueries fragments in select
+
 V 0.1.2
 
 - Support for custom cols
