@@ -562,7 +562,7 @@ defmodule Selecto do
     Returns an Ecto.Query with all your filters and selections added..eventually!
   """
   def gen_query(selecto, opts \\ []) do
-    IO.puts("Gen Query")
+    #IO.puts("Gen Query")
 
     {group_by_type, opts} = Keyword.pop(opts, :group_by_type, :group)
 
@@ -598,7 +598,7 @@ defmodule Selecto do
       |> Enum.reduce(query, fn j, acc -> apply_join(selecto.config, acc, j) end)
       |> apply_selections(selecto.config, selecto.set.selected)
 
-    IO.inspect(query, label: "Second Last")
+    #IO.inspect(query, label: "Second Last")
 
     query =
       query
@@ -606,7 +606,7 @@ defmodule Selecto do
       |> apply_group_by(selecto.config, selecto.set.group_by, group_by_type)
       |> apply_order_by(selecto.config, selecto.set.order_by)
 
-    IO.inspect(query, label: "Last")
+    #IO.inspect(query, label: "Last")
 
     {query, aliases}
   end
@@ -659,7 +659,7 @@ defmodule Selecto do
     Generate and run the query, returning list of maps (for now...)
   """
   def execute(selecto, opts \\ []) do
-    IO.puts("Execute Query")
+    #IO.puts("Execute Query")
 
     {query, aliases} =
       selecto

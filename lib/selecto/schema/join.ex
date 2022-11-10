@@ -2,7 +2,7 @@ defmodule Selecto.Schema.Join do
   # selecto meta join can edit, add, alter this join!
 
   defp normalize_joins(source, domain, joins, dep) do
-    IO.inspect(joins, label: "Normalize")
+    #IO.inspect(joins, label: "Normalize")
 
     Enum.reduce(joins, [], fn
       {id, %{type: :cte} = config}, acc ->
@@ -17,7 +17,7 @@ defmodule Selecto.Schema.Join do
         ### Todo allow this to be non-configured assoc
         association = source.__schema__(:association, id)
         acc = acc ++ [Selecto.Schema.Join.configure(id, association, config, dep)]
-        |> IO.inspect(label: "After conf")
+        #|> IO.inspect(label: "After conf")
         case Map.get(config, :joins) do
           nil -> acc
           _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
@@ -41,7 +41,7 @@ defmodule Selecto.Schema.Join do
     }
   end
 
-
+##TODO
   def configure(id, %{through: through} = association, config, dep) do
     trail = Map.get(association, :through)
     start = association.owner
@@ -82,7 +82,7 @@ defmodule Selecto.Schema.Join do
 
   def configure(id, %{queryable: queryable} = association, config, dep) do
 
-    IO.inspect(association)
+    #IO.inspect(association)
     %{
       joined_from: association.owner,
       # assoc: association,
