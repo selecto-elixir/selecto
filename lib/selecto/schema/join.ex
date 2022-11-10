@@ -84,6 +84,7 @@ defmodule Selecto.Schema.Join do
 
     #IO.inspect(association)
     %{
+      i_am: association.queryable,
       joined_from: association.owner,
       # assoc: association,
       cardinality: association.cardinality,
