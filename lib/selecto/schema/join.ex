@@ -7,6 +7,7 @@ defmodule Selecto.Schema.Join do
 - lookup - this type of join the local table has an ID that points to a table with an ID and name and that name could easily just be a member of this table. So we will make special filters and columns.
 - self - Joining into self we only want to grab columns that are asked for
 - through - this type of join has interesting tables on both sides, but probably nothing interesting in itself. Let's SKIP adding columns from this table unless they are requested in the columns map
+- parameterized - these are joins that can be repeated with different rows on the far side, like a flag or tag table
 
 - one_to_one - Like a lookup but there are more interesting cols on the far side, we will treat normally. Also, default
 - one_to_many - Will treat like a one to one
@@ -21,13 +22,6 @@ defmodule Selecto.Schema.Join do
     #IO.inspect(joins, label: "Normalize")
 
     Enum.reduce(joins, [], fn
-      {id, %{type: :cte} = config}, acc ->
-        acc = acc ++ [Selecto.Schema.Join.configure_cte(id, source, config, dep)]
-
-        case Map.get(config, :joins) do
-          ## how to add joins here
-          _ -> acc
-        end
 
       {id, config}, acc ->
         ### Todo allow this to be non-configured assoc
