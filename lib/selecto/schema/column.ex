@@ -23,12 +23,19 @@ defmodule Selecto.Schema.Column do
             type: :custom_column,
             requires_join: join
           }
-
         )
       } | acc]
 
     end)
   end
+
+  defp add_filter_type(col, %{filter_type: ft} = config) do
+    Map.put(col, :filter_type, ft)
+  end
+  defp add_filter_type(col, _config) do
+    col
+  end
+
 
   def configure(field, join, source, domain) do
     config = Map.get(Map.get(domain, :columns, %{}), field, %{})
@@ -47,20 +54,20 @@ defmodule Selecto.Schema.Column do
 
     col = {
       colid,
-      %{
-        colid: colid,
-        field: field,
-        name: "#{domain.name}: #{name}",
-        type: source.__schema__(:type, field),
-        requires_join: join,
-        format: Map.get(config, :format)
-      }
+
+      add_filter_type(
+        %{
+          colid: colid,
+          field: field,
+          name: "#{domain.name}: #{name}",
+          type: source.__schema__(:type, field),
+          requires_join: join,
+          format: Map.get(config, :format)
+        },
+        config
+      )
+
     }
 
-    if function_exported?(source, :selecto_meta, 1) do
-      source.selecto_meta(col)
-    else
-      col
-    end
   end
 end

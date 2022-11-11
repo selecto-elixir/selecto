@@ -1,6 +1,22 @@
 defmodule Selecto.Schema.Join do
   # selecto meta join can edit, add, alter this join!
 
+  @doc """
+# Join Types ideas
+
+- lookup - this type of join the local table has an ID that points to a table with an ID and name and that name could easily just be a member of this table. So we will make special filters and columns.
+- self - Joining into self we only want to grab columns that are asked for
+- through - this type of join has interesting tables on both sides, but probably nothing interesting in itself. Let's SKIP adding columns from this table unless they are requested in the columns map
+
+- one_to_one - Like a lookup but there are more interesting cols on the far side, we will treat normally. Also, default
+- one_to_many - Will treat like a one to one
+- belongs_to - Will treat like one-to-one
+
+  """
+
+
+
+
   defp normalize_joins(source, domain, joins, dep) do
     #IO.inspect(joins, label: "Normalize")
 
@@ -32,16 +48,8 @@ defmodule Selecto.Schema.Join do
     |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.id, j) end)
   end
 
-  def configure_cte(id, source, config, dep) do
-    ### TODO for CTEs etc
-    join = %{
-      id: id,
 
-
-    }
-  end
-
-##TODO
+##TODO this does not work yet!
   def configure(id, %{through: through} = association, config, dep) do
     trail = Map.get(association, :through)
     start = association.owner
@@ -56,6 +64,7 @@ defmodule Selecto.Schema.Join do
       end
     )
     %{
+      i_am: target,
       joined_from: association.owner,
       # assoc: association,
       cardinality: association.cardinality,
@@ -80,6 +89,13 @@ defmodule Selecto.Schema.Join do
     }
   end
 
+  ### Custom TODO
+  # def configure(id, %{type: :custom} = config, dep) do
+  #   ### this join does not have an association
+
+  # end
+
+  ### Regular
   def configure(id, %{queryable: queryable} = association, config, dep) do
 
     #IO.inspect(association)
