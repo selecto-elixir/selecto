@@ -75,7 +75,7 @@ defmodule Selecto do
       List.flatten([fields | Enum.map(Map.values(joins), fn e -> e.fields end)])
       |> Enum.reduce(%{}, fn m, acc -> Map.merge(m, acc) end)
 
-    ### Extra filters (all normal fields can be a filter)
+    ### Extra filters (all normal fields can be a filter) These are custom, which is really passed into Selecto Components to deal with
     filters = Map.get(domain, :filters, %{})
 
     filters =
