@@ -71,7 +71,7 @@ defmodule Selecto.Schema.Join do
       name: Map.get(config, :name, id),
       ## probably don't need 'where'
       requires_join: dep,
-      filters: Map.get(config, :filters, %{}),
+      filters: Selecto.Schema.Filter.configure_filters(Map.get(config, :filters, %{}), dep),
       fields:
         Selecto.Schema.Column.configure_columns(
           association.field,

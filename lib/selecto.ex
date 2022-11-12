@@ -85,7 +85,8 @@ defmodule Selecto do
         fn e, acc ->
           Map.merge(Map.get(e, :filters, %{}), acc)
         end
-      )
+      ) |> Enum.map(fn {f, v} -> {f, Map.put(v, :id, f)} end)
+      |> Enum.into(%{})
 
     %{
       primary_key: primary_key,
@@ -426,6 +427,9 @@ defmodule Selecto do
       {:ilike, v} ->
         dynamic([{^table, a}], ilike(field(a, ^field), ^v))
 
+      {:subquery, :in, query} ->
+        dynamic([{^table, a}], field(a, ^field) in ^query )
+
       _ -> raise "Filter Recurse not implemented for #{inspect(val)}"
         # date shortcuts (:today, :tomorrow, :last_week, etc )
 
@@ -450,7 +454,8 @@ defmodule Selecto do
         )
 
       {fil, _val}, acc ->
-        Map.put(acc, config.columns[fil].requires_join, 1)
+          Map.put(acc, config.columns[fil].requires_join, 1)
+
     end)
     |> Map.keys()
   end
