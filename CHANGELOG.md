@@ -2,6 +2,8 @@
 CHANGES
 =======
 
+- Support custom filters
+
 V 0.1.3
 -------
 
