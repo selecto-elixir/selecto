@@ -635,7 +635,6 @@ defmodule Selecto do
       #   IO.inspect(path)
       #   query
       _ ->
-        IO.puts("here")
         from({^join_map.requires_join, par} in query,
           left_join: b in ^join_map.i_am,
           as: ^join,
@@ -675,7 +674,7 @@ defmodule Selecto do
     results =
       query
       |> selecto.repo.all()
-      #|> IO.inspect(label: "Results")
+      |> IO.inspect(label: "Results")
 
     {results, aliases}
   end
