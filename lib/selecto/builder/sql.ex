@@ -17,19 +17,19 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_select(selecto) do
-
+    {[],[],""}
   end
 
   defp build_where(selecto) do
-
+    {[],""}
   end
 
   defp build_group_by(selecto) do
-
+    {[],""}
   end
 
   defp build_order_by(selecto) do
-
+    {[],""}
   end
 
 
