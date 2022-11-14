@@ -80,19 +80,19 @@ defmodule Selecto.Builder.Sql.Select do
   def build(selecto, {func, field, as}) when is_atom(func) do
     conf = selecto.config.columns[field]
     func = Atom.to_string(func) |> check_string()
-    ["#{func}(#{field})", conf.requires_join, [], as]
+    {"#{func}(#{field})", conf.requires_join, [], as}
 
   end
 
   # Case of 'count(*)' which we can just ref as count
   def build(selecto, {:count}) do
-    ["count(*)", nil, [], "count"]
+    {"count(*)", nil, [], "count"}
   end
 
   # case of other non-arg funcs eg now()
   def build(selecto, {func}) when is_atom(func) do
     func = Atom.to_string(func) |> check_string()
-    ["#{func}()", nil, [], func]
+    {"#{func}()", nil, [], func}
   end
 
   ### regular old fields. Allow atoms?
@@ -100,7 +100,7 @@ defmodule Selecto.Builder.Sql.Select do
     conf = selecto.config.columns[field]
     conf.requires_join
     ### SQL, JOIN, PARAMS, FIELD
-    ["#{field}", conf.requires_join, [], field]
+    {"#{field}", conf.requires_join, [], field}
   end
 
 
