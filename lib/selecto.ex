@@ -136,17 +136,21 @@ defmodule Selecto do
   @doc """
     Add to the Group By
   """
-  def group_by(selecto, groups) do
+  def group_by(selecto, groups) when is_list(groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
-
+  def group_by(selecto, groups) do
+    put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
+  end
 
 
   def gen_sql(selecto) do
     #todo!
   end
 
-
+  def execute_sql(selecto, opts \\ []) do
+    {query, aliases} = Selecto.Builder.Sql.build(selecto, opts)
+  end
 
 
 
@@ -156,10 +160,7 @@ defmodule Selecto do
   def execute(selecto, opts \\ []) do
     #IO.puts("Execute Query")
 
-    {query, aliases} =
-      selecto
-      |> Selecto.Builder.Ecto.gen_query(opts)
-
+    {query, aliases} = Selecto.Builder.Ecto.gen_query(selecto, opts)
     #IO.inspect(query, label: "Exe")
 
     results =

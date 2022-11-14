@@ -1,6 +1,7 @@
 defmodule Selecto.Builder.Ecto do
 
-  alias Selecto.Builder.Ecto.{Select, Join, Filter, Group}
+  alias Selecto.Builder.Ecto.{Select, Joins, Filter, Group}
+  alias Selecto.Builder.Join
   import Ecto.Query
 
   @doc """
@@ -41,7 +42,7 @@ defmodule Selecto.Builder.Ecto do
           from_selects ++ filtered_by_join ++ joins_from_order_by ++ joins_from_group_by
         )
       )
-      |> Enum.reduce(query, fn j, acc -> Join.apply_join(selecto.config, acc, j) end)
+      |> Enum.reduce(query, fn j, acc -> Joins.apply_join(selecto.config, acc, j) end)
       |> Select.apply_selections(selecto.config, selecto.set.selected)
 
     #IO.inspect(query, label: "Second Last")
