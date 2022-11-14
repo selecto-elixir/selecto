@@ -4,7 +4,6 @@ defmodule Selecto do
   import Ecto.Query
   import Selecto.Helpers
 
-  alias Selecto.Builder.Ecto.{Select, Join, Filter, Group}
 
 
   @moduledoc """
@@ -142,86 +141,12 @@ defmodule Selecto do
   end
 
 
-  @doc """
-    Returns an Ecto.Query with all your filters and selections added..eventually!
-  """
-  def gen_query(selecto, opts \\ []) do
-    #IO.puts("Gen Query")
-
-    {results_type, opts} = Keyword.pop(opts, :results_type, :maps)
-
-
-    from_selects = Join.from_selects(selecto.config.columns, selecto.set.selected)
-    filters_to_use = Map.get(selecto.domain, :required_filters, []) ++ selecto.set.filtered
-    filtered_by_join = Join.from_filters(selecto.config, filters_to_use)
-
-    joins_from_order_by =
-      Join.from_selects(
-        selecto.config.columns,
-        Enum.map(selecto.set.order_by, fn
-          {_dir, field} -> field
-          field -> field
-        end)
-      )
-
-    joins_from_group_by = Join.from_selects(selecto.config.columns, selecto.set.group_by)
-
-    ## We select nothing from the initial query because we are going to select_merge everything and
-    ## if we don't select empty map here, it will include the full * of our source!
-    query = from(root in selecto.domain.source, as: :selecto_root, select: %{})
-
-    ##### If we are GROUP BY and have AGGREGATES that live on a join path with any :many
-    ##### cardinality we have to force the aggregates to subquery
-
-    {query, aliases} =
-      Join.get_join_order(
-        selecto.config.joins,
-        Enum.uniq(
-          from_selects ++ filtered_by_join ++ joins_from_order_by ++ joins_from_group_by
-        )
-      )
-      |> Enum.reduce(query, fn j, acc -> apply_join(selecto.config, acc, j) end)
-      |> Select.apply_selections(selecto.config, selecto.set.selected)
-
-    #IO.inspect(query, label: "Second Last")
-
-    query =
-      query
-      |> Filter.apply_filters(selecto.config, filters_to_use)
-      |> Group.apply_group_by(selecto.config, selecto.set.group_by)
-      |> Select.apply_order_by(selecto.config, selecto.set.order_by)
-
-    #IO.inspect(query, label: "Last")
-
-    {query, aliases}
-  end
 
   def gen_sql(selecto) do
     #todo!
   end
 
-  # apply the join to the query
-  # we don't need to join root!
-  defp apply_join(_config, query, :selecto_root) do
-    query
-  end
 
-  defp apply_join(config, query, join) do
-
-    join_map = config.joins[join]
-
-    case join_map do
-      # %{ through_path: path } ->
-      #   IO.inspect(path)
-      #   query
-      _ ->
-        from({^join_map.requires_join, par} in query,
-          left_join: b in ^join_map.i_am,
-          as: ^join,
-          on: field(par, ^join_map.owner_key) == field(b, ^join_map.my_key)
-        )
-    end
-  end
 
 
 
@@ -233,7 +158,7 @@ defmodule Selecto do
 
     {query, aliases} =
       selecto
-      |> gen_query(opts)
+      |> Selecto.Builder.Ecto.gen_query(opts)
 
     #IO.inspect(query, label: "Exe")
 

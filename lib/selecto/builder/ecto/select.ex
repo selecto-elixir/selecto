@@ -180,7 +180,7 @@ defmodule Selecto.Builder.Ecto.Select do
 
 
 
-  defp apply_order_by(query, config, order_bys) do
+  def apply_order_by(query, config, order_bys) do
     order_bys =
       order_bys
       |> Enum.map(fn
