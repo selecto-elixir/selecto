@@ -13,7 +13,7 @@ defmodule Selecto.Builder.Sql do
     {order_by_joins, order_by_clause} = build_order_by(selecto)
 
 
-    {query, aliases}
+    {"", aliases}
   end
 
   defp build_select(selecto) do
