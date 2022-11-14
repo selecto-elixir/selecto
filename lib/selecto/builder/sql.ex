@@ -4,6 +4,11 @@ defmodule Selecto.Builder.Sql do
   alias Selecto.Builder.Joins
 
 
+  def table_aliases() do
+
+  end
+
+
   def build(selecto, opts) do
 
 
@@ -17,6 +22,20 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_select(selecto) do
+    selecto.set.selected
+      |> Enum.reduce([], fn
+        s, acc ->
+          case Selecto.Builder.Sql.Select.build(selecto, s) do
+            [] = r -> acc ++ r
+            r -> acc ++ [r]
+          end
+      end)
+
+
+
+
+
+
     {[],[],""}
   end
 
