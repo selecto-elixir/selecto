@@ -12,10 +12,10 @@ defmodule Selecto.Builder.Sql do
   def build(selecto, opts) do
 
 
-    {aliases, sel_joins, select_clause} = build_select(selecto)
-    {filter_joins, where_clause} = build_where(selecto)
-    {group_by_joins, group_by_clause} = build_group_by(selecto)
-    {order_by_joins, order_by_clause} = build_order_by(selecto)
+    {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
+    {filter_joins, where_clause, where_params} = build_where(selecto)
+    {group_by_joins, group_by_clause, group_params} = build_group_by(selecto)
+    {order_by_joins, order_by_clause, order_params} = build_order_by(selecto)
 
 
     {"", aliases}
@@ -23,32 +23,28 @@ defmodule Selecto.Builder.Sql do
 
   defp build_select(selecto) do
     selecto.set.selected
-      |> Enum.reduce([], fn
-        s, acc ->
-          case Selecto.Builder.Sql.Select.build(selecto, s) do
-            [] = r -> acc ++ r
-            r -> acc ++ [r]
-          end
-      end)
+      |> Enum.map(fn s -> Selecto.Builder.Sql.Select.build(selecto, s) end)
+      |> IO.inspect()
 
 
 
 
 
 
-    {[],[],""}
+
+    {[],[],"", []}
   end
 
   defp build_where(selecto) do
-    {[],""}
+    {[],"", []}
   end
 
   defp build_group_by(selecto) do
-    {[],""}
+    {[],"",[]}
   end
 
   defp build_order_by(selecto) do
-    {[],""}
+    {[],"", []}
   end
 
 
