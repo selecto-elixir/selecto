@@ -1,5 +1,25 @@
 defmodule Selecto.Builder.Sql.Select do
 
+  @doc """
+  new format...
+    "field" # - plain old field from one of the tables
+    {:field, field } #- same as above disamg for predicate second+ position
+    {:literal, "value"} #- for literal values
+    {:literal, 1.0}
+    {:literal, 1}
+    {:literal, datetime} etc
+    {:func, SELECTOR}
+    {:count, *} (for count(*))
+    {:func, SELECTOR, SELECTOR}
+    {:func, SELECTOR, SELECTOR, SELECTOR} #...
+    {:extract, part, SELECTOR}
+    {:case, [PREDICATE, SELECTOR, ..., :else, SELECTOR]}
+    {:coalese, [SELECTOR, SELECTOR, ...]}
+    {:greatest, [SELECTOR, SELECTOR, ...]}
+    {:least, [SELECTOR, SELECTOR, ...]}
+    {:nullif, [SELECTOR, LITERAL_SELECTOR]} #LITERAL_SELECTOR means naked value treated as lit not field
+    {:subquery, [SELECTOR, SELECTOR, ...], PREDICATE}
+  """
 
   import Selecto.Helpers
 

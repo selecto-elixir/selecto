@@ -1,21 +1,11 @@
 defmodule Selecto.Builder.Sql do
-
-
   alias Selecto.Builder.Joins
 
-
-  def table_aliases() do
-
-  end
-
-
   def build(selecto, opts) do
-
-
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
     {filter_joins, where_clause, where_params} = build_where(selecto)
-    {group_by_joins, group_by_clause, group_params} = build_group_by(selecto)
-    {order_by_joins, order_by_clause, order_params} = build_order_by(selecto)
+    {group_by_joins, group_by_clause, group_params} = build_group_by(selecto) #TODO
+    {order_by_joins, order_by_clause, order_params} = build_order_by(selecto) #TODO
 
     joins_in_order = Selecto.Builder.Join.get_join_order(selecto.config.joins, sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins) |> IO.inspect
 
@@ -28,10 +18,10 @@ defmodule Selecto.Builder.Sql do
 
     """
 
-    params = List.flatten(select_params ++ from_params ++ where_params ++ group_params ++ order_params)
+    params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 
     IO.puts(sql)
-    IO.inspect(params)
+    IO.inspect(aliases)
 
     {sql, aliases, params}
   end
@@ -39,7 +29,7 @@ defmodule Selecto.Builder.Sql do
   @doc """
   selecto = Selecto.configure(SelectoTest.Repo, SelectoTestWeb.PagilaLive.selecto_domain())
   selecto = Selecto.select(selecto, ["actor_id", "film[film_id]", {:literal, "TLIT", 1}])
-  selecto = Selecto.filter(selecto, [{"actor_id", 1}])
+  selecto = Selecto.filter(selecto, [{:not, {:or, [{"actor_id", 1}, {"actor_id", 3}] }}])
   selecto |> Selecto.Builder.Sql.build([])
   """
 
@@ -47,14 +37,11 @@ defmodule Selecto.Builder.Sql do
     Enum.reduce(joins, {[],[]}, fn
       :selecto_root, {fc, p} ->
         {fc ++ [~s[#{selecto.config.source_table} "selecto_root"]], p}
-
       join, {fc, p} ->
         config = selecto.config.joins[join]
-        {fc ++ [~s[left join #{config.source} "#{join}" on "#{join}"."#{config.my_key}" = "#{config.requires_join}"."#{config.owner_key}"]], p}
-
-
-    end)
-
+        {fc ++ [~s[left join #{config.source} "#{join}" on "#{join}"."#{config.my_key}" = "#{config.requires_join}"."#{config.owner_key}"]],
+        p}
+      end)
   end
 
   defp build_select(selecto) do
@@ -62,7 +49,7 @@ defmodule Selecto.Builder.Sql do
       |> Enum.map(fn s -> Selecto.Builder.Sql.Select.build(selecto, s) end)
       |> Enum.reduce({[],[],[],[]},
         fn {f, j, p, as}, {aliases, joins, selects, params} ->
-          {aliases ++ [as], joins ++ [j], selects ++ [f], params ++ [p]}
+          {aliases ++ [as], joins ++ [j], selects ++ [f], params ++ p}
       end)
 
     {aliases,joins,Enum.join(selects, ", "), params}
