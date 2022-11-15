@@ -162,15 +162,15 @@ defmodule Selecto do
   def execute(selecto, opts \\ []) do
     #IO.puts("Execute Query")
 
-    {query, aliases} = Selecto.Builder.Ecto.gen_query(selecto, opts)
+    {query, aliases, params} = Selecto.Builder.Sql.build(selecto, opts)
     #IO.inspect(query, label: "Exe")
 
-    results =
-      query
-      |> selecto.repo.all()
+    {:ok, result} = Ecto.Adapters.SQL.query(selecto.repo, query, params)
       |> IO.inspect(label: "Results")
 
-    {results, aliases}
+
+
+    {result.rows, aliases}
   end
 
   def available_columns(selecto) do

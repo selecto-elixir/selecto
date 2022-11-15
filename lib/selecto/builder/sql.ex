@@ -17,6 +17,13 @@ defmodule Selecto.Builder.Sql do
       where  #{where_clause}
 
     """
+    params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
+
+    params_num = Enum.with_index(params) |> Enum.map(fn {_, index} -> "$#{index+1}" end)
+    ## replace ^SelectoParam^
+    sql = String.split(sql, "^SelectoParam^") |> IO.inspect() |>
+     Enum.zip(params_num ++ [""]) |> IO.inspect |> Enum.map(fn {a,b}->[a,b] end)|> List.flatten() |> Enum.join("")
+
 
     params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 
