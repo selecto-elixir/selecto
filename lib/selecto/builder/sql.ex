@@ -19,10 +19,8 @@ defmodule Selecto.Builder.Sql do
     IO.inspect(where_clause)
 
     sql = case where_clause do
-      nil -> sql
       "()" -> sql
-      _ ->
-      sql <> "
+      _ -> sql <> "
         where #{where_clause}
       "
     end
