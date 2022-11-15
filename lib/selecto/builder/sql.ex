@@ -2,6 +2,7 @@ defmodule Selecto.Builder.Sql do
   alias Selecto.Builder.Joins
 
   def build(selecto, opts) do
+
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
     {filter_joins, where_clause, where_params} = build_where(selecto)
     {group_by_joins, group_by_clause, group_params} = build_group_by(selecto) #TODO
@@ -16,15 +17,24 @@ defmodule Selecto.Builder.Sql do
         from #{from_clause}
     "
 
-    IO.inspect(where_clause)
-
     sql = case where_clause do
       "()" -> sql
       _ -> sql <> "
         where #{where_clause}
       "
     end
-
+    sql = case group_by_clause do
+      "" -> sql
+      _ -> sql <> "
+        group by #{group_by_clause}
+      "
+    end
+    sql = case order_by_clause do
+      "()" -> sql
+      _ -> sql <> "
+        order by #{order_by_clause}
+      "
+    end
     params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 
     params_num = Enum.with_index(params) |> Enum.map(fn {_, index} -> "$#{index+1}" end)
@@ -73,15 +83,15 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_where(selecto) do
-    Selecto.Builder.Sql.Where.build(selecto, {:and, selecto.set.filtered})
+    Selecto.Builder.Sql.Where.build(selecto, {:and, Map.get(selecto.domain, :required_filters, []) ++ selecto.set.filtered})
   end
 
   defp build_group_by(selecto) do
-    {[],"",[]}
+    Selecto.Builder.Sql.Group.build(selecto)
   end
 
   defp build_order_by(selecto) do
-    {[],"", []}
+    Selecto.Builder.Sql.Order.build(selecto)
   end
 
 
