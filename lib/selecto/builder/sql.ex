@@ -11,12 +11,18 @@ defmodule Selecto.Builder.Sql do
 
     {from_clause, from_params} = build_from(selecto, joins_in_order)
 
-    sql = ~s"""
-      select #{select_clause}
-      from   #{Enum.join(from_clause, "\n    ")}
-      where  #{where_clause}
+    sql = "
+        select #{select_clause}
+        from #{from_clause}
+    "
+    sql = case where_clause do
+      nil -> sql
+      _ ->
+      sql <> "
+        where #{where_clause}
+      "
+    end
 
-    """
     params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 
     params_num = Enum.with_index(params) |> Enum.map(fn {_, index} -> "$#{index+1}" end)
@@ -36,8 +42,13 @@ defmodule Selecto.Builder.Sql do
   @doc """
   selecto = Selecto.configure(SelectoTest.Repo, SelectoTestWeb.PagilaLive.selecto_domain())
   selecto = Selecto.select(selecto, ["actor_id", "film[film_id]", {:literal, "TLIT", 1}])
-  selecto = Selecto.filter(selecto, [{:not, {:or, [{"actor_id", 1}, {"actor_id", 3}] }}])
-  selecto |> Selecto.Builder.Sql.build([])
+  selecto = Selecto.filter(selecto, [{:not,
+                                          {:or, [{"actor_id", [1,2]},
+                                                  {"actor_id", 3}
+                                                ]
+                                          }
+                                      }])
+  selecto |> Selecto.execute([])
   """
 
   defp build_from(selecto, joins) do
