@@ -15,8 +15,12 @@ defmodule Selecto.Builder.Sql do
         select #{select_clause}
         from #{from_clause}
     "
+
+    IO.inspect(where_clause)
+
     sql = case where_clause do
       nil -> sql
+      "()" -> sql
       _ ->
       sql <> "
         where #{where_clause}
@@ -32,9 +36,6 @@ defmodule Selecto.Builder.Sql do
 
 
     params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
-
-    IO.puts(sql)
-    IO.inspect(aliases)
 
     {sql, aliases, params}
   end
