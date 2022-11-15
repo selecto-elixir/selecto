@@ -23,24 +23,17 @@ defmodule Selecto.Builder.Sql do
 
   @doc """
   selecto = Selecto.configure(SelectoTest.Repo, SelectoTestWeb.PagilaLive.selecto_domain())
-  selecto = Selecto.select(selecto, ["actor_id", "film[film_id]"])
+  selecto = Selecto.select(selecto, ["actor_id", "film[film_id]", {:literal, "TLIT", 1}])
   selecto |> Selecto.Builder.Sql.build([])
   """
-
-  defp wrap(str) do
-    ## TODO do not allow non- \w_ here
-    ~s["#{str}"]
-  end
 
   defp build_select(selecto) do
     {aliases, joins, selects, params } = selecto.set.selected
       |> Enum.map(fn s -> Selecto.Builder.Sql.Select.build(selecto, s) end)
       |> Enum.reduce({[],[],[],[]},
         fn {f, j, p, as}, {aliases, joins, selects, params} ->
-          {aliases ++ [as], joins ++ [j], selects ++ ["#{wrap(j)}.#{wrap(f)}"], params ++ [p]}
+          {aliases ++ [as], joins ++ [j], selects ++ [f], params ++ [p]}
       end)
-
-
 
     {aliases,joins,Enum.join(selects, ", "), params}
   end

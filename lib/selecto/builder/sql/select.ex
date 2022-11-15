@@ -46,30 +46,38 @@ defmodule Selecto.Builder.Sql.Select do
     as = "#{format} from #{field}"
 
     check_string(format)
-
+#TODO
   end
 
   def build(selecto, {:to_char, {field, format}, as}) do
     conf = selecto.config.columns[field]
-
+    #TODO
   end
 
-  def build(selecto, {:literal, name, value}) do
-
+  def build(selecto, {:literal, name, value}) when is_integer(value) do
+    {"#{value}", :selecto_root, [], name}
   end
+  def build(selecto, {:literal, name, value}) when is_bitstring(value) do
+    {"#{single_wrap(value)}", :selecto_root, [], name}
+  end
+  #TODO more types ... refactor out 'literal' processing
 
-  ### works with any func/agg of normal form
+  ### works with any func/agg of normal form with no as
   def build(selecto, {func, field}) when is_atom(func) do
     use_as = "#{func}(#{field})"
-
+    build(selecto, {func, field, use_as})
   end
 
   ## Case of literal value arg
-  def build(selecto, {func, {:literal, field}, as})
-       when is_atom(func) do
+  def build(selecto, {func, {:literal, literal}, as}) when is_atom(func) and is_integer(literal) do
     func = Atom.to_string(func) |> check_string()
-
+    {"#{func}(#{literal})", :selecto_root, [], as}
   end
+  def build(selecto, {func, {:literal, literal}, as}) when is_atom(func) and is_bitstring(literal) do
+    func = Atom.to_string(func) |> check_string()
+    {"#{func}(#{ single_wrap( literal ) })", :selecto_root, [], as}
+  end
+  #TODO - other data types- float, decimal
 
   # Case for func call with field as arg
   ## Check for SQL INJ TODO
@@ -80,7 +88,7 @@ defmodule Selecto.Builder.Sql.Select do
   def build(selecto, {func, field, as}) when is_atom(func) do
     conf = selecto.config.columns[field]
     func = Atom.to_string(func) |> check_string()
-    {"#{func}(#{field})", conf.requires_join, [], as}
+    {"#{func}(#{double_wrap(conf.requires_join)}.#{double_wrap(field)})", conf.requires_join, [], as}
 
   end
 
@@ -100,7 +108,7 @@ defmodule Selecto.Builder.Sql.Select do
     conf = selecto.config.columns[field]
     conf.requires_join
     ### SQL, JOIN, PARAMS, FIELD
-    {"#{field}", conf.requires_join, [], field}
+    {"#{double_wrap(conf.requires_join)}.#{double_wrap(field)}", conf.requires_join, [], field}
   end
 
 
