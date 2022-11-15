@@ -17,6 +17,17 @@ defmodule Selecto.Builder.Sql do
     {group_by_joins, group_by_clause, group_params} = build_group_by(selecto)
     {order_by_joins, order_by_clause, order_params} = build_order_by(selecto)
 
+    joins_in_order = Selecto.Builder.Join.get_join_order(selecto.config.joins, sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins) |> IO.inspect
+
+    {from_clause, params} = build_from(selecto, joins_in_order)
+
+    sql = ~s"""
+      select #{select_clause}
+      from   #{Enum.join(from_clause, " ")}
+
+    """
+
+    IO.puts(sql)
 
     {"", aliases, select_clause}
   end
@@ -26,6 +37,20 @@ defmodule Selecto.Builder.Sql do
   selecto = Selecto.select(selecto, ["actor_id", "film[film_id]", {:literal, "TLIT", 1}])
   selecto |> Selecto.Builder.Sql.build([])
   """
+
+  defp build_from(selecto, joins) do
+    Enum.reduce(joins, {[],[]}, fn
+      :selecto_root, {fc, p} ->
+        {fc ++ [~s[#{selecto.config.source_table} "selecto_root"]], p}
+
+      join, {fc, p} ->
+        config = selecto.config.joins[join]
+        {fc ++ [~s[left join #{config.source} "#{join}" on "#{join}"."#{config.my_key}" = "#{config.requires_join}"."#{config.owner_key}"]], p}
+
+
+    end)
+
+  end
 
   defp build_select(selecto) do
     {aliases, joins, selects, params } = selecto.set.selected

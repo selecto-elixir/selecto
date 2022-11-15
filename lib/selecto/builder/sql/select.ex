@@ -88,7 +88,7 @@ defmodule Selecto.Builder.Sql.Select do
   def build(selecto, {func, field, as}) when is_atom(func) do
     conf = selecto.config.columns[field]
     func = Atom.to_string(func) |> check_string()
-    {"#{func}(#{double_wrap(conf.requires_join)}.#{double_wrap(field)})", conf.requires_join, [], as}
+    {"#{func}(#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)})", conf.requires_join, [], as}
 
   end
 
@@ -108,7 +108,7 @@ defmodule Selecto.Builder.Sql.Select do
     conf = selecto.config.columns[field]
     conf.requires_join
     ### SQL, JOIN, PARAMS, FIELD
-    {"#{double_wrap(conf.requires_join)}.#{double_wrap(field)}", conf.requires_join, [], field}
+    {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, [], field}
   end
 
 

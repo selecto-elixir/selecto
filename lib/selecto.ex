@@ -92,6 +92,8 @@ defmodule Selecto do
       |> Enum.into(%{})
 
     %{
+      source: source,
+      source_table: source.__schema__(:source),
       primary_key: primary_key,
       columns: fields,
       joins: joins,
