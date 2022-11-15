@@ -24,6 +24,7 @@ defmodule Selecto.Builder.Sql do
     sql = ~s"""
       select #{select_clause}
       from   #{Enum.join(from_clause, " ")}
+      where  #{where_clause}
 
     """
 
@@ -35,6 +36,7 @@ defmodule Selecto.Builder.Sql do
   @doc """
   selecto = Selecto.configure(SelectoTest.Repo, SelectoTestWeb.PagilaLive.selecto_domain())
   selecto = Selecto.select(selecto, ["actor_id", "film[film_id]", {:literal, "TLIT", 1}])
+  selecto = Selecto.filter(selecto, [{"actor_id", 1}])
   selecto |> Selecto.Builder.Sql.build([])
   """
 
@@ -64,7 +66,7 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_where(selecto) do
-    {[],"", []}
+    Selecto.Builder.Sql.Where.build(selecto, {:and, selecto.set.filtered})
   end
 
   defp build_group_by(selecto) do
