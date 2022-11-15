@@ -19,18 +19,21 @@ defmodule Selecto.Builder.Sql do
 
     joins_in_order = Selecto.Builder.Join.get_join_order(selecto.config.joins, sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins) |> IO.inspect
 
-    {from_clause, params} = build_from(selecto, joins_in_order)
+    {from_clause, from_params} = build_from(selecto, joins_in_order)
 
     sql = ~s"""
       select #{select_clause}
-      from   #{Enum.join(from_clause, " ")}
+      from   #{Enum.join(from_clause, "\n    ")}
       where  #{where_clause}
 
     """
 
-    IO.puts(sql)
+    params = List.flatten(select_params ++ from_params ++ where_params ++ group_params ++ order_params)
 
-    {"", aliases, select_clause}
+    IO.puts(sql)
+    IO.inspect(params)
+
+    {sql, aliases, params}
   end
 
   @doc """

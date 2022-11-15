@@ -7,14 +7,14 @@ defmodule Selecto.Builder.Sql.Where do
 
 
 
-  def build(selecto, {:and, filters}) do
+  def build(selecto, {conj, filters}) when conj in [:and, :or] do
     IO.inspect(filters, label: "filters")
     {joins, clauses, params} = Enum.reduce(filters, {[],[],[]}, fn
       f, {joins, clauses, params} ->
         {j, c, p} = build(selecto, f)
         {joins ++ [j], clauses ++ [c], params ++ p}
     end)
-    IO.inspect({joins, Enum.join(clauses, "\nand\n"), params})
+    IO.inspect({joins, Enum.join(clauses, "\n#{conj}\n"), params})
     #Joins, clause, params
   end
 
