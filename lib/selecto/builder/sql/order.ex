@@ -21,11 +21,6 @@ defmodule Selecto.Builder.Sql.Order do
     order(selecto, {:asc_nulls_first, order_by})
   end
 
-  def order(_s, leftover) do
-    IO.inspect(leftover, label: "Leftover Order By!")
-    {[],"", []}
-  end
-
   def build(selecto) do
     {joins, clauses, params} =
       selecto.set.order_by
