@@ -150,9 +150,6 @@ defmodule Selecto do
     #todo!
   end
 
-  def execute_sql(selecto, opts \\ []) do
-    {query, aliases} = Selecto.Builder.Sql.build(selecto, opts)
-  end
 
 
 
@@ -166,7 +163,7 @@ defmodule Selecto do
     #IO.inspect(query, label: "Exe")
 
     {:ok, result} = Ecto.Adapters.SQL.query(selecto.repo, query, params)
-      |> IO.inspect(label: "Results")
+      #|> IO.inspect(label: "Results")
 
 
 
