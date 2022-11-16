@@ -22,12 +22,11 @@ defmodule Selecto.Builder.Sql.Order do
   end
 
   def order(_s, leftover) do
-    IO.inspect(leftover, label: "Leftover")
+    IO.inspect(leftover, label: "Leftover Order By!")
     {[],"", []}
   end
 
   def build(selecto) do
-    IO.inspect(selecto.set.order_by)
     {joins, clauses, params} =
       selecto.set.order_by
       |> Enum.reduce({[], [], []},

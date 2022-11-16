@@ -8,7 +8,7 @@ defmodule Selecto.Builder.Sql do
     {group_by_joins, group_by_clause, group_params} = build_group_by(selecto) #TODO
     {order_by_joins, order_by_clause, order_params} = build_order_by(selecto) #TODO
 
-    joins_in_order = Selecto.Builder.Join.get_join_order(selecto.config.joins, sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins) |> IO.inspect
+    joins_in_order = Selecto.Builder.Join.get_join_order(selecto.config.joins, sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
 
     {from_clause, from_params} = build_from(selecto, joins_in_order)
 
@@ -38,10 +38,12 @@ defmodule Selecto.Builder.Sql do
     params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 
     params_num = Enum.with_index(params) |> Enum.map(fn {_, index} -> "$#{index+1}" end)
-    ## replace ^SelectoParam^
-    sql = String.split(sql, "^SelectoParam^") |> IO.inspect() |>
-     Enum.zip(params_num ++ [""]) |> IO.inspect |> Enum.map(fn {a,b}->[a,b] end)|> List.flatten() |> Enum.join("")
-
+    ## replace ^SelectoParam^ with $1 etc. There has to be a better way???? TODO use 1.. params length
+    sql = String.split(sql, "^SelectoParam^")
+      |> Enum.zip(params_num ++ [""])
+      |> Enum.map(fn {a,b}->[a,b] end)
+      |> List.flatten()
+      |> Enum.join("")
 
     params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 
