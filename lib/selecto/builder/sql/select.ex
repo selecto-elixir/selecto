@@ -24,8 +24,8 @@ defmodule Selecto.Builder.Sql.Select do
   import Selecto.Helpers
 
   ### make the builder build the dynamic so we can use same parts for SQL
-  def build(selecto, {:subquery, {:dyn, as, dynamic}}) do
-
+  def build(selecto, {:subquery, as, dynamic, params}) do
+    {dynamic, [], params, as}
     #TODO
   end
 
