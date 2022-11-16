@@ -19,6 +19,10 @@ defmodule Selecto.Builder.Sql.Where do
     {:exists, SUBQUERY}
 """
 
+  def build(selecto, {field, {:subquery, :in, query, params}}) do
+    conf = selecto.config.columns[field]
+    {conf.requires_join, "#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} in #{query}", params}
+  end
 
   def build(selecto, {:not, filter}) do
     {j, c, p} = build(selecto, filter)
