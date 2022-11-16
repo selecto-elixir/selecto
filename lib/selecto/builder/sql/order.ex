@@ -1,18 +1,24 @@
 defmodule Selecto.Builder.Sql.Order do
 
-  def order(selecto, {dir, order}) when is_atom(dir) do
+
+  @dirs %{
+    asc: "asc",
+    desc: "desc",
+    asc_nulls_first: "asc nulls first"
+  }
+
+  @dir_list [
+    :asc,:desc,:asc_nulls_first
+
+  ]
+
+  def order(selecto, {dir, order}) when dir in @dir_list do
     {c, j, p, a} = Selecto.Builder.Sql.Select.build(selecto, order)
-    {j, "#{c} #{dir}", p}
+    {j, "#{c} #{@dirs[dir]}", p}
   end
 
-  def order(selecto, [dir, order]) when is_binary(dir) do
-    {c, j, p, a} = Selecto.Builder.Sql.Select.build(selecto, order)
-    {j, "#{c} #{dir}", p}
-  end
-
-
-  def order(selecto, order_by) when is_bitstring(order_by) do
-    order(selecto, ["asc nulls first", order_by])
+  def order(selecto, order_by) do
+    order(selecto, {:asc_nulls_first, order_by})
   end
 
   def order(_s, leftover) do

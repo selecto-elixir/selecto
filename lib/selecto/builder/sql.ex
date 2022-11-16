@@ -30,7 +30,7 @@ defmodule Selecto.Builder.Sql do
       "
     end
     sql = case order_by_clause do
-      "()" -> sql
+      "" -> sql
       _ -> sql <> "
         order by #{order_by_clause}
       "

@@ -66,12 +66,14 @@ defmodule Selecto.Builder.Sql.Select do
     as = "#{format} from #{field}"
 
     check_string(format)
-#TODO
+    {"extract( #{format} from  #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)})", conf.requires_join, [], as}
   end
 
   def build(selecto, {:to_char, {field, format}, as}) do
     conf = selecto.config.columns[field]
     #TODO
+    {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, [], field}
+
   end
 
   def build(selecto, {:literal, name, value}) when is_integer(value) do
