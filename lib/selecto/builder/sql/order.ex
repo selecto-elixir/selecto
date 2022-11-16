@@ -4,12 +4,18 @@ defmodule Selecto.Builder.Sql.Order do
   @dirs %{
     asc: "asc",
     desc: "desc",
-    asc_nulls_first: "asc nulls first"
+    asc_nulls_first: "asc nulls first",
+    asc_nulls_last: "asc nulls last",
+    desc_nulls_first: "desc nulls first",
+    desc_nulls_last: "desc nulls last"
   }
 
   @dir_list [
-    :asc,:desc,:asc_nulls_first
-
+    :asc,:desc,
+    :asc_nulls_first,
+    :asc_nulls_last,
+    :desc_nulls_first,
+    :desc_nulls_last
   ]
 
   def order(selecto, {dir, order}) when dir in @dir_list do
