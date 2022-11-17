@@ -1,5 +1,7 @@
 defmodule Selecto.Builder.Sql.Select do
 
+  import Selecto.Helpers
+
   @doc """
   new format...
     "field" # - plain old field from one of the tables
@@ -21,40 +23,92 @@ defmodule Selecto.Builder.Sql.Select do
     {:subquery, [SELECTOR, SELECTOR, ...], PREDICATE}
   """
 
+  def prep_selector(selecto, val) when is_integer(val) do
+    {val, :selecto_root, []}
+  end
+  def prep_selector(selecto, val) when is_float(val) do
+    {val, :selecto_root, []}
+  end
+  def prep_selector(selecto, val) when is_boolean(val) do
+    {val, :selecto_root, []}
+  end
 
-  # def prep_selector(selecto, {:field, selector}) do
-  #   prep_selector(selecro, selector)
+  def prep_selector(selecto, {:count}) do
+    {"count(*)", :selecto_root, []}
+  end
+
+  def prep_selector(selecto, {:count, "*", filter}) do
+    prep_selector(selecto, {:count, {:literal, "*"}, filter})
+  end
+
+  def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
+    {sel, join, param} = prep_selector(selecto, field)
+    {join_w, filters, param_w} = Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
+    func = Atom.to_string(func) |> check_string()
+    {"#{func}(#{sel}) FILTER (where #{filters})", List.wrap(join) ++ List.wrap(join), param ++ param_w}
+  end
+
+  def prep_selector(selecto, {:literal, value}) when is_integer(value) do
+    {"#{value}", :selecto_root, []}
+  end
+
+  def prep_selector(selecto, {:literal, value}) when is_bitstring(value) do
+    {"#{single_wrap(value)}", :selecto_root, []}
+  end
+
+  def prep_selector(selecto, {:subquery, dynamic, params}) do
+    {dynamic, [], params}
+  end
+
+  def prep_selector(selecto, {:to_char, {field, format}}) do
+    {sel, join, param} = prep_selector(selecto, field)
+    {"to_char(#{sel}, #{double_wrap(format)})", join, param}
+  end
+
+  def prep_selector(selecto, {:extract, field, format}) do
+    {sel, join, param} = prep_selector(selecto, field)
+    check_string(format)
+    {"extract( #{format} from  #{sel})", join, param}
+  end
+
+  def prep_selector(selecto, {:field, selector}) do
+    prep_selector(selecto, selector)
+  end
+
+  def prep_selector(selecto, {func}) when is_atom(func) do
+    func = Atom.to_string(func) |> check_string()
+    {"#{func}()", :selecto_root, []}
+  end
+
+  def prep_selector(selecto, {func, selector}) when is_atom(func) do
+    {sel, join, param} = prep_selector(selecto, selector)
+    func = Atom.to_string(func) |> check_string()
+    {"#{func}(#{sel})", join, param}
+  end
+
+  def prep_selector(selecto, selector) when is_binary(selector) do
+    conf = selecto.config.columns[selector]
+    { "#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, [] }
+  end
+
+  # def prep_selector(_sel, selc) do
+  #   IO.inspect(selc)
   # end
-
-  # def prep_selector(selecto, {func, selector}) when is_atom(func) do
-  #   {sel, join, param} = prep_selector(selecro, selector)
-  #   func = Atom.to_string(func) |> check_string()
-  #   {"#{func}(#{sel})", join, params}
-  # end
-
-  # def prep_selector(selecto, selector) when is_binary(selector) do
-  #   conf = selecto.config.columns[selector]
-  #   {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
-  # end
-
-  import Selecto.Helpers
 
   ### make the builder build the dynamic so we can use same parts for SQL
-  def build(selecto, {:subquery, as, dynamic, params}) do
-    {dynamic, [], params, as}
-  end
 
 
-  def build(selecto, {:subquery, func, field}) do
-    conf = selecto.config.columns[field]
 
-    join = selecto.config.joins[conf.requires_join]
-    my_func = check_string( Atom.to_string(func) )
-    my_key = Atom.to_string(join.my_key)
-    my_field = Atom.to_string(conf.field)
+  # def build(selecto, {:subquery, func, field}) do
+  #   conf = selecto.config.columns[field]
 
-    #TODO
-  end
+  #   join = selecto.config.joins[conf.requires_join]
+  #   my_func = check_string( Atom.to_string(func) )
+  #   my_key = Atom.to_string(join.my_key)
+  #   my_field = Atom.to_string(conf.field)
+
+  #   #TODO
+  # end
 
   # ARRAY - auto gen array from otherwise denorm'ing selects using postgres 'array' func
   # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
@@ -76,38 +130,9 @@ defmodule Selecto.Builder.Sql.Select do
   #   {query, aliases}
   # end
 
-  def build(selecto, {:extract, field, format}) do
-    conf = selecto.config.columns[field]
-    as = "#{format} from #{field}"
-
-    check_string(format)
-    {"extract( #{format} from  #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)})", conf.requires_join, [], as}
-  end
-
-  def build(selecto, {:to_char, {field, format}, as}) do
-    conf = selecto.config.columns[field]
-    {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, [], field}
-
-  end
-
-  def build(selecto, {:literal, name, value}) when is_integer(value) do
-    {"#{value}", :selecto_root, [], name}
-  end
-  def build(selecto, {:literal, name, value}) when is_bitstring(value) do
-    {"#{single_wrap(value)}", :selecto_root, [], name}
-  end
-  #TODO more types ... refactor out 'literal' processing
 
 
-  ## Case of literal value arg
-  def build(selecto, {func, {:literal, literal}, as}) when is_atom(func) and is_integer(literal) do
-    func = Atom.to_string(func) |> check_string()
-    {"#{func}(#{literal})", :selecto_root, [], as}
-  end
-  def build(selecto, {func, {:literal, literal}, as}) when is_atom(func) and is_bitstring(literal) do
-    func = Atom.to_string(func) |> check_string()
-    {"#{func}(#{ single_wrap( literal ) })", :selecto_root, [], as}
-  end
+
   #TODO - other data types- float, decimal
 
   # Case for func call with field as arg
@@ -117,60 +142,21 @@ defmodule Selecto.Builder.Sql.Select do
   ## ^^ and mixed lit/field args - field as list?
 
 
-
-  def build(selecto, {:count}) do
-    {"count(*)", nil, [], "count"}
-  end
-
-  def build(selecto, {:count, "*", as, filter}) do
-    {join, filters, param} = Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
-    {"count(*) FILTER (where #{filters})", List.wrap(join), [] ++ param, as}
-  end
-
-  ### works with any func/agg of normal form with no as
-  def build(selecto, {func, field}) when is_atom(func) do
-    use_as = "#{func}(#{field})"
-    build(selecto, {func, field, use_as})
-  end
-
-  def build(selecto, {func, field, as}) when is_atom(func) do
-    conf = selecto.config.columns[field]
-    func = Atom.to_string(func) |> check_string()
-    {"#{func}(#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)})", conf.requires_join, [], as}
-  end
-
-  def build(selecto, {func, field, as, filter}) when is_atom(func) do
-    {join, filters, param} = Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
-    conf = selecto.config.columns[field]
-    func = Atom.to_string(func) |> check_string()
-    {"#{func}(#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}) FILTER (where #{filters})", [conf.requires_join] ++ List.wrap(join), [] ++ param, as}
-  end
-
-
-  # case of other non-arg funcs eg now()
-  def build(selecto, {func}) when is_atom(func) do
-    func = Atom.to_string(func) |> check_string()
-    {"#{func}()", nil, [], func}
-  end
-
   ### regular old fields. Allow atoms?
-  def build(selecto, field) when is_binary(field) do
-    build(selecto, field, field)
+  def build(selecto, field) do
+    IO.inspect(field, label: "there")
+    {select, join, param} = prep_selector(selecto, field)
+    {select, join, param, UUID.uuid4}
   end
 
-  def build(selecto, field, as) when is_binary(field) do
+  def build(selecto, field, as) do
+    IO.inspect(field, label: "here")
     {select, join, param} = prep_selector(selecto, field)
     {select, join, param, as}
   end
 
 
-  #conf = selecto.config.columns[field]
-  #conf.requires_join
-  def prep_selector(selecto, selector) when is_binary(selector) do
-    conf = selecto.config.columns[selector]
-    {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
-    #TODO
-  end
+
 
 
 

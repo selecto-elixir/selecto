@@ -6,16 +6,16 @@ alias Inspect.Regex
 
 
   def check_string( string ) do
-    if string |> String.match?(~r/^[^a-zA-Z0-9_]+$/) do
-      raise "Invalid String #{string}"
-    end
-    Regex.replace(~r/'/, string, "''")
+    # if string |> String.match?(~r/^[^a-zA-Z0-9_]+$/) do
+    #   raise "Invalid String #{string}"
+    # end
+    String.replace(string, ~r/'/, "''")
   end
 
 
   def single_wrap(val) do
     #TODO! replace ' in val
-    val = Regex.replace(~r/'/, val, "''")
+    val = String.replace(val, ~r/'/,  "''")
     ~s"'#{val}'"
   end
 
