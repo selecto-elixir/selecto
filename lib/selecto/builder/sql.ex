@@ -8,7 +8,8 @@ defmodule Selecto.Builder.Sql do
     {group_by_joins, group_by_clause, group_params} = build_group_by(selecto) #TODO
     {order_by_joins, order_by_clause, order_params} = build_order_by(selecto) #TODO
 
-    joins_in_order = Selecto.Builder.Join.get_join_order(selecto.config.joins, sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
+    joins_in_order = Selecto.Builder.Join.get_join_order(selecto.config.joins,
+      List.flatten(sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins) )
 
     {from_clause, from_params} = build_from(selecto, joins_in_order)
 
@@ -60,6 +61,10 @@ defmodule Selecto.Builder.Sql do
                                           }
                                       }])
   selecto |> Selecto.execute([])
+
+  selecto = Selecto.configure(SelectoTest.Repo, SelectoTestWeb.PagilaLive.selecto_domain())
+  selecto = Selecto.select(selecto, {:count, "first_name", "cnt", {"first_name", {"!=", "DAN"}}})
+            Selecto.execute(selecto, [])
   """
 
   defp build_from(selecto, joins) do

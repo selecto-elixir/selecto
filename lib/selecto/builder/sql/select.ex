@@ -82,11 +82,6 @@ defmodule Selecto.Builder.Sql.Select do
   end
   #TODO more types ... refactor out 'literal' processing
 
-  ### works with any func/agg of normal form with no as
-  def build(selecto, {func, field}) when is_atom(func) do
-    use_as = "#{func}(#{field})"
-    build(selecto, {func, field, use_as})
-  end
 
   ## Case of literal value arg
   def build(selecto, {func, {:literal, literal}, as}) when is_atom(func) and is_integer(literal) do
@@ -105,17 +100,31 @@ defmodule Selecto.Builder.Sql.Select do
   ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
   ## ^^ and mixed lit/field args - field as list?
 
+
+
+  def build(selecto, {:count}) do
+    {"count(*)", nil, [], "count"}
+  end
+
+  ### works with any func/agg of normal form with no as
+  def build(selecto, {func, field}) when is_atom(func) do
+    use_as = "#{func}(#{field})"
+    build(selecto, {func, field, use_as})
+  end
+
   def build(selecto, {func, field, as}) when is_atom(func) do
     conf = selecto.config.columns[field]
     func = Atom.to_string(func) |> check_string()
     {"#{func}(#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)})", conf.requires_join, [], as}
-
   end
 
-  # Case of 'count(*)' which we can just ref as count
-  def build(selecto, {:count}) do
-    {"count(*)", nil, [], "count"}
+  def build(selecto, {func, field, as, filter}) when is_atom(func) do
+    {join, filters, param} = Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
+    conf = selecto.config.columns[field]
+    func = Atom.to_string(func) |> check_string()
+    {"#{func}(#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}) FILTER (where #{filters})", [conf.requires_join] ++ List.wrap(join), [] ++ param, as}
   end
+
 
   # case of other non-arg funcs eg now()
   def build(selecto, {func}) when is_atom(func) do
