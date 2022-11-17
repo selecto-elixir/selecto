@@ -163,11 +163,11 @@ defmodule Selecto do
     #IO.inspect(query, label: "Exe")
 
     {:ok, result} = Ecto.Adapters.SQL.query(selecto.repo, query, params)
-      #|> IO.inspect(label: "Results")
+      |> IO.inspect(label: "Results")
 
 
 
-    {result.rows, aliases}
+    {result.rows, result.columns, aliases}
   end
 
   def available_columns(selecto) do
