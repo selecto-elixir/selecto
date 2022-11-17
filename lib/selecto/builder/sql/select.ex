@@ -26,7 +26,6 @@ defmodule Selecto.Builder.Sql.Select do
   ### make the builder build the dynamic so we can use same parts for SQL
   def build(selecto, {:subquery, as, dynamic, params}) do
     {dynamic, [], params, as}
-    #TODO
   end
 
 
@@ -71,7 +70,6 @@ defmodule Selecto.Builder.Sql.Select do
 
   def build(selecto, {:to_char, {field, format}, as}) do
     conf = selecto.config.columns[field]
-    #TODO
     {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, [], field}
 
   end
