@@ -53,7 +53,7 @@ defmodule Selecto.Builder.Sql do
 
   @doc """
   selecto = Selecto.configure(SelectoTest.Repo, SelectoTestWeb.PagilaLive.selecto_domain())
-  selecto = Selecto.select(selecto, ["actor_id", "film[film_id]", {:literal, "TLIT", 1}])
+  selecto = Selecto.select(selecto, ["actor_id", "film[film_id]", {:literal, "TL'IT", 1}])
   selecto = Selecto.filter(selecto, [{:not,
                                           {:or, [{"actor_id", [1,2]},
                                                   {"actor_id", 3}
