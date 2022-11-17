@@ -63,7 +63,7 @@ defmodule Selecto.Builder.Sql do
   selecto |> Selecto.execute([])
 
   selecto = Selecto.configure(SelectoTest.Repo, SelectoTestWeb.PagilaLive.selecto_domain())
-  selecto = Selecto.select(selecto, {:count, "first_name", "cnt", {"first_name", {"!=", "DAN"}}})
+  selecto = Selecto.select(selecto, {:count, "*", "cnt", {"first_name", {"!=", "DAN"}}})
             Selecto.execute(selecto, [])
   """
 

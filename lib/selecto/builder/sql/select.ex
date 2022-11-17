@@ -106,6 +106,11 @@ defmodule Selecto.Builder.Sql.Select do
     {"count(*)", nil, [], "count"}
   end
 
+  def build(selecto, {:count, "*", as, filter}) do
+    {join, filters, param} = Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
+    {"count(*) FILTER (where #{filters})", List.wrap(join), [] ++ param, as}
+  end
+
   ### works with any func/agg of normal form with no as
   def build(selecto, {func, field}) when is_atom(func) do
     use_as = "#{func}(#{field})"
