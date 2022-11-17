@@ -64,6 +64,11 @@ defmodule Selecto.Builder.Sql.Where do
     {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} = ANY(^SelectoParam^) ", [list]}
   end
 
+  def build(selecto, {field, :not_null}) do
+    conf = selecto.config.columns[field]
+    {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} is not null ", []}
+  end
+
   def build(selecto, {field, value}) when is_nil(value) do
     conf = selecto.config.columns[field]
     {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} is null ", []}
