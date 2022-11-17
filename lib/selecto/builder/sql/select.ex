@@ -41,6 +41,10 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, {:count, {:literal, "*"}, filter})
   end
 
+  def prep_selector(selecto, {:subquery, dynamic, params}) do
+    {dynamic, [], params}
+  end
+
   def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
     {sel, join, param} = prep_selector(selecto, field)
     {join_w, filters, param_w} = Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
@@ -56,9 +60,6 @@ defmodule Selecto.Builder.Sql.Select do
     {"#{single_wrap(value)}", :selecto_root, []}
   end
 
-  def prep_selector(selecto, {:subquery, dynamic, params}) do
-    {dynamic, [], params}
-  end
 
   def prep_selector(selecto, {:to_char, {field, format}}) do
     {sel, join, param} = prep_selector(selecto, field)
@@ -141,16 +142,33 @@ defmodule Selecto.Builder.Sql.Select do
   ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
   ## ^^ and mixed lit/field args - field as list?
 
+  def build(selecto, {:row, fields, as} ) do
+    {select, join, param} = Enum.reduce(List.wrap(fields), {[],[],[]}, fn f, {select,join,param} ->
+      {s,j,p} = prep_selector(selecto, f)
+      {select ++ [s], join ++ List.wrap(j), param ++ p}
+    end
+    )
+
+    {"row( #{Enum.join(select, ", ")} )", join, param, as}
+  end
+
+  def build(selecto, {:field, field, as} ) do
+    IO.inspect(field, label: "HERE")
+    IO.inspect(as, label: "HERE")
+
+    {select, join, param} = prep_selector(selecto, field)
+    {select, join, param, as}
+  end
 
   ### regular old fields. Allow atoms?
   def build(selecto, field) do
-    IO.inspect(field, label: "there")
+    IO.inspect(field)
     {select, join, param} = prep_selector(selecto, field)
     {select, join, param, UUID.uuid4}
   end
 
   def build(selecto, field, as) do
-    IO.inspect(field, label: "here")
+    IO.inspect(field)
     {select, join, param} = prep_selector(selecto, field)
     {select, join, param, as}
   end
