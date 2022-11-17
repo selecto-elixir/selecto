@@ -21,6 +21,22 @@ defmodule Selecto.Builder.Sql.Select do
     {:subquery, [SELECTOR, SELECTOR, ...], PREDICATE}
   """
 
+
+  # def prep_selector(selecto, {:field, selector}) do
+  #   prep_selector(selecro, selector)
+  # end
+
+  # def prep_selector(selecto, {func, selector}) when is_atom(func) do
+  #   {sel, join, param} = prep_selector(selecro, selector)
+  #   func = Atom.to_string(func) |> check_string()
+  #   {"#{func}(#{sel})", join, params}
+  # end
+
+  # def prep_selector(selecto, selector) when is_binary(selector) do
+  #   conf = selecto.config.columns[selector]
+  #   {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
+  # end
+
   import Selecto.Helpers
 
   ### make the builder build the dynamic so we can use same parts for SQL
@@ -139,10 +155,21 @@ defmodule Selecto.Builder.Sql.Select do
 
   ### regular old fields. Allow atoms?
   def build(selecto, field) when is_binary(field) do
-    conf = selecto.config.columns[field]
-    conf.requires_join
-    ### SQL, JOIN, PARAMS, FIELD
-    {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, [], field}
+    build(selecto, field, field)
+  end
+
+  def build(selecto, field, as) when is_binary(field) do
+    {select, join, param} = prep_selector(selecto, field)
+    {select, join, param, as}
+  end
+
+
+  #conf = selecto.config.columns[field]
+  #conf.requires_join
+  def prep_selector(selecto, selector) when is_binary(selector) do
+    conf = selecto.config.columns[selector]
+    {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
+    #TODO
   end
 
 

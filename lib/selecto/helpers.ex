@@ -32,16 +32,12 @@ alias Inspect.Regex
   end
 
 
-  def prep_literal() do
+  def prep_literal(literal) do
     #TODO
   end
 
-  def prep_selector() do
-    #TODO
-  end
 
-  @spec prep_predicate :: nil
-  def prep_predicate() do
+  def prep_predicate(selecto, predicate) do
     #TODO
   end
 
