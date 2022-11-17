@@ -51,6 +51,7 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, {comp, value}}) when comp in [:like, :ilike] do
     conf = selecto.config.columns[field]
     ### Value must have a % in it to work!
+    ### TODO sanitize like value in caller
     {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} #{comp} ^SelectoParam^ ", [value]}
   end
 
