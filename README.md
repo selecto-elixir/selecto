@@ -81,13 +81,27 @@ Selections in Detail
 
 When func is referenced below, it is referring to a SQL function
 
-- "field" Just select the column
-- {:count} select count of returns (aggregate)
-- {func, field, as} when is_atom(func) select func(field) as "as"
-- {func, field} when is_atom(func) select func(field)
-- {func, {:literal, value}, as} when is_atom(func) select func(value) as "as"
-- {:literal, name, value} select this literal value as "as"
-- planned: case, coalesce, array
+```elixir
+    "field" # - plain old field from one of the tables
+    {:field, field } #- same as above disamg for predicate second+ position
+    {:literal, "value"} #- for literal values
+    {:literal, 1.0}
+    {:literal, 1}
+    {:literal, datetime} etc
+    {:func, SELECTOR}
+    {:count, *} (for count(*))
+    {:func, SELECTOR, SELECTOR}
+    {:func, SELECTOR, SELECTOR, SELECTOR} #...
+    {:extract, part, SELECTOR}
+   P {:case, [PREDICATE, SELECTOR, ..., :else, SELECTOR]}
+
+   P {:coalese, [SELECTOR, SELECTOR, ...]}
+   P {:greatest, [SELECTOR, SELECTOR, ...]}
+   P {:least, [SELECTOR, SELECTOR, ...]}
+   P {:nullif, [SELECTOR, LITERAL_SELECTOR]} #LITERAL_SELECTOR means naked value treated as lit not field
+
+   P {:subquery, ...}
+```
 
 Filters in Detail
 
@@ -118,7 +132,6 @@ Planned Features:
 - ability to tell selecto to put some selects into an array from a subquery
 - ability to select full schema structs / arrays of schema structs
 - ability to configure without requiring domain structure
-- generate SQL directly
 - API & Vue lib
 - Components (in progress for [tailwind/liveview](https://github.com/seeken/selecto_components) )
 - tests (when domain/filters/select is stabilized)
@@ -151,27 +164,7 @@ Planned new format :
     {SELECTOR, comp, :all, SUBQUERY}
     {:exists, SUBQUERY}
 
-    #Standardize selectors to make more complex queries possible
-
-    "field" # - plain old field from one of the tables
-    {:field, field } #- same as above disamg for predicate second+ position
-    {:literal, "value"} #- for literal values
-    {:literal, 1.0}
-    {:literal, 1}
-    {:literal, datetime} etc
-    {:func, SELECTOR}
-    {:count, *} (for count(*))
-    {:func, SELECTOR, SELECTOR}
-    {:func, SELECTOR, SELECTOR, SELECTOR} #...
-    {:extract, part, SELECTOR}
-    {:case, [PREDICATE, SELECTOR, ..., :else, SELECTOR]}
-
-    {:coalese, [SELECTOR, SELECTOR, ...]}
-    {:greatest, [SELECTOR, SELECTOR, ...]}
-    {:least, [SELECTOR, SELECTOR, ...]}
-    {:nullif, [SELECTOR, LITERAL_SELECTOR]} #LITERAL_SELECTOR means naked value treated as lit not field
-
-    {:subquery, [SELECTOR, SELECTOR, ...], PREDICATE}
+ 
 ```
 
 ## Installation

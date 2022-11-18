@@ -4,46 +4,15 @@ defmodule Selecto do
   import Ecto.Query
   import Selecto.Helpers
 
-
-
   @moduledoc """
+
   Documentation for `Selecto,` a query writer and report generator for Elixir/Ecto
-
-    TODO
-
-    having
-
-    json/embeds/arrays/maps?
-       json:  tablen[field].somejsonkey tablen[field][index].somekey...
-
-
-    distinct
-
-    select into tuple or list instead of map more efficient?
-    ability to add synthetic root, joins, filters, columns
-
-    union, union all, intersect, intersect all
-    -- pass in lists of alternative filters
-    -- allow multiple unions
-
-    limit, offset
-
-    subqueries
-
-  Mebbie:
-    windows?
-    CTEs? recursive?
-    first, last?? as limit, reverse_order
-
-  ERROR CHECKS
-   -- Has association by right name?
-
 
   """
 
   @doc """
     Generate a selecto structure from this Repo following
-    the instructinos in Domain map
+    the instructions in Domain map
   """
   def configure(repo, domain) do
     %Selecto{
@@ -154,7 +123,7 @@ defmodule Selecto do
 
 
   @doc """
-    Generate and run the query, returning list of maps (for now...)
+    Generate and run the query, returning list of lists, db produces column headers, and provides aliases
   """
   def execute(selecto, opts \\ []) do
     #IO.puts("Execute Query")
@@ -163,18 +132,9 @@ defmodule Selecto do
     #IO.inspect(query, label: "Exe")
 
     {:ok, result} = Ecto.Adapters.SQL.query(selecto.repo, query, params)
-      |> IO.inspect(label: "Results")
-
-
+#      |> IO.inspect(label: "Results")
 
     {result.rows, result.columns, aliases}
   end
 
-  def available_columns(selecto) do
-    selecto.config.columns
-  end
-
-  def available_filters(selecto) do
-    selecto.config.filters
-  end
 end
