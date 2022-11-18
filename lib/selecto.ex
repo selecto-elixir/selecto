@@ -57,7 +57,8 @@ defmodule Selecto do
         fn e, acc ->
           Map.merge(Map.get(e, :filters, %{}), acc)
         end
-      ) |> Enum.map(fn {f, v} -> {f, Map.put(v, :id, f)} end)
+      )
+      |> Enum.map(fn {f, v} -> {f, Map.put(v, :id, f)} end)
       |> Enum.into(%{})
 
     %{
@@ -100,6 +101,7 @@ defmodule Selecto do
   def order_by(selecto, orders) when is_list(orders) do
     put_in(selecto.set.order_by, selecto.set.order_by ++ orders)
   end
+
   def order_by(selecto, orders) do
     put_in(selecto.set.order_by, selecto.set.order_by ++ [orders])
   end
@@ -110,31 +112,27 @@ defmodule Selecto do
   def group_by(selecto, groups) when is_list(groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
+
   def group_by(selecto, groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
   end
 
-
   def gen_sql(selecto) do
-    #todo!
+    # todo!
   end
-
-
-
 
   @doc """
     Generate and run the query, returning list of lists, db produces column headers, and provides aliases
   """
   def execute(selecto, opts \\ []) do
-    #IO.puts("Execute Query")
+    # IO.puts("Execute Query")
 
     {query, aliases, params} = Selecto.Builder.Sql.build(selecto, opts)
-    #IO.inspect(query, label: "Exe")
+    # IO.inspect(query, label: "Exe")
 
     {:ok, result} = Ecto.Adapters.SQL.query(selecto.repo, query, params)
-#      |> IO.inspect(label: "Results")
+    #      |> IO.inspect(label: "Results")
 
     {result.rows, result.columns, aliases}
   end
-
 end

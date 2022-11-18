@@ -1,5 +1,4 @@
 defmodule Selecto.Builder.Sql.Select do
-
   import Selecto.Helpers
 
   @doc """
@@ -26,9 +25,11 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(selecto, val) when is_integer(val) do
     {val, :selecto_root, []}
   end
+
   def prep_selector(selecto, val) when is_float(val) do
     {val, :selecto_root, []}
   end
+
   def prep_selector(selecto, val) when is_boolean(val) do
     {val, :selecto_root, []}
   end
@@ -47,9 +48,14 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
     {sel, join, param} = prep_selector(selecto, field)
-    {join_w, filters, param_w} = Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
+
+    {join_w, filters, param_w} =
+      Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
+
     func = Atom.to_string(func) |> check_string()
-    {"#{func}(#{sel}) FILTER (where #{filters})", List.wrap(join) ++ List.wrap(join), param ++ param_w}
+
+    {"#{func}(#{sel}) FILTER (where #{filters})", List.wrap(join) ++ List.wrap(join),
+     param ++ param_w}
   end
 
   def prep_selector(selecto, {:literal, value}) when is_integer(value) do
@@ -59,7 +65,6 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(selecto, {:literal, value}) when is_bitstring(value) do
     {"#{single_wrap(value)}", :selecto_root, []}
   end
-
 
   def prep_selector(selecto, {:to_char, {field, format}}) do
     {sel, join, param} = prep_selector(selecto, field)
@@ -89,7 +94,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, selector) when is_binary(selector) do
     conf = selecto.config.columns[selector]
-    { "#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, [] }
+    {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
   end
 
   # def prep_selector(_sel, selc) do
@@ -97,8 +102,6 @@ defmodule Selecto.Builder.Sql.Select do
   # end
 
   ### make the builder build the dynamic so we can use same parts for SQL
-
-
 
   # def build(selecto, {:subquery, func, field}) do
   #   conf = selecto.config.columns[field]
@@ -116,7 +119,7 @@ defmodule Selecto.Builder.Sql.Select do
   # ---- postgres has functions to put those into json!
   # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
   # to one of the main query joins
-  #TODOs
+  # TODOs
   # def build(selecto, {:array, _field, _selects}) do
   #   {query, aliases}
   # end
@@ -131,10 +134,7 @@ defmodule Selecto.Builder.Sql.Select do
   #   {query, aliases}
   # end
 
-
-
-
-  #TODO - other data types- float, decimal
+  # TODO - other data types- float, decimal
 
   # Case for func call with field as arg
   ## Check for SQL INJ TODO
@@ -142,17 +142,17 @@ defmodule Selecto.Builder.Sql.Select do
   ## TODO variant for 2 arg aggs eg string_agg, jsonb_object_agg, Grouping
   ## ^^ and mixed lit/field args - field as list?
 
-  def build(selecto, {:row, fields, as} ) do
-    {select, join, param} = Enum.reduce(List.wrap(fields), {[],[],[]}, fn f, {select,join,param} ->
-      {s,j,p} = prep_selector(selecto, f)
-      {select ++ [s], join ++ List.wrap(j), param ++ p}
-    end
-    )
+  def build(selecto, {:row, fields, as}) do
+    {select, join, param} =
+      Enum.reduce(List.wrap(fields), {[], [], []}, fn f, {select, join, param} ->
+        {s, j, p} = prep_selector(selecto, f)
+        {select ++ [s], join ++ List.wrap(j), param ++ p}
+      end)
 
     {"row( #{Enum.join(select, ", ")} )", join, param, as}
   end
 
-  def build(selecto, {:field, field, as} ) do
+  def build(selecto, {:field, field, as}) do
     IO.inspect(field, label: "HERE")
     IO.inspect(as, label: "HERE")
 
@@ -164,7 +164,7 @@ defmodule Selecto.Builder.Sql.Select do
   def build(selecto, field) do
     IO.inspect(field)
     {select, join, param} = prep_selector(selecto, field)
-    {select, join, param, UUID.uuid4}
+    {select, join, param, UUID.uuid4()}
   end
 
   def build(selecto, field, as) do
@@ -172,11 +172,4 @@ defmodule Selecto.Builder.Sql.Select do
     {select, join, param} = prep_selector(selecto, field)
     {select, join, param, as}
   end
-
-
-
-
-
-
-
 end

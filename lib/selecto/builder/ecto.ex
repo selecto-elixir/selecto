@@ -1,5 +1,4 @@
 defmodule Selecto.Builder.Ecto do
-
   alias Selecto.Builder.Ecto.{Select, Joins, Filter, Group}
   alias Selecto.Builder.Join
   import Ecto.Query
@@ -8,10 +7,9 @@ defmodule Selecto.Builder.Ecto do
     Returns an Ecto.Query with all your filters and selections added..eventually!
   """
   def gen_query(selecto, opts \\ []) do
-    #IO.puts("Gen Query")
+    # IO.puts("Gen Query")
 
     {results_type, opts} = Keyword.pop(opts, :results_type, :maps)
-
 
     from_selects = Join.from_selects(selecto.config.columns, selecto.set.selected)
     filters_to_use = Map.get(selecto.domain, :required_filters, []) ++ selecto.set.filtered
@@ -38,14 +36,12 @@ defmodule Selecto.Builder.Ecto do
     {query, aliases} =
       Join.get_join_order(
         selecto.config.joins,
-        Enum.uniq(
-          from_selects ++ filtered_by_join ++ joins_from_order_by ++ joins_from_group_by
-        )
+        Enum.uniq(from_selects ++ filtered_by_join ++ joins_from_order_by ++ joins_from_group_by)
       )
       |> Enum.reduce(query, fn j, acc -> Joins.apply_join(selecto.config, acc, j) end)
       |> Select.apply_selections(selecto.config, selecto.set.selected)
 
-    #IO.inspect(query, label: "Second Last")
+    # IO.inspect(query, label: "Second Last")
 
     query =
       query
@@ -53,9 +49,8 @@ defmodule Selecto.Builder.Ecto do
       |> Group.apply_group_by(selecto.config, selecto.set.group_by)
       |> Select.apply_order_by(selecto.config, selecto.set.order_by)
 
-    #IO.inspect(query, label: "Last")
+    # IO.inspect(query, label: "Last")
 
     {query, aliases}
   end
-
 end

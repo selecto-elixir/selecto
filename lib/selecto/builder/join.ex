@@ -1,5 +1,4 @@
 defmodule Selecto.Builder.Join do
-
   alias Selecto.Builder.Joins
 
   # get a map of joins to list of selected
@@ -43,8 +42,6 @@ defmodule Selecto.Builder.Join do
     |> Enum.uniq()
   end
 
-
-
   # Can only give us the joins.. make this recurse and handle :or, :and, etc
   def from_filters(config, filters) do
     filters
@@ -54,6 +51,7 @@ defmodule Selecto.Builder.Join do
           acc,
           Enum.reduce(from_filters(config, list), %{}, fn i, acc -> Map.put(acc, i, 1) end)
         )
+
       {:and, list}, acc ->
         Map.merge(
           acc,
@@ -61,10 +59,8 @@ defmodule Selecto.Builder.Join do
         )
 
       {fil, _val}, acc ->
-          Map.put(acc, config.columns[fil].requires_join, 1)
-
+        Map.put(acc, config.columns[fil].requires_join, 1)
     end)
     |> Map.keys()
   end
-
 end

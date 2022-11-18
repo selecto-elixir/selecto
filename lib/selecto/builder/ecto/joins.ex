@@ -1,17 +1,13 @@
 defmodule Selecto.Builder.Ecto.Joins do
-
   import Ecto.Query
 
-
-
-    # apply the join to the query
+  # apply the join to the query
   # we don't need to join root!
   def apply_join(_config, query, :selecto_root) do
     query
   end
 
   def apply_join(config, query, join) do
-
     join_map = config.joins[join]
 
     case join_map do
@@ -26,6 +22,4 @@ defmodule Selecto.Builder.Ecto.Joins do
         )
     end
   end
-
-
 end

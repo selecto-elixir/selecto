@@ -1,5 +1,4 @@
 defmodule Selecto.Builder.Ecto.Select do
-
   import Ecto.Query
   import Selecto.Helpers
 
@@ -8,20 +7,18 @@ defmodule Selecto.Builder.Ecto.Select do
     dyn = %{
       as => dynamic
     }
+
     query = from(a in query, select_merge: ^dyn)
     {query, [as | aliases]}
   end
-
 
   defp apply_selection({query, aliases}, config, {:subquery, func, field}) do
     conf = config.columns[field]
 
     join = config.joins[conf.requires_join]
-    my_func = check_string( Atom.to_string(func) )
+    my_func = check_string(Atom.to_string(func))
     my_key = Atom.to_string(join.my_key)
     my_field = Atom.to_string(conf.field)
-
-
 
     # from a in SelectoTest.Test.SolarSystem, select: {fragment("(select json_agg(planets) from planets where solar_system_id = ?)", a.id)}
     # from a in SelectoTest.Test.SolarSystem, select: {fragment("(select count(id) from planets where solar_system_id = ?)", a.id)}
@@ -51,7 +48,7 @@ defmodule Selecto.Builder.Ecto.Select do
   # ---- postgres has functions to put those into json!
   # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
   # to one of the main query joins
-  #TODOs
+  # TODOs
   # defp apply_selection({query, aliases}, _config, {:array, _field, _selects}) do
   #   {query, aliases}
   # end
@@ -178,8 +175,6 @@ defmodule Selecto.Builder.Ecto.Select do
     {query, Enum.reverse(aliases)}
   end
 
-
-
   def apply_order_by(query, config, order_bys) do
     order_bys =
       order_bys
@@ -200,8 +195,4 @@ defmodule Selecto.Builder.Ecto.Select do
       order_by: ^order_bys
     )
   end
-
-
-
-
 end

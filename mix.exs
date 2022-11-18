@@ -37,5 +37,4 @@ defmodule Selecto.MixProject do
       source_url: "https://github.com/seeken/selecto"
     ]
   end
-
 end

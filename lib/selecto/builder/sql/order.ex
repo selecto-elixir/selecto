@@ -1,6 +1,4 @@
 defmodule Selecto.Builder.Sql.Order do
-
-
   @dirs %{
     asc: "asc",
     desc: "desc",
@@ -11,7 +9,8 @@ defmodule Selecto.Builder.Sql.Order do
   }
 
   @dir_list [
-    :asc,:desc,
+    :asc,
+    :desc,
     :asc_nulls_first,
     :asc_nulls_last,
     :desc_nulls_first,
@@ -30,16 +29,14 @@ defmodule Selecto.Builder.Sql.Order do
   def build(selecto) do
     {joins, clauses, params} =
       selecto.set.order_by
-      |> Enum.reduce({[], [], []},
+      |> Enum.reduce(
+        {[], [], []},
         fn g, {joins, clauses, params} ->
           {j, c, p} = order(selecto, g)
           {joins ++ [j], clauses ++ [c], params ++ p}
         end
       )
+
     {joins, Enum.join(clauses, ", "), params}
   end
-
-
-
-
 end

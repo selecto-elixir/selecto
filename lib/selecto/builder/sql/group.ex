@@ -1,21 +1,20 @@
 defmodule Selecto.Builder.Sql.Group do
-
-
-
-  def group(selecto, [rollup:  groups]) do
+  def group(selecto, rollup: groups) do
     {joins, clauses, params} = group(selecto, groups)
-    {joins, "rollup( #{clauses} )",  params}
+    {joins, "rollup( #{clauses} )", params}
   end
 
   def group(selecto, groups) when is_list(groups) do
     {joins, clauses, params} =
       groups
-      |> Enum.reduce({[], [], []},
+      |> Enum.reduce(
+        {[], [], []},
         fn g, {joins, clauses, params} ->
           {j, c, p} = group(selecto, g)
           {joins ++ [j], clauses ++ [c], params ++ p}
         end
       )
+
     {joins, Enum.join(clauses, ", "), params}
   end
 
@@ -27,5 +26,4 @@ defmodule Selecto.Builder.Sql.Group do
   def build(selecto) do
     group(selecto, selecto.set.group_by)
   end
-
 end
