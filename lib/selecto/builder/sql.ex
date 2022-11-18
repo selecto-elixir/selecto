@@ -4,9 +4,7 @@ defmodule Selecto.Builder.Sql do
   def build(selecto, opts) do
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
     {filter_joins, where_clause, where_params} = build_where(selecto)
-    # TODO
     {group_by_joins, group_by_clause, group_params} = build_group_by(selecto)
-    # TODO
     {order_by_joins, order_by_clause, order_params} = build_order_by(selecto)
 
     joins_in_order =
@@ -62,22 +60,6 @@ defmodule Selecto.Builder.Sql do
 
     {sql, aliases, params}
   end
-
-  @doc """
-  selecto = Selecto.configure(SelectoTest.Repo, SelectoTest.PagilaDomain.domain())
-  selecto = Selecto.select(selecto, ["actor_id", "film[film_id]", {:literal, 1}])
-  selecto = Selecto.filter(selecto, [{:not,
-                                          {:or, [{"actor_id", [1,2]},
-                                                  {"actor_id", 3}
-                                                ]
-                                          }
-                                      }])
-  selecto |> Selecto.execute([])
-
-  selecto = Selecto.configure(SelectoTest.Repo, SelectoTest.PagilaDomain.domain())
-  selecto = Selecto.select(selecto, {:count, "*", "cnt", {"first_name", {"!=", "DAN"}}})
-            Selecto.execute(selecto, [])
-  """
 
   defp build_from(selecto, joins) do
     Enum.reduce(joins, {[], []}, fn
