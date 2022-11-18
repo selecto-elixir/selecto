@@ -46,6 +46,15 @@ defmodule Selecto.Builder.Sql.Select do
     {dynamic, [], params}
   end
 
+  def prep_selector(selecto, {:concat, fields}) do
+    {sel, join, param} = Enum.reduce(List.wrap(fields), {[], [], []}, fn f, {select, join, param} ->
+      {s, j, p} = prep_selector(selecto, f)
+      {select ++ [s], join ++ List.wrap(j), param ++ p}
+    end)
+
+    {"concat( #{ Enum.join(sel, ", ")} )", join, param}
+  end
+
   def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
     {sel, join, param} = prep_selector(selecto, field)
 

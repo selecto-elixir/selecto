@@ -8,6 +8,7 @@ defmodule Selecto.Helpers do
        raise "Invalid String #{string}"
     end
     #String.replace(string, ~r/'/, "''")
+    string
   end
 
   def single_wrap(val) do
