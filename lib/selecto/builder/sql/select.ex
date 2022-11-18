@@ -153,22 +153,17 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def build(selecto, {:field, field, as}) do
-    IO.inspect(field, label: "HERE")
-    IO.inspect(as, label: "HERE")
-
     {select, join, param} = prep_selector(selecto, field)
     {select, join, param, as}
   end
 
   ### regular old fields. Allow atoms?
   def build(selecto, field) do
-    IO.inspect(field)
     {select, join, param} = prep_selector(selecto, field)
     {select, join, param, UUID.uuid4()}
   end
 
   def build(selecto, field, as) do
-    IO.inspect(field)
     {select, join, param} = prep_selector(selecto, field)
     {select, join, param, as}
   end

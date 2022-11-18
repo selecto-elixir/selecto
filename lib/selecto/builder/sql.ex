@@ -97,7 +97,6 @@ defmodule Selecto.Builder.Sql do
   defp build_select(selecto) do
     {aliases, joins, selects, params} =
       selecto.set.selected
-      |> IO.inspect()
       |> Enum.map(fn s -> Selecto.Builder.Sql.Select.build(selecto, s) end)
       |> Enum.reduce(
         {[], [], [], []},
@@ -105,7 +104,6 @@ defmodule Selecto.Builder.Sql do
           {aliases ++ [as], joins ++ [j], selects ++ [f], params ++ p}
         end
       )
-      |> IO.inspect()
 
     {aliases, joins, Enum.join(selects, ", "), params}
   end
