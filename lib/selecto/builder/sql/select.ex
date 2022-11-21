@@ -22,6 +22,8 @@ defmodule Selecto.Builder.Sql.Select do
     {:subquery, [SELECTOR, SELECTOR, ...], PREDICATE}
   """
 
+  ### TODO ability to select distinct on count( field )...
+
   def prep_selector(selecto, val) when is_integer(val) do
     {val, :selecto_root, []}
   end
