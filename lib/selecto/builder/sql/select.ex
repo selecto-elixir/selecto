@@ -74,10 +74,7 @@ defmodule Selecto.Builder.Sql.Select do
       _ ->
         {sel_else, join_s, param_s} = prep_selector(selecto, else_clause)
         {"case #{Enum.join(sel, " ")} else #{sel_else} end", join ++ List.wrap(join_s), par ++ param_s}
-
     end
-
-
   end
 
   def prep_selector(selecto, {func, fields}) when func in [:concat, :coalesce, :greatest, :least, :nullif] do
