@@ -70,10 +70,10 @@ defmodule Selecto.Builder.Sql.Select do
     )
     case else_clause do
       nil ->
-        {"case #{Enum.join(sel, " ")} end", join, par} |> IO.inspect()
+        {"case #{Enum.join(sel, " ")} end", join, par}
       _ ->
         {sel_else, join_s, param_s} = prep_selector(selecto, else_clause)
-        {"case #{Enum.join(sel, " ")} else #{sel_else} end", join ++ List.wrap(join_s), par ++ param_s} |> IO.inspect()
+        {"case #{Enum.join(sel, " ")} else #{sel_else} end", join ++ List.wrap(join_s), par ++ param_s}
 
     end
 
