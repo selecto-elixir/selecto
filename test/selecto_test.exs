@@ -15,5 +15,4 @@ defmodule SelectoTest do
       Selecto.Helpers.double_wrap(~s["Hi," she said])
     end
   end
-
 end

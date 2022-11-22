@@ -53,36 +53,42 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def prep_selector(selecto, {:case, pairs, else_clause}) when is_list(pairs) do
-    {sel, join, par} = Enum.reduce( pairs,
-      {[],[],[]},
-      fn {filter, selector}, {s, j, p} ->
+    {sel, join, par} =
+      Enum.reduce(
+        pairs,
+        {[], [], []},
+        fn {filter, selector}, {s, j, p} ->
+          {join_w, filters, param_w} =
+            Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
 
+          {sel, join_s, param_s} = prep_selector(selecto, selector)
 
-        {join_w, filters, param_w} =
-          Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
+          {s ++ ["when #{filters} then #{sel}"], j ++ List.wrap(join_s) ++ List.wrap(join_w),
+           p ++ param_w ++ param_s}
+        end
+      )
 
-        {sel, join_s, param_s} = prep_selector(selecto, selector)
-
-        {s ++ ["when #{filters} then #{sel}"],
-          j ++ List.wrap(join_s) ++ List.wrap(join_w),
-          p ++ param_w ++ param_s}
-      end
-    )
     case else_clause do
       nil ->
         {"case #{Enum.join(sel, " ")} end", join, par}
+
       _ ->
         {sel_else, join_s, param_s} = prep_selector(selecto, else_clause)
-        {"case #{Enum.join(sel, " ")} else #{sel_else} end", join ++ List.wrap(join_s), par ++ param_s}
+
+        {"case #{Enum.join(sel, " ")} else #{sel_else} end", join ++ List.wrap(join_s),
+         par ++ param_s}
     end
   end
 
-  def prep_selector(selecto, {func, fields}) when func in [:concat, :coalesce, :greatest, :least, :nullif] do
-    {sel, join, param} = Enum.reduce(List.wrap(fields), {[], [], []}, fn f, {select, join, param} ->
-      {s, j, p} = prep_selector(selecto, f)
-      {select ++ [s], join ++ List.wrap(j), param ++ p}
-    end)
-    {"#{func}( #{ Enum.join(sel, ", ")} )", join, param}
+  def prep_selector(selecto, {func, fields})
+      when func in [:concat, :coalesce, :greatest, :least, :nullif] do
+    {sel, join, param} =
+      Enum.reduce(List.wrap(fields), {[], [], []}, fn f, {select, join, param} ->
+        {s, j, p} = prep_selector(selecto, f)
+        {select ++ [s], join ++ List.wrap(j), param ++ p}
+      end)
+
+    {"#{func}( #{Enum.join(sel, ", ")} )", join, param}
   end
 
   def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
@@ -162,7 +168,6 @@ defmodule Selecto.Builder.Sql.Select do
   # def build(selecto, {:array, _field, _selects}) do
   #   {query, aliases}
   # end
-
 
   # # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
   # def build(selecto, {:case, _field, _case_map}) do
