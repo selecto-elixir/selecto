@@ -139,7 +139,10 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, selector) when is_binary(selector) do
     conf = selecto.config.columns[selector]
-    {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
+    case Map.get(conf, :select) do
+      nil ->  {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
+      sub -> prep_selector(selecto, sub)
+    end
   end
 
   # def prep_selector(_sel, selc) do
