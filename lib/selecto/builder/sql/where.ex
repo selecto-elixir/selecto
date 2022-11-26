@@ -51,7 +51,7 @@ defmodule Selecto.Builder.Sql.Where do
 
     {conf.requires_join,
      " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} between ^SelectoParam^ and ^SelectoParam^ ",
-     [min, max]}
+     [to_type(conf.type, min), to_type(conf.type, max)]}
   end
 
   def build(selecto, {field, {comp, value}}) when comp in [:like, :ilike] do
@@ -60,7 +60,7 @@ defmodule Selecto.Builder.Sql.Where do
     ### TODO sanitize like value in caller
     {conf.requires_join,
      " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} #{comp} ^SelectoParam^ ",
-     [value]}
+     [to_type(conf.type, value)]}
   end
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
@@ -68,7 +68,7 @@ defmodule Selecto.Builder.Sql.Where do
 
     {conf.requires_join,
      " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} #{comp} ^SelectoParam^ ",
-     [value]}
+     [to_type(conf.type, value)]}
   end
 
   def build(selecto, {field, list}) when is_list(list) do
@@ -76,7 +76,7 @@ defmodule Selecto.Builder.Sql.Where do
 
     {conf.requires_join,
      " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} = ANY(^SelectoParam^) ",
-     [list]}
+     [Enum.map( list, fn i -> to_type(conf.type, i) end )]}
   end
 
   def build(selecto, {field, :not_null}) do
@@ -97,6 +97,26 @@ defmodule Selecto.Builder.Sql.Where do
     conf = selecto.config.columns[field]
 
     {conf.requires_join,
-     " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} = ^SelectoParam^ ", [value]}
+     " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} = ^SelectoParam^ ", [
+        to_type(conf.type, value)]}
   end
+
+
+  defp to_type(:id, value) when is_integer(value) do
+    value
+  end
+  defp to_type(:id, value) when is_bitstring(value) do
+    String.to_integer(value)
+  end
+  defp to_type(:integer, value) when is_integer(value) do
+    value
+  end
+  defp to_type(:integer, value) when is_bitstring(value) do
+    String.to_integer(value)
+  end
+  defp to_type(_t, val) do
+    val
+  end
+
+
 end
