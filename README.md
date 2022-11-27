@@ -75,8 +75,6 @@ To get results, use Selecto.execute
 Selecto.execute(selecto)
 ```
 
-Which will return a list of maps, one per row.
-
 Selections in Detail
 
 When func is referenced below, it is referring to a SQL function
@@ -93,14 +91,14 @@ When func is referenced below, it is referring to a SQL function
     {:func, SELECTOR, SELECTOR}
     {:func, SELECTOR, SELECTOR, SELECTOR} #...
     {:extract, part, SELECTOR}
-   P {:case, [PREDICATE, SELECTOR, ..., :else, SELECTOR]}
+    {:case, [PREDICATE, SELECTOR, ..., :else, SELECTOR]}
 
-   P {:coalese, [SELECTOR, SELECTOR, ...]}
-   P {:greatest, [SELECTOR, SELECTOR, ...]}
-   P {:least, [SELECTOR, SELECTOR, ...]}
-   P {:nullif, [SELECTOR, LITERAL_SELECTOR]} #LITERAL_SELECTOR means naked value treated as lit not field
+    {:coalese, [SELECTOR, SELECTOR, ...]}
+    {:greatest, [SELECTOR, SELECTOR, ...]}
+    {:least, [SELECTOR, SELECTOR, ...]}
+    {:nullif, [SELECTOR, LITERAL_SELECTOR]} #LITERAL_SELECTOR means naked value treated as lit not field
 
-   P {:subquery, ...}
+    {:subquery, ...}
 ```
 
 Filters in Detail
