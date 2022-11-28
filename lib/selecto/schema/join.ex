@@ -62,10 +62,9 @@ defmodule Selecto.Schema.Join do
       )
 
     %{
-      i_am: target,
-      joined_from: association.owner,
+      #joined_from: association.owner,
       # assoc: association,
-      cardinality: association.cardinality,
+      #cardinality: association.cardinality,
       owner_key: association.owner_key,
       # my_key: association.related_key,
       through: Map.get(association, :through),
@@ -76,7 +75,7 @@ defmodule Selecto.Schema.Join do
       ## probably don't need 'where'
       requires_join: dep,
       filters: Selecto.Schema.Filter.configure_filters(Map.get(config, :filters, %{}), dep),
-      fields:
+      fields:   #this will bring in custom columns
         Selecto.Schema.Column.configure_columns(
           association.field,
           target.__schema__(:fields) --
@@ -97,10 +96,9 @@ defmodule Selecto.Schema.Join do
   def configure(id, %{queryable: queryable} = association, config, dep) do
     # IO.inspect(association)
     %{
-      i_am: association.queryable,
-      joined_from: association.owner,
+      #joined_from: association.owner, #Not used?
       # assoc: association,
-      cardinality: association.cardinality,
+      #cardinality: association.cardinality,
       owner_key: association.owner_key,
       my_key: association.related_key,
       source: association.queryable.__schema__(:source),
