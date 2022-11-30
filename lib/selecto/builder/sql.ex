@@ -71,7 +71,7 @@ defmodule Selecto.Builder.Sql do
 
         {fc ++
            [
-             ~s[left join #{config.source} "#{join}" on "#{join}"."#{config.my_key}" = "#{config.requires_join}"."#{config.owner_key}"]
+             ~s[ left join #{config.source} "#{join}" on "#{join}"."#{config.my_key}" = "#{config.requires_join}"."#{config.owner_key}"]
            ], p}
     end)
   end
