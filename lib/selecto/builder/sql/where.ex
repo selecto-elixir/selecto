@@ -101,6 +101,10 @@ defmodule Selecto.Builder.Sql.Where do
         to_type(conf.type, value)]}
   end
 
+  def build(sel, other) do
+    IO.inspect(other)
+    raise "Not Found"
+  end
 
   defp to_type(:id, value) when is_integer(value) do
     value

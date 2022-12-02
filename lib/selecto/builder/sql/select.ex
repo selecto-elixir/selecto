@@ -145,9 +145,10 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  # def prep_selector(_sel, selc) do
-  #   IO.inspect(selc)
-  # end
+  def prep_selector(_sel, selc) do
+    IO.inspect(selc)
+    raise "ERror"
+  end
 
   ### make the builder build the dynamic so we can use same parts for SQL
 
