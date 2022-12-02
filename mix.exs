@@ -26,6 +26,7 @@ defmodule Selecto.MixProject do
   defp deps do
     [
       {:ecto, "~> 3.9.1"},
+      {:uuid, "~> 1.1"},
       {:ex_doc, "~> 0.27", only: :dev, runtime: false}
     ]
   end

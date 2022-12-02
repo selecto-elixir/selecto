@@ -101,7 +101,7 @@ defmodule Selecto.Builder.Sql.Where do
         to_type(conf.type, value)]}
   end
 
-  def build(sel, other) do
+  def build(_sel, other) do
     IO.inspect(other)
     raise "Not Found"
   end

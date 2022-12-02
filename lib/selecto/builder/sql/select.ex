@@ -24,19 +24,19 @@ defmodule Selecto.Builder.Sql.Select do
 
   ### TODO ability to select distinct on count( field )...
 
-  def prep_selector(selecto, val) when is_integer(val) do
+  def prep_selector(_selecto, val) when is_integer(val) do
     {val, :selecto_root, []}
   end
 
-  def prep_selector(selecto, val) when is_float(val) do
+  def prep_selector(_selecto, val) when is_float(val) do
     {val, :selecto_root, []}
   end
 
-  def prep_selector(selecto, val) when is_boolean(val) do
+  def prep_selector(_selecto, val) when is_boolean(val) do
     {val, :selecto_root, []}
   end
 
-  def prep_selector(selecto, {:count}) do
+  def prep_selector(_selecto, {:count}) do
     {"count(*)", :selecto_root, []}
   end
 
@@ -44,7 +44,7 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, {:count, {:literal, "*"}, filter})
   end
 
-  def prep_selector(selecto, {:subquery, dynamic, params}) do
+  def prep_selector(_selecto, {:subquery, dynamic, params}) do
     {dynamic, [], params}
   end
 
@@ -99,15 +99,15 @@ defmodule Selecto.Builder.Sql.Select do
 
     func = Atom.to_string(func) |> check_string()
 
-    {"#{func}(#{sel}) FILTER (where #{filters})", List.wrap(join) ++ List.wrap(join),
+    {"#{func}(#{sel}) FILTER (where #{filters})", List.wrap(join) ++ List.wrap(join_w),
      param ++ param_w}
   end
 
-  def prep_selector(selecto, {:literal, value}) when is_integer(value) do
+  def prep_selector(_selecto, {:literal, value}) when is_integer(value) do
     {"#{value}", :selecto_root, []}
   end
 
-  def prep_selector(selecto, {:literal, value}) when is_bitstring(value) do
+  def prep_selector(_selecto, {:literal, value}) when is_bitstring(value) do
     {"#{single_wrap(value)}", :selecto_root, []}
   end
 
@@ -126,7 +126,7 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, selector)
   end
 
-  def prep_selector(selecto, {func}) when is_atom(func) do
+  def prep_selector(_selecto, {func}) when is_atom(func) do
     func = Atom.to_string(func) |> check_string()
     {"#{func}()", :selecto_root, []}
   end
