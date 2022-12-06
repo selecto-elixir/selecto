@@ -2,6 +2,11 @@
 CHANGES
 =======
 
+V 0.2.1
+
+- upd to keep sync with comp
+- remove unused ecto query builder
+
 V 0.2.0
 -------
 
