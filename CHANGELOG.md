@@ -2,7 +2,15 @@
 CHANGES
 =======
 
+V 0.2.2 TODO
+------------
+
+- special join modes TODO
+- special field filter modes TODO
+- custom filter applier moved to builder instead of form processor TODO
+
 V 0.2.1
+-------
 
 - upd to keep sync with comp
 - remove unused ecto query builder
