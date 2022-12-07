@@ -66,9 +66,9 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(selecto, {field, list}) when is_list(list) do
     conf = selecto.config.columns[field]
-
-    {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} = ANY(^SelectoParam^) ",
-     [Enum.map( list, fn i -> to_type(conf.type, i) end )]}
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ANY(^SelectoParam^) ",
+      param ++ [Enum.map( list, fn i -> to_type(conf.type, i) end )]}
   end
 
   def build(selecto, {field, :not_null}) do
