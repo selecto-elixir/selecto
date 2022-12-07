@@ -117,7 +117,7 @@ A filter is given as a tuple with the following forms allowed:
 Planned Features:
 
 - Many 'TODO' sprinkled around the code +
-- custom filters, joins, columns, self join
+- custom joins, columns, self join
 - parameterized joins (eg joining against a flags or tags table )
 - json/array selects and predicates
 - subqueries in filters

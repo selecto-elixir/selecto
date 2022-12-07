@@ -1,6 +1,8 @@
 defmodule Selecto.Builder.Sql.Where do
   import Selecto.Helpers
 
+  alias Selecto.Builder.Sql.Select
+
   @doc """
       {SELECTOR} # for boolean fields
       {SELECTOR, nil} #is null
@@ -65,10 +67,9 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
     conf = selecto.config.columns[field]
-
-    {conf.requires_join,
-     " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} #{comp} ^SelectoParam^ ",
-     [to_type(conf.type, value)]}
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} ^SelectoParam^ ",
+      param ++ [ to_type(conf.type, value)]}
   end
 
   def build(selecto, {field, list}) when is_list(list) do
@@ -95,10 +96,8 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(selecto, {field, value}) do
     conf = selecto.config.columns[field]
-
-    {conf.requires_join,
-     " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} = ^SelectoParam^ ", [
-        to_type(conf.type, value)]}
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ^SelectoParam^ ", param ++ [ to_type(conf.type, value)]}
   end
 
   def build(_sel, other) do
