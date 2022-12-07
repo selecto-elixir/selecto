@@ -24,8 +24,8 @@ defmodule Selecto.Helpers do
 
   def double_wrap(str) do
     ## TODO! do not allow non- \w_ here this is for field names etc
-    if String.match?(str, ~r/[^a-zA-Z0-9_ &]/) do
-      raise RuntimeError, message: "Invalid Table/Column/Alias Name"
+    if String.match?(str, ~r/[^a-zA-Z0-9_ :&-]/) do
+      raise RuntimeError, message: "Invalid Table/Column/Alias Name #{str}"
     end
 
     ~s["#{str}"]

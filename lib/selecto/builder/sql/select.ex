@@ -113,7 +113,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {:to_char, {field, format}}) do
     {sel, join, param} = prep_selector(selecto, field)
-    {"to_char(#{sel}, #{double_wrap(format)})", join, param}
+    {"to_char(#{sel}, #{single_wrap(format)})", join, param}
   end
 
   def prep_selector(selecto, {:extract, field, format}) do
