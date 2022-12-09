@@ -5,9 +5,8 @@ CHANGES
 V 0.2.2 TODO
 ------------
 
-- special join modes TODO
-- special field filter modes TODO
-- custom filter applier moved to builder instead of form processor TODO
+- bug fixes
+- update some where handlers
 
 V 0.2.1
 -------
