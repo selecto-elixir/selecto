@@ -28,6 +28,7 @@ defmodule Selecto.Builder.Sql do
       "
       end
 
+
     sql =
       case group_by_clause do
         "" -> sql
@@ -35,14 +36,24 @@ defmodule Selecto.Builder.Sql do
         group by #{group_by_clause}
       "
       end
-
-    sql =
+    IO.inspect(group_by_clause, label: "HERE")
+    IO.puts(group_by_clause)
+    sql = if String.contains?(group_by_clause, "rollup") do
+      case order_by_clause do
+        "" -> sql
+        _ -> "select * from (" <> sql <> ") as rollupfix
+        order by #{order_by_clause}
+      "
+      end
+    else
       case order_by_clause do
         "" -> sql
         _ -> sql <> "
         order by #{order_by_clause}
       "
       end
+    end
+
 
     params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 

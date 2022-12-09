@@ -117,8 +117,8 @@ defmodule Selecto do
     put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
   end
 
-  def gen_sql(selecto) do
-    # todo!
+  def gen_sql(selecto, opts) do
+    Selecto.Builder.Sql.build(selecto, opts)
   end
 
   @doc """
@@ -127,11 +127,11 @@ defmodule Selecto do
   def execute(selecto, opts \\ []) do
     # IO.puts("Execute Query")
 
-    {query, aliases, params} = Selecto.Builder.Sql.build(selecto, opts)
+    {query, aliases, params} = gen_sql(selecto, opts)
     # IO.inspect(query, label: "Exe")
 
     {:ok, result} = Ecto.Adapters.SQL.query(selecto.repo, query, params)
-    #      |> IO.inspect(label: "Results")
+    #|> IO.inspect(label: "Results")
 
     {result.rows, result.columns, aliases}
   end
