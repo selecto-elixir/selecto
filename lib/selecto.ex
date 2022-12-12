@@ -1,4 +1,5 @@
 defmodule Selecto do
+  @derive {Inspect, only: [:repo, :set]}
   defstruct [:repo, :domain, :config, :set]
 
   import Ecto.Query
