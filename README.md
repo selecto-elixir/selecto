@@ -99,7 +99,7 @@ When func is referenced below, it is referring to a SQL function
     {:nullif, [SELECTOR, LITERAL_SELECTOR]} #LITERAL_SELECTOR means naked value treated as lit not field
 
     {:subquery, ...}
-
+#TODO
     {:operator, OP, SELECTOR}
     {:operator, OP, SELECTOR, SELECTOR}
 
