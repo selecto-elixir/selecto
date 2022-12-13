@@ -91,6 +91,13 @@ defmodule Selecto.Builder.Sql.Select do
     {"#{func}( #{Enum.join(sel, ", ")} )", join, param}
   end
 
+
+  def prep_selector(selecto, {:extract, field, format}) do
+    {sel, join, param} = prep_selector(selecto, field)
+    check_string(format)
+    {"extract( #{format} from  #{sel})", join, param}
+  end
+
   def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
     {sel, join, param} = prep_selector(selecto, field)
 
@@ -116,11 +123,6 @@ defmodule Selecto.Builder.Sql.Select do
     {"to_char(#{sel}, #{single_wrap(format)})", join, param}
   end
 
-  def prep_selector(selecto, {:extract, field, format}) do
-    {sel, join, param} = prep_selector(selecto, field)
-    check_string(format)
-    {"extract( #{format} from  #{sel})", join, param}
-  end
 
   def prep_selector(selecto, {:field, selector}) do
     prep_selector(selecto, selector)

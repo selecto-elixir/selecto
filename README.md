@@ -116,6 +116,7 @@ A filter is given as a tuple with the following forms allowed:
 
 Planned Features:
 
+- support timescale, postgis
 - Many 'TODO' sprinkled around the code +
 - custom joins, columns, self join
 - parameterized joins (eg joining against a flags or tags table )
