@@ -2,6 +2,12 @@
 CHANGES
 =======
 
+V 0.2.3 TODO
+------------
+
+- bug fixes
+- fix for rollup sorts
+
 V 0.2.2 TODO
 ------------
 

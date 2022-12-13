@@ -99,6 +99,10 @@ When func is referenced below, it is referring to a SQL function
     {:nullif, [SELECTOR, LITERAL_SELECTOR]} #LITERAL_SELECTOR means naked value treated as lit not field
 
     {:subquery, ...}
+
+    {:operator, OP, SELECTOR}
+    {:operator, OP, SELECTOR, SELECTOR}
+
 ```
 
 Filters in Detail
@@ -116,6 +120,9 @@ A filter is given as a tuple with the following forms allowed:
 
 Planned Features:
 
+- more special form function support
+- support for operators
+- ability to configure without requiring domain structure
 - support timescale, postgis
 - Many 'TODO' sprinkled around the code +
 - custom joins, columns, self join
@@ -124,9 +131,6 @@ Planned Features:
 - subqueries in filters
 - ability to tell selecto to put some selects into an array from a subquery
 - ability to select full schema structs / arrays of schema structs
-- ability to configure without requiring domain structure
-- API & Vue lib
-- Components (in progress for [tailwind/liveview](https://github.com/seeken/selecto_components) )
 - tests (when domain/filters/select is stabilized)
 - Documentation
 - CTEs
@@ -135,7 +139,7 @@ Planned Features:
 - index hints
 - join controls - eg manually add a join and tell Selecto which join variant
 - form integration for validation selections and providing options to form elements
-- more flexable selector and predicate structures, allow joins to use any predicates:
+- more flexable selector and predicate structures, allow joins to use any predicates
 
 Planned new format :
 
@@ -168,7 +172,7 @@ by adding `selecto` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.2.2"}
+    {:selecto, "~> 0.2.3"}
   ]
 end
 ```
