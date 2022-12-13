@@ -36,8 +36,6 @@ defmodule Selecto.Builder.Sql do
         group by #{group_by_clause}
       "
       end
-    IO.inspect(group_by_clause, label: "HERE")
-    IO.puts(group_by_clause)
     sql = if String.contains?(group_by_clause, "rollup") do
       case order_by_clause do
         "" -> sql
