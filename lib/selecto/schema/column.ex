@@ -71,11 +71,11 @@ defmodule Selecto.Schema.Column do
     }
   end
 
-  #stolen from phoenix :D
+  # stolen from phoenix :D
   def humanize(atom) when is_atom(atom),
     do: humanize(Atom.to_string(atom))
-  def humanize(bin) when is_binary(bin) do
-    bin |> String.replace("_", " ") |> String.capitalize
-  end
 
+  def humanize(bin) when is_binary(bin) do
+    bin |> String.replace("_", " ") |> String.capitalize()
+  end
 end

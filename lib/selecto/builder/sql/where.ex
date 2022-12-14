@@ -23,7 +23,7 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, {:subquery, :in, query, params}}) do
     conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} in #{query} ", param ++ params }
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} in #{query} ", param ++ params}
   end
 
   def build(selecto, {:not, filter}) do
@@ -46,7 +46,8 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, {:between, min, max}}) do
     conf = selecto.config.columns[field]
 
-    {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} between ^SelectoParam^ and ^SelectoParam^ ",
+    {conf.requires_join,
+     " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} between ^SelectoParam^ and ^SelectoParam^ ",
      [to_type(conf.type, min), to_type(conf.type, max)]}
   end
 
@@ -54,21 +55,25 @@ defmodule Selecto.Builder.Sql.Where do
     conf = selecto.config.columns[field]
     ### Value must have a % in it to work!
     ### TODO sanitize like value in caller
-    {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} #{comp} ^SelectoParam^ ",
+    {conf.requires_join,
+     " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} #{comp} ^SelectoParam^ ",
      [to_type(conf.type, value)]}
   end
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
     conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} ^SelectoParam^ ", param ++ [ to_type(conf.type, value)]}
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} ^SelectoParam^ ",
+     param ++ [to_type(conf.type, value)]}
   end
 
   def build(selecto, {field, list}) when is_list(list) do
     conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
+
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ANY(^SelectoParam^) ",
-      param ++ [Enum.map( list, fn i -> to_type(conf.type, i) end )]}
+     param ++ [Enum.map(list, fn i -> to_type(conf.type, i) end)]}
   end
 
   def build(selecto, {field, :not_null}) do
@@ -86,7 +91,9 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, value}) do
     conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ^SelectoParam^ ", param ++ [ to_type(conf.type, value)]}
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ^SelectoParam^ ",
+     param ++ [to_type(conf.type, value)]}
   end
 
   def build(_sel, other) do
@@ -97,18 +104,20 @@ defmodule Selecto.Builder.Sql.Where do
   defp to_type(:id, value) when is_integer(value) do
     value
   end
+
   defp to_type(:id, value) when is_bitstring(value) do
     String.to_integer(value)
   end
+
   defp to_type(:integer, value) when is_integer(value) do
     value
   end
+
   defp to_type(:integer, value) when is_bitstring(value) do
     String.to_integer(value)
   end
+
   defp to_type(_t, val) do
     val
   end
-
-
 end

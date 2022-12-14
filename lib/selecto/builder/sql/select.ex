@@ -91,7 +91,6 @@ defmodule Selecto.Builder.Sql.Select do
     {"#{func}( #{Enum.join(sel, ", ")} )", join, param}
   end
 
-
   def prep_selector(selecto, {:extract, field, format}) do
     {sel, join, param} = prep_selector(selecto, field)
     check_string(format)
@@ -123,7 +122,6 @@ defmodule Selecto.Builder.Sql.Select do
     {"to_char(#{sel}, #{single_wrap(format)})", join, param}
   end
 
-
   def prep_selector(selecto, {:field, selector}) do
     prep_selector(selecto, selector)
   end
@@ -141,9 +139,13 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, selector) when is_binary(selector) do
     conf = selecto.config.columns[selector]
+
     case Map.get(conf, :select) do
-      nil ->  {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
-      sub -> prep_selector(selecto, sub)
+      nil ->
+        {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
+
+      sub ->
+        prep_selector(selecto, sub)
     end
   end
 
