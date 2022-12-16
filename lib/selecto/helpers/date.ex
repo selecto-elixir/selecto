@@ -1,5 +1,8 @@
 defmodule Selecto.Helpers.Date do
 
+
+  ### TODO do we need to set nanoseconds etc or should we switch to a Start >= v < End instead of Between?!?!?
+
   defp expand_date(%{"year"=>year, "month"=>"", "day"=>""}) do
     start = Timex.to_datetime({{String.to_integer(year), 1, 1},{0,0,0}},  "Etc/UTC")
     stop = Timex.end_of_year(start)
@@ -18,10 +21,27 @@ defmodule Selecto.Helpers.Date do
     {start, stop}
   end
 
-  defp proc_date(date) do ### do this better TODO
-    {:ok, value, i} = DateTime.from_iso8601(date <> ":00Z")
+
+  defp proc_date(%NaiveDateTime{} = date) do ### do this better TODO
+    date
+  end
+
+  defp proc_date(%DateTime{} = date) do ### do this better TODO
+    date
+  end
+
+  defp proc_date(date) when is_binary(date) do ### do this better TODO
+    date = cond do
+      Regex.match?(~r/Z$/, date) -> date
+      Regex.match?(~r/\d\d:\d\d:\d\d/, date) -> date <> "Z"   #Weird...
+      Regex.match?(~r/\d\d:\d\d/, date) -> date <> ":00Z"
+      true -> date
+    end
+    #IO.inspect(date, label: "Parsing...")
+    {:ok, value, i} = DateTime.from_iso8601(date)
     value
   end
+
 
   def val_to_dates(%{"value" => "today", "value2" => ""}) do
     start = Timex.now() |> Timex.beginning_of_day()
@@ -37,7 +57,8 @@ defmodule Selecto.Helpers.Date do
     Regex.named_captures(~r/(?<year>\d{4})-(?<month>\d{2})-?(?<day>\d{2})?/, v1) |> expand_date()
   end
 
-  def val_to_dates(%{"value" => v1, "value2" => v2}) do
+  def val_to_dates(%{"value" => v1, "value2" => v2} = f) do
+    #IO.inspect(f)
     {proc_date(v1), proc_date(v2)}
   end
 
