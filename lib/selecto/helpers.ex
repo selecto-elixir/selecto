@@ -1,5 +1,4 @@
 defmodule Selecto.Helpers do
-  alias Inspect.Regex
 
   ### TODO make sure these prevent sql injection, add some tests, allow valid strings though...
 
@@ -31,11 +30,6 @@ defmodule Selecto.Helpers do
     ~s["#{str}"]
   end
 
-  def prep_literal(literal) do
-    # TODO
-  end
 
-  def prep_predicate(selecto, predicate) do
-    # TODO
-  end
+
 end

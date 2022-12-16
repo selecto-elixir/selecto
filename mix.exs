@@ -27,7 +27,8 @@ defmodule Selecto.MixProject do
     [
       {:ecto, "~> 3.9.1"},
       {:uuid, "~> 1.1"},
-      {:ex_doc, "~> 0.27", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.27", only: :dev, runtime: false},
+      {:timex, "~> 3.7.9"},
     ]
   end
 
