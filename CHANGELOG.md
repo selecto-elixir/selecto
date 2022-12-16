@@ -7,6 +7,7 @@ V 0.2.3 TODO
 
 - bug fixes
 - fix for rollup sorts
+- date helpers
 
 V 0.2.2 TODO
 ------------
