@@ -55,7 +55,7 @@ defmodule Selecto.Helpers.Date do
   ### TODO more of these....
 
   def val_to_dates(%{"value" => v1, "value2" => ""}) do
-    Regex.named_captures(~r/(?<year>\d{4})-(?<month>\d{2})-?(?<day>\d{2})?/, v1) |> expand_date()
+    Regex.named_captures(~r/(?<year>\d{4})-?(?<month>\d{2})?-?(?<day>\d{2})?/, v1) |> expand_date()
   end
 
   def val_to_dates(%{"value" => v1, "value2" => v2} = f) do
