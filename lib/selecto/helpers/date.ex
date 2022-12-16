@@ -2,6 +2,7 @@ defmodule Selecto.Helpers.Date do
 
 
   ### TODO do we need to set nanoseconds etc or should we switch to a Start >= v < End instead of Between?!?!?
+  ### TODO time zones?!?!?!
 
   defp expand_date(%{"year"=>year, "month"=>"", "day"=>""}) do
     start = Timex.to_datetime({{String.to_integer(year), 1, 1},{0,0,0}},  "Etc/UTC")
