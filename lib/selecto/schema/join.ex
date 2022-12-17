@@ -22,7 +22,7 @@ defmodule Selecto.Schema.Join do
       {id, config}, acc ->
         ### Todo allow this to be non-configured assoc
         association = source.__schema__(:association, id)
-        acc = acc ++ [Selecto.Schema.Join.configure(id, association, config, dep)]
+        acc = acc ++ [Selecto.Schema.Join.configure(id, association, config, dep, source)]
         # |> IO.inspect(label: "After conf")
         case Map.get(config, :joins) do
           nil -> acc
@@ -39,7 +39,7 @@ defmodule Selecto.Schema.Join do
   end
 
   ## TODO this does not work yet!
-  def configure(id, %{through: through} = association, config, dep) do
+  def configure(id, %{through: through} = association, config, dep, from_source) do
     trail = Map.get(association, :through)
     start = association.owner
 
@@ -93,8 +93,57 @@ defmodule Selecto.Schema.Join do
 
   # end
 
+  def configure(id, %{queryable: queryable} = association, %{type: :dimension} = config, dep, from_source) do
+    #dimension table, has one 'name-ish' value to display, and then the Local reference would provide ID filtering.
+    # So create a field for group-by that displays NAME and filters by ID
+
+    name = Map.get(config, :name, id)
+    cust_col = Map.get(config, :custom_columns, %{}) |> Map.put(
+      "#{id}", %{
+        name: name,
+        ### concat_ws?
+        select: "#{association.field}[#{config.dimension_value}]",
+        ### we will always get a tuple of select + group_by_filter_select here
+        group_by_format: fn {a, _id}, _def -> a end,
+        group_by_filter:
+          case dep do
+            :selecto_root -> "#{association.owner_key}"
+            _ -> "#{dep}[#{association.owner_key}]"
+          end ,
+        group_by_filter_select: ["#{association.field}[#{config.dimension_value}]",
+          case dep do
+            :selecto_root -> "#{association.owner_key}"
+            _ -> "#{dep}[#{association.owner_key}]"
+          end
+        ]
+      }
+    ) |> IO.inspect(label: "Cust Col for dim")
+    config = Map.put(config, :custom_columns, cust_col)
+
+    %{
+
+      owner_key: association.owner_key,
+      my_key: association.related_key,
+      source: association.queryable.__schema__(:source),
+      id: id,
+      name: name,
+      ## probably don't need 'where'
+      requires_join: dep,
+      filters: Map.get(config, :filters, %{}),
+      fields:
+        Selecto.Schema.Column.configure_columns(
+          association.field,
+          [config.dimension_value],
+          association.queryable,
+          config
+        )
+    } |> IO.inspect
+  end
+
+
+
   ### Regular
-  def configure(id, %{queryable: queryable} = association, config, dep) do
+  def configure(id, %{queryable: queryable} = association, config, dep, from_source) do
     # IO.inspect(association)
     %{
       # joined_from: association.owner, #Not used?
