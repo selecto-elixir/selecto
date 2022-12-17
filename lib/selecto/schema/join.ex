@@ -93,35 +93,33 @@ defmodule Selecto.Schema.Join do
 
   # end
 
+
+  ### Dimension table join
   def configure(id, %{queryable: queryable} = association, %{type: :dimension} = config, dep, from_source) do
     #dimension table, has one 'name-ish' value to display, and then the Local reference would provide ID filtering.
     # So create a field for group-by that displays NAME and filters by ID
 
     name = Map.get(config, :name, id)
-    cust_col = Map.get(config, :custom_columns, %{}) |> Map.put(
-      "#{id}", %{
-        name: name,
-        ### concat_ws?
-        select: "#{association.field}[#{config.dimension_value}]",
-        ### we will always get a tuple of select + group_by_filter_select here
-        group_by_format: fn {a, _id}, _def -> a end,
-        group_by_filter:
-          case dep do
-            :selecto_root -> "#{association.owner_key}"
-            _ -> "#{dep}[#{association.owner_key}]"
-          end ,
-        group_by_filter_select: ["#{association.field}[#{config.dimension_value}]",
-          case dep do
-            :selecto_root -> "#{association.owner_key}"
-            _ -> "#{dep}[#{association.owner_key}]"
-          end
-        ]
-      }
+
+    from_field = case dep do
+      :selecto_root -> "#{association.owner_key}"
+      _ -> "#{dep}[#{association.owner_key}]"
+    end
+
+    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
+        "#{id}", %{ ## we will use the nane of the join's association!
+          name: name,
+          ### concat_ws?
+          select: "#{association.field}[#{config.dimension_value}]",
+          ### we will always get a tuple of select + group_by_filter_select here
+          group_by_format: fn {a, _id}, _def -> a end,
+          group_by_filter: from_field,
+          group_by_filter_select: ["#{association.field}[#{config.dimension_value}]", from_field ]
+        }
+      )
     )
-    config = Map.put(config, :custom_columns, cust_col)
 
     %{
-
       owner_key: association.owner_key,
       my_key: association.related_key,
       source: association.queryable.__schema__(:source),
@@ -137,7 +135,7 @@ defmodule Selecto.Schema.Join do
           association.queryable,
           config
         )
-    } |> IO.inspect
+    }
   end
 
 
