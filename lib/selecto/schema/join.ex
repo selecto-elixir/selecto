@@ -66,6 +66,9 @@ defmodule Selecto.Schema.Join do
       )
 
     %{
+      dep: dep,
+      config: config,
+      from_source: from_source,
       # joined_from: association.owner,
       # assoc: association,
       # cardinality: association.cardinality,
@@ -88,7 +91,7 @@ defmodule Selecto.Schema.Join do
           target,
           config
         )
-    }
+    } |> parameterize()
   end
 
   ### Custom TODO
@@ -124,6 +127,9 @@ defmodule Selecto.Schema.Join do
     )
 
     %{
+      dep: dep,
+      config: config,
+      from_source: from_source,
       owner_key: association.owner_key,
       my_key: association.related_key,
       source: association.queryable.__schema__(:source),
@@ -139,7 +145,7 @@ defmodule Selecto.Schema.Join do
           association.queryable,
           config
         )
-    }
+    } |> parameterize()
   end
 
 
@@ -150,6 +156,9 @@ defmodule Selecto.Schema.Join do
       # joined_from: association.owner, #Not used?
       # assoc: association,
       # cardinality: association.cardinality,
+      dep: dep,
+      config: config,
+      from_source: from_source,
       owner_key: association.owner_key,
       my_key: association.related_key,
       source: association.queryable.__schema__(:source),
@@ -166,6 +175,11 @@ defmodule Selecto.Schema.Join do
           association.queryable,
           config
         )
-    }
+    } |> parameterize()
   end
+
+  defp parameterize(join) do
+    join
+  end
+
 end
