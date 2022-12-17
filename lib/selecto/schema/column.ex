@@ -13,9 +13,6 @@ defmodule Selecto.Schema.Column do
   ### how to do custom columns?
   def get_custom_columns(join, source, domain) do
     ### TODO
-
-    IO.inspect(domain)
-
     Map.get(domain, :custom_columns, %{})
     |> Enum.reduce([], fn {f, v}, acc ->
       [

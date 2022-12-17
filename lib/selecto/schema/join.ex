@@ -117,7 +117,7 @@ defmodule Selecto.Schema.Join do
           end
         ]
       }
-    ) |> IO.inspect(label: "Cust Col for dim")
+    )
     config = Map.put(config, :custom_columns, cust_col)
 
     %{
@@ -144,7 +144,6 @@ defmodule Selecto.Schema.Join do
 
   ### Regular
   def configure(id, %{queryable: queryable} = association, config, dep, from_source) do
-    # IO.inspect(association)
     %{
       # joined_from: association.owner, #Not used?
       # assoc: association,
