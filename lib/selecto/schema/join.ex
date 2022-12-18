@@ -44,54 +44,9 @@ defmodule Selecto.Schema.Join do
 
   ## TODO this does not work yet!
   def configure(id, %{through: through} = association, config, dep, from_source) do
-    trail = Map.get(association, :through)
-    start = association.owner
+    ### we are going to expand the through but only add the
 
-    {path, target} =
-      trail
-      |> Enum.reduce(
-        {[], start},
-        fn assoc, {acc, start} ->
-          step_assoc = start.__schema__(:association, assoc)
-
-          target =
-            {acc ++
-               [
-                 %{
-                   id: assoc,
-                   association: step_assoc
-                 }
-               ], step_assoc.queryable}
-        end
-      )
-
-    %{
-      dep: dep,
-      config: config,
-      from_source: from_source,
-      # joined_from: association.owner,
-      # assoc: association,
-      # cardinality: association.cardinality,
-      owner_key: association.owner_key,
-      # my_key: association.related_key,
-      through: Map.get(association, :through),
-      through_path: path,
-      # source: association.queryable.__schema__(:source),
-      id: id,
-      name: Map.get(config, :name, id),
-      ## probably don't need 'where'
-      requires_join: dep,
-      filters: Selecto.Schema.Filter.configure_filters(Map.get(config, :filters, %{}), dep),
-      # this will bring in custom columns
-      fields:
-        Selecto.Schema.Column.configure_columns(
-          association.field,
-          target.__schema__(:fields) --
-            target.__schema__(:redact_fields),
-          target,
-          config
-        )
-    } |> parameterize()
+    ##??????
   end
 
   ### Custom TODO
@@ -151,11 +106,29 @@ defmodule Selecto.Schema.Join do
 
 
   ### Regular
-  def configure(id, %{queryable: queryable} = association, config, dep, from_source) do
+  def configure(id, association, config, dep, from_source) do
+    std_config(id, association, config, dep, from_source)
+  end
+
+  defp min_config(id, %{queryable: queryable} = association, config, dep, from_source) do
     %{
-      # joined_from: association.owner, #Not used?
-      # assoc: association,
-      # cardinality: association.cardinality,
+      dep: dep,
+      config: config,
+      from_source: from_source,
+      owner_key: association.owner_key,
+      my_key: association.related_key,
+      source: association.queryable.__schema__(:source),
+      id: id,
+      name: Map.get(config, :name, id),
+      ## probably don't need 'where'
+      requires_join: dep,
+      filters: Map.get(config, :filters, %{}),
+
+    } |> parameterize()
+  end
+
+  defp std_config(id, %{queryable: queryable} = association, config, dep, from_source) do
+    %{
       dep: dep,
       config: config,
       from_source: from_source,
@@ -177,6 +150,7 @@ defmodule Selecto.Schema.Join do
         )
     } |> parameterize()
   end
+
 
   defp parameterize(join) do
     join
