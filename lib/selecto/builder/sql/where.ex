@@ -89,11 +89,10 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, value}) do
-    conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ^SelectoParam^ ",
-     param ++ [to_type(conf.type, value)]}
+    {List.wrap(join), " #{sel} = ^SelectoParam^ ",
+     param ++ [ value ]}
   end
 
   def build(_sel, other) do
