@@ -8,7 +8,7 @@ defmodule Selecto.Schema.Column do
     custom_columns = get_custom_columns(join, source, domain)
 
     (columns ++ custom_columns) |> Map.new()
-    |> IO.inspect()
+
   end
 
   ### how to do custom columns?
@@ -42,7 +42,6 @@ defmodule Selecto.Schema.Column do
 
   def configure(field, join, source, domain) do
     config = Map.get(Map.get(domain, :columns, %{}), field, %{})
-    IO.inspect(config)
     colid =
       Map.get(
         config,
