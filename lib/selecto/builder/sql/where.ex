@@ -20,6 +20,11 @@ defmodule Selecto.Builder.Sql.Where do
       {:exists, SUBQUERY}
   """
 
+  def build(selecto, {field, {:text_search, value}}) do
+    conf = selecto.config.columns[field]
+    {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} @@ websearch_to_tsquery(^SelectoParam^) ", [value]}
+  end
+
   def build(selecto, {field, {:subquery, :in, query, params}}) do
     conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
