@@ -22,6 +22,7 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(selecto, {field, {:text_search, value}}) do
     conf = selecto.config.columns[field]
+    ### Don't think we ever have to cook the field because it has to be the tsvector...
     {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} @@ websearch_to_tsquery(^SelectoParam^) ", [value]}
   end
 
