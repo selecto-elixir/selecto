@@ -1,14 +1,25 @@
 defmodule Selecto.Helpers do
 
   ### TODO make sure these prevent sql injection, add some tests, allow valid strings though...
+  ### what am i missing here?! ugh
 
   def check_string(string) do
-    if string |> String.match?(~r/^[^a-zA-Z0-9_]+$/) do
-      raise "Invalid String #{string}"
+    if string |> String.match?(~r/[^a-zA-Z0-9_]/) do
+      raise RuntimeError, message: "Invalid String #{string}"
     end
 
     # String.replace(string, ~r/'/, "''")
     string
+  end
+
+
+  def check_safe_phrase(string) do
+      if String.length(string) < 1 or String.match?(string, ~r/[^a-zA-Z0-9_ ]/) do
+        raise RuntimeError, message: "Invalid String #{string}"
+        false
+      else
+        string
+      end
   end
 
   def single_wrap(val) do

@@ -1,6 +1,8 @@
 defmodule Selecto.Builder.Sql.Select do
   import Selecto.Helpers
 
+  ### TODO alter prep_selector to return the data type
+
   @doc """
   new format...
     "field" # - plain old field from one of the tables

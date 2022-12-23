@@ -2,6 +2,11 @@
 CHANGES
 =======
 
+V 0.2.4 TODO
+------------
+
+- support for filter form updates
+
 V 0.2.3 TODO
 ------------
 

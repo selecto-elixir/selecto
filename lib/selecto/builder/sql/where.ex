@@ -20,6 +20,12 @@ defmodule Selecto.Builder.Sql.Where do
       {:exists, SUBQUERY}
   """
 
+  def build(selecto, {field, {:text_search, value}}) do
+    conf = selecto.config.columns[field]
+    ### Don't think we ever have to cook the field because it has to be the tsvector...
+    {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} @@ websearch_to_tsquery(^SelectoParam^) ", [value]}
+  end
+
   def build(selecto, {field, {:subquery, :in, query, params}}) do
     conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
@@ -52,12 +58,11 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {comp, value}}) when comp in [:like, :ilike] do
-    conf = selecto.config.columns[field]
-    ### Value must have a % in it to work!
-    ### TODO sanitize like value in caller
-    {conf.requires_join,
-     " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} #{comp} ^SelectoParam^ ",
-     [to_type(conf.type, value)]}
+    # ### Value must have a % in it to work!
+    # ### TODO sanitize like value!
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(join), " #{sel} #{comp} ^SelectoParam^ ", param ++ [ value ]}
+
   end
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
@@ -89,11 +94,8 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, value}) do
-    conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
-
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ^SelectoParam^ ",
-     param ++ [to_type(conf.type, value)]}
+    {List.wrap(join), " #{sel} = ^SelectoParam^ ", param ++ [ value ]}
   end
 
   def build(_sel, other) do
