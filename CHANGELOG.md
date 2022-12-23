@@ -2,8 +2,13 @@
 CHANGES
 =======
 
-V 0.2.4 TODO
-------------
+V 0.2.6
+-------
+
+- non-assoc joins TODO
+
+V 0.2.4
+-------
 
 - support for filter form updates
 
