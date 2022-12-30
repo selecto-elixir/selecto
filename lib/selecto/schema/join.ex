@@ -132,7 +132,7 @@ defmodule Selecto.Schema.Join do
       name: Map.get(config, :name, id),
       ## probably don't need 'where'
       requires_join: dep,
-      filters: Map.get(config, :filters, %{}),
+      filters: make_filters(config),
 
     } |> parameterize()
   end
@@ -149,7 +149,7 @@ defmodule Selecto.Schema.Join do
       name: Map.get(config, :name, id),
       ## probably don't need 'where'
       requires_join: dep,
-      filters: Map.get(config, :filters, %{}),
+      filters: make_filters(config),
       fields:
         Selecto.Schema.Column.configure_columns(
           association.field,
@@ -164,6 +164,11 @@ defmodule Selecto.Schema.Join do
 
   defp parameterize(join) do
     join
+  end
+
+
+  defp make_filters(config) do
+    Map.get(config, :filters, %{})
   end
 
 end
