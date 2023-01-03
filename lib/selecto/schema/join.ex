@@ -23,11 +23,17 @@ defmodule Selecto.Schema.Join do
     # IO.inspect(joins, label: "Normalize")
 
     Enum.reduce(joins, [], fn
+      {id, %{non_assoc: true} = config}, acc ->
+        acc = acc ++ [Selecto.Schema.Join.configure(id, config, dep, source)]
+        case Map.get(config, :joins) do
+          nil -> acc
+          _ -> acc ++ normalize_joins(config.source, domain, config.joins, id)
+        end
+
       {id, config}, acc ->
         ### Todo allow this to be non-configured assoc
         association = source.__schema__(:association, id)
         acc = acc ++ [Selecto.Schema.Join.configure(id, association, config, dep, source)]
-        # |> IO.inspect(label: "After conf")
         case Map.get(config, :joins) do
           nil -> acc
           _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
@@ -40,6 +46,10 @@ defmodule Selecto.Schema.Join do
     normalize_joins(source, domain, domain.joins, :selecto_root)
     |> List.flatten()
     |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.id, j) end)
+  end
+
+  #### Non-assoc joins
+  def configure(id, config, dep, from_source) do
   end
 
   ## TODO this does not work yet!
@@ -122,7 +132,7 @@ defmodule Selecto.Schema.Join do
       name: Map.get(config, :name, id),
       ## probably don't need 'where'
       requires_join: dep,
-      filters: Map.get(config, :filters, %{}),
+      filters: make_filters(config),
 
     } |> parameterize()
   end
@@ -139,7 +149,7 @@ defmodule Selecto.Schema.Join do
       name: Map.get(config, :name, id),
       ## probably don't need 'where'
       requires_join: dep,
-      filters: Map.get(config, :filters, %{}),
+      filters: make_filters(config),
       fields:
         Selecto.Schema.Column.configure_columns(
           association.field,
@@ -154,6 +164,11 @@ defmodule Selecto.Schema.Join do
 
   defp parameterize(join) do
     join
+  end
+
+
+  defp make_filters(config) do
+    Map.get(config, :filters, %{})
   end
 
 end
