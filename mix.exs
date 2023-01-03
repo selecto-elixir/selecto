@@ -4,7 +4,7 @@ defmodule Selecto.MixProject do
   def project do
     [
       app: :selecto,
-      version: "0.2.4",
+      version: "0.2.6",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -35,8 +35,8 @@ defmodule Selecto.MixProject do
   defp package() do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/seeken/selecto"},
-      source_url: "https://github.com/seeken/selecto"
+      links: %{"GitHub" => "https://github.com/selecto-elixir/selecto"},
+      source_url: "https://github.com/selecto-elixir/selecto"
     ]
   end
 end
