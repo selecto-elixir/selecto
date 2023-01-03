@@ -5,7 +5,7 @@ CHANGES
 V 0.2.6
 -------
 
-- non-assoc joins TODO
+- prep for move to org
 
 V 0.2.4
 -------

@@ -3,21 +3,19 @@
 A Query Writing System
 
 Selecto allows you to create queries within a configured domain. The domain has a main table that will
-always be included in queries, required filters that will always be applied, and a tree of available 
+always be included in queries, required filters that will always be applied, and a tree of available
 tables for joins.
 
-This is very young software and might spill milk in your computer.
+This is very young software and might spill milk in your computer. 
 
-Better documentation is planned once the API is finalized.
+The documentation here is probably out of date but better documentation is planned once the API is finalized.
 
-For now, see [selecto_test](https://github.com/seeken/selecto_test).
+For now, see [selecto_test](https://github.com/selecto-elixir/selecto_test).
 
 Selecto is configured by passing in a 'domain' which tells it which 
 table to start at, which tables it can join (assocs are supported now, 
 but I will be adding support for non-assoc & parameterized joins), 
-what columns are available (currently it's the columns from the schema, but guess what),
-and what filters are available (currently its generated from the list of
-columns, but that will also be expanded to custom filters).
+what columns are available, and what filters are available 
 
 ```elixir
 selecto = Selecto.configure( YourApp.Repo,  domain )
@@ -26,8 +24,8 @@ selecto = Selecto.configure( YourApp.Repo,  domain )
 The domain is a map, and contains:
 
 - source: (req) This is the starting point, the table that will always be included in the query, as the module name, Eg YourApp.Accounts.Users
-- columns: A map of definitions and metadata for schema columns and (planned) ad hoc columns
-- filters: A map of ad hoc filters. But it does not work yet. 
+- columns: A map of definitions and metadata for schema columns composed columns.
+- filters: A map of ad hoc filters.
 - joins: A keyword list containing assoc names to maps which can also recursively contain joins, columns, filters, and name (name is required currently). The joins need to be set up as proper associatinos in your schema!
 - required_filters: This is a list of filters that will always be applied to the query. This is where you'd put a filter telling Selecto to restrict results, such as if you have fk based multi-tenant or want to build queryies restricted to a certain context. A quirk of the way filters are converted means that a fitler is required, or the system will add 'false'
 
@@ -45,8 +43,7 @@ domain = %{
       ],
     }
   ],
-  ### These filters will always be applied to a query in the domain. Note due to a bug/feature, if no filters are provided 
-  ### you will not get any rows returned
+  ### These filters will always be applied to a query in the domain. 
   required_filters: [{"id", [1, 2, 3, 4, 5, 6]}]
 }
 ```
@@ -172,7 +169,7 @@ by adding `selecto` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.2.4"}
+    {:selecto, "~> 0.2.6"}
   ]
 end
 ```
