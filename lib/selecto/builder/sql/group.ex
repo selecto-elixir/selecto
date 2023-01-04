@@ -19,7 +19,7 @@ defmodule Selecto.Builder.Sql.Group do
   end
 
   def group(selecto, group_by) do
-    {c, j, p, a} = Selecto.Builder.Sql.Select.build(selecto, group_by)
+    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, group_by)
     {j, c, p}
   end
 

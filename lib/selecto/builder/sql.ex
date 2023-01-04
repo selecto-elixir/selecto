@@ -1,7 +1,6 @@
 defmodule Selecto.Builder.Sql do
-  alias Selecto.Builder.Joins
 
-  def build(selecto, opts) do
+  def build(selecto, _opts) do
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
     {filter_joins, where_clause, where_params} = build_where(selecto)
     {group_by_joins, group_by_clause, group_params} = build_group_by(selecto)

@@ -39,7 +39,7 @@ defmodule Selecto.Helpers.Date do
       true -> date
     end
     #IO.inspect(date, label: "Parsing...")
-    {:ok, value, i} = DateTime.from_iso8601(date)
+    {:ok, value, _} = DateTime.from_iso8601(date)
     value
   end
 
@@ -58,8 +58,7 @@ defmodule Selecto.Helpers.Date do
     Regex.named_captures(~r/(?<year>\d{4})-?(?<month>\d{2})?-?(?<day>\d{2})?/, v1) |> expand_date()
   end
 
-  def val_to_dates(%{"value" => v1, "value2" => v2} = f) do
-    #IO.inspect(f)
+  def val_to_dates(%{"value" => v1, "value2" => v2}) do
     {proc_date(v1), proc_date(v2)}
   end
 

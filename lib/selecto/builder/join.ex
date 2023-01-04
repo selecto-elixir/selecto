@@ -1,5 +1,4 @@
 defmodule Selecto.Builder.Join do
-  alias Selecto.Builder.Joins
 
   # get a map of joins to list of selected
   def from_selects(fields, selected) do
