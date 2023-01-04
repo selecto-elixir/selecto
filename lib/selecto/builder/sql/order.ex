@@ -18,7 +18,8 @@ defmodule Selecto.Builder.Sql.Order do
   ]
 
   def order(selecto, {dir, order}) when dir in @dir_list do
-    {c, j, p, a} = Selecto.Builder.Sql.Select.build(selecto, order)
+    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
+    #### I think this will break for a parameterized col...
     {j, "#{c} #{@dirs[dir]}", p}
   end
 

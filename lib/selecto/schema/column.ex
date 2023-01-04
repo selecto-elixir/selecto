@@ -12,7 +12,7 @@ defmodule Selecto.Schema.Column do
   end
 
   ### how to do custom columns?
-  def get_custom_columns(join, source, domain) do
+  def get_custom_columns(join, _source, domain) do
     ### TODO
     Map.get(domain, :custom_columns, %{})
     |> Enum.reduce([], fn {f, v}, acc ->
@@ -32,7 +32,7 @@ defmodule Selecto.Schema.Column do
     end)
   end
 
-  defp add_filter_type(col, %{filter_type: ft} = config) do
+  defp add_filter_type(col, %{filter_type: ft}) do
     Map.put(col, :filter_type, ft)
   end
 
@@ -54,7 +54,7 @@ defmodule Selecto.Schema.Column do
 
     name = Map.get(config, :name, humanize(field))
 
-    col = {
+    {
       colid,
       add_filter_type(
         %{

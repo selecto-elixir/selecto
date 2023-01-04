@@ -25,9 +25,10 @@ defmodule Selecto.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ecto, "~> 3.9.1"},
+      {:ecto, "~> 3.9.4"},
+      {:ecto_sql, "~> 3.9"},
       {:uuid, "~> 1.1"},
-      {:ex_doc, "~> 0.27", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.29", only: :dev, runtime: false},
       {:timex, "~> 3.7.9"},
     ]
   end

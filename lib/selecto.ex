@@ -2,9 +2,6 @@ defmodule Selecto do
   @derive {Inspect, only: [:repo, :set]}
   defstruct [:repo, :domain, :config, :set]
 
-  import Ecto.Query
-  import Selecto.Helpers
-
   @moduledoc """
 
   Documentation for `Selecto,` a query writer and report generator for Elixir/Ecto

@@ -1,7 +1,7 @@
 defmodule Selecto.Schema.Join do
   # selecto meta join can edit, add, alter this join!
 
-  @doc """
+  @moduledoc """
   # Join Types ideas
 
   Done
@@ -49,11 +49,11 @@ defmodule Selecto.Schema.Join do
   end
 
   #### Non-assoc joins
-  def configure(id, config, dep, from_source) do
+  def configure(_id, _config, _dep, _from_source) do
   end
 
   ## TODO this does not work yet!
-  def configure(id, %{through: through} = association, config, dep, from_source) do
+  def configure(_id, %{through: _through} = _association, _config, _dep, _from_source) do
     ### we are going to expand the through but only add the
 
     ##??????
@@ -67,7 +67,7 @@ defmodule Selecto.Schema.Join do
 
 
   ### Dimension table join
-  def configure(id, %{queryable: queryable} = association, %{type: :dimension} = config, dep, from_source) do
+  def configure(id, %{queryable: _queryable} = association, %{type: :dimension} = config, dep, from_source) do
     #dimension table, has one 'name-ish' value to display, and then the Local reference would provide ID filtering.
     # So create a field for group-by that displays NAME and filters by ID
 
@@ -120,24 +120,24 @@ defmodule Selecto.Schema.Join do
     std_config(id, association, config, dep, from_source)
   end
 
-  defp min_config(id, %{queryable: queryable} = association, config, dep, from_source) do
-    %{
-      dep: dep,
-      config: config,
-      from_source: from_source,
-      owner_key: association.owner_key,
-      my_key: association.related_key,
-      source: association.queryable.__schema__(:source),
-      id: id,
-      name: Map.get(config, :name, id),
-      ## probably don't need 'where'
-      requires_join: dep,
-      filters: make_filters(config),
+  # defp min_config(id, %{queryable: _queryable} = association, config, dep, from_source) do
+  #   %{
+  #     dep: dep,
+  #     config: config,
+  #     from_source: from_source,
+  #     owner_key: association.owner_key,
+  #     my_key: association.related_key,
+  #     source: association.queryable.__schema__(:source),
+  #     id: id,
+  #     name: Map.get(config, :name, id),
+  #     ## probably don't need 'where'
+  #     requires_join: dep,
+  #     filters: make_filters(config),
 
-    } |> parameterize()
-  end
+  #   } |> parameterize()
+  # end
 
-  defp std_config(id, %{queryable: queryable} = association, config, dep, from_source) do
+  defp std_config(id, %{queryable: _queryable} = association, config, dep, from_source) do
     %{
       dep: dep,
       config: config,
