@@ -15,9 +15,14 @@ defmodule Selecto.Builder.Sql.Where do
       {:and, [PREDICATES]}
       {:or, [PREDICATES]}
       {SELECTOR, :in, SUBQUERY}
-      {SELECTOR, comp, :any, SUBQUERY}
-      {SELECTOR, comp, :all, SUBQUERY}
+      {SELECTOR, comp, {:all, SUBQUERY}} ## any, all, ???
       {:exists, SUBQUERY}
+
+      SUBQUERY:
+      {:subquery, query, params}
+      %Selecto{} ##
+
+
   """
 
   def build(selecto, {field, {:text_search, value}}) do
@@ -26,11 +31,39 @@ defmodule Selecto.Builder.Sql.Where do
     {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} @@ websearch_to_tsquery(^SelectoParam^) ", [value]}
   end
 
-  def build(selecto, {field, {:subquery, :in, query, params}}) do
+### Subqueries ?? how to do correlated?
+  ### EG field > any (subq)
+  def build(selecto, {field, comp, {reducer, {:subquery, query, params}}}) when reducer in [:any, :all] and comp in ~w(= < > <= >= <>) do
+    conf = selecto.config.columns[field]
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} #{reducer} (#{query}) ", param ++ params}
+  end
+
+  def build(selecto, {field, {:in, {:subquery, query, params}}}) do
     conf = selecto.config.columns[field]
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} in #{query} ", param ++ params}
   end
+
+  def build(selecto, {:exists, {:subquery, query, params}}) do
+    {[], "exists(#{query})", params}
+  end
+
+### Selecto Subqueries - need to be able to tell selecto to not use selecto_root etc on subqueries....
+# main = Selecto.configure(SelectoTest.Repo, domain)
+# subq = Selecto.configure(SelectoTest.Repo, domain)
+# |> Selecto.filter({"actor_id", {:parent_selecto, main, "actor_id"}})
+# |> Selecto.select("actor_id")
+# main
+# |> Selecto.filter({:exists,  subq })
+# |> Selecto.select({:concat, ["first_name", {:literal, " "}, "last_name"]})
+# |> Selecto.execute()
+#hmm this did not work
+# def build(selecto, {:exists, %Selecto{} = subselecto}) do
+#   {query, aliases, params} = Selecto.gen_sql(subselecto, %{ subquery: true })
+#   {[], "(#{query})", params}
+# end
+
 
   def build(selecto, {:not, filter}) do
     {j, c, p} = build(selecto, filter)

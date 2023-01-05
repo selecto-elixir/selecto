@@ -122,7 +122,7 @@ defmodule Selecto do
   @doc """
     Generate and run the query, returning list of lists, db produces column headers, and provides aliases
   """
-  def execute(selecto, opts \\ []) do
+  def execute(selecto, opts \\ %{}) do
     # IO.puts("Execute Query")
 
     {query, aliases, params} = gen_sql(selecto, opts)

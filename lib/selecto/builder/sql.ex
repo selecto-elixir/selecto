@@ -1,6 +1,6 @@
 defmodule Selecto.Builder.Sql do
 
-  def build(selecto, _opts) do
+  def build(selecto, opts) do
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
     {filter_joins, where_clause, where_params} = build_where(selecto)
     {group_by_joins, group_by_clause, group_params} = build_group_by(selecto)
@@ -56,13 +56,17 @@ defmodule Selecto.Builder.Sql do
 
     params_num = Enum.with_index(params) |> Enum.map(fn {_, index} -> "$#{index + 1}" end)
 
+
     ## replace ^SelectoParam^ with $1 etc. There has to be a better way???? TODO use 1.. params length
-    sql =
-      String.split(sql, "^SelectoParam^")
+    sql = case Map.get(opts, :subquery) do
+      true -> sql
+      _ -> String.split(sql, "^SelectoParam^")
       |> Enum.zip(params_num ++ [""])
       |> Enum.map(fn {a, b} -> [a, b] end)
       |> List.flatten()
       |> Enum.join("")
+
+    end
 
     params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 
