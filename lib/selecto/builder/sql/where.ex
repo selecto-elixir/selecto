@@ -49,7 +49,7 @@ defmodule Selecto.Builder.Sql.Where do
     {[], "exists(#{query})", params}
   end
 
-### Selecto Subqueries - need to be able to tell selecto to not use selecto_root etc.
+### Selecto Subqueries - need to be able to tell selecto to not use selecto_root etc on subqueries....
 # main = Selecto.configure(SelectoTest.Repo, domain)
 # subq = Selecto.configure(SelectoTest.Repo, domain)
 # |> Selecto.filter({"actor_id", {:parent_selecto, main, "actor_id"}})
@@ -58,10 +58,10 @@ defmodule Selecto.Builder.Sql.Where do
 # |> Selecto.filter({:exists,  subq })
 # |> Selecto.select({:concat, ["first_name", {:literal, " "}, "last_name"]})
 # |> Selecto.execute()
+#hmm this did not work
 # def build(selecto, {:exists, %Selecto{} = subselecto}) do
 #   {query, aliases, params} = Selecto.gen_sql(subselecto, %{ subquery: true })
 #   {[], "(#{query})", params}
-
 # end
 
 
