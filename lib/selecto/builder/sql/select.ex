@@ -38,6 +38,11 @@ defmodule Selecto.Builder.Sql.Select do
     {val, :selecto_root, []}
   end
 
+  ### For correlated subqueries!
+  def prep_selector(_selecto, {:parent_selecto, %Selecto{} = parent, field}) do
+    prep_selector(parent, field)
+  end
+
   def prep_selector(_selecto, {:count}) do
     {"count(*)", :selecto_root, []}
   end
