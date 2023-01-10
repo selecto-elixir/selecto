@@ -42,8 +42,11 @@ defmodule Selecto.Helpers do
   end
 
   def build_selector_string(selecto, join, field) do
-
     " #{double_wrap(join)}.#{double_wrap(field)} "
+  end
+
+  def build_join_string(selecto, join) do
+
   end
 
 end

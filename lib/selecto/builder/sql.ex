@@ -69,6 +69,7 @@ defmodule Selecto.Builder.Sql do
     {sql, aliases, params}
   end
 
+  #rework to allow parameterized joins, CTEs etc TODO
   defp build_from(selecto, joins) do
     Enum.reduce(joins, {[], []}, fn
       :selecto_root, {fc, p} ->
