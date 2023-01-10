@@ -78,7 +78,7 @@ defmodule Selecto.Builder.Sql do
         {fc ++ [~s[#{Selecto.source_table(selecto)} #{build_join_string(selecto, "selecto_root")}]], p}
 
       join, {fc, p} ->
-        config = selecto.config.joins[join]
+        config = Selecto.joins(selecto)[join]
 
         {fc ++
            [
