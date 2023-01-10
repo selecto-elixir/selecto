@@ -10,7 +10,7 @@ defmodule Selecto.Builder.Sql do
 
     joins_in_order =
       Selecto.Builder.Join.get_join_order(
-        selecto.config.joins,
+        Selecto.joins(selecto),
         List.flatten(sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
       )
 
@@ -75,7 +75,7 @@ defmodule Selecto.Builder.Sql do
   defp build_from(selecto, joins) do
     Enum.reduce(joins, {[], []}, fn
       :selecto_root, {fc, p} ->
-        {fc ++ [~s[#{selecto.config.source_table} #{build_join_string(selecto, "selecto_root")}]], p}
+        {fc ++ [~s[#{Selecto.source_table(selecto)} #{build_join_string(selecto, "selecto_root")}]], p}
 
       join, {fc, p} ->
         config = selecto.config.joins[join]

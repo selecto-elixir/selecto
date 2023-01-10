@@ -79,6 +79,14 @@ defmodule Selecto do
     selecto_struct.config.columns
   end
 
+  def joins(selecto_struct) do
+    selecto_struct.config.joins
+  end
+
+  def source_table(selecto_struct) do
+    selecto_struct.config.source_table
+  end
+
   def domain(selecto_struct) do
     selecto_struct.domain
   end
