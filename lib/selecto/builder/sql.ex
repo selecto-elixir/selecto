@@ -101,7 +101,7 @@ defmodule Selecto.Builder.Sql do
   defp build_where(selecto) do
     Selecto.Builder.Sql.Where.build(
       selecto,
-      {:and, Map.get(selecto.domain, :required_filters, []) ++ selecto.set.filtered}
+      {:and, Map.get(Selecto.domain(selecto), :required_filters, []) ++ selecto.set.filtered}
     )
   end
 
