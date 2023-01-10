@@ -1,6 +1,6 @@
 defmodule Selecto.Builder.Sql do
 
-  import Selecto.Helpers
+  import Selecto.Builder.Sql.Helpers
 
   def build(selecto, _opts) do
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)

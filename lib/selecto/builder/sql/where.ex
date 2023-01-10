@@ -1,5 +1,5 @@
 defmodule Selecto.Builder.Sql.Where do
-  import Selecto.Helpers
+  import Selecto.Builder.Sql.Helpers
 
   alias Selecto.Builder.Sql.Select
 

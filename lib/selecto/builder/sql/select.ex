@@ -1,5 +1,5 @@
 defmodule Selecto.Builder.Sql.Select do
-  import Selecto.Helpers
+  import Selecto.Builder.Sql.Helpers
 
   ### TODO alter prep_selector to return the data type
 
