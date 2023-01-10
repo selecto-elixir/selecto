@@ -96,11 +96,11 @@ defmodule Selecto.Schema.Join do
         "#{id}", %{ ## we will use the nane of the join's association!
           name: name,
           ### concat_ws?
-          select: "#{association.field}[#{config.dimension_value}]",
+          select: "#{association.field}[#{config.dimension}]",
           ### we will always get a tuple of select + group_by_filter_select here
           group_by_format: fn {a, _id}, _def -> a end,
           group_by_filter: from_field,
-          group_by_filter_select: ["#{association.field}[#{config.dimension_value}]", from_field ]
+          group_by_filter_select: ["#{association.field}[#{config.dimension}]", from_field ]
         }
       )
     )
@@ -124,7 +124,7 @@ defmodule Selecto.Schema.Join do
       fields:
         Selecto.Schema.Column.configure_columns(
           association.field,
-          [config.dimension_value],
+          [config.dimension],
           association.queryable,
           config
         )
