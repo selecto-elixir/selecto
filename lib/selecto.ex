@@ -70,6 +70,29 @@ defmodule Selecto do
     }
   end
 
+  def filters(selecto) do
+    selecto.config.filters
+  end
+
+  def columns(selecto) do
+    Selecto.columns(selecto)
+  end
+
+  def domain(selecto) do
+    selecto.domain
+  end
+
+  def domain_data(selecto) do
+    selecto.config.domain_data
+  end
+
+  def field(selecto, field) do
+    selecto.config.columns[field]
+  end
+
+
+
+
   @doc """
     add a field to the Select list. Send in one or a list of field names or selectable tuples
     TODO allow to send single, and special forms..

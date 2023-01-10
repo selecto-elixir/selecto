@@ -21,13 +21,13 @@ defmodule Selecto.Builder.Sql.Where do
   """
 
   def build(selecto, {field, {:text_search, value}}) do
-    conf = selecto.config.columns[field]
+    conf = Selecto.field(selecto, field)
     ### Don't think we ever have to cook the field because it has to be the tsvector...
     {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} @@ websearch_to_tsquery(^SelectoParam^) ", [value]}
   end
 
   def build(selecto, {field, {:subquery, :in, query, params}}) do
-    conf = selecto.config.columns[field]
+    conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} in #{query} ", param ++ params}
   end
@@ -50,7 +50,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {:between, min, max}}) do
-    conf = selecto.config.columns[field]
+    conf = Selecto.field(selecto, field)
 
     {conf.requires_join,
      " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} between ^SelectoParam^ and ^SelectoParam^ ",
@@ -66,7 +66,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
-    conf = selecto.config.columns[field]
+    conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} ^SelectoParam^ ",
@@ -74,7 +74,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, list}) when is_list(list) do
-    conf = selecto.config.columns[field]
+    conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ANY(^SelectoParam^) ",
@@ -82,13 +82,13 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, :not_null}) do
-    conf = selecto.config.columns[field]
+    conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} is not null ", param}
   end
 
   def build(selecto, {field, value}) when is_nil(value) do
-    conf = selecto.config.columns[field]
+    conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} is null ", param}
   end

@@ -140,7 +140,7 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def prep_selector(selecto, selector) when is_binary(selector) do
-    conf = selecto.config.columns[selector]
+    conf = Selecto.field(selecto, selector)
 
     case Map.get(conf, :select) do
       nil ->
@@ -159,7 +159,7 @@ defmodule Selecto.Builder.Sql.Select do
   ### make the builder build the dynamic so we can use same parts for SQL
 
   # def build(selecto, {:subquery, func, field}) do
-  #   conf = selecto.config.columns[field]
+  #   conf = Selecto.field(selecto, field)
 
   #   join = selecto.config.joins[conf.requires_join]
   #   my_func = check_string( Atom.to_string(func) )
