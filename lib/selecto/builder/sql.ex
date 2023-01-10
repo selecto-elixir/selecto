@@ -1,5 +1,7 @@
 defmodule Selecto.Builder.Sql do
 
+  import Selecto.Builder.Sql.Helpers
+
   def build(selecto, _opts) do
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
     {filter_joins, where_clause, where_params} = build_where(selecto)
@@ -8,7 +10,7 @@ defmodule Selecto.Builder.Sql do
 
     joins_in_order =
       Selecto.Builder.Join.get_join_order(
-        selecto.config.joins,
+        Selecto.joins(selecto),
         List.flatten(sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
       )
 
@@ -69,17 +71,18 @@ defmodule Selecto.Builder.Sql do
     {sql, aliases, params}
   end
 
+  #rework to allow parameterized joins, CTEs etc TODO
   defp build_from(selecto, joins) do
     Enum.reduce(joins, {[], []}, fn
       :selecto_root, {fc, p} ->
-        {fc ++ [~s[#{selecto.config.source_table} "selecto_root"]], p}
+        {fc ++ [~s[#{Selecto.source_table(selecto)} #{build_join_string(selecto, "selecto_root")}]], p}
 
       join, {fc, p} ->
-        config = selecto.config.joins[join]
+        config = Selecto.joins(selecto)[join]
 
         {fc ++
            [
-             ~s[ left join #{config.source} "#{join}" on "#{join}"."#{config.my_key}" = "#{config.requires_join}"."#{config.owner_key}"]
+             ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
            ], p}
     end)
   end
@@ -101,7 +104,7 @@ defmodule Selecto.Builder.Sql do
   defp build_where(selecto) do
     Selecto.Builder.Sql.Where.build(
       selecto,
-      {:and, Map.get(selecto.domain, :required_filters, []) ++ selecto.set.filtered}
+      {:and, Map.get(Selecto.domain(selecto), :required_filters, []) ++ selecto.set.filtered}
     )
   end
 

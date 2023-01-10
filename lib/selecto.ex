@@ -70,6 +70,66 @@ defmodule Selecto do
     }
   end
 
+  ### These use 'selecto_struct' to prevent global replace from hitting them, will switch back later!
+  def filters(selecto_struct) do
+    selecto_struct.config.filters
+  end
+
+  def columns(selecto_struct) do
+    selecto_struct.config.columns
+  end
+
+  def joins(selecto_struct) do
+    selecto_struct.config.joins
+  end
+
+  def source_table(selecto_struct) do
+    selecto_struct.config.source_table
+  end
+
+  def domain(selecto_struct) do
+    selecto_struct.domain
+  end
+
+  def domain_data(selecto_struct) do
+    selecto_struct.config.domain_data
+  end
+
+  def field(selecto_struct, field) do
+    selecto_struct.config.columns[field]
+  end
+
+  def set(selecto_struct) do
+    selecto_struct.set
+  end
+
+
+  #### TODO join stuff, CTE stuff
+  ### options:
+  ### paramterize: value -- will cause a special case of this join with the indicated parameter, and fields/filters to be made available
+  ### inner: true -- change the default
+
+  #def join(selecto_struct, join_id, options \\ []) do
+  #end
+
+  ### returns a key to use to add filters, selects, etc from this join
+  #def join_paramterize(selecto_struct, join_id, parameter, options) do
+  #end
+
+  #def join(selecto_struct, join_id, join_selecto, options \\ []) do
+  #end
+
+  ### CTEs. once a CTE is entered, further CTEs can reference it. CTEs are meant to be added as configuration not dynamically!
+  #def with(selecto_struct, cte_name, cte, params, options \\ []) do
+  #end
+  #def with(selecto_struct, cte_name, cte_selecto, options \\ []) do
+  #end
+
+  ### Modify an existing CTE
+  #def on_with(selecto_struct, cte_name, fn selecto, cte_selecto -> selecto end, options \\ [])
+  #end
+
+
   @doc """
     add a field to the Select list. Send in one or a list of field names or selectable tuples
     TODO allow to send single, and special forms..

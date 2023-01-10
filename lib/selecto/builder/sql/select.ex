@@ -1,5 +1,5 @@
 defmodule Selecto.Builder.Sql.Select do
-  import Selecto.Helpers
+  import Selecto.Builder.Sql.Helpers
 
   ### TODO alter prep_selector to return the data type
 
@@ -140,11 +140,11 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def prep_selector(selecto, selector) when is_binary(selector) do
-    conf = selecto.config.columns[selector]
+    conf = Selecto.field(selecto, selector)
 
     case Map.get(conf, :select) do
       nil ->
-        {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
+        {"#{build_selector_string(selecto, conf.requires_join, conf.field)}", conf.requires_join, []}
 
       sub ->
         prep_selector(selecto, sub)
@@ -159,7 +159,7 @@ defmodule Selecto.Builder.Sql.Select do
   ### make the builder build the dynamic so we can use same parts for SQL
 
   # def build(selecto, {:subquery, func, field}) do
-  #   conf = selecto.config.columns[field]
+  #   conf = Selecto.field(selecto, field)
 
   #   join = selecto.config.joins[conf.requires_join]
   #   my_func = check_string( Atom.to_string(func) )

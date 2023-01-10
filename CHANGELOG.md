@@ -2,6 +2,8 @@
 CHANGES
 =======
 
+- refactor configuration system- joins, filters, columns
+
 V 0.2.6
 -------
 

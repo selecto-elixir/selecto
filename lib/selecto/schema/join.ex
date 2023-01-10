@@ -19,80 +19,98 @@ defmodule Selecto.Schema.Join do
 
   """
 
-  defp normalize_joins(source, domain, joins, dep) do
-    # IO.inspect(joins, label: "Normalize")
-
-    Enum.reduce(joins, [], fn
-      {id, %{non_assoc: true} = config}, acc ->
-        acc = acc ++ [Selecto.Schema.Join.configure(id, config, dep, source)]
-        case Map.get(config, :joins) do
-          nil -> acc
-          _ -> acc ++ normalize_joins(config.source, domain, config.joins, id)
-        end
-
-      {id, config}, acc ->
-        ### Todo allow this to be non-configured assoc
-        association = source.__schema__(:association, id)
-        acc = acc ++ [Selecto.Schema.Join.configure(id, association, config, dep, source)]
-        case Map.get(config, :joins) do
-          nil -> acc
-          _ -> acc ++ normalize_joins(association.queryable, domain, config.joins, id)
-        end
-    end)
-  end
+  ### source - a schema name such as SelectoTest.Store.Film
+  ### joins - the joins map from this join structure
 
   # we consume the join tree (atom/list) to a flat map of joins then into a map
   def recurse_joins(source, domain) do
-    normalize_joins(source, domain, domain.joins, :selecto_root)
+    normalize_joins(source, domain.joins, :selecto_root)
     |> List.flatten()
     |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.id, j) end)
   end
 
-  #### Non-assoc joins
-  def configure(_id, _config, _dep, _from_source) do
+
+  ### source, the schema module name
+  ### joins, the joins map from parent,
+  ### parent, the 'parent' join
+
+  defp normalize_joins(source, joins, parent) do
+
+    Enum.reduce(joins, [], fn
+      ### Non assoc, need to add tests to verify TODO
+      # {id, %{non_assoc: true} = config}, acc ->
+      #   acc = acc ++ [configure(id, config, parent, source)]
+      #   case Map.get(config, :joins) do
+      #     nil -> acc
+      #     _ -> acc ++ normalize_joins(config.source, config.joins, id)
+      #   end
+
+      {id, config}, acc ->
+        ### Todo allow this to be non-configured assoc
+        association = source.__schema__(:association, id)
+        acc = acc ++ [configure(id, association, config, parent, source)]
+        case Map.get(config, :joins) do
+          nil -> acc
+          _ -> acc ++ normalize_joins(association.queryable, config.joins, id)
+        end
+    end)
   end
+
+
+  # #### Non-assoc joins
+  # defp configure(_id, _config, _dep, _from_source) do
+  # end
 
   ## TODO this does not work yet!
-  def configure(_id, %{through: _through} = _association, _config, _dep, _from_source) do
-    ### we are going to expand the through but only add the
+  # defp configure(_id, %{through: _through} = _association, _config, _dep, _from_source) do
+  #   ### we are going to expand the through but only add the
 
-    ##??????
-  end
+  #   ##??????
+  # end
 
   ### Custom TODO
-  # def configure(id, %{type: :custom} = config, dep) do
+  # defp configure(id, %{type: :custom} = config, dep) do
   #   ### this join does not have an association
 
   # end
 
+  ### id, the id of this join in the joins map on parent
+  ### association, the struct form ecto.schema that has instructions on how to join
+  ### config, the map that contains config details for this join
+  ### parent - atom that references the parent
+  ### from_source - the association from the parent or the domain if parent is root
 
   ### Dimension table join
-  def configure(id, %{queryable: _queryable} = association, %{type: :dimension} = config, dep, from_source) do
+  defp configure(id, %{queryable: _queryable} = association, %{type: :dimension} = config, parent, from_source) do
     #dimension table, has one 'name-ish' value to display, and then the Local reference would provide ID filtering.
     # So create a field for group-by that displays NAME and filters by ID
 
     name = Map.get(config, :name, id)
 
-    from_field = case dep do
+    from_field = case parent do
       :selecto_root -> "#{association.owner_key}"
-      _ -> "#{dep}[#{association.owner_key}]"
+      _ -> "#{parent}[#{association.owner_key}]"
     end
 
     config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
         "#{id}", %{ ## we will use the nane of the join's association!
           name: name,
           ### concat_ws?
-          select: "#{association.field}[#{config.dimension_value}]",
+          select: "#{association.field}[#{config.dimension}]",
           ### we will always get a tuple of select + group_by_filter_select here
           group_by_format: fn {a, _id}, _def -> a end,
           group_by_filter: from_field,
-          group_by_filter_select: ["#{association.field}[#{config.dimension_value}]", from_field ]
+          group_by_filter_select: ["#{association.field}[#{config.dimension}]", from_field ]
         }
       )
     )
 
+    ### Add custom filter that has a select (or set of checkboxes or radios... filter_form_type: :checks eg) list of names, IF not existing by name of the remote ID filter and:
+    ### - the join provides a list of tuples {filterable, viewable}
+    ### - the join provides a function returning same
+    ### - the join has 'facet: true' in which case we will determine given all other filters, what are the available items & how many matches for those items
+
     %{
-      dep: dep,
       config: config,
       from_source: from_source,
       owner_key: association.owner_key,
@@ -101,12 +119,12 @@ defmodule Selecto.Schema.Join do
       id: id,
       name: name,
       ## probably don't need 'where'
-      requires_join: dep,
+      requires_join: parent,
       filters: Map.get(config, :filters, %{}),
       fields:
         Selecto.Schema.Column.configure_columns(
           association.field,
-          [config.dimension_value],
+          [config.dimension],
           association.queryable,
           config
         )
@@ -116,30 +134,12 @@ defmodule Selecto.Schema.Join do
 
 
   ### Regular
-  def configure(id, association, config, dep, from_source) do
-    std_config(id, association, config, dep, from_source)
+  defp configure(id, association, config, parent, from_source) do
+    std_config(id, association, config, parent, from_source)
   end
 
-  # defp min_config(id, %{queryable: _queryable} = association, config, dep, from_source) do
-  #   %{
-  #     dep: dep,
-  #     config: config,
-  #     from_source: from_source,
-  #     owner_key: association.owner_key,
-  #     my_key: association.related_key,
-  #     source: association.queryable.__schema__(:source),
-  #     id: id,
-  #     name: Map.get(config, :name, id),
-  #     ## probably don't need 'where'
-  #     requires_join: dep,
-  #     filters: make_filters(config),
-
-  #   } |> parameterize()
-  # end
-
-  defp std_config(id, %{queryable: _queryable} = association, config, dep, from_source) do
+  defp std_config(id, %{queryable: _queryable} = association, config, parent, from_source) do
     %{
-      dep: dep,
       config: config,
       from_source: from_source,
       owner_key: association.owner_key,
@@ -148,7 +148,7 @@ defmodule Selecto.Schema.Join do
       id: id,
       name: Map.get(config, :name, id),
       ## probably don't need 'where'
-      requires_join: dep,
+      requires_join: parent,
       filters: make_filters(config),
       fields:
         Selecto.Schema.Column.configure_columns(
