@@ -70,6 +70,7 @@ defmodule Selecto do
     }
   end
 
+  ### These use 'selecto_struct' to prevent global replace from hitting them, will switch back later!
   def filters(selecto_struct) do
     selecto_struct.config.filters
   end
@@ -90,6 +91,9 @@ defmodule Selecto do
     selecto_struct.config.columns[field]
   end
 
+  def set(selecto_struct) do
+    selecto_struct.set
+  end
 
 
 
