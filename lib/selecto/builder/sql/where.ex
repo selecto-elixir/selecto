@@ -20,10 +20,12 @@ defmodule Selecto.Builder.Sql.Where do
       {:exists, SUBQUERY}
   """
 
+
+
   def build(selecto, {field, {:text_search, value}}) do
     conf = Selecto.field(selecto, field)
     ### Don't think we ever have to cook the field because it has to be the tsvector...
-    {conf.requires_join, " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} @@ websearch_to_tsquery(^SelectoParam^) ", [value]}
+    {conf.requires_join, " #{build_selector_string(selecto, conf.requires_join, conf.field)} @@ websearch_to_tsquery(^SelectoParam^) ", [value]}
   end
 
   def build(selecto, {field, {:subquery, :in, query, params}}) do
@@ -53,7 +55,7 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
 
     {conf.requires_join,
-     " #{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)} between ^SelectoParam^ and ^SelectoParam^ ",
+     " #{build_selector_string(selecto, conf.requires_join, conf.field)} between ^SelectoParam^ and ^SelectoParam^ ",
      [to_type(conf.type, min), to_type(conf.type, max)]}
   end
 

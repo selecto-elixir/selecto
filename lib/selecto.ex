@@ -95,7 +95,12 @@ defmodule Selecto do
     selecto_struct.set
   end
 
-
+  ### options:
+  ### paramterize: value -- will cause a special case of this join with the indicated parameter, and fields/filters to be made available
+  ### inner: true -- change the default
+  ### cte: join against this CTE either string or configured selecto
+  #def join(selecto_struct, join_id, options \\ []) do
+  #end
 
   @doc """
     add a field to the Select list. Send in one or a list of field names or selectable tuples

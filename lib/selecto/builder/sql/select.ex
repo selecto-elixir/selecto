@@ -144,7 +144,7 @@ defmodule Selecto.Builder.Sql.Select do
 
     case Map.get(conf, :select) do
       nil ->
-        {"#{double_wrap(conf.requires_join)}.#{double_wrap(conf.field)}", conf.requires_join, []}
+        {"#{build_selector_string(selecto, conf.requires_join, conf.field)}", conf.requires_join, []}
 
       sub ->
         prep_selector(selecto, sub)
