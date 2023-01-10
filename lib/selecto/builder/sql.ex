@@ -1,5 +1,7 @@
 defmodule Selecto.Builder.Sql do
 
+  import Selecto.Helpers
+
   def build(selecto, _opts) do
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
     {filter_joins, where_clause, where_params} = build_where(selecto)
@@ -73,14 +75,14 @@ defmodule Selecto.Builder.Sql do
   defp build_from(selecto, joins) do
     Enum.reduce(joins, {[], []}, fn
       :selecto_root, {fc, p} ->
-        {fc ++ [~s[#{selecto.config.source_table} "selecto_root"]], p}
+        {fc ++ [~s[#{selecto.config.source_table} #{build_join_string(selecto, "selecto_root")}]], p}
 
       join, {fc, p} ->
         config = selecto.config.joins[join]
 
         {fc ++
            [
-             ~s[ left join #{config.source} "#{join}" on "#{join}"."#{config.my_key}" = "#{config.requires_join}"."#{config.owner_key}"]
+             ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
            ], p}
     end)
   end
