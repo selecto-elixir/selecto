@@ -98,8 +98,13 @@ defmodule Selecto do
   ### options:
   ### paramterize: value -- will cause a special case of this join with the indicated parameter, and fields/filters to be made available
   ### inner: true -- change the default
-  ### cte: join against this CTE either string or configured selecto
   #def join(selecto_struct, join_id, options \\ []) do
+  #end
+
+  ### CTEs. once a CTE is entered, further CTEs can reference it. CTEs are meant to be added as configuration not dynamically!
+  #def with(selecto_struct, cte_name, cte, params) do
+  #end
+  #def with(selecto_struct, cte_name, cte_selecto) do
   #end
 
   @doc """
