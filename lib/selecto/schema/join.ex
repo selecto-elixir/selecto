@@ -30,16 +30,20 @@ defmodule Selecto.Schema.Join do
   end
 
 
+  ### source, the schema module name
+  ### joins, the joins map from parent,
+  ### parent, the 'parent' join
+
   defp normalize_joins(source, joins, parent) do
-    # IO.inspect(joins, label: "Normalize")
 
     Enum.reduce(joins, [], fn
-      {id, %{non_assoc: true} = config}, acc ->
-        acc = acc ++ [Selecto.Schema.Join.configure(id, config, parent, source)]
-        case Map.get(config, :joins) do
-          nil -> acc
-          _ -> acc ++ normalize_joins(config.source, config.joins, id)
-        end
+      ### Non assoc, need to add tests to verify TODO
+      # {id, %{non_assoc: true} = config}, acc ->
+      #   acc = acc ++ [configure(id, config, parent, source)]
+      #   case Map.get(config, :joins) do
+      #     nil -> acc
+      #     _ -> acc ++ normalize_joins(config.source, config.joins, id)
+      #   end
 
       {id, config}, acc ->
         ### Todo allow this to be non-configured assoc
@@ -53,16 +57,16 @@ defmodule Selecto.Schema.Join do
   end
 
 
-  #### Non-assoc joins
-  defp configure(_id, _config, _dep, _from_source) do
-  end
+  # #### Non-assoc joins
+  # defp configure(_id, _config, _dep, _from_source) do
+  # end
 
   ## TODO this does not work yet!
-  defp configure(_id, %{through: _through} = _association, _config, _dep, _from_source) do
-    ### we are going to expand the through but only add the
+  # defp configure(_id, %{through: _through} = _association, _config, _dep, _from_source) do
+  #   ### we are going to expand the through but only add the
 
-    ##??????
-  end
+  #   ##??????
+  # end
 
   ### Custom TODO
   # defp configure(id, %{type: :custom} = config, dep) do
@@ -70,6 +74,11 @@ defmodule Selecto.Schema.Join do
 
   # end
 
+  ### id, the id of this join in the joins map on parent
+  ### association, the struct form ecto.schema that has instructions on how to join
+  ### config, the map that contains config details for this join
+  ### parent - atom that references the parent
+  ### from_source - the association from the parent or the domain if parent is root
 
   ### Dimension table join
   defp configure(id, %{queryable: _queryable} = association, %{type: :dimension} = config, parent, from_source) do
@@ -95,6 +104,11 @@ defmodule Selecto.Schema.Join do
         }
       )
     )
+
+    ### Add custom filter that has a select (or set of checkboxes or radios... filter_form_type: :checks eg) list of names, IF not existing by name of the remote ID filter and:
+    ### - the join provides a list of tuples {filterable, viewable}
+    ### - the join provides a function returning same
+    ### - the join has 'facet: true' in which case we will determine given all other filters, what are the available items & how many matches for those items
 
     %{
       config: config,
@@ -123,25 +137,6 @@ defmodule Selecto.Schema.Join do
   defp configure(id, association, config, parent, from_source) do
     std_config(id, association, config, parent, from_source)
   end
-
-  # defp min_config(id, %{queryable: _queryable} = association, config, parent, from_source) do
-  #   %{
-  #     config: config,
-  #     from_source: from_source,
-  #     owner_key: association.owner_key,
-  #     my_key: association.related_key,
-  #     source: association.queryable.__schema__(:source),
-  #     id: id,
-  #     name: Map.get(config, :name, id),
-  #     ## probably don't need 'where'
-  #     requires_join: parent,
-  #     filters: make_filters(config),
-
-  #   } |> parameterize()
-  # end
-
-
-
 
   defp std_config(id, %{queryable: _queryable} = association, config, parent, from_source) do
     %{
