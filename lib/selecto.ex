@@ -70,24 +70,24 @@ defmodule Selecto do
     }
   end
 
-  def filters(selecto) do
-    selecto.config.filters
+  def filters(selecto_struct) do
+    selecto_struct.config.filters
   end
 
-  def columns(selecto) do
-    Selecto.columns(selecto)
+  def columns(selecto_struct) do
+    selecto_struct.config.columns
   end
 
-  def domain(selecto) do
-    selecto.domain
+  def domain(selecto_struct) do
+    selecto_struct.domain
   end
 
-  def domain_data(selecto) do
-    selecto.config.domain_data
+  def domain_data(selecto_struct) do
+    selecto_struct.config.domain_data
   end
 
-  def field(selecto, field) do
-    selecto.config.columns[field]
+  def field(selecto_struct, field) do
+    selecto_struct.config.columns[field]
   end
 
 
