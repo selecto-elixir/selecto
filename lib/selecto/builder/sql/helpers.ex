@@ -14,14 +14,6 @@ defmodule Selecto.Builder.Sql.Helpers do
   end
 
 
-  def check_safe_phrase(string) do
-      if String.length(string) < 1 or String.match?(string, ~r/[^a-zA-Z0-9_ ]/) do
-        raise RuntimeError, message: "Invalid String #{string}"
-        false
-      else
-        string
-      end
-  end
 
   def single_wrap(val) do
     # TODO! replace ' in val
