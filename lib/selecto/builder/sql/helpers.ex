@@ -9,11 +9,8 @@ defmodule Selecto.Builder.Sql.Helpers do
       raise RuntimeError, message: "Invalid String #{string}"
     end
 
-    # String.replace(string, ~r/'/, "''")
     string
   end
-
-
 
   def single_wrap(val) do
     # TODO! replace ' in val
