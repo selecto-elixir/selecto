@@ -1,5 +1,8 @@
 defmodule SelectoTest do
   use ExUnit.Case
+
+  use Mneme
+
   doctest Selecto
 
   defmodule Repo do
