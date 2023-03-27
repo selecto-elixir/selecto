@@ -57,9 +57,8 @@ defmodule SelectoTest do
       source: SelectoTest.SchemaUsers,
       name: "User",
       default_selected: ["name", "email"],
-      default_order_by: ["name"],
-      default_group_by: ["name"],
       default_aggregate: [{"id", %{"format" => "count"}}],
+      required_filters: [{"active", true}],
       joins: %{
         posts: %{
           on: [user_id: :id],
@@ -80,34 +79,34 @@ defmodule SelectoTest do
     {:ok, selecto: selecto}
   end
 
-  # Test Default filters
-
-  # Test Default columns
-  # Test joins
-  # Test order
-  # Test limit
+  def gen_sql(selecto) do
+    {sql, _, params} = Selecto.gen_sql(selecto, %{})
+    String.replace(sql, ~r/\t|\n| +/, " ")
+  end
 
   # test Generate SQL
   test "generate sql", %{selecto: selecto} do
     selecto =
       Selecto.select(selecto, ["name", "email", "age", "active", "created_at", "updated_at"])
+      |> Selecto.order_by("name")
 
-    {sql, _, _} = Selecto.gen_sql(selecto, %{})
-
-    assert sql ==
-             ~s[\n        select "selecto_root"."name", "selecto_root"."email", "selecto_root"."age", "selecto_root"."active", "selecto_root"."created_at", "selecto_root"."updated_at"\n        from users "selecto_root"\n    ]
+    auto_assert "  select \"selecto_root\".\"name\", \"selecto_root\".\"email\", \"selecto_root\".\"age\", \"selecto_root\".\"active\", \"selecto_root\".\"created_at\", \"selecto_root\".\"updated_at\"  from users \"selecto_root\"    where (( \"selecto_root\".\"active\" = $1 ))    order by \"selecto_root\".\"name\" asc nulls first  " <-
+                  gen_sql(selecto)
   end
 
-  # test Generate SQL with joins
-  test "generate sql with join", %{selecto: selecto} do
-    selecto = Selecto.select(selecto, ["name", "posts[title]"])
-    auto_assert {"""
+  test "generate sql with joins", %{selecto: selecto} do
+    selecto =
+      Selecto.select(selecto, [
+        "name",
+        "email",
+        "age",
+        "active",
+        "created_at",
+        "updated_at",
+        "posts[title]"
+      ])
 
-                         select "selecto_root"."name", "posts"."title"
-                         from users "selecto_root" left join posts "posts" on "posts"."schema_users_id" = "selecto_root"."id"
-                     \
-                 """,
-                 _,
-                 _} <- Selecto.gen_sql(selecto, %{})
+    auto_assert "  select \"selecto_root\".\"name\", \"selecto_root\".\"email\", \"selecto_root\".\"age\", \"selecto_root\".\"active\", \"selecto_root\".\"created_at\", \"selecto_root\".\"updated_at\", \"posts\".\"title\"  from users \"selecto_root\" left join posts \"posts\" on \"posts\".\"schema_users_id\" = \"selecto_root\".\"id\"    where (( \"selecto_root\".\"active\" = $1 ))  " <-
+                  gen_sql(selecto)
   end
 end
