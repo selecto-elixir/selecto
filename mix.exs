@@ -30,6 +30,7 @@ defmodule Selecto.MixProject do
       {:uuid, "~> 1.1"},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false},
       {:timex, "~> 3.7.9"},
+      {:mneme, ">= 0.0.0", only: :test}
     ]
   end
 
