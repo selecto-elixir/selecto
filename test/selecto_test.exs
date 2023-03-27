@@ -80,8 +80,8 @@ defmodule SelectoTest do
   end
 
   def gen_sql(selecto) do
-    {sql, _, params} = Selecto.gen_sql(selecto, %{})
-    String.replace(sql, ~r/\t|\n| +/, " ")
+    {sql, _, _params} = Selecto.gen_sql(selecto, %{})
+    String.replace(sql, ~r/(\t|\n| )+/, " ")
   end
 
   # test Generate SQL
@@ -90,7 +90,7 @@ defmodule SelectoTest do
       Selecto.select(selecto, ["name", "email", "age", "active", "created_at", "updated_at"])
       |> Selecto.order_by("name")
 
-    auto_assert "  select \"selecto_root\".\"name\", \"selecto_root\".\"email\", \"selecto_root\".\"age\", \"selecto_root\".\"active\", \"selecto_root\".\"created_at\", \"selecto_root\".\"updated_at\"  from users \"selecto_root\"    where (( \"selecto_root\".\"active\" = $1 ))    order by \"selecto_root\".\"name\" asc nulls first  " <-
+    auto_assert " select \"selecto_root\".\"name\", \"selecto_root\".\"email\", \"selecto_root\".\"age\", \"selecto_root\".\"active\", \"selecto_root\".\"created_at\", \"selecto_root\".\"updated_at\" from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) order by \"selecto_root\".\"name\" asc nulls first " <-
                   gen_sql(selecto)
   end
 
@@ -106,7 +106,21 @@ defmodule SelectoTest do
         "posts[title]"
       ])
 
-    auto_assert "  select \"selecto_root\".\"name\", \"selecto_root\".\"email\", \"selecto_root\".\"age\", \"selecto_root\".\"active\", \"selecto_root\".\"created_at\", \"selecto_root\".\"updated_at\", \"posts\".\"title\"  from users \"selecto_root\" left join posts \"posts\" on \"posts\".\"schema_users_id\" = \"selecto_root\".\"id\"    where (( \"selecto_root\".\"active\" = $1 ))  " <-
+    auto_assert " select \"selecto_root\".\"name\", \"selecto_root\".\"email\", \"selecto_root\".\"age\", \"selecto_root\".\"active\", \"selecto_root\".\"created_at\", \"selecto_root\".\"updated_at\", \"posts\".\"title\" from users \"selecto_root\" left join posts \"posts\" on \"posts\".\"schema_users_id\" = \"selecto_root\".\"id\" where (( \"selecto_root\".\"active\" = $1 )) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Where with OR", %{selecto: selecto} do
+    selecto = Selecto.filter(selecto, {:or, [{"active", true}, {"active", false}]})
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ((( \"selecto_root\".\"active\" = $2 ) or ( \"selecto_root\".\"active\" = $3 )))) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Concatenate Select", %{selecto: selecto} do
+    selecto = Selecto.select(selecto, [{:concat, ["name", {:literal, " "}, "email"]}])
+
+    auto_assert " select concat( \"selecto_root\".\"name\", ' ', \"selecto_root\".\"email\" ) from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
                   gen_sql(selecto)
   end
 end
