@@ -14,28 +14,29 @@ defmodule SelectoTest do
   # Some test schemas
   defmodule SchemaUsers do
     use Ecto.Schema
+
     schema "users" do
-      field :name, :string
-      field :email, :string
-      field :age, :integer
-      field :active, :boolean
-      field :created_at, :utc_datetime
-      field :updated_at, :utc_datetime
-      has_many :posts, SelectoTest.SchemaPosts
+      field(:name, :string)
+      field(:email, :string)
+      field(:age, :integer)
+      field(:active, :boolean)
+      field(:created_at, :utc_datetime)
+      field(:updated_at, :utc_datetime)
+      has_many(:posts, SelectoTest.SchemaPosts)
     end
   end
 
   defmodule SchemaPosts do
     use Ecto.Schema
+
     schema "posts" do
-      field :title, :string
-      field :body, :string
-      field :created_at, :utc_datetime
-      field :updated_at, :utc_datetime
-      belongs_to :user, SelectoTest.SchemaUsers
+      field(:title, :string)
+      field(:body, :string)
+      field(:created_at, :utc_datetime)
+      field(:updated_at, :utc_datetime)
+      belongs_to(:user, SelectoTest.SchemaUsers)
     end
   end
-
 
   test "single quotes" do
     assert Selecto.Builder.Sql.Helpers.single_wrap("It's") == "'It''s'"
@@ -51,10 +52,7 @@ defmodule SelectoTest do
     end
   end
 
-
-
   setup_all do
-
     domain = %{
       source: SelectoTest.SchemaUsers,
       name: "User",
@@ -77,30 +75,39 @@ defmodule SelectoTest do
         }
       }
     }
+
     selecto = Selecto.configure(SelectoTest.Repo, domain)
     {:ok, selecto: selecto}
   end
 
   # Test Default filters
 
-
   # Test Default columns
-
   # Test joins
-
   # Test order
-
   # Test limit
 
   # test Generate SQL
   test "generate sql", %{selecto: selecto} do
-    selecto = Selecto.select(selecto, ["name", "email", "age", "active", "created_at", "updated_at"])
+    selecto =
+      Selecto.select(selecto, ["name", "email", "age", "active", "created_at", "updated_at"])
+
     {sql, _, _} = Selecto.gen_sql(selecto, %{})
-    assert sql == ~s[\n        select "selecto_root"."name", "selecto_root"."email", "selecto_root"."age", "selecto_root"."active", "selecto_root"."created_at", "selecto_root"."updated_at"\n        from users "selecto_root"\n    ]
+
+    assert sql ==
+             ~s[\n        select "selecto_root"."name", "selecto_root"."email", "selecto_root"."age", "selecto_root"."active", "selecto_root"."created_at", "selecto_root"."updated_at"\n        from users "selecto_root"\n    ]
   end
 
   # test Generate SQL with joins
+  test "generate sql with join", %{selecto: selecto} do
+    selecto = Selecto.select(selecto, ["name", "posts[title]"])
+    auto_assert {"""
 
-
-
+                         select "selecto_root"."name", "posts"."title"
+                         from users "selecto_root" left join posts "posts" on "posts"."schema_users_id" = "selecto_root"."id"
+                     \
+                 """,
+                 _,
+                 _} <- Selecto.gen_sql(selecto, %{})
+  end
 end
