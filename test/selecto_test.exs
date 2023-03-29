@@ -231,6 +231,13 @@ defmodule SelectoTest do
   end
 
 
+  test "Predicate ANY subquery", %{selecto: selecto} do
+    selecto = Selecto.filter(selecto, [{"name", "=", {:subquery, :any, "select name from users where name = 'John'", []}}])
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ( \"selecto_root\".\"name\" = any (select name from users where name = 'John') )) " <-
+                  gen_sql(selecto)
+  end
+
   # Test subquery IN, Exists, comparison
 
   # test "Parameterized Select", %{selecto: selecto} do

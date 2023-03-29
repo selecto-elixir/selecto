@@ -32,6 +32,12 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} in #{query} ", param ++ params}
   end
 
+  def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} #{agg} (#{query}) ", param ++ params}
+  end
+
   def build(selecto, {:not, filter}) do
     {j, c, p} = build(selecto, filter)
     {j, "not ( #{c} ) ", p}
