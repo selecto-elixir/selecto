@@ -126,6 +126,7 @@ Planned Features:
 - parameterized joins (eg joining against a flags or tags table )
 - json/array selects and predicates
 - subqueries in filters
+- correlated subqueries
 - ability to tell selecto to put some selects into an array from a subquery
 - ability to select full schema structs / arrays of schema structs
 - tests (when domain/filters/select is stabilized)
