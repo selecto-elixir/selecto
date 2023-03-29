@@ -78,13 +78,13 @@ When func is referenced below, it is referring to a SQL function
 
 ```elixir
     "field" # - plain old field from one of the tables
-    {:field, field } #- same as above disamg for predicate second+ position
+    {:field, field } #- same as above disamg for predicate second+ position FAILS
     {:literal, "value"} #- for literal values
-    {:literal, 1.0}
+    {:literal, 1.0}  ##FAILS
     {:literal, 1}
     {:literal, datetime} etc
     {:func, SELECTOR}
-    {:count, *} (for count(*))
+    {:count} (for count(*))
     {:func, SELECTOR, SELECTOR}
     {:func, SELECTOR, SELECTOR, SELECTOR} #...
     {:extract, part, SELECTOR}
@@ -126,6 +126,7 @@ Planned Features:
 - parameterized joins (eg joining against a flags or tags table )
 - json/array selects and predicates
 - subqueries in filters
+- correlated subqueries
 - ability to tell selecto to put some selects into an array from a subquery
 - ability to select full schema structs / arrays of schema structs
 - tests (when domain/filters/select is stabilized)
@@ -143,10 +144,10 @@ Planned new format :
 ```elixir
     #standardize predicate format FUTURE NOT AVAILABLE YET! 
 
-    {SELECTOR} # for boolean fields
+    {SELECTOR} # for boolean fields FAILS
     {SELECTOR, nil} #is null
     {SELECTOR, :not_nil} #is not null
-    {SELECTOR, SELECTOR} #=
+    {SELECTOR, SELECTOR} #= require literal FAILS
     {SELECTOR, [SELECTOR2, ...]}# in ()
     {SELECTOR, {comp, SELECTOR2}} #<= etc
     {SELECTOR, {:between, SELECTOR2, SELECTOR2}
@@ -154,8 +155,7 @@ Planned new format :
     {:and, [PREDICATES]}
     {:or, [PREDICATES]}
     {SELECTOR, :in, SUBQUERY}
-    {SELECTOR, comp, :any, SUBQUERY}
-    {SELECTOR, comp, :all, SUBQUERY}
+    {SELECTOR, comp, {:subquery, :any, SUBQUERY}}  ## Or :all 
     {:exists, SUBQUERY}
 
  

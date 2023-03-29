@@ -15,12 +15,9 @@ defmodule Selecto.Builder.Sql.Where do
       {:and, [PREDICATES]}
       {:or, [PREDICATES]}
       {SELECTOR, :in, SUBQUERY}
-      {SELECTOR, comp, :any, SUBQUERY}
-      {SELECTOR, comp, :all, SUBQUERY}
+      {SELECTOR, comp, {:subquery, :any, SUBQUERY}}  ## Or :all
       {:exists, SUBQUERY}
   """
-
-
 
   def build(selecto, {field, {:text_search, value}}) do
     conf = Selecto.field(selecto, field)
@@ -32,6 +29,16 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} in #{query} ", param ++ params}
+  end
+
+  def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} #{agg} (#{query}) ", param ++ params}
+  end
+
+  def build(selecto, {:exists, query, params}) do
+    {[], " exists (#{query}) ", params}
   end
 
   def build(selecto, {:not, filter}) do
@@ -48,7 +55,6 @@ defmodule Selecto.Builder.Sql.Where do
       end)
 
     {joins, "(#{Enum.join(Enum.map(clauses, fn c -> "(#{c})" end), " #{conj} ")})", params}
-    # Joins, clause, params
   end
 
   def build(selecto, {field, {:between, min, max}}) do
@@ -101,7 +107,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(_sel, other) do
-    IO.inspect(other)
+    IO.inspect(other, label: "Where clause not handled")
     raise "Not Found"
   end
 
