@@ -15,12 +15,10 @@ defmodule Selecto.Builder.Sql.Where do
       {:and, [PREDICATES]}
       {:or, [PREDICATES]}
       {SELECTOR, :in, SUBQUERY}
-      {SELECTOR, comp, :any, SUBQUERY}
-      {SELECTOR, comp, :all, SUBQUERY}
+      {SELECTOR, comp, :any, SUBQUERY}   ##TODO
+      {SELECTOR, comp, :all, SUBQUERY}   ##TODO
       {:exists, SUBQUERY}
   """
-
-
 
   def build(selecto, {field, {:text_search, value}}) do
     conf = Selecto.field(selecto, field)
@@ -48,7 +46,6 @@ defmodule Selecto.Builder.Sql.Where do
       end)
 
     {joins, "(#{Enum.join(Enum.map(clauses, fn c -> "(#{c})" end), " #{conj} ")})", params}
-    # Joins, clause, params
   end
 
   def build(selecto, {field, {:between, min, max}}) do
@@ -101,7 +98,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(_sel, other) do
-    IO.inspect(other)
+    IO.inspect(other, label: "Where clause not handled")
     raise "Not Found"
   end
 

@@ -230,6 +230,9 @@ defmodule SelectoTest do
                   gen_sql(selecto)
   end
 
+
+  # Test subquery IN, Exists, comparison
+
   # test "Parameterized Select", %{selecto: selecto} do
   # selecto = Selecto.select(selecto, "posts:cool[title]")
   # auto_assert gen_sql(selecto)
