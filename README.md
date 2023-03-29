@@ -84,7 +84,7 @@ When func is referenced below, it is referring to a SQL function
     {:literal, 1}
     {:literal, datetime} etc
     {:func, SELECTOR}
-    {:count, *} (for count(*))
+    {:count} (for count(*))
     {:func, SELECTOR, SELECTOR}
     {:func, SELECTOR, SELECTOR, SELECTOR} #...
     {:extract, part, SELECTOR}

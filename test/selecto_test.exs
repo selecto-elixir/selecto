@@ -200,6 +200,21 @@ defmodule SelectoTest do
                   gen_sql(selecto)
   end
 
+  test "Select Function Calls", %{selecto: selecto} do
+    selecto = Selecto.select(selecto, [{:lower, "name"}])
+    selecto = Selecto.select(selecto, [{:upper, "name"}])
+
+    auto_assert " select lower(\"selecto_root\".\"name\"), upper(\"selecto_root\".\"name\") from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Select Count", %{selecto: selecto} do
+    selecto = Selecto.select(selecto, [{:count}])
+
+    auto_assert " select count(*) from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
+                  gen_sql(selecto)
+  end
+
   # test "Parameterized Select", %{selecto: selecto} do
   # selecto = Selecto.select(selecto, "posts:cool[title]")
   # auto_assert gen_sql(selecto)
