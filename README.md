@@ -154,8 +154,7 @@ Planned new format :
     {:and, [PREDICATES]}
     {:or, [PREDICATES]}
     {SELECTOR, :in, SUBQUERY}
-    {SELECTOR, comp, :any, SUBQUERY}
-    {SELECTOR, comp, :all, SUBQUERY}
+    {SELECTOR, comp, {:subquery, :any, SUBQUERY}}  ## Or :all 
     {:exists, SUBQUERY}
 
  

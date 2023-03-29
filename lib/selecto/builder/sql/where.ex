@@ -15,8 +15,7 @@ defmodule Selecto.Builder.Sql.Where do
       {:and, [PREDICATES]}
       {:or, [PREDICATES]}
       {SELECTOR, :in, SUBQUERY}
-      {SELECTOR, comp, :any, SUBQUERY}   ##TODO
-      {SELECTOR, comp, :all, SUBQUERY}   ##TODO
+      {SELECTOR, comp, {:subquery, :any, SUBQUERY}}  ## Or :all
       {:exists, SUBQUERY}
   """
 
@@ -36,6 +35,10 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} #{agg} (#{query}) ", param ++ params}
+  end
+
+  def build(selecto, {:exists, query, params}) do
+    {[], " exists (#{query}) ", params}
   end
 
   def build(selecto, {:not, filter}) do

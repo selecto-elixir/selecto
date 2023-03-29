@@ -230,11 +230,21 @@ defmodule SelectoTest do
                   gen_sql(selecto)
   end
 
-
   test "Predicate ANY subquery", %{selecto: selecto} do
-    selecto = Selecto.filter(selecto, [{"name", "=", {:subquery, :any, "select name from users where name = 'John'", []}}])
+    selecto =
+      Selecto.filter(selecto, [
+        {"name", "=", {:subquery, :any, "select name from users where name = 'John'", []}}
+      ])
 
     auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ( \"selecto_root\".\"name\" = any (select name from users where name = 'John') )) " <-
+                  gen_sql(selecto)
+  end
+
+  test "predicate EXISTS subquery", %{selecto: selecto} do
+    selecto =
+      Selecto.filter(selecto, [{:exists, "select name from users where name = 'John'", []}])
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ( exists (select name from users where name = 'John') )) " <-
                   gen_sql(selecto)
   end
 
