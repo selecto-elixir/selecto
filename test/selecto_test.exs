@@ -129,6 +129,7 @@ defmodule SelectoTest do
   end
 
   test "Where with OR", %{selecto: selecto} do
+    ### TODO partly fails, should be able to just put {"active"} to indicate true
     selecto = Selecto.filter(selecto, {:or, [{"active", true}, {"active", false}]})
 
     auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ((( \"selecto_root\".\"active\" = $2 ) or ( \"selecto_root\".\"active\" = $3 )))) " <-
@@ -139,6 +140,13 @@ defmodule SelectoTest do
     selecto = Selecto.filter(selecto, {:and, [{"active", true}, {"active", false}]})
 
     auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ((( \"selecto_root\".\"active\" = $2 ) and ( \"selecto_root\".\"active\" = $3 )))) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Where with NOT", %{selecto: selecto} do
+    selecto = Selecto.filter(selecto, {:not, {"active", true}})
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and (not ( \"selecto_root\".\"active\" = $2 ) )) " <-
                   gen_sql(selecto)
   end
 
@@ -172,7 +180,7 @@ defmodule SelectoTest do
 
   # test "Predicate Equals", %{selecto: selecto} do
   #   ### Fails - how to indicate this is a column and not a value?
-  #   selecto = Selecto.filter(selecto, [{"name", {"name"}}])
+  #   selecto = Selecto.filter(selecto, [{"name", {:field, "name"}}])
 
   #   auto_assert gen_sql(selecto)
   # end
@@ -181,6 +189,14 @@ defmodule SelectoTest do
     selecto = Selecto.filter(selecto, [{"name", {"!=", "John"}}])
 
     auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ( \"selecto_root\".\"name\" != $2 )) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Select Literal", %{selecto: selecto} do
+    ### FAILS should be able to select {:literal, 3.0}
+    selecto = Selecto.select(selecto, [{:literal, "1"}, {:literal, 2}])
+
+    auto_assert " select '1', 2 from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
                   gen_sql(selecto)
   end
 
