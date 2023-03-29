@@ -123,8 +123,9 @@ defmodule SelectoTest do
         "updated_at",
         "posts[title]"
       ])
+      |> Selecto.order_by("name")
 
-    auto_assert " select \"selecto_root\".\"name\", \"selecto_root\".\"email\", \"selecto_root\".\"age\", \"selecto_root\".\"active\", \"selecto_root\".\"created_at\", \"selecto_root\".\"updated_at\", \"posts\".\"title\" from users \"selecto_root\" left join posts \"posts\" on \"posts\".\"schema_users_id\" = \"selecto_root\".\"id\" where (( \"selecto_root\".\"active\" = $1 )) " <-
+    auto_assert " select \"selecto_root\".\"name\", \"selecto_root\".\"email\", \"selecto_root\".\"age\", \"selecto_root\".\"active\", \"selecto_root\".\"created_at\", \"selecto_root\".\"updated_at\", \"posts\".\"title\" from users \"selecto_root\" left join posts \"posts\" on \"posts\".\"schema_users_id\" = \"selecto_root\".\"id\" where (( \"selecto_root\".\"active\" = $1 )) order by \"selecto_root\".\"name\" asc nulls first " <-
                   gen_sql(selecto)
   end
 
@@ -194,9 +195,9 @@ defmodule SelectoTest do
 
   test "Select Literal", %{selecto: selecto} do
     ### FAILS should be able to select {:literal, 3.0}
-    selecto = Selecto.select(selecto, [{:literal, "1"}, {:literal, 2}])
+    selecto = Selecto.select(selecto, [1, 1.0, true, {:literal, "1"}, {:literal, 2}])
 
-    auto_assert " select '1', 2 from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
+    auto_assert " select 1, 1.0, true, '1', 2 from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
                   gen_sql(selecto)
   end
 
@@ -212,6 +213,20 @@ defmodule SelectoTest do
     selecto = Selecto.select(selecto, [{:count}])
 
     auto_assert " select count(*) from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Select COALESCE", %{selecto: selecto} do
+    selecto = Selecto.select(selecto, [{:coalesce, ["name", "email"]}])
+
+    auto_assert " select coalesce( \"selecto_root\".\"name\", \"selecto_root\".\"email\" ) from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Select CASE", %{selecto: selecto} do
+    selecto = Selecto.select(selecto, {:case, [{{"name", "John"}, {:literal, "John!!"}}], "name"})
+
+    auto_assert " select case when (( \"selecto_root\".\"name\" = $1 )) then 'John!!' else \"selecto_root\".\"name\" end from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $2 )) " <-
                   gen_sql(selecto)
   end
 
