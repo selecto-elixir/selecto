@@ -35,6 +35,16 @@ defmodule SelectoTest do
       field(:created_at, :utc_datetime)
       field(:updated_at, :utc_datetime)
       belongs_to(:user, SelectoTest.SchemaUsers)
+      has_many(:tags, SelectoTest.SchemaPostTags)
+    end
+  end
+
+  defmodule SchemaPostTags do
+    use Ecto.Schema
+
+    schema "post_tags" do
+      field(:name, :string)
+      belongs_to(:post, SelectoTest.SchemaPosts)
     end
   end
 
@@ -61,9 +71,17 @@ defmodule SelectoTest do
       required_filters: [{"active", true}],
       joins: %{
         posts: %{
-          on: [user_id: :id],
           type: :left,
-          name: "posts"
+          name: "posts",
+          parameters: [
+            {:tag, :name}
+          ],
+          joins: %{
+            tags: %{
+              type: :left,
+              name: "tags"
+            }
+          }
         }
       },
       filters: %{
@@ -117,10 +135,57 @@ defmodule SelectoTest do
                   gen_sql(selecto)
   end
 
+  test "Where with AND", %{selecto: selecto} do
+    selecto = Selecto.filter(selecto, {:and, [{"active", true}, {"active", false}]})
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ((( \"selecto_root\".\"active\" = $2 ) and ( \"selecto_root\".\"active\" = $3 )))) " <-
+                  gen_sql(selecto)
+  end
+
   test "Concatenate Select", %{selecto: selecto} do
     selecto = Selecto.select(selecto, [{:concat, ["name", {:literal, " "}, "email"]}])
 
     auto_assert " select concat( \"selecto_root\".\"name\", ' ', \"selecto_root\".\"email\" ) from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 )) " <-
                   gen_sql(selecto)
   end
+
+  test "Predicate Like", %{selecto: selecto} do
+    selecto = Selecto.filter(selecto, [{"name", {:like, {:literal, "%John%"}}}])
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ( \"selecto_root\".\"name\" like $2 )) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Predicate Null", %{selecto: selecto} do
+    selecto = Selecto.filter(selecto, [{"name", nil}])
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ( \"selecto_root\".\"name\" is null )) " <-
+                  gen_sql(selecto)
+  end
+
+  test "Predicate Not Null", %{selecto: selecto} do
+    selecto = Selecto.filter(selecto, [{"name", :not_nil}])
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ( \"selecto_root\".\"name\" = $2 )) " <-
+                  gen_sql(selecto)
+  end
+
+  # test "Predicate Equals", %{selecto: selecto} do
+  #   ### Fails - how to indicate this is a column and not a value?
+  #   selecto = Selecto.filter(selecto, [{"name", {"name"}}])
+
+  #   auto_assert gen_sql(selecto)
+  # end
+
+  test "Predicate Not Equals", %{selecto: selecto} do
+    selecto = Selecto.filter(selecto, [{"name", {"!=", "John"}}])
+
+    auto_assert " select from users \"selecto_root\" where (( \"selecto_root\".\"active\" = $1 ) and ( \"selecto_root\".\"name\" != $2 )) " <-
+                  gen_sql(selecto)
+  end
+
+  # test "Parameterized Select", %{selecto: selecto} do
+  # selecto = Selecto.select(selecto, "posts:cool[title]")
+  # auto_assert gen_sql(selecto)
+  # end
 end
