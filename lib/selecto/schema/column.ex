@@ -61,7 +61,7 @@ defmodule Selecto.Schema.Column do
           colid: colid,
           field: field,
           name: "#{domain.name}: #{name}",
-          type: source.__schema__(:type, field),
+          type: source.columns[field].type,
           requires_join: join,
           format: Map.get(config, :format)
         },

@@ -1,10 +1,103 @@
 defmodule Selecto do
-  @derive {Inspect, only: [:repo, :set]}
-  defstruct [:repo, :domain, :config, :set]
+  @derive {Inspect, only: [:postgrex_opts, :set]}
+  defstruct [:postgrex_opts, :domain, :config, :set]
 
   @moduledoc """
+  Selecto is a query builder for Elixir that uses Postgrex to execute queries.
+  It is designed to be a flexible and powerful tool for building complex SQL queries
+  without writing SQL by hand.
 
-  Documentation for `Selecto,` a query writer and report generator for Elixir/Ecto
+  ## Domain Configuration
+
+  Selecto is configured using a domain map. This map defines the database schema,
+  including tables, columns, and associations. Here is an example of a domain map:
+
+      %{
+        source: %{
+          source_table: "users",
+          primary_key: :id,
+          fields: [:id, :name, :email, :age, :active, :created_at, :updated_at],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :integer},
+            name: %{type: :string},
+            email: %{type: :string},
+            age: %{type: :integer},
+            active: %{type: :boolean},
+            created_at: %{type: :utc_datetime},
+            updated_at: %{type: :utc_datetime}
+          },
+          associations: %{
+            posts: %{
+              queryable: :posts,
+              field: :posts,
+              owner_key: :id,
+              related_key: :user_id
+            }
+          }
+        },
+        schemas: %{
+          posts: %{
+            source_table: "posts",
+            primary_key: :id,
+            fields: [:id, :title, :body, :user_id, :created_at, :updated_at],
+            redact_fields: [],
+            columns: %{
+              id: %{type: :integer},
+              title: %{type: :string},
+              body: %{type: :string},
+              user_id: %{type: :integer},
+              created_at: %{type: :utc_datetime},
+              updated_at: %{type: :utc_datetime}
+            },
+            associations: %{
+              tags: %{
+                queryable: :post_tags,
+                field: :tags,
+                owner_key: :id,
+                related_key: :post_id
+              }
+            }
+          },
+          post_tags: %{
+            source_table: "post_tags",
+            primary_key: :id,
+            fields: [:id, :name, :post_id],
+            redact_fields: [],
+            columns: %{
+              id: %{type: :integer},
+              name: %{type: :string},
+              post_id: %{type: :integer}
+            }
+          }
+        },
+        name: "User",
+        default_selected: ["name", "email"],
+        default_aggregate: [{"id", %{"format" => "count"}}],
+        required_filters: [{"active", true}],
+        joins: %{
+          posts: %{
+            type: :left,
+            name: "posts",
+            parameters: [
+              {:tag, :name}
+            ],
+            joins: %{
+              tags: %{
+                type: :left,
+                name: "tags"
+              }
+            }
+          }
+        },
+        filters: %{
+          "active" => %{
+            name: "Active",
+            type: "boolean",
+            default: true
+          }
+        }
+      }
 
   """
 
@@ -12,9 +105,9 @@ defmodule Selecto do
     Generate a selecto structure from this Repo following
     the instructions in Domain map
   """
-  def configure(repo, domain) do
+  def configure(domain, postgrex_opts) do
     %Selecto{
-      repo: repo,
+      postgrex_opts: postgrex_opts,
       domain: domain,
       config: configure_domain(domain),
       set: %{
@@ -28,13 +121,12 @@ defmodule Selecto do
 
   # generate the selecto configuration
   defp configure_domain(%{source: source} = domain) do
-    primary_key = source.__schema__(:primary_key)
+    primary_key = source.primary_key
 
     fields =
       Selecto.Schema.Column.configure_columns(
         :selecto_root,
-        ## Add in keys from domain.columns ...
-        source.__schema__(:fields) -- source.__schema__(:redact_fields),
+        source.fields -- source.redact_fields,
         source,
         domain
       )
@@ -61,7 +153,7 @@ defmodule Selecto do
 
     %{
       source: source,
-      source_table: source.__schema__(:source),
+      source_table: source.source_table,
       primary_key: primary_key,
       columns: fields,
       joins: joins,
@@ -188,7 +280,7 @@ defmodule Selecto do
     {query, aliases, params} = gen_sql(selecto, opts)
     # IO.inspect(query, label: "Exe")
 
-    {:ok, result} = Ecto.Adapters.SQL.query(selecto.repo, query, params)
+    result = Postgrex.query!(selecto.postgrex_opts, query, params)
     # |> IO.inspect(label: "Results")
 
     {result.rows, result.columns, aliases}
