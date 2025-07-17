@@ -114,8 +114,7 @@ defmodule Selecto do
         selected: Map.get(domain, :required_selected, []),
         filtered: [],
         order_by: Map.get(domain, :required_order_by, []),
-        group_by: Map.get(domain, :required_group_by, []),
-        joins: []
+        group_by: Map.get(domain, :required_group_by, [])
       }
     }
   end
@@ -202,13 +201,8 @@ defmodule Selecto do
   ### paramterize: value -- will cause a special case of this join with the indicated parameter, and fields/filters to be made available
   ### inner: true -- change the default
 
-  def join(selecto, joins) when is_list(joins) do
-    put_in(selecto.set.joins, Enum.uniq(selecto.set.joins ++ joins))
-  end
-
-  def join(selecto, join_id) do
-    Selecto.join(selecto, [join_id])
-  end
+  #def join(selecto_struct, join_id, options \\ []) do
+  #end
 
   ### returns a key to use to add filters, selects, etc from this join
   #def join_paramterize(selecto_struct, join_id, parameter, options) do

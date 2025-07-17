@@ -101,12 +101,6 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} is null ", param}
   end
 
-  def build(selecto, {field, op, val}) do
-    conf = Selecto.field(selecto, field) || %{}
-    {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(Map.get(conf, :requires_join)) ++ List.wrap(join), " #{sel} #{op} ^SelectoParam^ ", param ++ [to_type(Map.get(conf, :type), val)]}
-  end
-
   def build(selecto, {field, value}) do
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(join), " #{sel} = ^SelectoParam^ ", param ++ [ value ]}

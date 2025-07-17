@@ -11,9 +11,7 @@ defmodule Selecto.Builder.Sql do
     joins_in_order =
       Selecto.Builder.Join.get_join_order(
         Selecto.joins(selecto),
-        List.flatten(
-          sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins ++ selecto.set.joins
-        )
+        List.flatten(sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
       )
 
     {from_clause, from_params} = build_from(selecto, joins_in_order)
