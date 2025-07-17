@@ -150,7 +150,7 @@ Planned new format :
     {SELECTOR, SELECTOR} #= require literal FAILS
     {SELECTOR, [SELECTOR2, ...]}# in ()
     {SELECTOR, {comp, SELECTOR2}} #<= etc
-    {SELECTOR, {:between, SELECTOR2, SELECTOR2}
+    {SELECTOR, {:between, SELECTOR2, SELECTOR2}}
     {:not, PREDICATE}
     {:and, [PREDICATES]}
     {:or, [PREDICATES]}
