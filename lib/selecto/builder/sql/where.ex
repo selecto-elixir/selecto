@@ -37,7 +37,7 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} #{agg} (#{query}) ", param ++ params}
   end
 
-  def build(selecto, {:exists, query, params}) do
+  def build(_selecto, {:exists, query, params}) do
     {[], " exists (#{query}) ", params}
   end
 

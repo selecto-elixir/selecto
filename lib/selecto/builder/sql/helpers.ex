@@ -31,11 +31,11 @@ defmodule Selecto.Builder.Sql.Helpers do
     ~s["#{str}"]
   end
 
-  def build_selector_string(selecto, join, field) do
+  def build_selector_string(_selecto, join, field) do
     "#{double_wrap(join)}.#{double_wrap(field)}"
   end
 
-  def build_join_string(selecto, join) do
+  def build_join_string(_selecto, join) do
     double_wrap(join)
   end
 
