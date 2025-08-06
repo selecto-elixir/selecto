@@ -79,12 +79,96 @@ defmodule Selecto.Builder.Sql do
 
       join, {fc, p} ->
         config = Selecto.joins(selecto)[join]
-
-        {fc ++
-           [
-             ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
-           ], p}
+        
+        case Map.get(config, :join_type) do
+          :many_to_many ->
+            build_many_to_many_join(selecto, join, config, fc, p)
+            
+          :hierarchical_adjacency ->
+            build_hierarchical_adjacency_join(selecto, join, config, fc, p)
+            
+          :hierarchical_materialized_path ->
+            build_hierarchical_materialized_path_join(selecto, join, config, fc, p)
+            
+          :hierarchical_closure_table ->
+            build_hierarchical_closure_table_join(selecto, join, config, fc, p)
+            
+          :star_dimension ->
+            build_star_dimension_join(selecto, join, config, fc, p)
+            
+          :snowflake_dimension ->
+            build_snowflake_dimension_join(selecto, join, config, fc, p)
+            
+          _ ->
+            # Standard join
+            {fc ++
+               [
+                 ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
+               ], p}
+        end
     end)
+  end
+
+  defp build_many_to_many_join(selecto, join, config, fc, p) do
+    # Many-to-many joins typically require going through a join table
+    # This assumes the association is properly configured as has_many :through
+    {fc ++
+       [
+         ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
+       ], p}
+  end
+
+  defp build_hierarchical_adjacency_join(selecto, join, config, fc, p) do
+    # Self-referencing join for adjacency list pattern
+    # Standard left join but with special CTE handling for recursive queries
+    {fc ++
+       [
+         ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
+       ], p}
+  end
+
+  defp build_hierarchical_materialized_path_join(selecto, join, config, fc, p) do
+    # Standard join for materialized path - path operations handled in WHERE/SELECT clauses
+    {fc ++
+       [
+         ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
+       ], p}
+  end
+
+  defp build_hierarchical_closure_table_join(selecto, join, config, fc, p) do
+    # Closure table requires additional join to the closure table
+    closure_table = Map.get(config, :closure_table)
+    ancestor_field = Map.get(config, :ancestor_field, :ancestor_id)
+    descendant_field = Map.get(config, :descendant_field, :descendant_id)
+    
+    {fc ++
+       [
+         ~s[ left join #{closure_table} #{build_join_string(selecto, "#{join}_closure")} on #{build_selector_string(selecto, config.requires_join, config.owner_key)} = #{build_join_string(selecto, "#{join}_closure")}.#{ancestor_field}],
+         ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_join_string(selecto, "#{join}_closure")}.#{descendant_field} = #{build_selector_string(selecto, join, config.my_key)}]
+       ], p}
+  end
+
+  defp build_star_dimension_join(selecto, join, config, fc, p) do
+    # Star dimension joins are typically optimized for aggregation
+    # Use standard join but may have different indexing hints in real implementation
+    {fc ++
+       [
+         ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
+       ], p}
+  end
+
+  defp build_snowflake_dimension_join(selecto, join, config, fc, p) do
+    # Snowflake dimensions may require additional normalization joins
+    normalization_joins = Map.get(config, :normalization_joins, [])
+    
+    base_join = ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
+    
+    # Add any required normalization joins
+    additional_joins = Enum.map(normalization_joins, fn norm_join ->
+      ~s[ left join #{norm_join.table} #{build_join_string(selecto, norm_join.alias)} on #{build_selector_string(selecto, join, norm_join.local_key)} = #{build_selector_string(selecto, norm_join.alias, norm_join.remote_key)}]
+    end)
+    
+    {fc ++ [base_join] ++ additional_joins, p}
   end
 
   defp build_select(selecto) do
