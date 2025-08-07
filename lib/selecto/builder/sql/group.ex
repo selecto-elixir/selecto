@@ -1,11 +1,11 @@
 defmodule Selecto.Builder.Sql.Group do
   def group(selecto, rollup: groups) do
-    {joins, clauses, params} = group(selecto, groups)
-    {joins, "rollup( #{clauses} )", params}
+    {joins, clauses_iodata, params} = group(selecto, groups)
+    {joins, ["rollup( ", clauses_iodata, " )"], params}
   end
 
   def group(selecto, groups) when is_list(groups) do
-    {joins, clauses, params} =
+    {joins, clauses_iodata, params} =
       groups
       |> Enum.reduce(
         {[], [], []},
@@ -15,7 +15,9 @@ defmodule Selecto.Builder.Sql.Group do
         end
       )
 
-    {joins, Enum.join(clauses, ", "), params}
+    # Join clauses with ", " separator as iodata
+    clause_parts = Enum.intersperse(clauses_iodata, ", ")
+    {joins, clause_parts, params}
   end
 
   def group(selecto, group_by) do

@@ -5,8 +5,8 @@ defmodule Selecto.Builder.Sql do
   def build(selecto, _opts) do
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
     {filter_joins, where_iolist, _where_params} = build_where(selecto)
-    {group_by_joins, group_by_clause, group_params} = build_group_by(selecto)
-    {order_by_joins, order_by_clause, order_params} = build_order_by(selecto)
+    {group_by_joins, group_by_iodata, _group_by_params} = build_group_by(selecto)
+    {order_by_joins, order_by_iodata, _order_by_params} = build_order_by(selecto)
 
     joins_in_order =
       Selecto.Builder.Join.get_join_order(
@@ -24,34 +24,42 @@ defmodule Selecto.Builder.Sql do
           {"\n        where #{where_sql}\n      ", where_sql_params}
       end
 
-    sql = "\n        select #{select_clause}\n        from #{from_clause}" <> where_section
-
-    sql =
-      case group_by_clause do
-        "" -> sql
-        _ -> sql <> "\n        group by #{group_by_clause}\n      "
+    {group_by_section, group_by_finalized_params} =
+      cond do
+        group_by_iodata in [[], [""]] -> {"", []}
+        true ->
+          {group_by_sql, group_by_sql_params} = Params.finalize(group_by_iodata)
+          {"\n        group by #{group_by_sql}\n      ", group_by_sql_params}
       end
 
+    {order_by_section, order_by_finalized_params} =
+      cond do
+        order_by_iodata in [[], [""]] -> {"", []}
+        true ->
+          {order_by_sql, order_by_sql_params} = Params.finalize(order_by_iodata)
+          {"\n        order by #{order_by_sql}\n      ", order_by_sql_params}
+      end
+
+    sql = "\n        select #{select_clause}\n        from #{from_clause}" <> where_section <> group_by_section
+
+    # Handle rollup special case
     sql =
-      if String.contains?(group_by_clause, "rollup") do
-        case order_by_clause do
-          "" -> sql
-          _ -> "select * from (" <> sql <> ") as rollupfix\n        order by #{order_by_clause}\n      "
-        end
+      if String.contains?(group_by_section, "rollup") and order_by_section != "" do
+        {order_by_sql, _} = Params.finalize(order_by_iodata)
+        "select * from (" <> String.replace(sql, order_by_section, "") <> ") as rollupfix\n        order by #{order_by_sql}\n      "
       else
-        case order_by_clause do
-          "" -> sql
-          _ -> sql <> "\n        order by #{order_by_clause}\n      "
-        end
+        sql <> order_by_section
       end
 
-    # WHERE params are already finalized; legacy params from other parts still need combining
-    params = select_params ++ from_params ++ where_finalized_params ++ group_params ++ order_params
+    # GROUP/ORDER params are already finalized; legacy params from SELECT/FROM still need combining
+    params = select_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
 
-    # Legacy sentinel replacement (still present in select/from/group/order parts) TODO remove in later phase
-    # Note: where_params NOT included here since WHERE is already finalized to iodata
-    legacy_params = select_params ++ from_params ++ group_params ++ order_params
-    params_num = Enum.with_index(legacy_params) |> Enum.map(fn {_, index} -> "$#{index + 1 + length(where_finalized_params)}" end)
+    # Legacy sentinel replacement (only present in select/from parts now) TODO remove in phase 3
+    # Note: where/group/order params NOT included here since they're already finalized to iodata
+    legacy_params = select_params ++ from_params
+    params_num = Enum.with_index(legacy_params) |> Enum.map(fn {_, index} -> 
+      "$#{index + 1 + length(where_finalized_params) + length(group_by_finalized_params) + length(order_by_finalized_params)}" 
+    end)
 
     sql =
       String.split(sql, "^SelectoParam^")
