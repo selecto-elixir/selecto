@@ -23,6 +23,12 @@ defmodule Selecto.Builder.Sql.Order do
     {j, "#{c} #{@dirs[dir]}", p}
   end
 
+  def order(selecto, {order, dir}) when dir in @dir_list do
+    # Handle {field, direction} format which is the standard in this codebase
+    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
+    {j, "#{c} #{@dirs[dir]}", p}
+  end
+
   def order(selecto, order_by) do
     order(selecto, {:asc_nulls_first, order_by})
   end

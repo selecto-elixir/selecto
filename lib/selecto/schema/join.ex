@@ -385,38 +385,6 @@ defmodule Selecto.Schema.Join do
     } |> parameterize()
   end
 
-  # Helper functions for building hierarchy SQL
-  defp build_hierarchy_path_sql(field, table, depth_limit) do
-    # Builds a recursive CTE to get the full path from root to current node
-    # This is a simplified version - real implementation would need proper CTE handling
-    "WITH RECURSIVE path_cte AS (
-      SELECT id, #{field}_name, CAST(#{field}_name AS TEXT) as path, 0 as level
-      FROM #{table}
-      WHERE parent_id IS NULL
-      UNION ALL
-      SELECT t.id, t.#{field}_name, p.path || ' > ' || t.#{field}_name, p.level + 1
-      FROM #{table} t
-      JOIN path_cte p ON t.parent_id = p.id
-      WHERE p.level < #{depth_limit}
-    )
-    SELECT path FROM path_cte WHERE id = #{field}.id"
-  end
-
-  defp build_hierarchy_level_sql(field, table, depth_limit) do
-    # Builds a recursive CTE to get the level/depth of current node
-    "WITH RECURSIVE level_cte AS (
-      SELECT id, 0 as level
-      FROM #{table}
-      WHERE parent_id IS NULL
-      UNION ALL
-      SELECT t.id, l.level + 1
-      FROM #{table} t
-      JOIN level_cte l ON t.parent_id = l.id
-      WHERE l.level < #{depth_limit}
-    )
-    SELECT level FROM level_cte WHERE id = #{field}.id"
-  end
-
   ### Star schema dimension join (optimized for OLAP)
   defp configure(id, association, %{type: :star_dimension} = config, parent, from_source, queryable) do
     # Star schema dimensions are optimized for aggregation and analysis
@@ -516,6 +484,43 @@ defmodule Selecto.Schema.Join do
     } |> parameterize()
   end
 
+  ### Regular (catch-all clause)
+  defp configure(id, association, config, parent, from_source, queryable) do
+    std_config(id, association, config, parent, from_source, queryable)
+  end
+
+  # Helper functions for building hierarchy SQL
+  defp build_hierarchy_path_sql(field, table, depth_limit) do
+    # Builds a recursive CTE to get the full path from root to current node
+    # This is a simplified version - real implementation would need proper CTE handling
+    "WITH RECURSIVE path_cte AS (
+      SELECT id, #{field}_name, CAST(#{field}_name AS TEXT) as path, 0 as level
+      FROM #{table}
+      WHERE parent_id IS NULL
+      UNION ALL
+      SELECT t.id, t.#{field}_name, p.path || ' > ' || t.#{field}_name, p.level + 1
+      FROM #{table} t
+      JOIN path_cte p ON t.parent_id = p.id
+      WHERE p.level < #{depth_limit}
+    )
+    SELECT path FROM path_cte WHERE id = #{field}.id"
+  end
+
+  defp build_hierarchy_level_sql(field, table, depth_limit) do
+    # Builds a recursive CTE to get the level/depth of current node
+    "WITH RECURSIVE level_cte AS (
+      SELECT id, 0 as level
+      FROM #{table}
+      WHERE parent_id IS NULL
+      UNION ALL
+      SELECT t.id, l.level + 1
+      FROM #{table} t
+      JOIN level_cte l ON t.parent_id = l.id
+      WHERE l.level < #{depth_limit}
+    )
+    SELECT level FROM level_cte WHERE id = #{field}.id"
+  end
+
   defp build_snowflake_select(field, display_field, normalization_joins) do
     # Build select clause that may require additional joins for normalized data
     # This is a simplified version - real implementation would coordinate with SQL builder
@@ -523,11 +528,6 @@ defmodule Selecto.Schema.Join do
       [] -> "#{field}[#{display_field}]"
       [join | _] -> "#{join}.#{display_field}"  # Use the normalized table's field
     end
-  end
-
-  ### Regular
-  defp configure(id, association, config, parent, from_source, queryable) do
-    std_config(id, association, config, parent, from_source, queryable)
   end
 
   defp std_config(id, association, config, parent, from_source, queryable) do

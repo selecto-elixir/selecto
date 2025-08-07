@@ -142,18 +142,33 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(selecto, selector) when is_binary(selector) do
     conf = Selecto.field(selecto, selector)
 
+    # Handle case where field configuration doesn't exist
+    if conf == nil do
+      raise "Field '#{selector}' not found in selecto configuration. Available fields: #{inspect(Map.keys(selecto.config.columns || %{}))}"
+    end
+
     case Map.get(conf, :select) do
       nil ->
         {"#{build_selector_string(selecto, conf.requires_join, conf.field)}", conf.requires_join, []}
 
+      sub when is_binary(sub) ->
+        # If the select value is a string, treat it as literal SQL
+        # This handles cases like "string_agg(tags[name], ', ')" from tagging configurations
+        {sub, conf.requires_join || :selecto_root, []}
+
       sub ->
+        # For other selector types, process recursively
         prep_selector(selecto, sub)
     end
   end
 
+  def prep_selector(selecto, selector) when is_atom(selector) do
+    # Convert atom field names to strings and process like binary selectors
+    prep_selector(selecto, Atom.to_string(selector))
+  end
+
   def prep_selector(_sel, selc) do
-    IO.inspect(selc)
-    raise "ERror"
+    raise "Unsupported selector type: #{inspect(selc)}. Supported types: atoms, tuples with functions, strings, and literals."
   end
 
   ### make the builder build the dynamic so we can use same parts for SQL
