@@ -22,28 +22,28 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, {:text_search, value}}) do
     conf = Selecto.field(selecto, field)
     ### Don't think we ever have to cook the field because it has to be the tsvector...
-    {conf.requires_join, " #{build_selector_string(selecto, conf.requires_join, conf.field)} @@ websearch_to_tsquery(^SelectoParam^) ", [value]}
+    {conf.requires_join, [" ", build_selector_string(selecto, conf.requires_join, conf.field), " @@ websearch_to_tsquery(", {:param, value}, ") "], []}
   end
 
   def build(selecto, {field, {:subquery, :in, query, params}}) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} in #{query} ", param ++ params}
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", query, " "], param ++ params}
   end
 
   def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} #{agg} (#{query}) ", param ++ params}
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param ++ params}
   end
 
   def build(_selecto, {:exists, query, params}) do
-    {[], " exists (#{query}) ", params}
+    {[], [" exists (", query, ") "], params}
   end
 
   def build(selecto, {:not, filter}) do
     {j, c, p} = build(selecto, filter)
-    {j, "not ( #{c} ) ", p}
+    {j, ["not ( ", c, " ) "], p}
   end
 
   def build(selecto, {conj, filters}) when conj in [:and, :or] do
@@ -54,22 +54,30 @@ defmodule Selecto.Builder.Sql.Where do
           {joins ++ [j], clauses ++ [c], params ++ p}
       end)
 
-    {joins, "(#{Enum.join(Enum.map(clauses, fn c -> "(#{c})" end), " #{conj} ")})", params}
+    clause_parts = Enum.map(clauses, fn c -> ["(", c, ")"] end)
+    conj_str = " #{conj} "
+    final_clause = [
+      "(",
+      Enum.intersperse(clause_parts, conj_str),
+      ")"
+    ]
+
+    {joins, final_clause, params}
   end
 
   def build(selecto, {field, {:between, min, max}}) do
     conf = Selecto.field(selecto, field)
 
     {conf.requires_join,
-     " #{build_selector_string(selecto, conf.requires_join, conf.field)} between ^SelectoParam^ and ^SelectoParam^ ",
-     [to_type(conf.type, min), to_type(conf.type, max)]}
+     [" ", build_selector_string(selecto, conf.requires_join, conf.field), " between ", {:param, to_type(conf.type, min)}, " and ", {:param, to_type(conf.type, max)}, " "],
+     []}
   end
 
   def build(selecto, {field, {comp, value}}) when comp in [:like, :ilike] do
     # ### Value must have a % in it to work!
     # ### TODO sanitize like value!
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(join), " #{sel} #{comp} ^SelectoParam^ ", param ++ [ value ]}
+    {List.wrap(join), [" ", sel, " ", to_string(comp), " ", {:param, value}, " "], param}
 
   end
 
@@ -77,33 +85,33 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} #{comp} ^SelectoParam^ ",
-     param ++ [to_type(conf.type, value)]}
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " ", comp, " ", {:param, to_type(conf.type, value)}, " "],
+     param}
   end
 
   def build(selecto, {field, list}) when is_list(list) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} = ANY(^SelectoParam^) ",
-     param ++ [Enum.map(list, fn i -> to_type(conf.type, i) end)]}
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "],
+     param}
   end
 
   def build(selecto, {field, :not_null}) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} is not null ", param}
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " is not null "], param}
   end
 
   def build(selecto, {field, value}) when is_nil(value) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), " #{sel} is null ", param}
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " is null "], param}
   end
 
   def build(selecto, {field, value}) do
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(join), " #{sel} = ^SelectoParam^ ", param ++ [ value ]}
+    {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
   end
 
   def build(_sel, other) do

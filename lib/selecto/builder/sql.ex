@@ -1,10 +1,10 @@
 defmodule Selecto.Builder.Sql do
-
   import Selecto.Builder.Sql.Helpers
+  alias Selecto.SQL.Params
 
   def build(selecto, _opts) do
     {aliases, sel_joins, select_clause, select_params} = build_select(selecto)
-    {filter_joins, where_clause, where_params} = build_where(selecto)
+    {filter_joins, where_iolist, _where_params} = build_where(selecto)
     {group_by_joins, group_by_clause, group_params} = build_group_by(selecto)
     {order_by_joins, order_by_clause, order_params} = build_order_by(selecto)
 
@@ -16,57 +16,49 @@ defmodule Selecto.Builder.Sql do
 
     {from_clause, from_params} = build_from(selecto, joins_in_order)
 
-    sql = "
-        select #{select_clause}
-        from #{from_clause}
-    "
-
-    sql =
-      case where_clause do
-        "()" -> sql
-        _ -> sql <> "
-        where #{where_clause}
-      "
+    {where_section, where_finalized_params} =
+      cond do
+        where_iolist in [[], ["()"], "()"] -> {"", []}
+        true ->
+          {where_sql, where_sql_params} = Params.finalize(where_iolist)
+          {"\n        where #{where_sql}\n      ", where_sql_params}
       end
+
+    sql = "\n        select #{select_clause}\n        from #{from_clause}" <> where_section
 
     sql =
       case group_by_clause do
         "" -> sql
-        _ -> sql <> "
-        group by #{group_by_clause}
-      "
+        _ -> sql <> "\n        group by #{group_by_clause}\n      "
       end
 
     sql =
       if String.contains?(group_by_clause, "rollup") do
         case order_by_clause do
           "" -> sql
-          _ -> "select * from (" <> sql <> ") as rollupfix
-        order by #{order_by_clause}
-      "
+          _ -> "select * from (" <> sql <> ") as rollupfix\n        order by #{order_by_clause}\n      "
         end
       else
         case order_by_clause do
           "" -> sql
-          _ -> sql <> "
-        order by #{order_by_clause}
-      "
+          _ -> sql <> "\n        order by #{order_by_clause}\n      "
         end
       end
 
-    params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
+    # WHERE params are already finalized; legacy params from other parts still need combining
+    params = select_params ++ from_params ++ where_finalized_params ++ group_params ++ order_params
 
-    params_num = Enum.with_index(params) |> Enum.map(fn {_, index} -> "$#{index + 1}" end)
+    # Legacy sentinel replacement (still present in select/from/group/order parts) TODO remove in later phase
+    # Note: where_params NOT included here since WHERE is already finalized to iodata
+    legacy_params = select_params ++ from_params ++ group_params ++ order_params
+    params_num = Enum.with_index(legacy_params) |> Enum.map(fn {_, index} -> "$#{index + 1 + length(where_finalized_params)}" end)
 
-    ## replace ^SelectoParam^ with $1 etc. There has to be a better way???? TODO use 1.. params length
     sql =
       String.split(sql, "^SelectoParam^")
       |> Enum.zip(params_num ++ [""])
       |> Enum.map(fn {a, b} -> [a, b] end)
       |> List.flatten()
       |> Enum.join("")
-
-    params = select_params ++ from_params ++ where_params ++ group_params ++ order_params
 
     {sql, aliases, params}
   end
@@ -79,28 +71,27 @@ defmodule Selecto.Builder.Sql do
 
       join, {fc, p} ->
         config = Selecto.joins(selecto)[join]
-        
+
         case Map.get(config, :join_type) do
           :many_to_many ->
             build_many_to_many_join(selecto, join, config, fc, p)
-            
+
           :hierarchical_adjacency ->
             build_hierarchical_adjacency_join(selecto, join, config, fc, p)
-            
+
           :hierarchical_materialized_path ->
             build_hierarchical_materialized_path_join(selecto, join, config, fc, p)
-            
+
           :hierarchical_closure_table ->
             build_hierarchical_closure_table_join(selecto, join, config, fc, p)
-            
+
           :star_dimension ->
             build_star_dimension_join(selecto, join, config, fc, p)
-            
+
           :snowflake_dimension ->
             build_snowflake_dimension_join(selecto, join, config, fc, p)
-            
+
           _ ->
-            # Standard join
             {fc ++
                [
                  ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
@@ -110,8 +101,6 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_many_to_many_join(selecto, join, config, fc, p) do
-    # Many-to-many joins typically require going through a join table
-    # This assumes the association is properly configured as has_many :through
     {fc ++
        [
          ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
@@ -119,8 +108,6 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_hierarchical_adjacency_join(selecto, join, config, fc, p) do
-    # Self-referencing join for adjacency list pattern
-    # Standard left join but with special CTE handling for recursive queries
     {fc ++
        [
          ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
@@ -128,7 +115,6 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_hierarchical_materialized_path_join(selecto, join, config, fc, p) do
-    # Standard join for materialized path - path operations handled in WHERE/SELECT clauses
     {fc ++
        [
          ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
@@ -136,11 +122,10 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_hierarchical_closure_table_join(selecto, join, config, fc, p) do
-    # Closure table requires additional join to the closure table
     closure_table = Map.get(config, :closure_table)
     ancestor_field = Map.get(config, :ancestor_field, :ancestor_id)
     descendant_field = Map.get(config, :descendant_field, :descendant_id)
-    
+
     {fc ++
        [
          ~s[ left join #{closure_table} #{build_join_string(selecto, "#{join}_closure")} on #{build_selector_string(selecto, config.requires_join, config.owner_key)} = #{build_join_string(selecto, "#{join}_closure")}.#{ancestor_field}],
@@ -149,8 +134,6 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_star_dimension_join(selecto, join, config, fc, p) do
-    # Star dimension joins are typically optimized for aggregation
-    # Use standard join but may have different indexing hints in real implementation
     {fc ++
        [
          ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
@@ -158,16 +141,14 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_snowflake_dimension_join(selecto, join, config, fc, p) do
-    # Snowflake dimensions may require additional normalization joins
     normalization_joins = Map.get(config, :normalization_joins, [])
-    
+
     base_join = ~s[ left join #{config.source} #{build_join_string(selecto, join)} on #{build_selector_string(selecto, join, config.my_key)} = #{build_selector_string(selecto, config.requires_join, config.owner_key)}]
-    
-    # Add any required normalization joins
+
     additional_joins = Enum.map(normalization_joins, fn norm_join ->
       ~s[ left join #{norm_join.table} #{build_join_string(selecto, norm_join.alias)} on #{build_selector_string(selecto, join, norm_join.local_key)} = #{build_selector_string(selecto, norm_join.alias, norm_join.remote_key)}]
     end)
-    
+
     {fc ++ [base_join] ++ additional_joins, p}
   end
 
