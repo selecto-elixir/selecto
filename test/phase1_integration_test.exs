@@ -160,19 +160,30 @@ defmodule Selecto.Phase1IntegrationTest do
   end
   
   describe "Phase 1 error handling" do
-    test "hierarchy functions raise helpful errors for Phase 2 functionality" do
-      # Phase 2 functions should exist but raise helpful errors
-      assert_raise RuntimeError, ~r/Phase 2: Not yet implemented/, fn ->
-        Selecto.Builder.Sql.Hierarchy.build_adjacency_cte(nil, nil, nil)
-      end
+    test "hierarchy functions are implemented in Phase 2" do
+      # Phase 2 functions now exist and work - test they return valid data structures
+      config = %{source: "test_table"}
+      result = Selecto.Builder.Sql.Hierarchy.build_adjacency_list_cte(nil, :test, config)
+      assert is_tuple(result)
+      {iodata, params} = result
+      assert is_list(iodata)
+      assert is_list(params)
       
-      assert_raise RuntimeError, ~r/Phase 2: Not yet implemented/, fn ->
-        Selecto.Builder.Sql.Hierarchy.build_materialized_path_query(nil, nil, nil)
-      end
+      # Test materialized path query works
+      path_config = %{source: "test_paths"}
+      path_result = Selecto.Builder.Sql.Hierarchy.build_materialized_path_query(nil, :test, path_config)
+      assert is_tuple(path_result)
+      {path_iodata, path_params} = path_result
+      assert is_list(path_iodata)
+      assert is_list(path_params)
       
-      assert_raise RuntimeError, ~r/Phase 2: Not yet implemented/, fn ->
-        Selecto.Builder.Sql.Hierarchy.build_closure_table_query(nil, nil, nil)
-      end
+      # Test closure table query works  
+      closure_config = %{source: "test_closure"}
+      closure_result = Selecto.Builder.Sql.Hierarchy.build_closure_table_query(nil, :test, closure_config)
+      assert is_tuple(closure_result)
+      {closure_iodata, closure_params} = closure_result
+      assert is_list(closure_iodata)
+      assert is_list(closure_params)
     end
   end
 end
