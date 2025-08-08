@@ -103,9 +103,46 @@ defmodule Selecto do
 
   @doc """
     Generate a selecto structure from this Repo following
-    the instructions in Domain map
+    the instructions in Domain map.
+    
+    ## Options
+    
+    - `:validate` - (boolean, default: false) Whether to validate the domain configuration
+      before processing. When `true`, will raise `Selecto.DomainValidator.ValidationError`
+      if the domain has structural issues like missing schemas, circular join dependencies,
+      or invalid advanced join configurations.
+      
+    ## Validation
+    
+    Domain validation checks for:
+    
+    - Required top-level keys (source, schemas)
+    - Schema structural integrity (required keys, column definitions)
+    - Association references to valid schemas
+    - Join references to existing associations
+    - Join dependency cycles that would cause infinite recursion
+    - Advanced join type requirements (dimension keys, hierarchy parameters, etc.)
+    - Field reference validity in filters and selectors
+    
+    ## Examples
+    
+        # Basic usage (no validation)
+        selecto = Selecto.configure(domain, postgrex_opts)
+        
+        # With validation enabled
+        selecto = Selecto.configure(domain, postgrex_opts, validate: true)
+        
+        # Validation can also be called explicitly
+        :ok = Selecto.DomainValidator.validate_domain!(domain)
+        selecto = Selecto.configure(domain, postgrex_opts)
   """
-  def configure(domain, postgrex_opts) do
+  def configure(domain, postgrex_opts, opts \\ []) do
+    validate? = Keyword.get(opts, :validate, false)
+    
+    if validate? do
+      Selecto.DomainValidator.validate_domain!(domain)
+    end
+    
     %Selecto{
       postgrex_opts: postgrex_opts,
       domain: domain,
