@@ -167,16 +167,11 @@ defmodule Selecto.Builder.Sql do
     Tagging.build_tagging_join_with_aggregation(selecto, join, config, fc, p, ctes)
   end
 
-  # Phase 1: OLAP join stub - returns basic LEFT JOIN for now  
-  # Phase 4: Will implement star/snowflake dimension optimizations
-  defp build_olap_join(selecto, join, config, _type, fc, p, ctes) do
-    # TODO Phase 4: Implement OLAP dimension join optimizations
-    join_iodata = [
-      " left join ", config.source, " ", build_join_string(selecto, join),
-      " on ", build_selector_string(selecto, join, config.my_key),
-      " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-    ]
-    {fc ++ [join_iodata], p, ctes}
+  # Phase 4: Full OLAP dimension optimization implementation
+  defp build_olap_join(selecto, join, config, olap_type, fc, p, ctes) do
+    # Use the dedicated OLAP builder for star/snowflake schema optimization
+    alias Selecto.Builder.Sql.Olap
+    Olap.build_olap_join_with_optimization(selecto, join, config, olap_type, fc, p, ctes)
   end
 
   # Phase 1: Legacy join builders removed - replaced with CTE-enhanced versions above
