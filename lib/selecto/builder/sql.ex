@@ -160,16 +160,11 @@ defmodule Selecto.Builder.Sql do
     end
   end
 
-  # Phase 1: Tagging join stub - returns basic LEFT JOIN for now
-  # Phase 3: Will implement full many-to-many tagging support
+  # Phase 3: Full many-to-many tagging implementation
   defp build_tagging_join(selecto, join, config, fc, p, ctes) do
-    # TODO Phase 3: Implement tagging aggregation and faceted filtering
-    join_iodata = [
-      " left join ", config.source, " ", build_join_string(selecto, join),
-      " on ", build_selector_string(selecto, join, config.my_key),
-      " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-    ]
-    {fc ++ [join_iodata], p, ctes}
+    # Use the dedicated tagging builder for proper many-to-many handling
+    alias Selecto.Builder.Sql.Tagging
+    Tagging.build_tagging_join_with_aggregation(selecto, join, config, fc, p, ctes)
   end
 
   # Phase 1: OLAP join stub - returns basic LEFT JOIN for now  
