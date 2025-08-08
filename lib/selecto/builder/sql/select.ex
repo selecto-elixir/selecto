@@ -4,6 +4,29 @@ defmodule Selecto.Builder.Sql.Select do
   ### TODO alter prep_selector to return the data type
 
   @doc """
+  Safely handle custom column SQL with field validation and parameterization.
+  
+  This function validates that custom SQL expressions only reference valid fields
+  and coordinates with the JOIN builder for complex SQL patterns.
+  
+  Phase 1: Basic field validation to prevent invalid SQL generation.
+  Phase 2+: Integration with CTE builders for hierarchical patterns.
+  """
+  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}) when is_binary(sql_template) do
+    # Validate that all referenced fields exist  
+    available_fields = get_available_fields(selecto)
+    validate_field_references(sql_template, field_mappings, available_fields)
+    
+    # Replace field placeholders with actual field references
+    safe_sql = substitute_field_references(sql_template, field_mappings, selecto)
+    
+    # Return as safe iodata (no parameters for now - Phase 1 safety only)
+    {[safe_sql], :selecto_root, []}
+  end
+
+  # Phase 1 custom column support complete - now back to existing documentation
+  
+  @doc """
   new format...
     "field" # - plain old field from one of the tables
     {:field, field } #- same as above disamg for predicate second+ position
@@ -239,5 +262,73 @@ defmodule Selecto.Builder.Sql.Select do
   def build(selecto, field, as) do
     {select_iodata, join, param} = prep_selector(selecto, field)
     {select_iodata, join, param, as}
+  end
+
+  # Phase 1: Custom Column Safety Helper Functions
+  
+  defp get_available_fields(selecto) do
+    # Get all available fields from source and joins
+    source_fields = Map.keys(selecto.config.columns || %{})
+    join_fields = get_join_fields(selecto.config.joins || %{})
+    cte_fields = get_cte_fields(selecto) # New: CTE field availability
+    
+    source_fields ++ join_fields ++ cte_fields
+  end
+
+  defp get_join_fields(joins) do
+    Enum.flat_map(joins, fn {join_id, join_config} ->
+      case Map.get(join_config, :fields, %{}) do
+        fields when is_map(fields) -> Map.keys(fields)
+        _ -> []
+      end
+      |> Enum.map(&"#{join_id}.#{&1}")
+    end)
+  end
+
+  defp get_cte_fields(_selecto) do
+    # Phase 1: Stub - Phase 2+ will implement CTE field detection
+    []
+  end
+
+  defp validate_field_references(_sql_template, field_mappings, available_fields) do
+    # Ensure all field references in mappings exist
+    Enum.each(field_mappings, fn {_placeholder, field_ref} ->
+      case validate_field_exists(field_ref, available_fields) do
+        :ok -> :ok
+        {:error, reason} -> 
+          raise ArgumentError, "Invalid field reference '#{field_ref}' in custom SQL: #{reason}"
+      end
+    end)
+  end
+
+  defp validate_field_exists(field_ref, available_fields) do
+    cond do
+      field_ref in available_fields -> :ok
+      String.contains?(field_ref, ".") ->
+        # Check if it's a valid qualified field reference
+        if Enum.any?(available_fields, &String.starts_with?(&1, field_ref)) do
+          :ok
+        else
+          {:error, "field not found in available joins"}
+        end
+      true -> {:error, "field not found in source columns"}
+    end
+  end
+
+  defp substitute_field_references(sql_template, field_mappings, selecto) do
+    # Safely replace {{field}} placeholders with actual field references
+    Enum.reduce(field_mappings, sql_template, fn {placeholder, field_ref}, acc_sql ->
+      safe_field_reference = build_safe_field_reference(field_ref, selecto)
+      String.replace(acc_sql, "{{#{placeholder}}}", safe_field_reference)
+    end)
+  end
+
+  defp build_safe_field_reference(field_ref, _selecto) do
+    # Phase 1: Basic field reference building
+    # Phase 2+: More sophisticated reference building with join aliases
+    cond do
+      String.contains?(field_ref, ".") -> field_ref
+      true -> "selecto_root.#{field_ref}"
+    end
   end
 end

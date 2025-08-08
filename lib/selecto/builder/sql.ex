@@ -1,6 +1,8 @@
 defmodule Selecto.Builder.Sql do
   import Selecto.Builder.Sql.Helpers
   alias Selecto.SQL.Params
+  alias Selecto.Builder.Cte
+  alias Selecto.Builder.Sql.Hierarchy
 
   def build(selecto, _opts) do
     # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
@@ -15,7 +17,8 @@ defmodule Selecto.Builder.Sql do
         List.flatten(sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
       )
 
-    {from_iodata, from_params} = build_from(selecto, joins_in_order)
+    # Phase 1: Enhanced FROM builder with CTE detection  
+    {from_iodata, from_params, required_ctes} = build_from_with_ctes(selecto, joins_in_order)
 
     {where_section, where_finalized_params} =
       cond do
@@ -52,8 +55,8 @@ defmodule Selecto.Builder.Sql do
     group_by_iodata_section = if group_by_section == "", do: [], else: ["\n        group by ", group_by_iodata, "\n      "]
     order_by_iodata_section = if order_by_section == "", do: [], else: ["\n        order by ", order_by_iodata, "\n      "]
 
-    # Handle rollup special case in iodata
-    final_iodata =
+    # Build base query iodata
+    base_query_iodata =
       if group_by_section != "" and String.contains?(group_by_section, "rollup") and order_by_section != "" do
         # Rollup case: wrap in subquery
         ["select * from (", base_iodata, where_iodata_section, group_by_iodata_section, ") as rollupfix", order_by_iodata_section]
@@ -62,12 +65,16 @@ defmodule Selecto.Builder.Sql do
         base_iodata ++ where_iodata_section ++ group_by_iodata_section ++ order_by_iodata_section
       end
 
+    # Phase 1: Integrate CTEs with main query
+    all_base_params = select_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
+    {final_query_iodata, cte_integrated_params} = 
+      Cte.integrate_ctes_with_query(required_ctes, base_query_iodata, all_base_params)
+    
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
-    all_params = select_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
-    {sql, final_params} = Params.finalize(final_iodata)
+    {sql, final_params} = Params.finalize(final_query_iodata)
 
-    # Combine parameters in correct order
-    final_all_params = all_params ++ final_params
+    # Combine parameters in correct order - CTE params already integrated
+    final_all_params = cte_integrated_params ++ final_params
 
     {sql, aliases, final_all_params}
   end
@@ -107,119 +114,76 @@ defmodule Selecto.Builder.Sql do
     {aliases, joins, final_select_iodata, List.flatten(params)}
   end
 
-  # Phase 4: FROM builder using iodata (now the main and only implementation)
-  defp build_from(selecto, joins) do
-    Enum.reduce(joins, {[], []}, fn
-      :selecto_root, {fc, p} ->
+  # Phase 1: Enhanced FROM builder with CTE detection and hierarchy support
+  defp build_from_with_ctes(selecto, joins) do
+    Enum.reduce(joins, {[], [], []}, fn 
+      :selecto_root, {fc, p, ctes} ->
         root_table = Selecto.source_table(selecto)
         root_alias = build_join_string(selecto, "selecto_root")
-        {fc ++ [[root_table, " ", root_alias]], p}
-
-      join, {fc, p} ->
+        {fc ++ [[root_table, " ", root_alias]], p, ctes}
+      
+      join, {fc, p, ctes} ->
         config = Selecto.joins(selecto)[join]
-
-        case Map.get(config, :join_type) do
-          :many_to_many ->
-            build_many_to_many_join(selecto, join, config, fc, p)
-
-          :hierarchical_adjacency ->
-            build_hierarchical_adjacency_join(selecto, join, config, fc, p)
-
-          :hierarchical_materialized_path ->
-            build_hierarchical_materialized_path_join(selecto, join, config, fc, p)
-
-          :hierarchical_closure_table ->
-            build_hierarchical_closure_table_join(selecto, join, config, fc, p)
-
-          :star_dimension ->
-            build_star_dimension_join(selecto, join, config, fc, p)
-
-          :snowflake_dimension ->
-            build_snowflake_dimension_join(selecto, join, config, fc, p)
-
-          _ ->
+        
+        case detect_advanced_join_pattern(config) do
+          {:hierarchy, pattern} -> 
+            Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
+          
+          {:tagging, _} -> 
+            build_tagging_join(selecto, join, config, fc, p, ctes)
+          
+          {:olap, type} ->
+            build_olap_join(selecto, join, config, type, fc, p, ctes)
+            
+          :basic ->
+            # Existing basic join logic
             join_iodata = [
               " left join ", config.source, " ", build_join_string(selecto, join),
               " on ", build_selector_string(selecto, join, config.my_key),
               " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
             ]
-            {fc ++ [join_iodata], p}
+            {fc ++ [join_iodata], p, ctes}
         end
     end)
   end
 
+  # Phase 1: Join pattern detection for advanced join types
+  defp detect_advanced_join_pattern(config) do
+    case Map.get(config, :join_type) do
+      :hierarchical_adjacency -> {:hierarchy, :adjacency_list}
+      :hierarchical_materialized_path -> {:hierarchy, :materialized_path}  
+      :hierarchical_closure_table -> {:hierarchy, :closure_table}
+      :many_to_many -> {:tagging, nil}
+      :star_dimension -> {:olap, :star}
+      :snowflake_dimension -> {:olap, :snowflake}
+      _ -> :basic
+    end
+  end
 
-  # Phase 4: iodata join builders (legacy functions removed)
-  defp build_many_to_many_join(selecto, join, config, fc, p) do
+  # Phase 1: Tagging join stub - returns basic LEFT JOIN for now
+  # Phase 3: Will implement full many-to-many tagging support
+  defp build_tagging_join(selecto, join, config, fc, p, ctes) do
+    # TODO Phase 3: Implement tagging aggregation and faceted filtering
     join_iodata = [
       " left join ", config.source, " ", build_join_string(selecto, join),
       " on ", build_selector_string(selecto, join, config.my_key),
       " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
     ]
-    {fc ++ [join_iodata], p}
+    {fc ++ [join_iodata], p, ctes}
   end
 
-  defp build_hierarchical_adjacency_join(selecto, join, config, fc, p) do
+  # Phase 1: OLAP join stub - returns basic LEFT JOIN for now  
+  # Phase 4: Will implement star/snowflake dimension optimizations
+  defp build_olap_join(selecto, join, config, _type, fc, p, ctes) do
+    # TODO Phase 4: Implement OLAP dimension join optimizations
     join_iodata = [
       " left join ", config.source, " ", build_join_string(selecto, join),
       " on ", build_selector_string(selecto, join, config.my_key),
       " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
     ]
-    {fc ++ [join_iodata], p}
+    {fc ++ [join_iodata], p, ctes}
   end
 
-  defp build_hierarchical_materialized_path_join(selecto, join, config, fc, p) do
-    join_iodata = [
-      " left join ", config.source, " ", build_join_string(selecto, join),
-      " on ", build_selector_string(selecto, join, config.my_key),
-      " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-    ]
-    {fc ++ [join_iodata], p}
-  end
-
-  defp build_hierarchical_closure_table_join(selecto, join, config, fc, p) do
-    closure_table = Map.get(config, :closure_table)
-    ancestor_field = Map.get(config, :ancestor_field, :ancestor_id)
-    descendant_field = Map.get(config, :descendant_field, :descendant_id)
-
-    closure_alias = build_join_string(selecto, "#{join}_closure")
-    join_alias = build_join_string(selecto, join)
-
-    join_iodata = [
-      [" left join ", closure_table, " ", closure_alias,
-       " on ", build_selector_string(selecto, config.requires_join, config.owner_key),
-       " = ", closure_alias, ".", to_string(ancestor_field)],
-      [" left join ", config.source, " ", join_alias,
-       " on ", closure_alias, ".", to_string(descendant_field),
-       " = ", build_selector_string(selecto, join, config.my_key)]
-    ]
-    {fc ++ join_iodata, p}
-  end
-
-  defp build_star_dimension_join(selecto, join, config, fc, p) do
-    join_iodata = [
-      " left join ", config.source, " ", build_join_string(selecto, join),
-      " on ", build_selector_string(selecto, join, config.my_key),
-      " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-    ]
-    {fc ++ [join_iodata], p}
-  end
-
-  defp build_snowflake_dimension_join(selecto, join, config, fc, p) do
-    normalization_joins = Map.get(config, :normalization_joins, [])
-
-    base_join = [
-      " left join ", config.source, " ", build_join_string(selecto, join),
-      " on ", build_selector_string(selecto, join, config.my_key),
-      " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-    ]
-
-    additional_joins = Enum.map(normalization_joins, fn norm_join ->
-      [" left join ", norm_join.table, " ", build_join_string(selecto, norm_join.alias),
-       " on ", build_selector_string(selecto, join, norm_join.local_key),
-       " = ", build_selector_string(selecto, norm_join.alias, norm_join.remote_key)]
-    end)
-
-    {fc ++ [base_join] ++ additional_joins, p}
-  end
+  # Phase 1: Legacy join builders removed - replaced with CTE-enhanced versions above
+  # Phase 2+: Full advanced join functionality will be implemented in specialized modules
 end
