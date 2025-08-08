@@ -151,4 +151,100 @@ defmodule Selecto.Builder.Sql.Hierarchy do
   # - path parsing and validation
   # - closure table optimization
   # - CTE parameter coordination
+
+  @doc """
+  Example of how Phase 2 hierarchical joins would use Selecto-powered CTEs.
+  
+  This demonstrates the integration pattern that will be implemented in Phase 2,
+  showing how hierarchical joins will leverage the new Selecto CTE API.
+  
+  ## Phase 2 Implementation Preview
+  
+      # Instead of raw SQL generation, we'll use Selecto queries:
+      
+      def build_adjacency_cte_with_selecto(selecto, join, config) do
+        domain = build_hierarchy_domain(selecto, join, config)
+        connection = selecto.postgrex_opts
+        
+        # Base case using Selecto
+        base_case = Selecto.configure(domain, connection)
+          |> Selecto.select([
+            "id", 
+            "name", 
+            "parent_id",
+            {:literal, 0, "level"},
+            {:literal, "id", "path"}
+          ])
+          |> Selecto.filter([{"parent_id", nil}])
+        
+        # Recursive case using Selecto  
+        recursive_case = Selecto.configure(domain, connection)
+          |> Selecto.select([
+            "c.id",
+            "c.name",
+            "c.parent_id", 
+            "h.level + 1",
+            {:func, "concat", ["h.path", {:literal, "/"}, "c.id"]}
+          ])
+          |> Selecto.filter([{"h.level", {:lt, 5}}])
+          # Special handling for CTE JOIN would be added here
+        
+        # Use Selecto-powered CTE generation
+        Selecto.Builder.Cte.build_recursive_cte_from_selecto(
+          hierarchy_name(join), base_case, recursive_case
+        )
+      end
+  """
+  def example_selecto_hierarchy_usage do
+    """
+    This function demonstrates the intended usage pattern for Phase 2:
+    
+    # Users will build hierarchical CTEs using familiar Selecto syntax
+    hierarchy_domain = configure_hierarchy_domain(categories_table)
+    
+    {hierarchy_cte, params} = Cte.build_hierarchy_cte_from_selecto(
+      "category_tree",
+      hierarchy_domain,
+      connection,
+      %{
+        id_field: "id",
+        name_field: "name",
+        parent_field: "parent_id",
+        depth_limit: 5,
+        root_condition: [{"parent_id", nil}],
+        additional_fields: ["description", "sort_order"]
+      }
+    )
+    
+    # Main query can then reference the CTE
+    main_selecto = Selecto.configure(main_domain, connection)
+      |> Selecto.select(["main.*", "h.level", "h.path"])
+      |> Selecto.filter([{"main.active", true}])
+    
+    # CTE integration happens automatically in the SQL builder
+    {final_sql, final_params} = build_query_with_ctes(main_selecto, [hierarchy_cte])
+    """
+  end
+
+  # Phase 2 Preview: Helper functions for Selecto CTE integration
+  
+  defp hierarchy_name(join), do: "#{join}_hierarchy"
+  
+  defp build_hierarchy_domain(_selecto, _join, _config) do
+    # Phase 2: Build appropriate domain for hierarchy CTE generation
+    # This would extract the relevant table schema and create a domain
+    # suitable for building the base and recursive cases
+    raise "Phase 2: Not yet implemented"
+  end
+  
+  defp configure_hierarchy_domain(_table) do
+    # Phase 2: Configure domain specifically for hierarchy operations
+    raise "Phase 2: Not yet implemented"
+  end
+  
+  defp build_query_with_ctes(_main_selecto, _ctes) do
+    # Phase 2: Integrate CTEs with main Selecto query
+    # This would coordinate CTE parameters with main query parameters
+    raise "Phase 2: Not yet implemented"
+  end
 end
