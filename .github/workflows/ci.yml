@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, non-ecto ]
+  pull_request:
+    branches: [ main, non-ecto ]
+
+jobs:
+  test:
+    name: Test & Quality
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: selecto_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    strategy:
+      matrix:
+        elixir: ['1.14', '1.15', '1.16']
+        otp: ['25', '26']
+        exclude:
+          - elixir: '1.14'
+            otp: '26'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: ${{ matrix.elixir }}
+        otp-version: ${{ matrix.otp }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          deps
+          _build
+          priv/plts
+        key: ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-${{ matrix.elixir }}-${{ matrix.otp }}-
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Check formatting
+      run: mix format --check-formatted
+
+    - name: Compile with warnings as errors
+      run: mix compile --warnings-as-errors
+
+    - name: Run tests
+      run: mix test --cover
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/selecto_test
+
+    - name: Run performance tests
+      run: mix test test/performance_test.exs --include performance:true
+      env:
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/selecto_test
+
+    - name: Generate docs
+      run: mix docs
+      if: matrix.elixir == '1.16' && matrix.otp == '26'
+
+    - name: Run Dialyzer
+      run: mix dialyzer
+      if: matrix.elixir == '1.16' && matrix.otp == '26'
+
+  dialyzer:
+    name: Dialyzer Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.16'
+        otp-version: '26'
+
+    - name: Cache PLT files
+      uses: actions/cache@v3
+      with:
+        path: priv/plts
+        key: ${{ runner.os }}-plt-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-plt-
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Build PLT
+      run: mix dialyzer --plt
+
+    - name: Run Dialyzer
+      run: mix dialyzer --halt-exit-status

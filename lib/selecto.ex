@@ -103,6 +103,63 @@ defmodule Selecto do
         }
       }
 
+  ## Query Execution
+
+  Selecto provides two execution patterns for better error handling and control flow:
+
+  ### Safe Execution (Non-raising)
+
+  Use `execute/2` and `execute_one/2` for applications that prefer explicit error handling:
+
+      # Multiple rows
+      case Selecto.execute(selecto) do
+        {:ok, {rows, columns, aliases}} ->
+          # Process successful results
+          Enum.map(rows, &process_row/1)
+          
+        {:error, %Postgrex.Error{} = error} ->
+          # Handle database errors gracefully
+          Logger.error("Query failed: \#{inspect(error)}")
+          {:error, :database_error}
+      end
+
+      # Single row (useful for COUNT, aggregate queries, or lookups)
+      case Selecto.execute_one(selecto) do
+        {:ok, {row, aliases}} ->
+          # Process single row
+          extract_values(row, aliases)
+          
+        {:error, :no_results} ->
+          # Handle empty result set
+          {:error, :not_found}
+          
+        {:error, :multiple_results} ->
+          # Handle unexpected multiple rows
+          {:error, :ambiguous_result}
+      end
+
+  ### Raising Execution (Legacy/Simple)
+
+  Use `execute!/2` and `execute_one!/2` when you want to fail fast:
+
+      # Will raise on any error
+      {rows, columns, aliases} = Selecto.execute!(selecto)
+      process_results(rows)
+
+      # Will raise if not exactly 1 row
+      {row, aliases} = Selecto.execute_one!(selecto) 
+      process_single_result(row)
+
+  ### Error Types
+
+  The safe execution functions return these error patterns:
+
+  - `{:error, %Postgrex.Error{}}` - Database connection or SQL errors
+  - `{:error, :no_results}` - execute_one/2 when 0 rows returned
+  - `{:error, :multiple_results}` - execute_one/2 when >1 rows returned
+  - `{:error, {:exit, reason}}` - Process/connection failures
+  - `{:error, reason}` - Other execution failures
+
   """
 
   @doc """
@@ -332,19 +389,113 @@ defmodule Selecto do
   end
 
   @doc """
-    Generate and run the query, returning list of lists, db produces column headers, and provides aliases
+    Generate and run the query, returning {:ok, result} or {:error, reason}.
+    
+    Non-raising version that returns tagged tuples for better error handling.
+    Result format: {:ok, {rows, columns, aliases}} | {:error, reason}
+    
+    ## Examples
+    
+        case Selecto.execute(selecto) do
+          {:ok, {rows, columns, aliases}} -> 
+            # Handle successful query
+            process_results(rows, columns)
+          {:error, reason} ->
+            # Handle database error
+            Logger.error("Query failed: \#{inspect(reason)}")
+        end
   """
-#  @spec execute(t(), execute_options()) :: execute_result()
+  @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
-    # IO.puts("Execute Query")
+    try do
+      {query, aliases, params} = gen_sql(selecto, opts)
+      
+      case Postgrex.query(selecto.postgrex_opts, query, params) do
+        {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
+        {:error, reason} -> {:error, reason}
+      end
+    rescue
+      error -> {:error, error}
+    catch
+      :exit, reason -> {:error, {:exit, reason}}
+    end
+  end
 
-    {query, aliases, params} = gen_sql(selecto, opts)
-    # IO.inspect(query, label: "Exe")
+  @doc """
+    Generate and run the query, raising on errors.
+    
+    Raising version that maintains the original behavior for backward compatibility.
+    Returns the result directly or raises an exception on error.
+    
+    ## Examples
+    
+        {rows, columns, aliases} = Selecto.execute!(selecto)
+        process_results(rows, columns)
+  """
+  @spec execute!(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.execute_result()
+  def execute!(selecto, opts \\ []) do
+    case execute(selecto, opts) do
+      {:ok, result} -> result
+      {:error, {:exit, reason}} -> raise RuntimeError, "Database connection failed: #{inspect(reason)}"
+      {:error, %{__exception__: true} = error} -> raise error
+      {:error, error} -> raise RuntimeError, "Execution failed: #{inspect(error)}"
+    end
+  end
 
-    result = Postgrex.query!(selecto.postgrex_opts, query, params)
-    # |> IO.inspect(label: "Results")
+  @doc """
+    Execute a query expecting exactly one row, returning {:ok, row} or {:error, reason}.
+    
+    Useful for queries that should return a single record (e.g., with LIMIT 1 or aggregate functions).
+    Returns an error if zero rows or multiple rows are returned.
+    
+    ## Examples
+    
+        case Selecto.execute_one(selecto) do
+          {:ok, row} -> 
+            # Handle single row result
+            process_single_result(row)
+          {:error, :no_results} ->
+            # Handle case where no rows were found
+          {:error, :multiple_results} ->
+            # Handle case where multiple rows were found  
+          {:error, error} ->
+            # Handle database or other errors
+        end
+  """
+  @spec execute_one(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_one_result()
+  def execute_one(selecto, opts \\ []) do
+    case execute(selecto, opts) do
+      {:ok, {[], _columns, _aliases}} -> 
+        {:error, :no_results}
+      {:ok, {[single_row], _columns, aliases}} -> 
+        {:ok, {single_row, aliases}}
+      {:ok, {_multiple_rows, _columns, _aliases}} -> 
+        {:error, :multiple_results}
+      {:error, reason} -> 
+        {:error, reason}
+    end
+  end
 
-    {result.rows, result.columns, aliases}
+  @doc """
+    Execute a query expecting exactly one row, raising on errors or unexpected row counts.
+    
+    Raising version of execute_one/2 for when you want to fail fast.
+    
+    ## Examples
+    
+        {row, aliases} = Selecto.execute_one!(selecto)
+        process_single_result(row)
+  """
+  @spec execute_one!(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.single_row_result()
+  def execute_one!(selecto, opts \\ []) do
+    case execute_one(selecto, opts) do
+      {:ok, result} -> result
+      {:error, :no_results} -> raise RuntimeError, "Expected exactly 1 row, got 0"
+      {:error, :multiple_results} -> raise RuntimeError, "Expected exactly 1 row, got multiple"
+      {:error, {:exit, reason}} -> raise RuntimeError, "Database connection failed: #{inspect(reason)}"
+      {:error, %{__exception__: true} = error} -> raise error
+      {:error, error} -> raise RuntimeError, "Execution failed: #{inspect(error)}"
+    end
   end
 
   @doc """
