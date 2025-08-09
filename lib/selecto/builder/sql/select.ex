@@ -4,30 +4,13 @@ defmodule Selecto.Builder.Sql.Select do
   ### TODO alter prep_selector to return the data type
 
   @doc """
-  Safely handle custom column SQL with field validation and parameterization.
+  Process field selectors with various formats:
   
-  This function validates that custom SQL expressions only reference valid fields
-  and coordinates with the JOIN builder for complex SQL patterns.
+  Custom SQL support:
+    {:custom_sql, sql_template, field_mappings} - safely handle custom column SQL with field validation
   
-  Phase 1: Basic field validation to prevent invalid SQL generation.
-  Phase 2+: Integration with CTE builders for hierarchical patterns.
-  """
-  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}) when is_binary(sql_template) do
-    # Validate that all referenced fields exist  
-    available_fields = get_available_fields(selecto)
-    validate_field_references(sql_template, field_mappings, available_fields)
-    
-    # Replace field placeholders with actual field references
-    safe_sql = substitute_field_references(sql_template, field_mappings, selecto)
-    
-    # Return as safe iodata (no parameters for now - Phase 1 safety only)
-    {[safe_sql], :selecto_root, []}
-  end
-
-  # Phase 1 custom column support complete - now back to existing documentation
+  Standard formats:
   
-  @doc """
-  new format...
     "field" # - plain old field from one of the tables
     {:field, field } #- same as above disamg for predicate second+ position
     {:literal, "value"} #- for literal values
@@ -48,6 +31,19 @@ defmodule Selecto.Builder.Sql.Select do
   """
 
   ### TODO ability to select distinct on count( field )...
+
+  # Custom SQL clause (Phase 1 safety implementation)
+  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}) when is_binary(sql_template) do
+    # Validate that all referenced fields exist  
+    available_fields = get_available_fields(selecto)
+    validate_field_references(sql_template, field_mappings, available_fields)
+    
+    # Replace field placeholders with actual field references
+    safe_sql = substitute_field_references(sql_template, field_mappings, selecto)
+    
+    # Return as safe iodata (no parameters for now - Phase 1 safety only)
+    {[safe_sql], :selecto_root, []}
+  end
 
   # Phase 4: iodata-based prep_selector functions (now main functions)
   def prep_selector(_selecto, val) when is_integer(val) do

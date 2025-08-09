@@ -131,7 +131,7 @@ defmodule Selecto.CteBuilderTest do
       cte1 = {["cte1 AS (SELECT * FROM t1 WHERE id = ", {:param, 1}, ")"], [1]}
       cte2 = {["cte2 AS (SELECT * FROM t2 WHERE active = ", {:param, true}, " AND type = ", {:param, "test"}, ")"], [true, "test"]}
       
-      {with_clause, params} = Cte.build_with_clause([cte1, cte2])
+      {_with_clause, params} = Cte.build_with_clause([cte1, cte2])
       
       assert params == [1, true, "test"]
     end
@@ -221,6 +221,260 @@ defmodule Selecto.CteBuilderTest do
       assert String.contains?(sql, "UNION ALL")
       assert String.contains?(sql, "$1") # Parameter placeholder
       assert String.contains?(sql, "$2") # Parameter placeholder
+    end
+  end
+
+  # Tests for Selecto-powered CTE functions (Phase 1.5+)
+  describe "build_cte_from_selecto/2" do
+    setup do
+      # Create a mock domain for testing
+      domain = %{
+        name: "Test Domain",
+        source: %{
+          source_table: "users",
+          primary_key: :id,
+          fields: [:id, :name, :email, :active],
+          redact_fields: [],
+          columns: %{
+            "id" => %{type: :integer, requires_join: nil},
+            "name" => %{type: :string, requires_join: nil},
+            "email" => %{type: :string, requires_join: nil},
+            "active" => %{type: :boolean, requires_join: nil}
+          },
+          associations: %{}
+        },
+        schemas: %{},
+        default_selected: ["id", "name"],
+        joins: %{},
+        filters: %{}
+      }
+      
+      {:ok, domain: domain}
+    end
+
+    test "builds CTE from simple Selecto struct", %{domain: domain} do
+      selecto = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name"])
+        |> Selecto.filter([{"active", true}])
+      
+      {cte_iodata, params} = Cte.build_cte_from_selecto("active_users", selecto)
+      
+      # Should include the CTE name and AS clause
+      assert [cte_name, " AS (", _query_sql, ")"] = cte_iodata
+      assert cte_name == "active_users"
+      assert params == [true]
+    end
+
+    test "builds CTE from Selecto struct with multiple filters", %{domain: domain} do
+      selecto = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name", "email"])
+        |> Selecto.filter([{"active", true}, {"name", {:like, "%admin%"}}])
+      
+      {_cte_iodata, params} = Cte.build_cte_from_selecto("admin_users", selecto)
+      
+      # Should preserve all filter parameters
+      assert length(params) == 2
+      assert true in params
+      assert "%admin%" in params
+    end
+
+    test "builds CTE from Selecto struct with no filters", %{domain: domain} do
+      selecto = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name"])
+      
+      {cte_iodata, params} = Cte.build_cte_from_selecto("all_users", selecto)
+      
+      # Should have no parameters for unfiltered query
+      assert params == []
+      assert [cte_name, " AS (", _query_sql, ")"] = cte_iodata
+      assert cte_name == "all_users"
+    end
+  end
+
+  describe "build_recursive_cte_from_selecto/3" do
+    setup do
+      # Create a hierarchical domain for testing
+      domain = %{
+        name: "Categories Domain",
+        source: %{
+          source_table: "categories",
+          primary_key: :id,
+          fields: [:id, :name, :parent_id],
+          redact_fields: [],
+          columns: %{
+            "id" => %{type: :integer, requires_join: nil},
+            "name" => %{type: :string, requires_join: nil}, 
+            "parent_id" => %{type: :integer, requires_join: nil}
+          },
+          associations: %{}
+        },
+        schemas: %{},
+        default_selected: ["id", "name"],
+        joins: %{},
+        filters: %{}
+      }
+      
+      {:ok, domain: domain}
+    end
+
+    test "builds recursive CTE from two Selecto structs", %{domain: domain} do
+      base_case = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name", "parent_id"])
+        |> Selecto.filter([{"parent_id", nil}])
+      
+      recursive_case = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name", "parent_id"])
+        |> Selecto.filter([{"active", true}])
+      
+      {recursive_cte, params} = Cte.build_recursive_cte_from_selecto(
+        "category_tree", base_case, recursive_case
+      )
+      
+      # Should include RECURSIVE keyword and UNION ALL
+      assert ["RECURSIVE ", cte_name | _rest] = recursive_cte
+      assert cte_name == "category_tree"
+      
+      # Should combine parameters from both queries
+      assert true in params  # From recursive case filter
+    end
+
+    test "handles recursive CTE with no parameters", %{domain: domain} do
+      base_case = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name"])
+      
+      recursive_case = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name"])
+      
+      {_recursive_cte, params} = Cte.build_recursive_cte_from_selecto(
+        "simple_tree", base_case, recursive_case
+      )
+      
+      assert params == []
+    end
+  end
+
+  describe "build_with_clause_from_selecto/1" do
+    setup do
+      domain = %{
+        name: "Users Domain",
+        source: %{
+          source_table: "users",
+          primary_key: :id,
+          fields: [:id, :name, :active],
+          redact_fields: [],
+          columns: %{
+            "id" => %{type: :integer, requires_join: nil},
+            "name" => %{type: :string, requires_join: nil},
+            "active" => %{type: :boolean, requires_join: nil}
+          },
+          associations: %{}
+        },
+        schemas: %{},
+        default_selected: ["id", "name"],
+        joins: %{},
+        filters: %{}
+      }
+      
+      {:ok, domain: domain}
+    end
+
+    test "builds WITH clause from multiple Selecto queries", %{domain: domain} do
+      active_users = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name"])
+        |> Selecto.filter([{"active", true}])
+      
+      all_users = Selecto.configure(domain, nil)
+        |> Selecto.select(["id", "name"])
+      
+      cte_queries = [
+        {"active_users", active_users},
+        {"all_users", all_users}
+      ]
+      
+      {with_clause, params} = Cte.build_with_clause_from_selecto(cte_queries)
+      
+      # Should start with WITH keyword
+      assert ["WITH " | _rest] = with_clause
+      
+      # Should include parameter from active_users filter
+      assert true in params
+    end
+
+    test "handles empty CTE queries list" do
+      {with_clause, params} = Cte.build_with_clause_from_selecto([])
+      
+      assert with_clause == []
+      assert params == []
+    end
+  end
+
+  describe "build_hierarchy_cte_from_selecto/4" do
+    setup do
+      domain = %{
+        name: "Categories Domain", 
+        source: %{
+          source_table: "categories",
+          primary_key: :id,
+          fields: [:id, :name, :parent_id],
+          redact_fields: [],
+          columns: %{
+            "id" => %{type: :integer, requires_join: nil},
+            "name" => %{type: :string, requires_join: nil},
+            "parent_id" => %{type: :integer, requires_join: nil}
+          },
+          associations: %{}
+        },
+        schemas: %{},
+        default_selected: ["id", "name"],
+        joins: %{},
+        filters: %{}
+      }
+      
+      {:ok, domain: domain}
+    end
+
+    test "builds hierarchy CTE with default options", %{domain: domain} do
+      {hierarchy_cte, params} = Cte.build_hierarchy_cte_from_selecto(
+        "category_hierarchy", domain, nil
+      )
+      
+      # Should be recursive CTE
+      assert ["RECURSIVE ", cte_name | _rest] = hierarchy_cte
+      assert cte_name == "category_hierarchy"
+      
+      # Should include depth limit parameter (default 5)
+      assert 5 in params
+    end
+
+    test "builds hierarchy CTE with custom options", %{domain: domain} do
+      opts = %{
+        id_field: "category_id",
+        name_field: "title", 
+        parent_field: "parent_category_id",
+        depth_limit: 3,
+        additional_fields: ["description"]
+      }
+      
+      {_hierarchy_cte, params} = Cte.build_hierarchy_cte_from_selecto(
+        "custom_hierarchy", domain, nil, opts
+      )
+      
+      # Should use custom depth limit
+      assert 3 in params
+    end
+
+    test "builds hierarchy CTE with custom root condition", %{domain: domain} do
+      opts = %{
+        root_condition: [{"parent_id", nil}, {"active", true}]
+      }
+      
+      {_hierarchy_cte, params} = Cte.build_hierarchy_cte_from_selecto(
+        "active_hierarchy", domain, nil, opts
+      )
+      
+      # Should include parameters from root condition
+      assert true in params  # From active filter
+      assert 5 in params     # Default depth limit
     end
   end
 end
