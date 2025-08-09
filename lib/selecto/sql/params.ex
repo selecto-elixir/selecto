@@ -5,6 +5,8 @@ defmodule Selecto.SQL.Params do
   #
   # Extended in Phase 1 to support CTE markers for advanced join patterns.
 
+  # import Selecto.Types - removed to avoid circular dependency
+
   @type fragment :: iodata() | {:param, any()} | {:cte, String.t(), iodata()}
 
   @spec finalize(iodata() | [fragment]) :: {String.t(), [any()]}

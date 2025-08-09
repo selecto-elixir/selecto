@@ -23,6 +23,8 @@ defmodule Selecto.Builder.Cte do
       {recursive_cte, params} = Cte.build_recursive_cte_from_selecto("hierarchy", base_case, recursive_case)
   """
   
+  # import Selecto.Types - removed to avoid circular dependency
+  
   @doc """
   Build a simple CTE with parameterized content.
   
@@ -36,6 +38,7 @@ defmodule Selecto.Builder.Cte do
       iex> result_params
       [true]
   """
+  @spec build_cte(String.t(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()) :: {Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   def build_cte(name, query_iodata, params) when is_binary(name) do
     cte_iodata = [
       name, " AS (",
@@ -58,6 +61,7 @@ defmodule Selecto.Builder.Cte do
       iex> params
       [5]
   """
+  @spec build_recursive_cte(String.t(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()) :: {Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   def build_recursive_cte(name, base_query_iodata, base_params, recursive_query_iodata, recursive_params) do
     recursive_cte_iodata = [
       "RECURSIVE ", name, " AS (",
@@ -83,6 +87,7 @@ defmodule Selecto.Builder.Cte do
       iex> params
       [true]
   """
+  @spec build_with_clause([{Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}]) :: {Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   def build_with_clause(ctes) when is_list(ctes) do
     case ctes do
       [] -> {[], []}
@@ -110,10 +115,12 @@ defmodule Selecto.Builder.Cte do
       iex> params
       []
   """
+  @spec integrate_ctes_with_query([{Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}], Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()) :: {Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   def integrate_ctes_with_query([], main_query_iodata, main_params) do
     {main_query_iodata, main_params}
   end
   
+  @spec integrate_ctes_with_query([{Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}], Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()) :: {Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   def integrate_ctes_with_query(ctes, main_query_iodata, main_params) when is_list(ctes) do
     {with_clause, cte_params} = build_with_clause(ctes)
     

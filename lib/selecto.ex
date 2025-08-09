@@ -1,6 +1,10 @@
 defmodule Selecto do
   @derive {Inspect, only: [:postgrex_opts, :set]}
   defstruct [:postgrex_opts, :domain, :config, :set]
+  
+  # import Selecto.Types - removed to avoid circular dependency
+  
+  @type t :: Selecto.Types.t()
 
   @moduledoc """
   Selecto is a query builder for Elixir that uses Postgrex to execute queries.
@@ -136,6 +140,7 @@ defmodule Selecto do
         :ok = Selecto.DomainValidator.validate_domain!(domain)
         selecto = Selecto.configure(domain, postgrex_opts)
   """
+#  @spec configure(Selecto.Types.domain(), Postgrex.conn(), Selecto.Types.configure_options()) :: t()
   def configure(domain, postgrex_opts, opts \\ []) do
     validate? = Keyword.get(opts, :validate, false)
     
@@ -157,6 +162,7 @@ defmodule Selecto do
   end
 
   # generate the selecto configuration
+#  @spec configure_domain(Selecto.Types.domain()) :: Selecto.Types.processed_config()
   defp configure_domain(%{source: source} = domain) do
     primary_key = source.primary_key
 
@@ -200,34 +206,42 @@ defmodule Selecto do
   end
 
   ### These use 'selecto_struct' to prevent global replace from hitting them, will switch back later!
+#  @spec filters(t()) :: %{String.t() => term()}
   def filters(selecto_struct) do
     selecto_struct.config.filters
   end
 
+#  @spec columns(t()) :: %{String.t() => %{required(:name) => String.t()}}
   def columns(selecto_struct) do
     selecto_struct.config.columns
   end
 
+#  @spec joins(t()) :: %{atom() => processed_join()}
   def joins(selecto_struct) do
     selecto_struct.config.joins
   end
 
+#  @spec source_table(t()) :: table_name()
   def source_table(selecto_struct) do
     selecto_struct.config.source_table
   end
 
+#  @spec domain(t()) :: domain()
   def domain(selecto_struct) do
     selecto_struct.domain
   end
 
+#  @spec domain_data(t()) :: term()
   def domain_data(selecto_struct) do
     selecto_struct.config.domain_data
   end
 
+#  @spec field(t(), field_name()) :: %{required(:name) => String.t()} | nil
   def field(selecto_struct, field) do
     selecto_struct.config.columns[field]
   end
 
+#  @spec set(t()) :: query_set()
   def set(selecto_struct) do
     selecto_struct.set
   end
@@ -263,10 +277,12 @@ defmodule Selecto do
     add a field to the Select list. Send in one or a list of field names or selectable tuples
     TODO allow to send single, and special forms..
   """
+#  @spec select(t(), [selector()]) :: t()
   def select(selecto, fields) when is_list(fields) do
     put_in(selecto.set.selected, Enum.uniq(selecto.set.selected ++ fields))
   end
 
+#  @spec select(t(), selector()) :: t()
   def select(selecto, field) do
     Selecto.select(selecto, [field])
   end
@@ -274,10 +290,12 @@ defmodule Selecto do
   @doc """
     add a filter to selecto. Send in a tuple with field name and filter value
   """
+#  @spec filter(t(), [filter()]) :: t()
   def filter(selecto, filters) when is_list(filters) do
     put_in(selecto.set.filtered, selecto.set.filtered ++ filters)
   end
 
+#  @spec filter(t(), filter()) :: t()
   def filter(selecto, filters) do
     put_in(selecto.set.filtered, selecto.set.filtered ++ [filters])
   end
@@ -285,10 +303,12 @@ defmodule Selecto do
   @doc """
     Add to the Order By
   """
+#  @spec order_by(t(), [order_spec()]) :: t()
   def order_by(selecto, orders) when is_list(orders) do
     put_in(selecto.set.order_by, selecto.set.order_by ++ orders)
   end
 
+#  @spec order_by(t(), order_spec()) :: t()
   def order_by(selecto, orders) do
     put_in(selecto.set.order_by, selecto.set.order_by ++ [orders])
   end
@@ -296,14 +316,17 @@ defmodule Selecto do
   @doc """
     Add to the Group By
   """
+#  @spec group_by(t(), [field_name()]) :: t()
   def group_by(selecto, groups) when is_list(groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
 
+#  @spec group_by(t(), field_name()) :: t()
   def group_by(selecto, groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
   end
 
+#  @spec gen_sql(t(), sql_generation_options()) :: {String.t(), %{String.t() => String.t()}, sql_params()}
   def gen_sql(selecto, opts) do
     Selecto.Builder.Sql.build(selecto, opts)
   end
@@ -311,6 +334,7 @@ defmodule Selecto do
   @doc """
     Generate and run the query, returning list of lists, db produces column headers, and provides aliases
   """
+#  @spec execute(t(), execute_options()) :: execute_result()
   def execute(selecto, opts \\ []) do
     # IO.puts("Execute Query")
 
@@ -321,5 +345,14 @@ defmodule Selecto do
     # |> IO.inspect(label: "Results")
 
     {result.rows, result.columns, aliases}
+  end
+
+  @doc """
+    Generate SQL without executing - useful for debugging and caching
+  """
+#  @spec to_sql(t(), sql_generation_options()) :: sql_result()
+  def to_sql(selecto, opts \\ []) do
+    {query, _aliases, params} = gen_sql(selecto, opts)
+    {query, params}
   end
 end

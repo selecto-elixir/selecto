@@ -1,9 +1,12 @@
 defmodule Selecto.Builder.Sql do
   import Selecto.Builder.Sql.Helpers
+  # import Selecto.Types - removed to avoid circular dependency
+  
   alias Selecto.SQL.Params
   alias Selecto.Builder.Cte
   alias Selecto.Builder.Sql.Hierarchy
 
+  @spec build(Selecto.Types.t(), Selecto.Types.sql_generation_options()) :: {String.t(), [%{String.t() => String.t()}], [any()]}
   def build(selecto, _opts) do
     # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
     {aliases, sel_joins, select_iodata, select_params} = build_select(selecto)
@@ -81,6 +84,7 @@ defmodule Selecto.Builder.Sql do
 
   # Phase 4: All legacy string-based functions removed - only iodata functions remain
 
+  @spec build_where(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_where(selecto) do
     Selecto.Builder.Sql.Where.build(
       selecto,
@@ -88,15 +92,18 @@ defmodule Selecto.Builder.Sql do
     )
   end
 
+  @spec build_group_by(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_group_by(selecto) do
     Selecto.Builder.Sql.Group.build(selecto)
   end
 
+  @spec build_order_by(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_order_by(selecto) do
     Selecto.Builder.Sql.Order.build(selecto)
   end
 
   # Phase 4: SELECT now uses iodata by default
+  @spec build_select(Selecto.Types.t()) :: {[%{String.t() => String.t()}], Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_select(selecto) do
     {aliases, joins, selects_iodata, params} =
       selecto.set.selected

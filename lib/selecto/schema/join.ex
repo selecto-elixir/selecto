@@ -1,5 +1,7 @@
 defmodule Selecto.Schema.Join do
   # selecto meta join can edit, add, alter this join!
+  
+  # import Selecto.Types - removed to avoid circular dependency
 
   @moduledoc """
   # Join Configuration and Patterns
@@ -73,6 +75,7 @@ defmodule Selecto.Schema.Join do
   ### joins - the joins map from this join structure
 
   # we consume the join tree (atom/list) to a flat map of joins then into a map
+  @spec recurse_joins(Selecto.Types.source(), Selecto.Types.domain()) :: %{atom() => Selecto.Types.processed_join()}
   def recurse_joins(source, domain) do
     normalize_joins(source, domain.joins, :selecto_root, domain)
     |> List.flatten()

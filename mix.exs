@@ -11,7 +11,56 @@ defmodule Selecto.MixProject do
       name: "Selecto",
       description: "A query builder",
       licenses: "MIT",
-      package: package()
+      package: package(),
+      
+      # Dialyzer configuration
+      dialyzer: [
+        plt_core_path: "priv/plts",
+        plt_file: {:no_warn, "priv/plts/dialyzer.plt"},
+        plt_add_apps: [:postgrex, :jason, :timex],
+        flags: [:error_handling, :underspecs],
+        ignore_warnings: ".dialyzer_ignore.exs",
+        list_unused_filters: true
+      ],
+      
+      # ExDoc configuration for better documentation
+      docs: [
+        main: "Selecto",
+        extras: [
+          "README.md",
+          "guides/complex_join_patterns.md",
+          "guides/olap_and_hierarchical_patterns.md",
+          "guides/advanced_usage.md"
+        ],
+        groups_for_modules: [
+          "Core": [Selecto, Selecto.Types],
+          "Builders": [
+            Selecto.Builder.Sql,
+            Selecto.Builder.Cte,
+            Selecto.Builder.Join
+          ],
+          "SQL Builders": [
+            Selecto.Builder.Sql.Select,
+            Selecto.Builder.Sql.Where,
+            Selecto.Builder.Sql.Group,
+            Selecto.Builder.Sql.Order,
+            Selecto.Builder.Sql.Hierarchy,
+            Selecto.Builder.Sql.Tagging,
+            Selecto.Builder.Sql.Olap
+          ],
+          "Schema": [
+            Selecto.Schema,
+            Selecto.Schema.Join,
+            Selecto.Schema.Column,
+            Selecto.Schema.Filter
+          ],
+          "Utilities": [
+            Selecto.SQL.Params,
+            Selecto.DomainValidator,
+            Selecto.Helpers
+          ]
+        ]
+      ]
     ]
   end
 
@@ -32,7 +81,8 @@ defmodule Selecto.MixProject do
       {:timex, "~> 3.7.9"},
       {:mneme, ">= 0.0.0", only: :test},
       {:benchee, "~> 1.0", only: [:dev, :test], optional: true},
-      {:benchee_html, "~> 1.0", only: [:dev, :test], optional: true}
+      {:benchee_html, "~> 1.0", only: [:dev, :test], optional: true},
+      {:dialyxir, "~> 1.3", only: [:dev], runtime: false}
     ]
   end
 

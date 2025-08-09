@@ -17,6 +17,8 @@ defmodule Selecto.DomainValidator do
       {:ok, _} = Selecto.DomainValidator.validate_domain(domain)
   """
   
+  # import Selecto.Types - removed to avoid circular dependency
+  
   @doc """
   Validates a domain configuration, raising on validation errors.
   
@@ -39,6 +41,7 @@ defmodule Selecto.DomainValidator do
       iex> Selecto.DomainValidator.validate_domain!(domain)
       ** (Selecto.DomainValidator.ValidationError) Join dependency cycle detected: a -> b -> c -> a
   """
+  @spec validate_domain!(Selecto.Types.domain()) :: :ok
   def validate_domain!(domain) do
     case validate_domain(domain) do
       :ok -> :ok
@@ -220,7 +223,7 @@ defmodule Selecto.DomainValidator do
   defp detect_cycles(joins) do
     # Detect cycles using depth-first search
     Enum.reduce(Map.keys(joins), [], fn start_node, cycles ->
-      case find_cycle_from_node(start_node, joins, [start_node], MapSet.new()) do
+      case find_cycle_from_node(start_node, joins, [start_node], []) do
         nil -> cycles
         cycle -> [cycle | cycles]
       end
@@ -238,11 +241,11 @@ defmodule Selecto.DomainValidator do
             cycle_start_index = Enum.find_index(path, fn node -> node == next_node end)
             Enum.drop(path, cycle_start_index)
           
-          MapSet.member?(visited, current) ->
-            nil  # Already explored this path
+          current in visited ->
+            nil  # Already explored this path - use Enum.member? instead of MapSet.member?
           
           true ->
-            new_visited = MapSet.put(visited, current)
+            new_visited = [current | visited]
             find_cycle_from_node(next_node, joins, [next_node | path], new_visited)
         end
     end
