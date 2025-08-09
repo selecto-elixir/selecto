@@ -524,7 +524,8 @@ defmodule Selecto.Schema.Join do
     # This is a simplified version - real implementation would coordinate with SQL builder
     case normalization_joins do
       [] -> "#{field}[#{display_field}]"
-      [join | _] -> "#{join}.#{display_field}"  # Use the normalized table's field
+      [%{alias: alias_name} | _] -> "#{alias_name}.#{display_field}"  # Use the normalized table's field
+      [join | _] when is_binary(join) -> "#{join}.#{display_field}"  # Fallback for string joins
     end
   end
 
