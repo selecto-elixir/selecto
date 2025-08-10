@@ -187,7 +187,7 @@ defmodule Selecto.AdvancedJoinsEdgeCasesTest do
       assert {sql, _params} = result
       assert is_binary(sql)
       # Should not have infinite joins
-      join_count = sql |> String.split("JOIN") |> length() - 1
+      join_count = (sql |> String.split("JOIN") |> length()) - 1
       assert join_count < 10  # Reasonable limit
     end
 
@@ -1167,7 +1167,7 @@ defmodule Selecto.AdvancedJoinsEdgeCasesTest do
       {:"schema_#{i}", %{
         name: "Schema #{i}",
         source_table: "table_#{i}",
-        fields: [:id, :name, :value, :category_#{i}, :parent_#{i}_id],
+        fields: [:id, :name, :value, :"category_#{i}", :"parent_#{i}_id"],
         columns: %{
           id: %{type: :integer},
           name: %{type: :string},
