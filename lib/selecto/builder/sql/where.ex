@@ -47,22 +47,27 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {conj, filters}) when conj in [:and, :or] do
-    {joins, clauses, params} =
-      Enum.reduce(filters, {[], [], []}, fn
-        f, {joins, clauses, params} ->
-          {j, c, p} = build(selecto, f)
-          {joins ++ [j], clauses ++ [c], params ++ p}
-      end)
+    # Handle empty filter list - return empty result to avoid empty WHERE clauses
+    if Enum.empty?(filters) do
+      {[], [], []}
+    else
+      {joins, clauses, params} =
+        Enum.reduce(filters, {[], [], []}, fn
+          f, {joins, clauses, params} ->
+            {j, c, p} = build(selecto, f)
+            {joins ++ [j], clauses ++ [c], params ++ p}
+        end)
 
-    clause_parts = Enum.map(clauses, fn c -> ["(", c, ")"] end)
-    conj_str = " #{conj} "
-    final_clause = [
-      "(",
-      Enum.intersperse(clause_parts, conj_str),
-      ")"
-    ]
+      clause_parts = Enum.map(clauses, fn c -> ["(", c, ")"] end)
+      conj_str = " #{conj} "
+      final_clause = [
+        "(",
+        Enum.intersperse(clause_parts, conj_str),
+        ")"
+      ]
 
-    {joins, final_clause, params}
+      {joins, final_clause, params}
+    end
   end
 
   def build(selecto, {field, {:between, min, max}}) do

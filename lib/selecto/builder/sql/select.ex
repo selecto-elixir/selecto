@@ -62,6 +62,10 @@ defmodule Selecto.Builder.Sql.Select do
     {["count(*)"], :selecto_root, []}
   end
 
+  def prep_selector(_selecto, {:count, "*"}) do
+    {["count(*)"], :selecto_root, []}
+  end
+
   def prep_selector(selecto, {:count, "*", filter}) do
     prep_selector(selecto, {:count, {:literal, "*"}, filter})
   end

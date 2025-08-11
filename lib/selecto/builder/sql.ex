@@ -70,16 +70,15 @@ defmodule Selecto.Builder.Sql do
 
     # Phase 1: Integrate CTEs with main query
     all_base_params = select_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
-    {final_query_iodata, cte_integrated_params} = 
+    {final_query_iodata, _cte_integrated_params} = 
       Cte.integrate_ctes_with_query(required_ctes, base_query_iodata, all_base_params)
     
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
     {sql, final_params} = Params.finalize(final_query_iodata)
 
-    # Combine parameters in correct order - CTE params already integrated
-    final_all_params = cte_integrated_params ++ final_params
-
-    {sql, aliases, final_all_params}
+    # CTE params are already integrated into the iodata, so final_params contains everything
+    # Don't double-count parameters
+    {sql, aliases, final_params}
   end
 
   # Phase 4: All legacy string-based functions removed - only iodata functions remain
