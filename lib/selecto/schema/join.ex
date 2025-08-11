@@ -1,6 +1,6 @@
 defmodule Selecto.Schema.Join do
   # selecto meta join can edit, add, alter this join!
-  
+
   # import Selecto.Types - removed to avoid circular dependency
 
   @moduledoc """
@@ -22,7 +22,7 @@ defmodule Selecto.Schema.Join do
   - `name`: Display name for the join (optional)
   Creates custom columns for tag aggregation and faceted filtering.
 
-  ### :hierarchical (New) 
+  ### :hierarchical (New)
   Self-referencing hierarchical relationships with multiple implementation patterns:
   - `hierarchy_type`: :adjacency_list, :materialized_path, or :closure_table
   - `depth_limit`: Maximum recursion depth for adjacency lists (default: 5)
@@ -54,13 +54,13 @@ defmodule Selecto.Schema.Join do
   joins: %{
     # Many-to-many tagging
     tags: %{type: :tagging, tag_field: :name},
-    
+
     # Hierarchical adjacency list
     manager: %{type: :hierarchical, hierarchy_type: :adjacency_list, depth_limit: 5},
-    
+
     # Star schema dimension
     customer: %{type: :star_dimension, display_field: :full_name},
-    
+
     # Snowflake dimension with normalization
     category: %{
       type: :snowflake_dimension,
@@ -192,7 +192,7 @@ defmodule Selecto.Schema.Join do
 
     name = Map.get(config, :name, id)
     tag_field = Map.get(config, :tag_field, :name)  # Field to display from tag table
-    
+
     # Configure custom columns for tag aggregation
     config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
         "#{id}_list", %{
@@ -241,7 +241,7 @@ defmodule Selecto.Schema.Join do
   defp configure(id, association, %{type: :hierarchical} = config, parent, from_source, queryable) do
     # Self-referencing table with parent_id pointing to same table
     # Supports adjacency list hierarchical pattern
-    
+
     name = Map.get(config, :name, id)
     hierarchy_type = Map.get(config, :hierarchy_type, :adjacency_list)
     depth_limit = Map.get(config, :depth_limit, 5)  # Prevent infinite recursion
@@ -249,20 +249,125 @@ defmodule Selecto.Schema.Join do
     case hierarchy_type do
       :adjacency_list ->
         configure_adjacency_list(id, association, config, parent, from_source, queryable, name, depth_limit)
-      
+
       :materialized_path ->
         configure_materialized_path(id, association, config, parent, from_source, queryable, name)
-      
+
       :closure_table ->
         configure_closure_table(id, association, config, parent, from_source, queryable, name)
     end
+  end
+
+
+  ### Star schema dimension join (optimized for OLAP)
+  defp configure(id, association, %{type: :star_dimension} = config, parent, from_source, queryable) do
+    # Star schema dimensions are optimized for aggregation and analysis
+    # They typically contain descriptive attributes and are joined to fact tables
+
+    name = Map.get(config, :name, id)
+    display_field = Map.get(config, :display_field, :name)
+
+    # Configure dimension-specific features
+    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
+        "#{id}_display", %{
+          name: "#{name}",
+          select: "#{association.field}[#{display_field}]",
+          group_by_format: fn {a, _id}, _def -> a end,
+          filterable: true,
+          is_dimension: true  # Mark as dimension for special handling
+        }
+      )
+    )
+
+    # Add aggregation-friendly filters
+    config = Map.put(config, :custom_filters, Map.get(config, :custom_filters, %{}) |> Map.put(
+        "#{id}_facet", %{
+          name: "#{name} Filter",
+          filter_type: :select_facet,
+          facet: true,  # Enable faceted filtering for dimensions
+          source_table: queryable.source_table,
+          source_field: display_field,
+          is_dimension: true
+        }
+      )
+    )
+
+    %{
+      config: config,
+      from_source: from_source,
+      owner_key: association.owner_key,
+      my_key: association.related_key,
+      source: queryable.source_table,
+      id: id,
+      name: name,
+      requires_join: parent,
+      join_type: :star_dimension,  # Optimized for OLAP queries
+      display_field: display_field,
+      filters: Map.get(config, :filters, %{}),
+      fields:
+        Selecto.Schema.Column.configure_columns(
+          association.field,
+          queryable.fields -- queryable.redact_fields,
+          queryable,
+          config
+        )
+    } |> parameterize()
+  end
+
+  ### Snowflake schema normalized dimension join
+  defp configure(id, association, %{type: :snowflake_dimension} = config, parent, from_source, queryable) do
+    # Snowflake dimensions are normalized and may require multiple joins to get full context
+    # They maintain referential integrity but require more complex queries
+
+    name = Map.get(config, :name, id)
+    display_field = Map.get(config, :display_field, :name)
+    normalization_joins = Map.get(config, :normalization_joins, [])  # Additional joins needed
+
+    # Configure for normalized dimension access
+    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
+        "#{id}_normalized", %{
+          name: "#{name}",
+          select: build_snowflake_select(association.field, display_field, normalization_joins),
+          group_by_format: fn {a, _id}, _def -> a end,
+          filterable: true,
+          requires_normalization_joins: normalization_joins
+        }
+      )
+    )
+
+    %{
+      config: config,
+      from_source: from_source,
+      owner_key: association.owner_key,
+      my_key: association.related_key,
+      source: queryable.source_table,
+      id: id,
+      name: name,
+      requires_join: parent,
+      join_type: :snowflake_dimension,
+      display_field: display_field,
+      normalization_joins: normalization_joins,  # Track additional joins needed
+      filters: Map.get(config, :filters, %{}),
+      fields:
+        Selecto.Schema.Column.configure_columns(
+          association.field,
+          queryable.fields -- queryable.redact_fields,
+          queryable,
+          config
+        )
+    } |> parameterize()
+  end
+
+  ### Regular (catch-all clause)
+  defp configure(id, association, config, parent, from_source, queryable) do
+    std_config(id, association, config, parent, from_source, queryable)
   end
 
   defp configure_adjacency_list(id, association, config, parent, from_source, queryable, name, _depth_limit) do
     # Add custom columns for hierarchy navigation
     # These reference fields from the CTE built in the SQL builder
     cte_alias = "#{id}_hierarchy"  # This matches the CTE name generated by hierarchy builder
-    
+
     config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
         "#{id}_path", %{
           name: "#{name} Path",
@@ -289,7 +394,7 @@ defmodule Selecto.Schema.Join do
 
     # Get the depth limit from config for the join struct
     depth_limit = Map.get(config, :depth_limit, 5)
-    
+
     %{
       config: config,
       from_source: from_source,
@@ -319,7 +424,7 @@ defmodule Selecto.Schema.Join do
     # Add custom columns for path-based operations
     # These reference fields from the CTE built in the SQL builder
     cte_alias = "#{id}_materialized_path"  # This matches the CTE name
-    
+
     config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
         "#{id}_depth", %{
           name: "#{name} Depth",
@@ -370,7 +475,7 @@ defmodule Selecto.Schema.Join do
     # Add custom columns leveraging closure table CTE
     # These reference fields from the CTE built in the SQL builder
     cte_alias = "#{id}_closure"  # This matches the CTE name
-    
+
     config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
         "#{id}_depth", %{
           name: "#{name} Depth",
@@ -413,112 +518,9 @@ defmodule Selecto.Schema.Join do
     } |> parameterize()
   end
 
-  ### Star schema dimension join (optimized for OLAP)
-  defp configure(id, association, %{type: :star_dimension} = config, parent, from_source, queryable) do
-    # Star schema dimensions are optimized for aggregation and analysis
-    # They typically contain descriptive attributes and are joined to fact tables
-    
-    name = Map.get(config, :name, id)
-    display_field = Map.get(config, :display_field, :name)
-    
-    # Configure dimension-specific features
-    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
-        "#{id}_display", %{
-          name: "#{name}",
-          select: "#{association.field}[#{display_field}]",
-          group_by_format: fn {a, _id}, _def -> a end,
-          filterable: true,
-          is_dimension: true  # Mark as dimension for special handling
-        }
-      )
-    )
-    
-    # Add aggregation-friendly filters
-    config = Map.put(config, :custom_filters, Map.get(config, :custom_filters, %{}) |> Map.put(
-        "#{id}_facet", %{
-          name: "#{name} Filter",
-          filter_type: :select_facet,
-          facet: true,  # Enable faceted filtering for dimensions
-          source_table: queryable.source_table,
-          source_field: display_field,
-          is_dimension: true
-        }
-      )
-    )
-
-    %{
-      config: config,
-      from_source: from_source,
-      owner_key: association.owner_key,
-      my_key: association.related_key,
-      source: queryable.source_table,
-      id: id,
-      name: name,
-      requires_join: parent,
-      join_type: :star_dimension,  # Optimized for OLAP queries
-      display_field: display_field,
-      filters: Map.get(config, :filters, %{}),
-      fields:
-        Selecto.Schema.Column.configure_columns(
-          association.field,
-          queryable.fields -- queryable.redact_fields,
-          queryable,
-          config
-        )
-    } |> parameterize()
-  end
-
-  ### Snowflake schema normalized dimension join
-  defp configure(id, association, %{type: :snowflake_dimension} = config, parent, from_source, queryable) do
-    # Snowflake dimensions are normalized and may require multiple joins to get full context
-    # They maintain referential integrity but require more complex queries
-    
-    name = Map.get(config, :name, id)
-    display_field = Map.get(config, :display_field, :name)
-    normalization_joins = Map.get(config, :normalization_joins, [])  # Additional joins needed
-    
-    # Configure for normalized dimension access
-    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
-        "#{id}_normalized", %{
-          name: "#{name}",
-          select: build_snowflake_select(association.field, display_field, normalization_joins),
-          group_by_format: fn {a, _id}, _def -> a end,
-          filterable: true,
-          requires_normalization_joins: normalization_joins
-        }
-      )
-    )
-
-    %{
-      config: config,
-      from_source: from_source,
-      owner_key: association.owner_key,
-      my_key: association.related_key,
-      source: queryable.source_table,
-      id: id,
-      name: name,
-      requires_join: parent,
-      join_type: :snowflake_dimension,
-      display_field: display_field,
-      normalization_joins: normalization_joins,  # Track additional joins needed
-      filters: Map.get(config, :filters, %{}),
-      fields:
-        Selecto.Schema.Column.configure_columns(
-          association.field,
-          queryable.fields -- queryable.redact_fields,
-          queryable,
-          config
-        )
-    } |> parameterize()
-  end
-
-  ### Regular (catch-all clause)
-  defp configure(id, association, config, parent, from_source, queryable) do
-    std_config(id, association, config, parent, from_source, queryable)
-  end
 
   # Helper functions for building hierarchy SQL
-  # Note: Previously broken CTE functions have been removed and replaced with 
+  # Note: Previously broken CTE functions have been removed and replaced with
   # proper CTE integration in the SQL builder. Custom columns now reference
   # CTE fields directly instead of embedding invalid subqueries.
 
