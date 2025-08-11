@@ -163,8 +163,13 @@ defmodule Selecto do
   """
 
   @doc """
-    Generate a selecto structure from this Repo following
-    the instructions in Domain map.
+    Generate a selecto structure from a domain configuration and database connection.
+    
+    ## Parameters
+    
+    - `domain` - Domain configuration map (see domain configuration docs)
+    - `postgrex_opts` - Postgrex connection options or PID
+    - `opts` - Configuration options
     
     ## Options
     
@@ -193,6 +198,9 @@ defmodule Selecto do
         # With validation enabled
         selecto = Selecto.configure(domain, postgrex_opts, validate: true)
         
+        # With Ecto repository and schema
+        selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User)
+        
         # Validation can also be called explicitly
         :ok = Selecto.DomainValidator.validate_domain!(domain)
         selecto = Selecto.configure(domain, postgrex_opts)
@@ -216,6 +224,36 @@ defmodule Selecto do
         group_by: Map.get(domain, :required_group_by, [])
       }
     }
+  end
+
+  @doc """
+    Configure Selecto from an Ecto repository and schema.
+    
+    This convenience function automatically introspects the Ecto schema
+    and configures Selecto with the appropriate domain and database connection.
+    
+    ## Parameters
+    
+    - `repo` - The Ecto repository module (e.g., MyApp.Repo)
+    - `schema` - The Ecto schema module to use as the source table
+    - `opts` - Configuration options (passed to EctoAdapter.configure/3)
+    
+    ## Examples
+    
+        # Basic usage
+        selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User)
+        
+        # With joins and options
+        selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User,
+          joins: [:posts, :profile],
+          redact_fields: [:password_hash]
+        )
+        
+        # With validation
+        selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User, validate: true)
+  """
+  def from_ecto(repo, schema, opts \\ []) do
+    Selecto.EctoAdapter.configure(repo, schema, opts)
   end
 
   # generate the selecto configuration
