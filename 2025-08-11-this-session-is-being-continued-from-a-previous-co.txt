@@ -1,0 +1,17 @@
+╭─────────────────────────────────────────────────────╮
+│ ✻ Welcome to Claude Code!                           │
+│                                                     │
+│   /help for help, /status for your current setup    │
+│                                                     │
+│   cwd: /Users/chris/es/selecto_test/vendor/selecto  │
+╰─────────────────────────────────────────────────────╯
+⏺ Compact summary (ctrl+r to expand)
+  ⎿  Read ../selecto_mix/lib/selecto_mix/domain_generator.ex (427 lines)
+  ⎿  Read ../../lib/selecto_test/pagila_domain.ex (249 lines)
+  ⎿  Read ../selecto_mix/lib/mix/tasks/selecto.gen.domain.ex (270 lines)
+  ⎿  Read ../selecto_mix/lib/selecto_mix/schema_introspector.ex (350 lines)
+  ⎿  Todo list read (1 item)
+  ⎿  Claude usage limit reached. Your limit will reset at 1am (America/Denver).
+
+      • /upgrade to increase your usage limit.
+
