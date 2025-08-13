@@ -447,8 +447,6 @@ defmodule Selecto do
   def execute(selecto, opts \\ []) do
     try do
       {query, aliases, params} = gen_sql(selecto, opts)
-      IO.puts("Generated SQL: #{query}")
-      IO.puts("Parameters: #{inspect(params)}")
       
       # Handle both Ecto repos and direct Postgrex connections
       result = case selecto.postgrex_opts do
@@ -456,7 +454,6 @@ defmodule Selecto do
         repo when is_atom(repo) and not is_nil(repo) ->
           # Try to call Ecto.Adapters.SQL.query dynamically
           try do
-            IO.puts("Using Ecto.Adapters.SQL.query with repo: #{inspect(repo)}")
             # Use apply to avoid compile-time dependency on Ecto.Adapters.SQL
             case apply(Ecto.Adapters.SQL, :query, [repo, query, params]) do
               {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
