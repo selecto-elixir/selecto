@@ -142,6 +142,16 @@ defmodule Selecto.Builder.Sql.Select do
     {[{:param, value}], :selecto_root, [value]}
   end
 
+  # Special case for rollup position literals that should not be parameterized
+  def prep_selector(_selecto, {:literal_position, value}) when is_integer(value) do
+    {[Integer.to_string(value)], :selecto_root, []}
+  end
+
+  # Special case for string literals that should not be parameterized (e.g., in concat)
+  def prep_selector(_selecto, {:literal_string, value}) when is_bitstring(value) do
+    {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
+  end
+
   def prep_selector(_selecto, {:literal, value}) when is_bitstring(value) do
     {[{:param, value}], :selecto_root, [value]}
   end
