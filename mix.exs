@@ -82,7 +82,8 @@ defmodule Selecto.MixProject do
       {:mneme, ">= 0.0.0", only: :test},
       {:benchee, "~> 1.0", only: [:dev, :test], optional: true},
       {:benchee_html, "~> 1.0", only: [:dev, :test], optional: true},
-      {:dialyxir, "~> 1.3", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.3", only: [:dev], runtime: false},
+      {:ecto_sql, "~> 3.12", optional: true}
     ]
   end
 

@@ -284,22 +284,9 @@ defmodule Selecto.EctoAdapter do
   defp association_to_join_type(_), do: :left
 
   defp get_db_connection(repo) do
-    # Get the Postgrex connection from the Ecto repo
-    config = repo.config()
-    
-    postgrex_opts = [
-      username: config[:username],
-      password: config[:password], 
-      hostname: config[:hostname] || "localhost",
-      database: config[:database],
-      port: config[:port] || 5432
-    ]
-    
-    case Postgrex.start_link(postgrex_opts) do
-      {:ok, conn} -> conn
-      {:error, error} -> 
-        raise "Failed to connect to database: #{inspect(error)}"
-    end
+    # Return the repo itself instead of creating a separate Postgrex connection
+    # This allows Selecto to use Ecto's connection pool
+    repo
   end
 
   defp get_schema_name(schema) do

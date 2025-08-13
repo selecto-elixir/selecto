@@ -447,11 +447,55 @@ defmodule Selecto do
   def execute(selecto, opts \\ []) do
     try do
       {query, aliases, params} = gen_sql(selecto, opts)
+      IO.puts("Generated SQL: #{query}")
+      IO.puts("Parameters: #{inspect(params)}")
       
-      case Postgrex.query(selecto.postgrex_opts, query, params) do
-        {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-        {:error, reason} -> {:error, reason}
+      # Handle both Ecto repos and direct Postgrex connections
+      result = case selecto.postgrex_opts do
+        # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
+        repo when is_atom(repo) and not is_nil(repo) ->
+          # Try to call Ecto.Adapters.SQL.query dynamically
+          try do
+            IO.puts("Using Ecto.Adapters.SQL.query with repo: #{inspect(repo)}")
+            # Use apply to avoid compile-time dependency on Ecto.Adapters.SQL
+            case apply(Ecto.Adapters.SQL, :query, [repo, query, params]) do
+              {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
+              {:error, reason} -> {:error, reason}
+            end
+          rescue
+            UndefinedFunctionError ->
+              IO.puts("Ecto.Adapters.SQL not available, falling back to temporary connection")
+              # Ecto.Adapters.SQL not available, fall back to temporary connection
+              config = apply(repo, :config, [])
+              postgrex_opts = [
+                username: config[:username],
+                password: config[:password], 
+                hostname: config[:hostname] || "localhost",
+                database: config[:database],
+                port: config[:port] || 5432,
+                supervisor: false
+              ]
+              case Postgrex.start_link(postgrex_opts) do
+                {:ok, conn} ->
+                  result = case Postgrex.query(conn, query, params) do
+                    {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
+                    {:error, reason} -> {:error, reason}
+                  end
+                  GenServer.stop(conn)
+                  result
+                {:error, reason} -> {:error, reason}
+              end
+            error -> {:error, error}
+          end
+        # If it's a Postgrex connection, use Postgrex.query directly  
+        conn ->
+          case Postgrex.query(conn, query, params) do
+            {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
+            {:error, reason} -> {:error, reason}
+          end
       end
+      
+      result
     rescue
       error -> {:error, error}
     catch
