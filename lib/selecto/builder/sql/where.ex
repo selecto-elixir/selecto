@@ -31,14 +31,30 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", query, " "], param ++ params}
   end
 
+  def build(selecto, {field, {:subquery, :in, query}}) do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", query, " "], param}
+  end
+
   def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param ++ params}
   end
 
+  def build(selecto, {field, comp, {:subquery, agg, query}}) when agg in [:any, :all] do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param}
+  end
+
   def build(_selecto, {:exists, query, params}) do
     {[], [" exists (", query, ") "], params}
+  end
+
+  def build(_selecto, {:exists, query}) do
+    {[], [" exists (", query, ") "], []}
   end
 
   def build(selecto, {:not, filter}) do
