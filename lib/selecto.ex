@@ -448,6 +448,13 @@ defmodule Selecto do
     try do
       {query, aliases, params} = gen_sql(selecto, opts)
       
+      # Debug: Always log SQL and parameters
+      IO.puts("\n=== SELECTO SQL DEBUG ===")
+      IO.puts("SQL: #{query}")
+      IO.puts("Params: #{inspect(params)}")
+      IO.puts("Aliases: #{inspect(aliases)}")
+      IO.puts("========================\n")
+      
       # Handle both Ecto repos and direct Postgrex connections
       result = case selecto.postgrex_opts do
         # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
