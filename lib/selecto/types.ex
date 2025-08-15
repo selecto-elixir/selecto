@@ -300,6 +300,48 @@ defmodule Selecto.Types do
     pretty_print: boolean()
   ]
 
+  # Option provider types for select filters
+  @type static_option_provider :: %{
+    type: :static,
+    values: [term()]
+  }
+
+  @type domain_option_provider :: %{
+    type: :domain,
+    domain: atom(),
+    value_field: atom(),
+    display_field: atom(),
+    filters: [filter()],
+    order_by: [order_spec()]
+  }
+
+  @type enum_option_provider :: %{
+    type: :enum,
+    schema: module(),
+    field: atom()
+  }
+
+  @type query_option_provider :: %{
+    type: :query,
+    query: String.t(),
+    params: [term()]
+  }
+
+  @type option_provider :: 
+    static_option_provider() |
+    domain_option_provider() |
+    enum_option_provider() |
+    query_option_provider()
+
+  @type select_options_column :: %{
+    required(:type) => :select_options,
+    required(:option_provider) => option_provider(),
+    required(:name) => String.t(),
+    optional(:multiple) => boolean(),
+    optional(:searchable) => boolean(),
+    optional(:cache_ttl) => pos_integer()
+  }
+
   # Error types
   @type sql_error :: Postgrex.Error.t()
 
