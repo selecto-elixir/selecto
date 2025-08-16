@@ -138,27 +138,15 @@ defmodule Selecto do
           {:error, :ambiguous_result}
       end
 
-  ### Raising Execution (Legacy/Simple)
-
-  Use `execute!/2` and `execute_one!/2` when you want to fail fast:
-
-      # Will raise on any error
-      {rows, columns, aliases} = Selecto.execute!(selecto)
-      process_results(rows)
-
-      # Will raise if not exactly 1 row
-      {row, aliases} = Selecto.execute_one!(selecto) 
-      process_single_result(row)
-
   ### Error Types
 
-  The safe execution functions return these error patterns:
+  All execution functions return structured `Selecto.Error` for consistent error handling:
 
-  - `{:error, %Postgrex.Error{}}` - Database connection or SQL errors
-  - `{:error, :no_results}` - execute_one/2 when 0 rows returned
-  - `{:error, :multiple_results}` - execute_one/2 when >1 rows returned
-  - `{:error, {:exit, reason}}` - Process/connection failures
-  - `{:error, reason}` - Other execution failures
+  - `{:error, %Selecto.Error{type: :connection_error}}` - Database connection failures
+  - `{:error, %Selecto.Error{type: :query_error}}` - SQL execution errors  
+  - `{:error, %Selecto.Error{type: :no_results}}` - execute_one/2 when 0 rows returned
+  - `{:error, %Selecto.Error{type: :multiple_results}}` - execute_one/2 when >1 rows returned
+  - `{:error, %Selecto.Error{type: :timeout_error}}` - Query timeout failures
 
   """
 
@@ -448,13 +436,6 @@ defmodule Selecto do
     try do
       {query, aliases, params} = gen_sql(selecto, opts)
       
-      # Debug: Always log SQL and parameters
-      IO.puts("\n=== SELECTO SQL DEBUG ===")
-      IO.puts("SQL: #{query}")
-      IO.puts("Params: #{inspect(params)}")
-      IO.puts("Aliases: #{inspect(aliases)}")
-      IO.puts("========================\n")
-      
       # Handle both Ecto repos and direct Postgrex connections
       result = case selecto.postgrex_opts do
         # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
@@ -464,11 +445,10 @@ defmodule Selecto do
             # Use apply to avoid compile-time dependency on Ecto.Adapters.SQL
             case apply(Ecto.Adapters.SQL, :query, [repo, query, params]) do
               {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-              {:error, reason} -> {:error, reason}
+              {:error, reason} -> {:error, Selecto.Error.from_reason(reason)}
             end
           rescue
             UndefinedFunctionError ->
-              IO.puts("Ecto.Adapters.SQL not available, falling back to temporary connection")
               # Ecto.Adapters.SQL not available, fall back to temporary connection
               config = apply(repo, :config, [])
               postgrex_opts = [
@@ -483,50 +463,30 @@ defmodule Selecto do
                 {:ok, conn} ->
                   result = case Postgrex.query(conn, query, params) do
                     {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-                    {:error, reason} -> {:error, reason}
+                    {:error, reason} -> {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
                   end
                   GenServer.stop(conn)
                   result
-                {:error, reason} -> {:error, reason}
+                {:error, reason} -> {:error, Selecto.Error.connection_error("Failed to connect to database", %{reason: reason})}
               end
-            error -> {:error, error}
+            error -> {:error, Selecto.Error.from_reason(error)}
           end
         # If it's a Postgrex connection, use Postgrex.query directly  
         conn ->
           case Postgrex.query(conn, query, params) do
             {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-            {:error, reason} -> {:error, reason}
+            {:error, reason} -> {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
           end
       end
       
       result
     rescue
-      error -> {:error, error}
+      error -> {:error, Selecto.Error.from_reason(error)}
     catch
-      :exit, reason -> {:error, {:exit, reason}}
+      :exit, reason -> {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
     end
   end
 
-  @doc """
-    Generate and run the query, raising on errors.
-    
-    Raising version that maintains the original behavior for backward compatibility.
-    Returns the result directly or raises an exception on error.
-    
-    ## Examples
-    
-        {rows, columns, aliases} = Selecto.execute!(selecto)
-        process_results(rows, columns)
-  """
-  @spec execute!(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.execute_result()
-  def execute!(selecto, opts \\ []) do
-    case execute(selecto, opts) do
-      {:ok, result} -> result
-      {:error, {:exit, reason}} -> raise RuntimeError, "Database connection failed: #{inspect(reason)}"
-      {:error, %{__exception__: true} = error} -> raise error
-      {:error, error} -> raise RuntimeError, "Execution failed: #{inspect(error)}"
-    end
-  end
 
   @doc """
     Execute a query expecting exactly one row, returning {:ok, row} or {:error, reason}.
@@ -552,37 +512,16 @@ defmodule Selecto do
   def execute_one(selecto, opts \\ []) do
     case execute(selecto, opts) do
       {:ok, {[], _columns, _aliases}} -> 
-        {:error, :no_results}
+        {:error, Selecto.Error.no_results_error()}
       {:ok, {[single_row], _columns, aliases}} -> 
         {:ok, {single_row, aliases}}
       {:ok, {_multiple_rows, _columns, _aliases}} -> 
-        {:error, :multiple_results}
-      {:error, reason} -> 
-        {:error, reason}
+        {:error, Selecto.Error.multiple_results_error()}
+      {:error, %Selecto.Error{} = error} -> 
+        {:error, error}
     end
   end
 
-  @doc """
-    Execute a query expecting exactly one row, raising on errors or unexpected row counts.
-    
-    Raising version of execute_one/2 for when you want to fail fast.
-    
-    ## Examples
-    
-        {row, aliases} = Selecto.execute_one!(selecto)
-        process_single_result(row)
-  """
-  @spec execute_one!(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.single_row_result()
-  def execute_one!(selecto, opts \\ []) do
-    case execute_one(selecto, opts) do
-      {:ok, result} -> result
-      {:error, :no_results} -> raise RuntimeError, "Expected exactly 1 row, got 0"
-      {:error, :multiple_results} -> raise RuntimeError, "Expected exactly 1 row, got multiple"
-      {:error, {:exit, reason}} -> raise RuntimeError, "Database connection failed: #{inspect(reason)}"
-      {:error, %{__exception__: true} = error} -> raise error
-      {:error, error} -> raise RuntimeError, "Execution failed: #{inspect(error)}"
-    end
-  end
 
   @doc """
     Generate SQL without executing - useful for debugging and caching

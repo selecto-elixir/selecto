@@ -254,19 +254,16 @@ defmodule Selecto.Types do
     aliases :: %{String.t() => String.t()}
   }
 
-  # Legacy execute!/2 result (direct tuple)
-  @type execute_result :: query_result()
   
-  # Safe execute/2 results (tagged tuples)
+  # Safe execute/2 results (tagged tuples with structured errors)
   @type execute_result_ok :: {:ok, query_result()}
-  @type execute_result_error :: {:error, term()}
+  @type execute_result_error :: {:error, Selecto.Error.t()}
   @type safe_execute_result :: execute_result_ok() | execute_result_error()
   
   # Single row execution results
   @type single_row_result :: {row :: [term()], aliases :: %{String.t() => String.t()}}
   @type execute_one_result_ok :: {:ok, single_row_result()}
-  @type execute_one_error :: :no_results | :multiple_results | term()
-  @type execute_one_result_error :: {:error, execute_one_error()}  
+  @type execute_one_result_error :: {:error, Selecto.Error.t()}  
   @type safe_execute_one_result :: execute_one_result_ok() | execute_one_result_error()
 
   # Builder types
