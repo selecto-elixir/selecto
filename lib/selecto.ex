@@ -411,7 +411,13 @@ defmodule Selecto do
 
 #  @spec gen_sql(t(), sql_generation_options()) :: {String.t(), %{String.t() => String.t()}, sql_params()}
   def gen_sql(selecto, opts) do
-    Selecto.Builder.Sql.build(selecto, opts)
+    # Support both old and new query generation approaches
+    if Keyword.get(opts, :use_new_generator, false) do
+      Selecto.QueryGenerator.generate_sql(selecto, opts)
+    else
+      # Keep existing implementation for backward compatibility
+      Selecto.Builder.Sql.build(selecto, opts)
+    end
   end
 
   @doc """
@@ -433,58 +439,8 @@ defmodule Selecto do
   """
   @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
-    try do
-      {query, aliases, params} = gen_sql(selecto, opts)
-      
-      # Handle both Ecto repos and direct Postgrex connections
-      result = case selecto.postgrex_opts do
-        # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
-        repo when is_atom(repo) and not is_nil(repo) ->
-          # Try to call Ecto.Adapters.SQL.query dynamically
-          try do
-            # Use apply to avoid compile-time dependency on Ecto.Adapters.SQL
-            case apply(Ecto.Adapters.SQL, :query, [repo, query, params]) do
-              {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-              {:error, reason} -> {:error, Selecto.Error.from_reason(reason)}
-            end
-          rescue
-            UndefinedFunctionError ->
-              # Ecto.Adapters.SQL not available, fall back to temporary connection
-              config = apply(repo, :config, [])
-              postgrex_opts = [
-                username: config[:username],
-                password: config[:password], 
-                hostname: config[:hostname] || "localhost",
-                database: config[:database],
-                port: config[:port] || 5432,
-                supervisor: false
-              ]
-              case Postgrex.start_link(postgrex_opts) do
-                {:ok, conn} ->
-                  result = case Postgrex.query(conn, query, params) do
-                    {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-                    {:error, reason} -> {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
-                  end
-                  GenServer.stop(conn)
-                  result
-                {:error, reason} -> {:error, Selecto.Error.connection_error("Failed to connect to database", %{reason: reason})}
-              end
-            error -> {:error, Selecto.Error.from_reason(error)}
-          end
-        # If it's a Postgrex connection, use Postgrex.query directly  
-        conn ->
-          case Postgrex.query(conn, query, params) do
-            {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-            {:error, reason} -> {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
-          end
-      end
-      
-      result
-    rescue
-      error -> {:error, Selecto.Error.from_reason(error)}
-    catch
-      :exit, reason -> {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
-    end
+    # Delegate to the extracted Executor module
+    Selecto.Executor.execute(selecto, opts)
   end
 
 
@@ -510,16 +466,8 @@ defmodule Selecto do
   """
   @spec execute_one(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_one_result()
   def execute_one(selecto, opts \\ []) do
-    case execute(selecto, opts) do
-      {:ok, {[], _columns, _aliases}} -> 
-        {:error, Selecto.Error.no_results_error()}
-      {:ok, {[single_row], _columns, aliases}} -> 
-        {:ok, {single_row, aliases}}
-      {:ok, {_multiple_rows, _columns, _aliases}} -> 
-        {:error, Selecto.Error.multiple_results_error()}
-      {:error, %Selecto.Error{} = error} -> 
-        {:error, error}
-    end
+    # Delegate to the extracted Executor module
+    Selecto.Executor.execute_one(selecto, opts)
   end
 
 

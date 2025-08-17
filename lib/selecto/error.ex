@@ -139,6 +139,18 @@ defmodule Selecto.Error do
   end
 
   @doc """
+  Creates a query generation error.
+  """
+  @spec query_generation_error(String.t(), map()) :: t()
+  def query_generation_error(message, details \\ %{}) do
+    %__MODULE__{
+      type: :query_error,
+      message: message,
+      details: details
+    }
+  end
+
+  @doc """
   Converts various error types to standardized Selecto.Error.
   """
   @spec from_reason(term()) :: t()
