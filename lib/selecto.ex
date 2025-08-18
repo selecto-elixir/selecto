@@ -180,11 +180,11 @@ defmodule Selecto do
     
     ## Examples
     
-        # Basic usage (no validation)
+        # Basic usage (validation enabled by default)
         selecto = Selecto.configure(domain, postgrex_opts)
         
-        # With validation enabled
-        selecto = Selecto.configure(domain, postgrex_opts, validate: true)
+        # Disable validation for performance-critical scenarios
+        selecto = Selecto.configure(domain, postgrex_opts, validate: false)
         
         # With Ecto repository and schema
         selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User)
@@ -195,7 +195,7 @@ defmodule Selecto do
   """
 #  @spec configure(Selecto.Types.domain(), Postgrex.conn(), Selecto.Types.configure_options()) :: t()
   def configure(domain, postgrex_opts, opts \\ []) do
-    validate? = Keyword.get(opts, :validate, false)
+    validate? = Keyword.get(opts, :validate, true)
     
     if validate? do
       Selecto.DomainValidator.validate_domain!(domain)

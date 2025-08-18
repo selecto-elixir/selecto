@@ -8,13 +8,27 @@ defmodule Selecto.DomainValidator do
   
   ## Usage
   
-      # Validate during configure (recommended)
+      # Validate during configure (enabled by default)
       domain = %{source: ..., schemas: ..., joins: ...}
-      selecto = Selecto.configure(domain, postgrex_opts, validate: true)
+      selecto = Selecto.configure(domain, postgrex_opts)
+      
+      # Disable validation for performance-critical scenarios
+      selecto = Selecto.configure(domain, postgrex_opts, validate: false)
       
       # Or validate explicitly
       Selecto.DomainValidator.validate_domain!(domain)
       {:ok, _} = Selecto.DomainValidator.validate_domain(domain)
+      
+  ## Compile-time Validation
+  
+      # Validate domain at compile time (recommended for static configurations)
+      defmodule MyDomain do
+        use Selecto.DomainValidator, domain: %{
+          source: %{...},
+          schemas: %{...},
+          joins: %{...}
+        }
+      end
   """
   
   # import Selecto.Types - removed to avoid circular dependency
@@ -441,6 +455,90 @@ defmodule Selecto.DomainValidator do
   
   defp format_error(error) do
     "Unknown validation error: #{inspect(error)}"
+  end
+  
+  @doc """
+  Compile-time domain validation macro.
+  
+  When used in a module, validates the provided domain configuration at compile time.
+  This catches domain configuration errors early and provides better error messages.
+  
+  ## Options
+  
+  - `:domain` - The domain configuration to validate (required)
+  
+  ## Example
+  
+      defmodule MyApp.UserDomain do
+        use Selecto.DomainValidator, domain: %{
+          source: %{
+            source_table: "users",
+            primary_key: :id,
+            fields: [:id, :name, :email],
+            columns: %{
+              id: %{type: :integer},
+              name: %{type: :string},
+              email: %{type: :string}
+            }
+          },
+          schemas: %{}
+        }
+        
+        def domain, do: @validated_domain
+      end
+  """
+  defmacro __using__(opts) do
+    domain_ast = Keyword.get(opts, :domain)
+    
+    if is_nil(domain_ast) do
+      raise "Selecto.DomainValidator requires a :domain option"
+    end
+    
+    # Try to evaluate the domain AST at compile time for static configurations
+    try do
+      domain = Code.eval_quoted(domain_ast) |> elem(0)
+      
+      # Validate domain at compile time
+      case validate_domain(domain) do
+        :ok -> :ok
+        {:error, errors} -> 
+          formatted_errors = format_errors(errors)
+          raise CompileError, 
+            description: "Domain validation failed:\n#{formatted_errors}",
+            file: __CALLER__.file,
+            line: __CALLER__.line
+      end
+      
+      quote do
+        @validated_domain unquote(Macro.escape(domain))
+        
+        @doc """
+        Returns the compile-time validated domain configuration.
+        """
+        def validated_domain, do: @validated_domain
+      end
+    rescue
+      # If we can't evaluate at compile time (e.g., contains variables), 
+      # set up runtime validation instead
+      _ ->
+        quote do
+          @domain_ast unquote(Macro.escape(domain_ast))
+          
+          @doc """
+          Returns the domain configuration with runtime validation.
+          """
+          def validated_domain do
+            domain = unquote(domain_ast)
+            case Selecto.DomainValidator.validate_domain(domain) do
+              :ok -> domain
+              {:error, errors} ->
+                formatted_errors = Selecto.DomainValidator.format_errors(errors)
+                raise Selecto.DomainValidator.ValidationError, 
+                  message: "Domain validation failed:\n#{formatted_errors}"
+            end
+          end
+        end
+    end
   end
 end
 
