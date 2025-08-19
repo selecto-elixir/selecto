@@ -156,15 +156,17 @@ defmodule Selecto do
     ## Parameters
     
     - `domain` - Domain configuration map (see domain configuration docs)
-    - `postgrex_opts` - Postgrex connection options or PID
+    - `postgrex_opts` - Postgrex connection options, PID, or pooled connection
     - `opts` - Configuration options
     
     ## Options
     
-    - `:validate` - (boolean, default: false) Whether to validate the domain configuration
+    - `:validate` - (boolean, default: true) Whether to validate the domain configuration
       before processing. When `true`, will raise `Selecto.DomainValidator.ValidationError`
       if the domain has structural issues like missing schemas, circular join dependencies,
       or invalid advanced join configurations.
+    - `:pool` - (boolean, default: false) Whether to enable connection pooling
+    - `:pool_options` - Connection pool configuration options
       
     ## Validation
     
@@ -183,6 +185,17 @@ defmodule Selecto do
         # Basic usage (validation enabled by default)
         selecto = Selecto.configure(domain, postgrex_opts)
         
+        # With connection pooling
+        selecto = Selecto.configure(domain, postgrex_opts, pool: true)
+        
+        # Custom pool configuration
+        pool_opts = [pool_size: 20, max_overflow: 10]
+        selecto = Selecto.configure(domain, postgrex_opts, pool: true, pool_options: pool_opts)
+        
+        # Using existing pooled connection
+        {:ok, pool} = Selecto.ConnectionPool.start_pool(postgrex_opts)
+        selecto = Selecto.configure(domain, {:pool, pool})
+        
         # Disable validation for performance-critical scenarios
         selecto = Selecto.configure(domain, postgrex_opts, validate: false)
         
@@ -196,13 +209,28 @@ defmodule Selecto do
 #  @spec configure(Selecto.Types.domain(), Postgrex.conn(), Selecto.Types.configure_options()) :: t()
   def configure(domain, postgrex_opts, opts \\ []) do
     validate? = Keyword.get(opts, :validate, true)
+    use_pool? = Keyword.get(opts, :pool, false)
+    pool_options = Keyword.get(opts, :pool_options, [])
     
     if validate? do
       Selecto.DomainValidator.validate_domain!(domain)
     end
     
+    # Handle connection pooling
+    final_postgrex_opts = if use_pool? and not match?({:pool, _}, postgrex_opts) do
+      case Selecto.ConnectionPool.start_pool(postgrex_opts, pool_options) do
+        {:ok, pool_ref} -> {:pool, pool_ref}
+        {:error, reason} -> 
+          require Logger
+          Logger.warning("Failed to start connection pool: #{inspect(reason)}. Falling back to direct connection.")
+          postgrex_opts
+      end
+    else
+      postgrex_opts
+    end
+    
     %Selecto{
-      postgrex_opts: postgrex_opts,
+      postgrex_opts: final_postgrex_opts,
       domain: domain,
       config: configure_domain(domain),
       set: %{

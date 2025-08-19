@@ -113,12 +113,34 @@ defmodule Selecto.Executor do
   end
 
   @doc """
-  Execute query using direct Postgrex connection.
+  Execute query using direct Postgrex connection or connection pool.
   """
   def execute_with_postgrex(conn, query, params, aliases) do
-    case Postgrex.query(conn, query, params) do
+    case conn do
+      # Handle pooled connections
+      {:pool, pool_ref} ->
+        execute_with_connection_pool(pool_ref, query, params, aliases)
+      
+      # Handle direct Postgrex connections
+      conn when is_pid(conn) ->
+        case Postgrex.query(conn, query, params) do
+          {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
+          {:error, reason} -> {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
+        end
+      
+      # Handle invalid connection types
+      _ ->
+        {:error, Selecto.Error.connection_error("Invalid connection type", %{connection: inspect(conn)})}
+    end
+  end
+  
+  @doc """
+  Execute query using connection pool.
+  """
+  def execute_with_connection_pool(pool_ref, query, params, aliases) do
+    case Selecto.ConnectionPool.execute(pool_ref, query, params, prepared: true) do
       {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-      {:error, reason} -> {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
+      {:error, reason} -> {:error, Selecto.Error.query_error("Pooled query execution failed", query, params, %{reason: reason})}
     end
   end
 
@@ -162,6 +184,16 @@ defmodule Selecto.Executor do
         # For Ecto repos, we assume they're properly configured
         # Could be enhanced to ping the database
         :ok
+      {:pool, pool_ref} ->
+        # For pooled connections, validate pool health
+        try do
+          case Selecto.ConnectionPool.pool_stats(pool_ref) do
+            %{error: _} -> {:error, "Connection pool is not available"}
+            stats when is_map(stats) -> :ok
+          end
+        catch
+          :exit, _ -> {:error, "Connection pool is not available"}
+        end
       conn when is_pid(conn) ->
         # For Postgrex connections, check if process is alive
         if Process.alive?(conn) do
@@ -186,6 +218,18 @@ defmodule Selecto.Executor do
           type: :ecto_repo,
           repo: repo,
           status: :connected
+        }
+      {:pool, pool_ref} ->
+        stats = try do
+          Selecto.ConnectionPool.pool_stats(pool_ref)
+        catch
+          :exit, _ -> %{error: "Pool manager not available"}
+        end
+        %{
+          type: :connection_pool,
+          pool_ref: pool_ref,
+          status: :connected,
+          pool_stats: stats
         }
       conn when is_pid(conn) ->
         %{
