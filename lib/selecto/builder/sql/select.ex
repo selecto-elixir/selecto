@@ -232,26 +232,8 @@ defmodule Selecto.Builder.Sql.Select do
 
   ### make the builder build the dynamic so we can use same parts for SQL
 
-  # def build(selecto, {:subquery, func, field}) do
-  #   conf = Selecto.field(selecto, field)
-
-  #   join = selecto.config.joins[conf.requires_join]
-  #   my_func = check_string( Atom.to_string(func) )
-  #   my_key = Atom.to_string(join.my_key)
-  #   my_field = Atom.to_string(conf.field)
-
-  #   #TODO
-  # end
-
-  # ARRAY - auto gen array from otherwise denorm'ing selects using postgres 'array' func
-  # ---- eg {"array", "item_orders", select: ["item[name]", "item_orders[quantity]"], filters: [{item[type], "Pin"}]}
-  # ---- postgres has functions to put those into json!
-  # to select the items into an array and apply the filter to the subq. Would ahve to be something that COULD join
-  # to one of the main query joins
-  # TODOs
-  # def build(selecto, {:array, _field, _selects}) do
-  #   {query, aliases}
-  # end
+  # Future feature: subquery and array operations 
+  # See advanced SQL functions library for current implementation
 
   # # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
   # def build(selecto, {:case, _field, _case_map}) do

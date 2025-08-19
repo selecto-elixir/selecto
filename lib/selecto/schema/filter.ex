@@ -66,10 +66,23 @@ defmodule Selecto.Schema.Filter do
           # No validation available, proceed with selection
           create_selection_filter(field, selected_values)
           
-        _provider ->
-          # TODO: Add runtime validation against option provider
-          # For now, proceed with selection
-          create_selection_filter(field, selected_values)
+        provider ->
+          # Validate selected values against option provider
+          case Selecto.OptionProvider.load_options(provider) do
+            {:ok, available_options} ->
+              available_values = Enum.map(available_options, fn {value, _display} -> value end)
+              valid_values = Enum.filter(selected_values, &(&1 in available_values))
+              
+              if Enum.empty?(valid_values) do
+                nil
+              else
+                create_selection_filter(field, valid_values)
+              end
+              
+            {:error, _reason} ->
+              # If option loading fails, proceed without validation
+              create_selection_filter(field, selected_values)
+          end
       end
     end
   end

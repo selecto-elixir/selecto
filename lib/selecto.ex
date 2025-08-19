@@ -437,7 +437,6 @@ defmodule Selecto do
 
   @doc """
     add a field to the Select list. Send in one or a list of field names or selectable tuples
-    TODO allow to send single, and special forms..
   """
   #  @spec select(t(), [selector()]) :: t()
   def select(selecto, fields) when is_list(fields) do

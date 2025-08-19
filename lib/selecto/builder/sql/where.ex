@@ -117,7 +117,6 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(selecto, {field, {comp, value}}) when comp in [:like, :ilike] do
     # ### Value must have a % in it to work!
-    # ### TODO sanitize like value!
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(join), [" ", sel, " ", to_string(comp), " ", {:param, value}, " "], param}
   end
