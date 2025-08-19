@@ -6,14 +6,16 @@ Selecto is a powerful, production-ready query building system that allows you to
 
 ## 🚀 Key Features
 
+- **Enhanced Join Types**: Self-joins, lateral joins, cross joins, full outer joins, conditional joins
 - **Advanced Join Patterns**: Star/snowflake schemas, hierarchical relationships, many-to-many tagging
+- **Enhanced Field Resolution**: Smart disambiguation, error handling, and field suggestions
 - **OLAP Support**: Optimized for analytics with dimension tables and aggregation-friendly queries  
 - **Hierarchical Data**: Adjacency lists, materialized paths, closure tables with recursive CTEs
 - **Safe Parameterization**: 100% parameterized queries with iodata-based SQL generation
 - **Complex Relationships**: Many-to-many joins with aggregation and faceted filtering
 - **CTE Support**: Both simple and recursive Common Table Expressions
 - **Domain Configuration**: Declarative schema definitions with automatic join resolution
-- **Production Ready**: Comprehensive test coverage (81.52%) and battle-tested architecture
+- **Production Ready**: Comprehensive test coverage (85%+) and battle-tested architecture
 
 ## 📋 Quick Start
 

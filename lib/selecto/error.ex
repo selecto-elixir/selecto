@@ -52,7 +52,8 @@ defmodule Selecto.Error do
     :configuration_error |
     :no_results |
     :multiple_results |
-    :timeout_error
+    :timeout_error |
+    :field_resolution_error
 
   @doc """
   Creates a connection error.
@@ -151,6 +152,18 @@ defmodule Selecto.Error do
   end
 
   @doc """
+  Creates a field resolution error with context.
+  """
+  @spec field_resolution_error(String.t(), term(), map()) :: t()
+  def field_resolution_error(message, field_ref, context \\ %{}) do
+    %__MODULE__{
+      type: :field_resolution_error,
+      message: message,
+      details: Map.merge(context, %{field_reference: field_ref})
+    }
+  end
+
+  @doc """
   Converts various error types to standardized Selecto.Error.
   """
   @spec from_reason(term()) :: t()
@@ -220,6 +233,10 @@ defmodule Selecto.Error do
 
   def to_display_message(%__MODULE__{type: :timeout_error, message: message}) do
     "Query timeout: #{message}"
+  end
+
+  def to_display_message(%__MODULE__{type: :field_resolution_error, message: message}) do
+    "Field resolution error: #{message}"
   end
 
   def to_display_message(%__MODULE__{message: message}) do

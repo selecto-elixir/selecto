@@ -140,6 +140,9 @@ defmodule Selecto.Builder.Sql do
           
           {:olap, type} ->
             build_olap_join(selecto, join, config, type, fc, p, ctes)
+          
+          {:enhanced, join_type} ->
+            build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
             
           :basic ->
             # Existing basic join logic
@@ -162,6 +165,7 @@ defmodule Selecto.Builder.Sql do
       :many_to_many -> {:tagging, nil}
       :star_dimension -> {:olap, :star}
       :snowflake_dimension -> {:olap, :snowflake}
+      join_type when join_type in [:self_join, :lateral_join, :cross_join, :full_outer_join, :conditional_join] -> {:enhanced, join_type}
       _ -> :basic
     end
   end
@@ -180,6 +184,28 @@ defmodule Selecto.Builder.Sql do
     Olap.build_olap_join_with_optimization(selecto, join, config, olap_type, fc, p, ctes)
   end
 
+  # Phase 3: Enhanced join builder implementation
+  defp build_enhanced_join(selecto, join, config, join_type, fc, p, ctes) do
+    # Use the enhanced joins module to build SQL for new join types
+    case Selecto.EnhancedJoins.build_enhanced_join_sql(config, selecto) do
+      nil ->
+        # Fallback to basic join if enhanced join fails
+        join_iodata = [
+          " left join ", config.source, " ", build_join_string(selecto, join),
+          " on ", build_selector_string(selecto, join, config.my_key),
+          " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
+        ]
+        {fc ++ [join_iodata], p, ctes}
+      
+      enhanced_join_iodata ->
+        # Use the enhanced join SQL
+        {fc ++ [enhanced_join_iodata], p, ctes}
+    end
+  end
+  
+  # Note: Using existing helper functions from Selecto.Builder.Sql.Helpers
+  # build_join_string/2 and build_selector_string/3 are imported at the top of the module
+  
   # Phase 1: Legacy join builders removed - replaced with CTE-enhanced versions above
   # Phase 2+: Full advanced join functionality will be implemented in specialized modules
 end

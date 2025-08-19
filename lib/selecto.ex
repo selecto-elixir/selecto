@@ -349,7 +349,44 @@ defmodule Selecto do
 
 #  @spec field(t(), field_name()) :: %{required(:name) => String.t()} | nil
   def field(selecto_struct, field) do
-    selecto_struct.config.columns[field]
+    # Try enhanced field resolution first
+    case Selecto.FieldResolver.resolve_field(selecto_struct, field) do
+      {:ok, field_info} ->
+        # Convert field_info to legacy format for backward compatibility
+        %{
+          name: field_info.name,
+          type: field_info.type,
+          requires_join: field_info.source_join,
+          qualified_name: field_info.qualified_name,
+          alias: field_info.alias
+        }
+      {:error, _} ->
+        # Fallback to legacy field resolution
+        selecto_struct.config.columns[field]
+    end
+  end
+  
+  @doc """
+  Enhanced field resolution with disambiguation and error handling.
+  
+  Provides detailed field information and helpful error messages.
+  """
+  def resolve_field(selecto_struct, field) do
+    Selecto.FieldResolver.resolve_field(selecto_struct, field)
+  end
+  
+  @doc """
+  Get all available fields across all joins and the source table.
+  """
+  def available_fields(selecto_struct) do
+    Selecto.FieldResolver.get_available_fields(selecto_struct)
+  end
+  
+  @doc """
+  Get field suggestions for autocomplete or error recovery.
+  """
+  def field_suggestions(selecto_struct, partial_name) do
+    Selecto.FieldResolver.suggest_fields(selecto_struct, partial_name)
   end
 
 #  @spec set(t()) :: query_set()

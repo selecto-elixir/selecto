@@ -358,6 +358,12 @@ defmodule Selecto.Schema.Join do
     } |> parameterize()
   end
 
+  ### Enhanced joins (new join types)
+  defp configure(id, association, %{type: join_type} = config, parent, from_source, queryable) 
+       when join_type in [:self_join, :lateral_join, :cross_join, :full_outer_join, :conditional_join] do
+    Selecto.EnhancedJoins.configure_enhanced_join(id, association, config, parent, from_source, queryable)
+  end
+
   ### Regular (catch-all clause)
   defp configure(id, association, config, parent, from_source, queryable) do
     std_config(id, association, config, parent, from_source, queryable)

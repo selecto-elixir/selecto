@@ -2,6 +2,12 @@
 
 This document outlines common patterns for joining tables based on their relationships. These patterns help model complex data structures in a relational database.
 
+## Enhanced Join Types
+
+Selecto now supports advanced join types beyond basic LEFT/INNER joins. For detailed documentation on enhanced joins including self-joins, lateral joins, cross joins, full outer joins, and conditional joins, see [Enhanced Joins Guide](../docs/enhanced_joins.md).
+
+## Traditional Join Patterns
+
 ## Star Schema
 
 A star schema is common in data warehousing and business intelligence. It features a central "fact" table connected to multiple "dimension" tables.
