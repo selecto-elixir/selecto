@@ -207,8 +207,15 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, Atom.to_string(selector))
   end
 
-  def prep_selector(_sel, selc) do
-    raise "Unsupported selector type: #{inspect(selc)}. Supported types: atoms, tuples with functions, strings, and literals."
+  def prep_selector(selecto, selector) do
+    # Try advanced SQL functions first
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil ->
+        # Not an advanced function, fall back to error
+        raise "Unsupported selector type: #{inspect(selector)}. Supported types: atoms, tuples with functions, strings, and literals."
+      result ->
+        result
+    end
   end
 
   ### make the builder build the dynamic so we can use same parts for SQL
