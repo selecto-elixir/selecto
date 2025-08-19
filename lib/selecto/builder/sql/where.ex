@@ -22,13 +22,22 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, {:text_search, value}}) do
     conf = Selecto.field(selecto, field)
     ### Don't think we ever have to cook the field because it has to be the tsvector...
-    {conf.requires_join, [" ", build_selector_string(selecto, conf.requires_join, conf.field), " @@ websearch_to_tsquery(", {:param, value}, ") "], []}
+    {conf.requires_join,
+     [
+       " ",
+       build_selector_string(selecto, conf.requires_join, conf.name),
+       " @@ websearch_to_tsquery(",
+       {:param, value},
+       ") "
+     ], []}
   end
 
   def build(selecto, {field, {:subquery, :in, query, params}}) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", query, " "], param ++ params}
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", query, " "],
+     param ++ params}
   end
 
   def build(selecto, {field, {:subquery, :in, query}}) do
@@ -40,13 +49,17 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param ++ params}
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param ++ params}
   end
 
   def build(selecto, {field, comp, {:subquery, agg, query}}) when agg in [:any, :all] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param}
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param}
   end
 
   def build(_selecto, {:exists, query, params}) do
@@ -76,6 +89,7 @@ defmodule Selecto.Builder.Sql.Where do
 
       clause_parts = Enum.map(clauses, fn c -> ["(", c, ")"] end)
       conj_str = " #{conj} "
+
       final_clause = [
         "(",
         Enum.intersperse(clause_parts, conj_str),
@@ -90,8 +104,15 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
 
     {conf.requires_join,
-     [" ", build_selector_string(selecto, conf.requires_join, conf.field), " between ", {:param, to_type(conf.type, min)}, " and ", {:param, to_type(conf.type, max)}, " "],
-     []}
+     [
+       " ",
+       build_selector_string(selecto, conf.requires_join, conf.name),
+       " between ",
+       {:param, to_type(conf.type, min)},
+       " and ",
+       {:param, to_type(conf.type, max)},
+       " "
+     ], []}
   end
 
   def build(selecto, {field, {comp, value}}) when comp in [:like, :ilike] do
@@ -99,22 +120,22 @@ defmodule Selecto.Builder.Sql.Where do
     # ### TODO sanitize like value!
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(join), [" ", sel, " ", to_string(comp), " ", {:param, value}, " "], param}
-
   end
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " ", comp, " ", {:param, to_type(conf.type, value)}, " "],
-     param}
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " ", comp, " ", {:param, to_type(conf.type, value)}, " "], param}
   end
 
   def build(selecto, {field, list}) when is_list(list) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "],
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "],
      param}
   end
 

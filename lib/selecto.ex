@@ -1,9 +1,9 @@
 defmodule Selecto do
   @derive {Inspect, only: [:postgrex_opts, :set]}
   defstruct [:postgrex_opts, :domain, :config, :set]
-  
+
   # import Selecto.Types - removed to avoid circular dependency
-  
+
   @type t :: Selecto.Types.t()
 
   @moduledoc """
@@ -206,29 +206,36 @@ defmodule Selecto do
         :ok = Selecto.DomainValidator.validate_domain!(domain)
         selecto = Selecto.configure(domain, postgrex_opts)
   """
-#  @spec configure(Selecto.Types.domain(), Postgrex.conn(), Selecto.Types.configure_options()) :: t()
+  #  @spec configure(Selecto.Types.domain(), Postgrex.conn(), Selecto.Types.configure_options()) :: t()
   def configure(domain, postgrex_opts, opts \\ []) do
     validate? = Keyword.get(opts, :validate, true)
     use_pool? = Keyword.get(opts, :pool, false)
     pool_options = Keyword.get(opts, :pool_options, [])
-    
+
     if validate? do
       Selecto.DomainValidator.validate_domain!(domain)
     end
-    
+
     # Handle connection pooling
-    final_postgrex_opts = if use_pool? and not match?({:pool, _}, postgrex_opts) do
-      case Selecto.ConnectionPool.start_pool(postgrex_opts, pool_options) do
-        {:ok, pool_ref} -> {:pool, pool_ref}
-        {:error, reason} -> 
-          require Logger
-          Logger.warning("Failed to start connection pool: #{inspect(reason)}. Falling back to direct connection.")
-          postgrex_opts
+    final_postgrex_opts =
+      if use_pool? and not match?({:pool, _}, postgrex_opts) do
+        case Selecto.ConnectionPool.start_pool(postgrex_opts, pool_options) do
+          {:ok, pool_ref} ->
+            {:pool, pool_ref}
+
+          {:error, reason} ->
+            require Logger
+
+            Logger.warning(
+              "Failed to start connection pool: #{inspect(reason)}. Falling back to direct connection."
+            )
+
+            postgrex_opts
+        end
+      else
+        postgrex_opts
       end
-    else
-      postgrex_opts
-    end
-    
+
     %Selecto{
       postgrex_opts: final_postgrex_opts,
       domain: domain,
@@ -273,7 +280,7 @@ defmodule Selecto do
   end
 
   # generate the selecto configuration
-#  @spec configure_domain(Selecto.Types.domain()) :: Selecto.Types.processed_config()
+  #  @spec configure_domain(Selecto.Types.domain()) :: Selecto.Types.processed_config()
   defp configure_domain(%{source: source} = domain) do
     primary_key = source.primary_key
 
@@ -317,37 +324,37 @@ defmodule Selecto do
   end
 
   ### These use 'selecto_struct' to prevent global replace from hitting them, will switch back later!
-#  @spec filters(t()) :: %{String.t() => term()}
+  #  @spec filters(t()) :: %{String.t() => term()}
   def filters(selecto_struct) do
     selecto_struct.config.filters
   end
 
-#  @spec columns(t()) :: %{String.t() => %{required(:name) => String.t()}}
+  #  @spec columns(t()) :: %{String.t() => %{required(:name) => String.t()}}
   def columns(selecto_struct) do
     selecto_struct.config.columns
   end
 
-#  @spec joins(t()) :: %{atom() => processed_join()}
+  #  @spec joins(t()) :: %{atom() => processed_join()}
   def joins(selecto_struct) do
     selecto_struct.config.joins
   end
 
-#  @spec source_table(t()) :: table_name()
+  #  @spec source_table(t()) :: table_name()
   def source_table(selecto_struct) do
     selecto_struct.config.source_table
   end
 
-#  @spec domain(t()) :: domain()
+  #  @spec domain(t()) :: domain()
   def domain(selecto_struct) do
     selecto_struct.domain
   end
 
-#  @spec domain_data(t()) :: term()
+  #  @spec domain_data(t()) :: term()
   def domain_data(selecto_struct) do
     selecto_struct.config.domain_data
   end
 
-#  @spec field(t(), field_name()) :: %{required(:name) => String.t()} | nil
+  #  @spec field(t(), field_name()) :: %{required(:name) => String.t()} | nil
   def field(selecto_struct, field) do
     # Try enhanced field resolution first
     case Selecto.FieldResolver.resolve_field(selecto_struct, field) do
@@ -355,33 +362,42 @@ defmodule Selecto do
         # Convert field_info to legacy format for backward compatibility
         %{
           name: field_info.name,
+          # Add for backward compatibility
+          field: field_info.name,
           type: field_info.type,
           requires_join: field_info.source_join,
           qualified_name: field_info.qualified_name,
           alias: field_info.alias
         }
+
       {:error, _} ->
-        # Fallback to legacy field resolution
-        selecto_struct.config.columns[field]
+        # Fallback to legacy field resolution  
+        fallback_result = selecto_struct.config.columns[field]
+
+        if fallback_result && !Map.has_key?(fallback_result, :field) do
+          Map.put(fallback_result, :field, fallback_result.name)
+        else
+          fallback_result
+        end
     end
   end
-  
+
   @doc """
   Enhanced field resolution with disambiguation and error handling.
-  
+
   Provides detailed field information and helpful error messages.
   """
   def resolve_field(selecto_struct, field) do
     Selecto.FieldResolver.resolve_field(selecto_struct, field)
   end
-  
+
   @doc """
   Get all available fields across all joins and the source table.
   """
   def available_fields(selecto_struct) do
     Selecto.FieldResolver.get_available_fields(selecto_struct)
   end
-  
+
   @doc """
   Get field suggestions for autocomplete or error recovery.
   """
@@ -389,48 +405,46 @@ defmodule Selecto do
     Selecto.FieldResolver.suggest_fields(selecto_struct, partial_name)
   end
 
-#  @spec set(t()) :: query_set()
+  #  @spec set(t()) :: query_set()
   def set(selecto_struct) do
     selecto_struct.set
   end
-
 
   #### TODO join stuff, CTE stuff
   ### options:
   ### paramterize: value -- will cause a special case of this join with the indicated parameter, and fields/filters to be made available
   ### inner: true -- change the default
 
-  #def join(selecto_struct, join_id, options \\ []) do
-  #end
+  # def join(selecto_struct, join_id, options \\ []) do
+  # end
 
   ### returns a key to use to add filters, selects, etc from this join
-  #def join_paramterize(selecto_struct, join_id, parameter, options) do
-  #end
+  # def join_paramterize(selecto_struct, join_id, parameter, options) do
+  # end
 
-  #def join(selecto_struct, join_id, join_selecto, options \\ []) do
-  #end
+  # def join(selecto_struct, join_id, join_selecto, options \\ []) do
+  # end
 
   ### CTEs. once a CTE is entered, further CTEs can reference it. CTEs are meant to be added as configuration not dynamically!
-  #def with(selecto_struct, cte_name, cte, params, options \\ []) do
-  #end
-  #def with(selecto_struct, cte_name, cte_selecto, options \\ []) do
-  #end
+  # def with(selecto_struct, cte_name, cte, params, options \\ []) do
+  # end
+  # def with(selecto_struct, cte_name, cte_selecto, options \\ []) do
+  # end
 
   ### Modify an existing CTE
-  #def on_with(selecto_struct, cte_name, fn selecto, cte_selecto -> selecto end, options \\ [])
-  #end
-
+  # def on_with(selecto_struct, cte_name, fn selecto, cte_selecto -> selecto end, options \\ [])
+  # end
 
   @doc """
     add a field to the Select list. Send in one or a list of field names or selectable tuples
     TODO allow to send single, and special forms..
   """
-#  @spec select(t(), [selector()]) :: t()
+  #  @spec select(t(), [selector()]) :: t()
   def select(selecto, fields) when is_list(fields) do
     put_in(selecto.set.selected, Enum.uniq(selecto.set.selected ++ fields))
   end
 
-#  @spec select(t(), selector()) :: t()
+  #  @spec select(t(), selector()) :: t()
   def select(selecto, field) do
     Selecto.select(selecto, [field])
   end
@@ -438,12 +452,12 @@ defmodule Selecto do
   @doc """
     add a filter to selecto. Send in a tuple with field name and filter value
   """
-#  @spec filter(t(), [filter()]) :: t()
+  #  @spec filter(t(), [filter()]) :: t()
   def filter(selecto, filters) when is_list(filters) do
     put_in(selecto.set.filtered, selecto.set.filtered ++ filters)
   end
 
-#  @spec filter(t(), filter()) :: t()
+  #  @spec filter(t(), filter()) :: t()
   def filter(selecto, filters) do
     put_in(selecto.set.filtered, selecto.set.filtered ++ [filters])
   end
@@ -451,12 +465,12 @@ defmodule Selecto do
   @doc """
     Add to the Order By
   """
-#  @spec order_by(t(), [order_spec()]) :: t()
+  #  @spec order_by(t(), [order_spec()]) :: t()
   def order_by(selecto, orders) when is_list(orders) do
     put_in(selecto.set.order_by, selecto.set.order_by ++ orders)
   end
 
-#  @spec order_by(t(), order_spec()) :: t()
+  #  @spec order_by(t(), order_spec()) :: t()
   def order_by(selecto, orders) do
     put_in(selecto.set.order_by, selecto.set.order_by ++ [orders])
   end
@@ -464,17 +478,17 @@ defmodule Selecto do
   @doc """
     Add to the Group By
   """
-#  @spec group_by(t(), [field_name()]) :: t()
+  #  @spec group_by(t(), [field_name()]) :: t()
   def group_by(selecto, groups) when is_list(groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
 
-#  @spec group_by(t(), field_name()) :: t()
+  #  @spec group_by(t(), field_name()) :: t()
   def group_by(selecto, groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
   end
 
-#  @spec gen_sql(t(), sql_generation_options()) :: {String.t(), %{String.t() => String.t()}, sql_params()}
+  #  @spec gen_sql(t(), sql_generation_options()) :: {String.t(), %{String.t() => String.t()}, sql_params()}
   def gen_sql(selecto, opts) do
     # Support both old and new query generation approaches
     if Keyword.get(opts, :use_new_generator, false) do
@@ -502,12 +516,12 @@ defmodule Selecto do
             Logger.error("Query failed: \#{inspect(reason)}")
         end
   """
-  @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_result()
+  @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) ::
+          Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
     # Delegate to the extracted Executor module
     Selecto.Executor.execute(selecto, opts)
   end
-
 
   @doc """
     Execute a query expecting exactly one row, returning {:ok, row} or {:error, reason}.
@@ -529,17 +543,17 @@ defmodule Selecto do
             # Handle database or other errors
         end
   """
-  @spec execute_one(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_one_result()
+  @spec execute_one(Selecto.Types.t(), Selecto.Types.execute_options()) ::
+          Selecto.Types.safe_execute_one_result()
   def execute_one(selecto, opts \\ []) do
     # Delegate to the extracted Executor module
     Selecto.Executor.execute_one(selecto, opts)
   end
 
-
   @doc """
     Generate SQL without executing - useful for debugging and caching
   """
-#  @spec to_sql(t(), sql_generation_options()) :: sql_result()
+  #  @spec to_sql(t(), sql_generation_options()) :: sql_result()
   def to_sql(selecto, opts \\ []) do
     {query, _aliases, params} = gen_sql(selecto, opts)
     {query, params}

@@ -5,12 +5,12 @@ defmodule Selecto.Builder.Sql.Select do
 
   @doc """
   Process field selectors with various formats:
-  
+
   Custom SQL support:
     {:custom_sql, sql_template, field_mappings} - safely handle custom column SQL with field validation
-  
+
   Standard formats:
-  
+
     "field" # - plain old field from one of the tables
     {:field, field } #- same as above disamg for predicate second+ position
     {:literal, "value"} #- for literal values
@@ -33,14 +33,15 @@ defmodule Selecto.Builder.Sql.Select do
   ### TODO ability to select distinct on count( field )...
 
   # Custom SQL clause (Phase 1 safety implementation)
-  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}) when is_binary(sql_template) do
+  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings})
+      when is_binary(sql_template) do
     # Validate that all referenced fields exist  
     available_fields = get_available_fields(selecto)
     validate_field_references(sql_template, field_mappings, available_fields)
-    
+
     # Replace field placeholders with actual field references
     safe_sql = substitute_field_references(sql_template, field_mappings, selecto)
-    
+
     # Return as safe iodata (no parameters for now - Phase 1 safety only)
     {[safe_sql], :selecto_root, []}
   end
@@ -91,7 +92,9 @@ defmodule Selecto.Builder.Sql.Select do
           {sel_iodata, join_s, param_s} = prep_selector(selecto, selector)
 
           when_clause = ["when ", filters_iodata, " then ", sel_iodata]
-          {s ++ [when_clause], j ++ List.wrap(join_s) ++ List.wrap(join_w), p ++ param_w ++ param_s}
+
+          {s ++ [when_clause], j ++ List.wrap(join_s) ++ List.wrap(join_w),
+           p ++ param_w ++ param_s}
         end
       )
 
@@ -102,7 +105,15 @@ defmodule Selecto.Builder.Sql.Select do
 
       _ ->
         {sel_else_iodata, join_s, param_s} = prep_selector(selecto, else_clause)
-        case_iodata = ["case ", Enum.intersperse(sel_parts, " "), " else ", sel_else_iodata, " end"]
+
+        case_iodata = [
+          "case ",
+          Enum.intersperse(sel_parts, " "),
+          " else ",
+          sel_else_iodata,
+          " end"
+        ]
+
         {case_iodata, join ++ List.wrap(join_s), par ++ param_s}
     end
   end
@@ -188,7 +199,7 @@ defmodule Selecto.Builder.Sql.Select do
 
     case Map.get(conf, :select) do
       nil ->
-        field_iodata = [build_selector_string(selecto, conf.requires_join, conf.field)]
+        field_iodata = [build_selector_string(selecto, conf.requires_join, conf.name)]
         {field_iodata, conf.requires_join, []}
 
       sub when is_binary(sub) ->
@@ -213,6 +224,7 @@ defmodule Selecto.Builder.Sql.Select do
       nil ->
         # Not an advanced function, fall back to error
         raise "Unsupported selector type: #{inspect(selector)}. Supported types: atoms, tuples with functions, strings, and literals."
+
       result ->
         result
     end
@@ -282,13 +294,14 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # Phase 1: Custom Column Safety Helper Functions
-  
+
   defp get_available_fields(selecto) do
     # Get all available fields from source and joins
     source_fields = Map.keys(selecto.config.columns || %{})
     join_fields = get_join_fields(selecto.config.joins || %{})
-    cte_fields = get_cte_fields(selecto) # New: CTE field availability
-    
+    # New: CTE field availability
+    cte_fields = get_cte_fields(selecto)
+
     source_fields ++ join_fields ++ cte_fields
   end
 
@@ -311,8 +324,10 @@ defmodule Selecto.Builder.Sql.Select do
     # Ensure all field references in mappings exist
     Enum.each(field_mappings, fn {_placeholder, field_ref} ->
       case validate_field_exists(field_ref, available_fields) do
-        :ok -> :ok
-        {:error, reason} -> 
+        :ok ->
+          :ok
+
+        {:error, reason} ->
           raise ArgumentError, "Invalid field reference '#{field_ref}' in custom SQL: #{reason}"
       end
     end)
@@ -320,7 +335,9 @@ defmodule Selecto.Builder.Sql.Select do
 
   defp validate_field_exists(field_ref, available_fields) do
     cond do
-      field_ref in available_fields -> :ok
+      field_ref in available_fields ->
+        :ok
+
       String.contains?(field_ref, ".") ->
         # Check if it's a valid qualified field reference
         if Enum.any?(available_fields, &String.starts_with?(&1, field_ref)) do
@@ -328,7 +345,9 @@ defmodule Selecto.Builder.Sql.Select do
         else
           {:error, "field not found in available joins"}
         end
-      true -> {:error, "field not found in source columns"}
+
+      true ->
+        {:error, "field not found in source columns"}
     end
   end
 
