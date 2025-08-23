@@ -34,6 +34,8 @@ defmodule Selecto.Executor do
   """
   @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
+    start_time = System.monotonic_time(:millisecond)
+    
     try do
       {query, aliases, params} = Selecto.gen_sql(selecto, opts)
       
@@ -48,11 +50,23 @@ defmodule Selecto.Executor do
           execute_with_postgrex(conn, query, params, aliases)
       end
       
+      # Track query execution for monitoring (if SelectoDev.QueryMonitor is available)
+      duration = System.monotonic_time(:millisecond) - start_time
+      track_query_execution(query, duration, result)
+      
       result
     rescue
-      error -> {:error, Selecto.Error.from_reason(error)}
+      error -> 
+        duration = System.monotonic_time(:millisecond) - start_time
+        error_result = {:error, Selecto.Error.from_reason(error)}
+        track_query_execution("Query compilation failed", duration, error_result)
+        error_result
     catch
-      :exit, reason -> {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
+      :exit, reason -> 
+        duration = System.monotonic_time(:millisecond) - start_time
+        error_result = {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
+        track_query_execution("Database connection failed", duration, error_result)
+        error_result
     end
   end
 
@@ -243,6 +257,34 @@ defmodule Selecto.Executor do
           value: other,
           status: :invalid
         }
+    end
+  end
+
+  @doc """
+  Track query execution for monitoring if SelectoDev.QueryMonitor is available.
+  """
+  defp track_query_execution(query, duration, result) do
+    try do
+      # Only attempt to track if the QueryMonitor module exists and is running
+      if Code.ensure_loaded?(SelectoDev.QueryMonitor) do
+        case result do
+          {:ok, _} ->
+            SelectoDev.QueryMonitor.track_query(query, duration)
+          {:error, error} ->
+            error_message = case error do
+              %{message: msg} -> msg
+              error when is_binary(error) -> error
+              error -> inspect(error)
+            end
+            SelectoDev.QueryMonitor.track_query_error(query, error_message, duration)
+        end
+      end
+    rescue
+      # Ignore any errors in tracking - we don't want monitoring to break queries
+      _ -> :ok
+    catch
+      # Also catch any exits from GenServer calls
+      :exit, _ -> :ok
     end
   end
 end
