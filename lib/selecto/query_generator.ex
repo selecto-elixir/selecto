@@ -1,31 +1,31 @@
 defmodule Selecto.QueryGenerator do
   @moduledoc """
   SQL query generation engine for Selecto.
-  
+
   Handles the generation of SQL queries from Selecto domain configurations
   and query specifications, with support for complex joins, CTEs, and OLAP functions.
   """
 
   @doc """
   Generate SQL query from Selecto configuration.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto struct containing domain and query configuration
   - `opts` - Generation options for customizing output
-  
+
   ## Returns
-  
+
   `{query_string, aliases_map, parameters_list}` - Complete SQL generation result
-  
+
   ## Options
-  
+
   - `:include_aliases` - Whether to include column aliases in output (default: true)
   - `:format` - SQL formatting style (`:compact` or `:pretty`, default: `:compact`)
   - `:validate` - Whether to validate query before generation (default: true)
-  
+
   ## Examples
-  
+
       {sql, aliases, params} = Selecto.QueryGenerator.generate_sql(selecto)
       IO.puts("Generated SQL: \#{sql}")
   """
@@ -51,7 +51,7 @@ defmodule Selecto.QueryGenerator do
       having_clause = build_having_clause(set, domain)
       order_by_clause = build_order_by_clause(set, domain)
       limit_clause = build_limit_clause(set)
-      
+
       # Handle CTEs if present
       cte_clause = build_cte_clause(set, domain)
 
@@ -70,7 +70,7 @@ defmodule Selecto.QueryGenerator do
       |> Enum.filter(&(&1 != nil and &1 != ""))
 
       query = Enum.join(query_parts, "\n")
-      
+
       # Extract parameters from all components
       params = extract_all_parameters(set, domain)
 
@@ -89,7 +89,7 @@ defmodule Selecto.QueryGenerator do
 
   @doc """
   Validate the structure of a Selecto configuration.
-  
+
   Checks for required fields and validates domain configuration.
   """
   def validate_selecto_structure(selecto) do
@@ -109,7 +109,7 @@ defmodule Selecto.QueryGenerator do
   """
   def build_select_clause(set, domain, opts) do
     include_aliases = Keyword.get(opts, :include_aliases, true)
-    
+
     case Map.get(set, :select) do
       nil -> build_default_select(domain, include_aliases)
       select_spec -> build_custom_select(select_spec, domain, include_aliases)
@@ -121,7 +121,7 @@ defmodule Selecto.QueryGenerator do
   """
   def build_from_clause(domain) do
     source_table = get_in(domain, [:source, :source_table])
-    
+
     if source_table do
       quote_identifier(source_table)
     else
@@ -135,7 +135,7 @@ defmodule Selecto.QueryGenerator do
   def build_join_clauses(domain, set) do
     joins = Map.get(domain, :joins, %{})
     active_joins = Map.get(set, :joins, [])
-    
+
     active_joins
     |> Enum.map(&build_single_join(&1, joins, domain))
     |> Enum.join("\n")
@@ -150,17 +150,17 @@ defmodule Selecto.QueryGenerator do
   """
   def build_where_clause(set, domain) do
     _conditions = []
-    
+
     # Add required filters from domain
     required_filters = Map.get(domain, :required_filters, [])
     domain_conditions = Enum.map(required_filters, &build_filter_condition(&1, domain))
-    
+
     # Add dynamic filters from set
     dynamic_filters = Map.get(set, :where, [])
     dynamic_conditions = Enum.map(dynamic_filters, &build_filter_condition(&1, domain))
-    
+
     all_conditions = domain_conditions ++ dynamic_conditions
-    
+
     case all_conditions do
       [] -> nil
       conditions -> "WHERE " <> Enum.join(conditions, " AND ")
@@ -229,7 +229,7 @@ defmodule Selecto.QueryGenerator do
   defp build_default_select(domain, include_aliases) do
     source = domain.source
     default_fields = Map.get(source, :default_selected, Map.get(source, :fields, []))
-    
+
     field_clauses = Enum.map(default_fields, fn field ->
       if include_aliases do
         "#{quote_identifier(field)} AS #{quote_identifier(field)}"
@@ -237,10 +237,10 @@ defmodule Selecto.QueryGenerator do
         quote_identifier(field)
       end
     end)
-    
+
     select_clause = Enum.join(field_clauses, ", ")
     aliases = if include_aliases, do: Enum.into(default_fields, %{}, &{&1, &1}), else: %{}
-    
+
     {select_clause, aliases}
   end
 

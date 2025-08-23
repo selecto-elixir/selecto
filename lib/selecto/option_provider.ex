@@ -1,7 +1,7 @@
 defmodule Selecto.OptionProvider do
   @moduledoc """
   Handles loading and processing of options for select-based filters.
-  
+
   This module provides a unified interface for loading options from various sources:
   - Static lists
   - Other Selecto domains
@@ -17,22 +17,22 @@ defmodule Selecto.OptionProvider do
 
   @doc """
   Load options from an option provider configuration.
-  
+
   ## Parameters
-  
+
   - `provider` - Option provider configuration
   - `selecto` - Current Selecto instance (for domain queries)
   - `opts` - Additional options like search terms, limits
-  
+
   ## Examples
-  
+
       # Static options
       provider = %{type: :static, values: ["active", "inactive"]}
       {:ok, options} = load_options(provider, selecto)
-      
+
       # Domain-based options
       provider = %{
-        type: :domain, 
+        type: :domain,
         domain: :categories_domain,
         value_field: :id,
         display_field: :name
@@ -66,7 +66,7 @@ defmodule Selecto.OptionProvider do
   end
 
   # Load options from another Selecto domain.
-  # 
+  #
   # Executes a query against the specified domain to get value/display pairs.
   @spec load_domain_options(Types.domain_option_provider(), Selecto.t(), keyword()) :: load_result()
   defp load_domain_options(provider, selecto, opts) do
@@ -75,31 +75,31 @@ defmodule Selecto.OptionProvider do
       value_field: value_field,
       display_field: display_field
     } = provider
-    
+
     # Get domain configuration
     domain_config = get_domain_config(domain_name, selecto)
-    
+
     if domain_config do
       # Create a new Selecto for the domain query
       domain_selecto = Selecto.configure(domain_config, selecto.postgrex_opts)
-      
+
       # Build the query
       selected = [Atom.to_string(value_field), Atom.to_string(display_field)]
-      
+
       domain_selecto = domain_selecto
       |> Selecto.select(selected)
       |> apply_domain_filters(provider)
       |> apply_domain_ordering(provider)
       |> apply_search_filter(opts[:search], display_field)
       |> apply_limit(opts[:limit] || 100)
-      
+
       case Selecto.execute(domain_selecto) do
         {:ok, {rows, _columns, _aliases}} ->
           options = Enum.map(rows, fn [value, display] ->
             {value, to_string(display)}
           end)
           {:ok, options}
-          
+
         {:error, reason} ->
           {:error, {:domain_query_failed, reason}}
       end
@@ -109,7 +109,7 @@ defmodule Selecto.OptionProvider do
   end
 
   # Load options from an Ecto enum field.
-  # 
+  #
   # Extracts the enum values from the schema module and field definition.
   @spec load_enum_options(Types.enum_option_provider()) :: load_result()
   defp load_enum_options(%{schema: schema_module, field: field}) do
@@ -126,7 +126,7 @@ defmodule Selecto.OptionProvider do
             {value, to_string(key)}
           end)
           {:ok, options}
-          
+
         other_type ->
           {:error, {:not_enum_field, field, other_type}}
       end
@@ -137,7 +137,7 @@ defmodule Selecto.OptionProvider do
   end
 
   # Load options from a custom SQL query.
-  # 
+  #
   # Executes the provided SQL query and expects results in [value, display] format.
   @spec load_query_options(Types.query_option_provider(), Selecto.t(), keyword()) :: load_result()
   defp load_query_options(%{query: query, params: params}, selecto, opts) do
@@ -147,10 +147,10 @@ defmodule Selecto.OptionProvider do
     else
       query
     end
-    
+
     # Apply limit
     final_query = add_limit_to_query(final_query, opts[:limit] || 100)
-    
+
     case Postgrex.query(selecto.postgrex_opts, final_query, params) do
       {:ok, %{rows: rows}} ->
         options = Enum.map(rows, fn
@@ -158,12 +158,12 @@ defmodule Selecto.OptionProvider do
           [value] -> {value, to_string(value)}
           row -> {:error, {:invalid_query_result, row}}
         end)
-        
+
         case Enum.find(options, &match?({:error, _}, &1)) do
           nil -> {:ok, options}
           {:error, reason} -> {:error, reason}
         end
-        
+
       {:error, reason} ->
         {:error, {:query_execution_failed, reason}}
     end
@@ -218,7 +218,7 @@ defmodule Selecto.OptionProvider do
 
   @doc """
   Validate an option provider configuration.
-  
+
   Checks that all required fields are present and have valid types.
   """
   @spec validate_provider(Types.option_provider()) :: :ok | {:error, term()}
@@ -268,7 +268,7 @@ defmodule Selecto.OptionProvider do
     missing_fields = Enum.filter(required_fields, fn field ->
       not Map.has_key?(provider, field)
     end)
-    
+
     case missing_fields do
       [] -> :ok
       fields -> {:error, {:missing_required_fields, fields}}
