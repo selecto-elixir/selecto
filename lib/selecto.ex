@@ -116,7 +116,7 @@ defmodule Selecto do
         {:ok, {rows, columns, aliases}} ->
           # Process successful results
           Enum.map(rows, &process_row/1)
-          
+
         {:error, %Postgrex.Error{} = error} ->
           # Handle database errors gracefully
           Logger.error("Query failed: \#{inspect(error)}")
@@ -128,11 +128,11 @@ defmodule Selecto do
         {:ok, {row, aliases}} ->
           # Process single row
           extract_values(row, aliases)
-          
+
         {:error, :no_results} ->
           # Handle empty result set
           {:error, :not_found}
-          
+
         {:error, :multiple_results} ->
           # Handle unexpected multiple rows
           {:error, :ambiguous_result}
@@ -143,7 +143,7 @@ defmodule Selecto do
   All execution functions return structured `Selecto.Error` for consistent error handling:
 
   - `{:error, %Selecto.Error{type: :connection_error}}` - Database connection failures
-  - `{:error, %Selecto.Error{type: :query_error}}` - SQL execution errors  
+  - `{:error, %Selecto.Error{type: :query_error}}` - SQL execution errors
   - `{:error, %Selecto.Error{type: :no_results}}` - execute_one/2 when 0 rows returned
   - `{:error, %Selecto.Error{type: :multiple_results}}` - execute_one/2 when >1 rows returned
   - `{:error, %Selecto.Error{type: :timeout_error}}` - Query timeout failures
@@ -152,26 +152,26 @@ defmodule Selecto do
 
   @doc """
     Generate a selecto structure from a domain configuration and database connection.
-    
+
     ## Parameters
-    
+
     - `domain` - Domain configuration map (see domain configuration docs)
     - `postgrex_opts` - Postgrex connection options, PID, or pooled connection
     - `opts` - Configuration options
-    
+
     ## Options
-    
+
     - `:validate` - (boolean, default: true) Whether to validate the domain configuration
       before processing. When `true`, will raise `Selecto.DomainValidator.ValidationError`
       if the domain has structural issues like missing schemas, circular join dependencies,
       or invalid advanced join configurations.
     - `:pool` - (boolean, default: false) Whether to enable connection pooling
     - `:pool_options` - Connection pool configuration options
-      
+
     ## Validation
-    
+
     Domain validation checks for:
-    
+
     - Required top-level keys (source, schemas)
     - Schema structural integrity (required keys, column definitions)
     - Association references to valid schemas
@@ -179,29 +179,29 @@ defmodule Selecto do
     - Join dependency cycles that would cause infinite recursion
     - Advanced join type requirements (dimension keys, hierarchy parameters, etc.)
     - Field reference validity in filters and selectors
-    
+
     ## Examples
-    
+
         # Basic usage (validation enabled by default)
         selecto = Selecto.configure(domain, postgrex_opts)
-        
+
         # With connection pooling
         selecto = Selecto.configure(domain, postgrex_opts, pool: true)
-        
+
         # Custom pool configuration
         pool_opts = [pool_size: 20, max_overflow: 10]
         selecto = Selecto.configure(domain, postgrex_opts, pool: true, pool_options: pool_opts)
-        
+
         # Using existing pooled connection
         {:ok, pool} = Selecto.ConnectionPool.start_pool(postgrex_opts)
         selecto = Selecto.configure(domain, {:pool, pool})
-        
+
         # Disable validation for performance-critical scenarios
         selecto = Selecto.configure(domain, postgrex_opts, validate: false)
-        
+
         # With Ecto repository and schema
         selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User)
-        
+
         # Validation can also be called explicitly
         :ok = Selecto.DomainValidator.validate_domain!(domain)
         selecto = Selecto.configure(domain, postgrex_opts)
@@ -251,27 +251,27 @@ defmodule Selecto do
 
   @doc """
     Configure Selecto from an Ecto repository and schema.
-    
+
     This convenience function automatically introspects the Ecto schema
     and configures Selecto with the appropriate domain and database connection.
-    
+
     ## Parameters
-    
+
     - `repo` - The Ecto repository module (e.g., MyApp.Repo)
     - `schema` - The Ecto schema module to use as the source table
     - `opts` - Configuration options (passed to EctoAdapter.configure/3)
-    
+
     ## Examples
-    
+
         # Basic usage
         selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User)
-        
+
         # With joins and options
         selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User,
           joins: [:posts, :profile],
           redact_fields: [:password_hash]
         )
-        
+
         # With validation
         selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User, validate: true)
   """
@@ -371,7 +371,7 @@ defmodule Selecto do
         }
 
       {:error, _} ->
-        # Fallback to legacy field resolution  
+        # Fallback to legacy field resolution
         fallback_result = selecto_struct.config.columns[field]
 
         if fallback_result do
@@ -379,10 +379,10 @@ defmodule Selecto do
           database_field = case Map.get(fallback_result, :field) do
             atom when is_atom(atom) -> Atom.to_string(atom)
             string when is_binary(string) -> string
-            nil -> 
+            nil ->
               # Extract field name from colid if available, otherwise use the field parameter
               case Map.get(fallback_result, :colid) do
-                colid when is_binary(colid) -> 
+                colid when is_binary(colid) ->
                   case Regex.run(~r/\[([^\]]+)\]$/, colid) do
                     [_, field_name] -> field_name
                     nil -> Atom.to_string(field)
@@ -515,14 +515,14 @@ defmodule Selecto do
 
   @doc """
     Generate and run the query, returning {:ok, result} or {:error, reason}.
-    
+
     Non-raising version that returns tagged tuples for better error handling.
     Result format: {:ok, {rows, columns, aliases}} | {:error, reason}
-    
+
     ## Examples
-    
+
         case Selecto.execute(selecto) do
-          {:ok, {rows, columns, aliases}} -> 
+          {:ok, {rows, columns, aliases}} ->
             # Handle successful query
             process_results(rows, columns)
           {:error, reason} ->
@@ -539,20 +539,20 @@ defmodule Selecto do
 
   @doc """
     Execute a query expecting exactly one row, returning {:ok, row} or {:error, reason}.
-    
+
     Useful for queries that should return a single record (e.g., with LIMIT 1 or aggregate functions).
     Returns an error if zero rows or multiple rows are returned.
-    
+
     ## Examples
-    
+
         case Selecto.execute_one(selecto) do
-          {:ok, row} -> 
+          {:ok, row} ->
             # Handle single row result
             process_single_result(row)
           {:error, :no_results} ->
             # Handle case where no rows were found
           {:error, :multiple_results} ->
-            # Handle case where multiple rows were found  
+            # Handle case where multiple rows were found
           {:error, error} ->
             # Handle database or other errors
         end

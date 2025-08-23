@@ -287,7 +287,7 @@ defmodule Selecto.FieldResolver do
       Enum.map(join_fields, fn {field_key, field_config} ->
         field_name = extract_field_name(field_key)
         qualified_name = "#{join_name}.#{field_name}"
-        
+
         # Get the database field name from the configuration
         database_field_name = case Map.get(field_config, :field, field_config[:field]) do
           atom when is_atom(atom) -> Atom.to_string(atom)

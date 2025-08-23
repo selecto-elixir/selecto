@@ -35,7 +35,7 @@ defmodule Selecto.Builder.Sql.Select do
   # Custom SQL clause (Phase 1 safety implementation)
   def prep_selector(selecto, {:custom_sql, sql_template, field_mappings})
       when is_binary(sql_template) do
-    # Validate that all referenced fields exist  
+    # Validate that all referenced fields exist
     available_fields = get_available_fields(selecto)
     validate_field_references(sql_template, field_mappings, available_fields)
 
@@ -234,7 +234,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   ### make the builder build the dynamic so we can use same parts for SQL
 
-  # Future feature: subquery and array operations 
+  # Future feature: subquery and array operations
   # See advanced SQL functions library for current implementation
 
   # # CASE ... {:case, %{{...filter...}}=>val, cond2=>val, :else=>val}}
