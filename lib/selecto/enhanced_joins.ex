@@ -150,7 +150,7 @@ defmodule Selecto.EnhancedJoins do
   end
   
   # Lateral Join Configuration
-  defp configure_lateral_join(id, association, config, parent, from_source, queryable) do
+  defp configure_lateral_join(id, _association, config, parent, from_source, queryable) do
     name = Map.get(config, :name, id)
     lateral_query = Map.get(config, :lateral_query, "")
     join_alias = Map.get(config, :alias, "#{id}_lateral")
@@ -179,7 +179,7 @@ defmodule Selecto.EnhancedJoins do
   end
   
   # Cross Join Configuration
-  defp configure_cross_join(id, association, config, parent, from_source, queryable) do
+  defp configure_cross_join(id, _association, config, parent, from_source, queryable) do
     name = Map.get(config, :name, id)
     join_alias = Map.get(config, :alias, "#{id}_cross")
     
@@ -231,7 +231,7 @@ defmodule Selecto.EnhancedJoins do
   end
   
   # Conditional Join Configuration
-  defp configure_conditional_join(id, association, config, parent, from_source, queryable) do
+  defp configure_conditional_join(id, _association, config, parent, from_source, queryable) do
     name = Map.get(config, :name, id)
     conditions = Map.get(config, :conditions, [])
     condition_type = Map.get(config, :condition_type, :left)
@@ -339,7 +339,7 @@ defmodule Selecto.EnhancedJoins do
     ]
   end
   
-  defp build_condition_sql(conditions, alias_name) do
+  defp build_condition_sql(conditions, _alias_name) do
     conditions
     |> Enum.map(fn condition ->
       case condition do

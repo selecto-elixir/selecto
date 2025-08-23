@@ -65,11 +65,9 @@ defmodule Selecto.OptionProvider do
     {:error, :invalid_provider_configuration}
   end
 
-  @doc """
-  Load options from another Selecto domain.
-  
-  Executes a query against the specified domain to get value/display pairs.
-  """
+  # Load options from another Selecto domain.
+  # 
+  # Executes a query against the specified domain to get value/display pairs.
   @spec load_domain_options(Types.domain_option_provider(), Selecto.t(), keyword()) :: load_result()
   defp load_domain_options(provider, selecto, opts) do
     %{
@@ -110,11 +108,9 @@ defmodule Selecto.OptionProvider do
     end
   end
 
-  @doc """
-  Load options from an Ecto enum field.
-  
-  Extracts the enum values from the schema module and field definition.
-  """
+  # Load options from an Ecto enum field.
+  # 
+  # Extracts the enum values from the schema module and field definition.
   @spec load_enum_options(Types.enum_option_provider()) :: load_result()
   defp load_enum_options(%{schema: schema_module, field: field}) do
     try do
@@ -140,11 +136,9 @@ defmodule Selecto.OptionProvider do
     end
   end
 
-  @doc """
-  Load options from a custom SQL query.
-  
-  Executes the provided SQL query and expects results in [value, display] format.
-  """
+  # Load options from a custom SQL query.
+  # 
+  # Executes the provided SQL query and expects results in [value, display] format.
   @spec load_query_options(Types.query_option_provider(), Selecto.t(), keyword()) :: load_result()
   defp load_query_options(%{query: query, params: params}, selecto, opts) do
     # Apply search filter if provided
@@ -177,7 +171,7 @@ defmodule Selecto.OptionProvider do
 
   # Helper functions
 
-  defp get_domain_config(domain_name, selecto) do
+  defp get_domain_config(domain_name, _selecto) do
     # This would need to be implemented based on how domains are registered
     # For now, we'll assume domains are stored somewhere accessible
     case domain_name do
@@ -203,8 +197,9 @@ defmodule Selecto.OptionProvider do
     Selecto.filter(selecto, {Atom.to_string(field), {:like, "%#{search}%"}})
   end
 
-  defp apply_limit(selecto, limit) when is_integer(limit) and limit > 0 do
-    Selecto.limit(selecto, limit)
+  defp apply_limit(selecto, _limit) when is_integer(_limit) and _limit > 0 do
+    # Limit functionality not available in Selecto API
+    selecto
   end
   defp apply_limit(selecto, _), do: selecto
 

@@ -6,9 +6,6 @@ defmodule Selecto.QueryGenerator do
   and query specifications, with support for complex joins, CTEs, and OLAP functions.
   """
 
-  alias Selecto.Builder.{SQL, Join, CTE}
-  alias Selecto.Schema.{Column, Filter}
-
   @doc """
   Generate SQL query from Selecto configuration.
   
@@ -42,7 +39,7 @@ defmodule Selecto.QueryGenerator do
 
       # Extract configuration
       domain = selecto.domain
-      config = selecto.config || %{}
+      _config = selecto.config || %{}
       set = selecto.set || %{}
 
       # Build query components
@@ -152,7 +149,7 @@ defmodule Selecto.QueryGenerator do
   Build WHERE clause from filters and conditions.
   """
   def build_where_clause(set, domain) do
-    conditions = []
+    _conditions = []
     
     # Add required filters from domain
     required_filters = Map.get(domain, :required_filters, [])
@@ -173,7 +170,7 @@ defmodule Selecto.QueryGenerator do
   @doc """
   Build GROUP BY clause for aggregation queries.
   """
-  def build_group_by_clause(set, domain) do
+  def build_group_by_clause(set, _domain) do
     case Map.get(set, :group_by) do
       nil -> nil
       [] -> nil
@@ -184,7 +181,7 @@ defmodule Selecto.QueryGenerator do
   @doc """
   Build HAVING clause for aggregate filtering.
   """
-  def build_having_clause(set, domain) do
+  def build_having_clause(set, _domain) do
     case Map.get(set, :having) do
       nil -> nil
       [] -> nil
@@ -195,7 +192,7 @@ defmodule Selecto.QueryGenerator do
   @doc """
   Build ORDER BY clause for result sorting.
   """
-  def build_order_by_clause(set, domain) do
+  def build_order_by_clause(set, _domain) do
     case Map.get(set, :order_by) do
       nil -> nil
       [] -> nil
@@ -247,27 +244,27 @@ defmodule Selecto.QueryGenerator do
     {select_clause, aliases}
   end
 
-  defp build_custom_select(select_spec, domain, include_aliases) do
+  defp build_custom_select(_select_spec, domain, include_aliases) do
     # TODO: Implement custom select handling
     build_default_select(domain, include_aliases)
   end
 
-  defp build_single_join(join_spec, joins_config, domain) do
+  defp build_single_join(_join_spec, _joins_config, _domain) do
     # TODO: Implement join building logic
     ""
   end
 
-  defp build_filter_condition(filter, domain) do
+  defp build_filter_condition(_filter, _domain) do
     # TODO: Implement filter condition building
     "1=1"
   end
 
-  defp build_single_cte(cte_spec, domain) do
+  defp build_single_cte(_cte_spec, _domain) do
     # TODO: Implement CTE building logic
     ""
   end
 
-  defp extract_all_parameters(set, domain) do
+  defp extract_all_parameters(_set, _domain) do
     # TODO: Extract all parameters from the query
     []
   end

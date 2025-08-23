@@ -249,7 +249,7 @@ defmodule Selecto.FieldResolver do
   end
   
   defp do_resolve_field(selecto, %{type: :disambiguated, field: field_name, from_join: from_join}) do
-    qualified_name = "#{from_join}.#{field_name}"
+    _qualified_name = "#{from_join}.#{field_name}"
     do_resolve_field(selecto, %{type: :qualified, join: from_join, field: field_name})
   end
   

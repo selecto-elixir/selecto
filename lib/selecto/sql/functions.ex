@@ -75,8 +75,6 @@ defmodule Selecto.SQL.Functions do
       {:unnest, "tags"}
   """
 
-  import Selecto.Builder.Sql.Helpers
-  
   @doc """
   Process advanced SQL functions that extend beyond the basic set.
   
@@ -316,13 +314,13 @@ defmodule Selecto.SQL.Functions do
   end
   
   # Interval function helper
-  defp prep_interval(selecto, spec) when is_binary(spec) do
+  defp prep_interval(_selecto, spec) when is_binary(spec) do
     # Handle PostgreSQL interval syntax: "1 day", "2 hours", etc.
     interval_iodata = ["interval '", spec, "'"]
     {interval_iodata, [], []}
   end
   
-  defp prep_interval(selecto, {amount, unit}) do
+  defp prep_interval(_selecto, {amount, unit}) do
     # Handle tuple format: {1, "day"}, {2, "hour"}, etc.
     interval_iodata = ["interval '", Integer.to_string(amount), " ", unit, "'"]
     {interval_iodata, [], []}
@@ -354,7 +352,7 @@ defmodule Selecto.SQL.Functions do
   # Simple if-then-else function
   defp prep_iif_function(selecto, condition, true_value, false_value) do
     # Convert to CASE expression
-    case_selector = {:case, [{condition, true_value}], false_value}
+    _case_selector = {:case, [{condition, true_value}], false_value}
     
     # Delegate to existing case handling (would need to call back to main prep_selector)
     # For now, build manually
