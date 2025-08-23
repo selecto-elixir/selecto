@@ -272,7 +272,8 @@ defmodule Selecto.FieldResolver do
         source_join: :selecto_root,
         type: get_field_type(source.columns, field),
         alias: nil,
-        table_alias: "selecto_root"
+        table_alias: "selecto_root",
+        field: field_str
       }
       {field_str, field_info}
     end)
@@ -286,14 +287,22 @@ defmodule Selecto.FieldResolver do
       Enum.map(join_fields, fn {field_key, field_config} ->
         field_name = extract_field_name(field_key)
         qualified_name = "#{join_name}.#{field_name}"
+        
+        # Get the database field name from the configuration
+        database_field_name = case Map.get(field_config, :field, field_config[:field]) do
+          atom when is_atom(atom) -> Atom.to_string(atom)
+          string when is_binary(string) -> string
+          nil -> field_name
+        end
 
         field_info = %{
           name: field_name,
           qualified_name: qualified_name,
           source_join: join_name,
-          type: field_config[:type] || :string,
-          alias: field_config[:alias],
-          table_alias: Atom.to_string(join_name)
+          type: Map.get(field_config, :type, field_config[:type]) || :string,
+          alias: Map.get(field_config, :alias, field_config[:alias]),
+          table_alias: Atom.to_string(join_name),
+          field: database_field_name
         }
 
         {qualified_name, field_info}

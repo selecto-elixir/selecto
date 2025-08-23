@@ -199,7 +199,9 @@ defmodule Selecto.Builder.Sql.Select do
 
     case Map.get(conf, :select) do
       nil ->
-        field_iodata = [build_selector_string(selecto, conf.requires_join, conf.name)]
+        # Use the database field name (field property) instead of display name (name property)
+        field_name = Map.get(conf, :field, conf.name)
+        field_iodata = [build_selector_string(selecto, conf.requires_join, field_name)]
         {field_iodata, conf.requires_join, []}
 
       sub when is_binary(sub) ->

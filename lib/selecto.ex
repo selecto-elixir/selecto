@@ -362,8 +362,8 @@ defmodule Selecto do
         # Convert field_info to legacy format for backward compatibility
         %{
           name: field_info.name,
-          # Add for backward compatibility
-          field: field_info.name,
+          # Add for backward compatibility - use the actual database field name
+          field: field_info.field || field_info.name,
           type: field_info.type,
           requires_join: field_info.source_join,
           qualified_name: field_info.qualified_name,
@@ -374,8 +374,23 @@ defmodule Selecto do
         # Fallback to legacy field resolution  
         fallback_result = selecto_struct.config.columns[field]
 
-        if fallback_result && !Map.has_key?(fallback_result, :field) do
-          Map.put(fallback_result, :field, fallback_result.name)
+        if fallback_result do
+          # Ensure the field property contains the database field name
+          database_field = case Map.get(fallback_result, :field) do
+            atom when is_atom(atom) -> Atom.to_string(atom)
+            string when is_binary(string) -> string
+            nil -> 
+              # Extract field name from colid if available, otherwise use the field parameter
+              case Map.get(fallback_result, :colid) do
+                colid when is_binary(colid) -> 
+                  case Regex.run(~r/\[([^\]]+)\]$/, colid) do
+                    [_, field_name] -> field_name
+                    nil -> Atom.to_string(field)
+                  end
+                _ -> Atom.to_string(field)
+              end
+          end
+          Map.put(fallback_result, :field, database_field)
         else
           fallback_result
         end
