@@ -120,7 +120,7 @@ defmodule Selecto.EnhancedJoins do
   end
 
   # Self-Join Configuration
-  defp configure_self_join(id, association, config, parent, from_source, queryable) do
+  defp configure_self_join(id, _association, config, parent, from_source, queryable) do
     name = Map.get(config, :name, id)
     self_key = Map.get(config, :self_key, :parent_id)
     target_key = Map.get(config, :target_key, :id)

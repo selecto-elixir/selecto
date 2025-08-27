@@ -261,7 +261,7 @@ defmodule Selecto.Executor do
   end
 
   # Track query execution for monitoring if SelectoDev.QueryMonitor is available.
-  defp track_query_execution(query, duration, result) do
+  defp track_query_execution(_query, _duration, result) do
     try do
       # Only attempt to track if the QueryMonitor module exists and is running
       if Code.ensure_loaded?(SelectoDev.QueryMonitor) do
@@ -270,7 +270,7 @@ defmodule Selecto.Executor do
             # SelectoDev.QueryMonitor.track_query(query, duration)
             :ok
           {:error, error} ->
-            error_message = case error do
+            _error_message = case error do
               %{message: msg} -> msg
               error when is_binary(error) -> error
               error -> inspect(error)

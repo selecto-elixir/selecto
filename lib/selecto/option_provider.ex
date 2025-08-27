@@ -197,7 +197,7 @@ defmodule Selecto.OptionProvider do
     Selecto.filter(selecto, {Atom.to_string(field), {:like, "%#{search}%"}})
   end
 
-  defp apply_limit(selecto, _limit) when is_integer(_limit) and _limit > 0 do
+  defp apply_limit(selecto, limit) when is_integer(limit) and limit > 0 do
     # Limit functionality not available in Selecto API
     selecto
   end

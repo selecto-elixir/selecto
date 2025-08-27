@@ -379,25 +379,16 @@ defmodule Selecto.ConnectionPool do
     end
   end
   
-  defp checkout_connection(pool_pid, opts) do
-    timeout = Keyword.get(opts, :checkout_timeout, 5000)
-    
-    try do
-      case DBConnection.checkout(pool_pid, timeout: timeout) do
-        {:ok, conn} -> {:ok, conn}
-        {:error, reason} -> {:error, reason}
-      end
-    rescue
-      error -> {:error, error}
-    end
+  defp checkout_connection(_pool_pid, _opts) do
+    # TODO: Implement proper connection checkout using the correct DBConnection API
+    # The DBConnection.checkout/2 function doesn't exist in the public API
+    {:error, :not_implemented}
   end
   
-  defp checkin_connection(pool_pid, conn) do
-    try do
-      DBConnection.checkin(pool_pid, conn)
-    rescue
-      _ -> :ok
-    end
+  defp checkin_connection(_pool_pid, _conn) do
+    # TODO: Implement proper connection checkin using the correct DBConnection API
+    # The DBConnection.checkin/2 function doesn't exist in the public API
+    :ok
   end
   
   defp validate_pool_health(pool_pid) do

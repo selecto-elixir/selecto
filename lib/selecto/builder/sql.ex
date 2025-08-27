@@ -185,7 +185,7 @@ defmodule Selecto.Builder.Sql do
   end
 
   # Phase 3: Enhanced join builder implementation
-  defp build_enhanced_join(selecto, join, config, join_type, fc, p, ctes) do
+  defp build_enhanced_join(selecto, join, config, _join_type, fc, p, ctes) do
     # Use the enhanced joins module to build SQL for new join types
     case Selecto.EnhancedJoins.build_enhanced_join_sql(config, selecto) do
       nil ->
