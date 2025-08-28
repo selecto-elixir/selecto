@@ -52,7 +52,26 @@ defmodule Selecto.Helpers.Date do
     start = Timex.now() |> Timex.shift(days: 1) |> Timex.beginning_of_day()
     {start, Timex.end_of_day(start)}
   end
-  ### TODO more of these....
+  def val_to_dates(%{"value" => "yesterday", "value2" => ""}) do
+    start = Timex.now() |> Timex.shift(days: -1) |> Timex.beginning_of_day()
+    {start, Timex.end_of_day(start)}
+  end
+  def val_to_dates(%{"value" => "this_week", "value2" => ""}) do
+    start = Timex.now() |> Timex.beginning_of_week()
+    {start, Timex.end_of_week(start)}
+  end
+  def val_to_dates(%{"value" => "last_week", "value2" => ""}) do
+    start = Timex.now() |> Timex.shift(weeks: -1) |> Timex.beginning_of_week()
+    {start, Timex.end_of_week(start)}
+  end
+  def val_to_dates(%{"value" => "this_month", "value2" => ""}) do
+    start = Timex.now() |> Timex.beginning_of_month()
+    {start, Timex.end_of_month(start)}
+  end
+  def val_to_dates(%{"value" => "last_month", "value2" => ""}) do
+    start = Timex.now() |> Timex.shift(months: -1) |> Timex.beginning_of_month()
+    {start, Timex.end_of_month(start)}
+  end
 
   def val_to_dates(%{"value" => v1, "value2" => ""}) do
     Regex.named_captures(~r/(?<year>\d{4})-?(?<month>\d{2})?-?(?<day>\d{2})?/, v1) |> expand_date()

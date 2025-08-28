@@ -1,0 +1,18 @@
+╭─────────────────────────────────────────────────────────────╮
+│ ✻ Welcome to Claude Code!                                   │
+│                                                             │
+│   /help for help, /status for your current setup            │
+│                                                             │
+│   cwd: /data/chris/projects/selecto_example/vendor/selecto  │
+╰─────────────────────────────────────────────────────────────╯
+● Compact summary (ctrl+r to expand)
+  ⎿  Read lib/selecto/builder/sql/select.ex (330 lines)
+  ⎿  Read PHASE5_COMPLETE.md (211 lines)
+  ⎿  Read lib/selecto/builder/sql/olap.ex (414 lines)
+  ⎿  Read lib/selecto/builder/sql/tagging.ex (279 lines)
+  ⎿  Read lib/selecto/builder/sql/hierarchy.ex (357 lines)
+  ⎿  Todo list read (7 items)
+  ⎿  Claude usage limit reached. Your limit will reset at 7pm (America/Denver).
+
+      • /upgrade to increase your usage limit.
+

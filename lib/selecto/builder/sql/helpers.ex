@@ -1,8 +1,7 @@
 defmodule Selecto.Builder.Sql.Helpers do
 
 
-  ### TODO make sure these prevent sql injection, add some tests, allow valid strings though...
-  ### what am i missing here?! ugh
+  ### SQL safety helpers - prevent injection via string validation
 
   def check_string(string) do
     if string |> String.match?(~r/[^a-zA-Z0-9_]/) do
@@ -13,7 +12,6 @@ defmodule Selecto.Builder.Sql.Helpers do
   end
 
   def single_wrap(val) do
-    # TODO! replace ' in val
     val = String.replace(val, ~r/'/, "''")
     ~s"'#{val}'"
   end
@@ -23,7 +21,6 @@ defmodule Selecto.Builder.Sql.Helpers do
   end
 
   def double_wrap(str) do
-    ## TODO! do not allow non- \w_ here this is for field names etc
     if String.match?(str, ~r/[^a-zA-Z0-9_ :&-]/) do
       raise RuntimeError, message: "Invalid Table/Column/Alias Name #{str}"
     end
@@ -31,11 +28,11 @@ defmodule Selecto.Builder.Sql.Helpers do
     ~s["#{str}"]
   end
 
-  def build_selector_string(selecto, join, field) do
+  def build_selector_string(_selecto, join, field) do
     "#{double_wrap(join)}.#{double_wrap(field)}"
   end
 
-  def build_join_string(selecto, join) do
+  def build_join_string(_selecto, join) do
     double_wrap(join)
   end
 

@@ -13,7 +13,6 @@ defmodule Selecto.Schema.Column do
 
   ### how to do custom columns?
   def get_custom_columns(join, _source, domain) do
-    ### TODO
     Map.get(domain, :custom_columns, %{})
     |> Enum.reduce([], fn {f, v}, acc ->
       [
@@ -40,6 +39,19 @@ defmodule Selecto.Schema.Column do
     col
   end
 
+  defp add_option_provider(col, %{option_provider: provider}) do
+    Map.merge(col, %{
+      type: :select_options,
+      option_provider: provider,
+      multiple: Map.get(col, :multiple, false),
+      searchable: Map.get(col, :searchable, true)
+    })
+  end
+
+  defp add_option_provider(col, _config) do
+    col
+  end
+
   def configure(field, join, source, domain) do
     config = Map.get(Map.get(domain, :columns, %{}), field, %{})
     colid =
@@ -54,19 +66,20 @@ defmodule Selecto.Schema.Column do
 
     name = Map.get(config, :name, humanize(field))
 
+    base_col = %{
+      colid: colid,
+      field: field,
+      name: "#{domain.name}: #{name}",
+      type: source.columns[field].type,
+      requires_join: join,
+      format: Map.get(config, :format)
+    }
+
     {
       colid,
-      add_filter_type(
-        %{
-          colid: colid,
-          field: field,
-          name: "#{domain.name}: #{name}",
-          type: source.__schema__(:type, field),
-          requires_join: join,
-          format: Map.get(config, :format)
-        },
-        config
-      )
+      base_col
+      |> add_filter_type(config)
+      |> add_option_provider(config)
     }
   end
 

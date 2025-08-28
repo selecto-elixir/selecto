@@ -19,8 +19,13 @@ defmodule Selecto.Builder.Sql.Order do
 
   def order(selecto, {dir, order}) when dir in @dir_list do
     {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
-    #### I think this will break for a parameterized col...
-    {j, "#{c} #{@dirs[dir]}", p}
+    {j, [c, " ", @dirs[dir]], p}
+  end
+
+  def order(selecto, {order, dir}) when dir in @dir_list do
+    # Handle {field, direction} format which is the standard in this codebase
+    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
+    {j, [c, " ", @dirs[dir]], p}
   end
 
   def order(selecto, order_by) do
@@ -28,7 +33,7 @@ defmodule Selecto.Builder.Sql.Order do
   end
 
   def build(selecto) do
-    {joins, clauses, params} =
+    {joins, clauses_iodata, params} =
       selecto.set.order_by
       |> Enum.reduce(
         {[], [], []},
@@ -38,6 +43,8 @@ defmodule Selecto.Builder.Sql.Order do
         end
       )
 
-    {joins, Enum.join(clauses, ", "), params}
+    # Join clauses with ", " separator as iodata
+    clause_parts = Enum.intersperse(clauses_iodata, ", ")
+    {joins, clause_parts, params}
   end
 end
