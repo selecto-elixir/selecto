@@ -19,11 +19,25 @@ defmodule Selecto.Builder.Subselect do
   """
   @spec build_subselect_clauses(Types.t()) :: {[Types.iodata_with_markers()], Types.sql_params()}
   def build_subselect_clauses(selecto) do
+    # Determine the correct source alias based on pivot context
+    source_alias = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context, use "s" for source table
+      "s"
+    else
+      # In standard context, use "selecto_root"
+      "selecto_root"
+    end
+
+    build_subselect_clauses(selecto, source_alias)
+  end
+
+  @spec build_subselect_clauses(Types.t(), String.t()) :: {[Types.iodata_with_markers()], Types.sql_params()}
+  def build_subselect_clauses(selecto, source_alias) do
     subselects = Selecto.Subselect.get_subselect_configs(selecto)
     
     if length(subselects) > 0 do
       {clauses, all_params} = 
-        Enum.map(subselects, &build_single_subselect(selecto, &1))
+        Enum.map(subselects, &build_single_subselect(selecto, &1, source_alias))
         |> Enum.unzip()
       
       {clauses, List.flatten(all_params)}
@@ -37,8 +51,22 @@ defmodule Selecto.Builder.Subselect do
   """
   @spec build_single_subselect(Types.t(), Types.subselect_selector()) :: {Types.iodata_with_markers(), Types.sql_params()}
   def build_single_subselect(selecto, subselect_config) do
+    # Determine the correct source alias based on pivot context
+    source_alias = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context, use "s" for source table
+      "s"
+    else
+      # In standard context, use "selecto_root"
+      "selecto_root"
+    end
+
+    build_single_subselect(selecto, subselect_config, source_alias)
+  end
+
+  @spec build_single_subselect(Types.t(), Types.subselect_selector(), String.t()) :: {Types.iodata_with_markers(), Types.sql_params()}
+  def build_single_subselect(selecto, subselect_config, source_alias) do
     # Build the complete subselect with aggregation function
-    {subselect_iodata, subselect_params} = build_aggregated_subselect(selecto, subselect_config)
+    {subselect_iodata, subselect_params} = build_aggregated_subselect(selecto, subselect_config, source_alias)
     
     # Add alias for the subselect field
     field_with_alias = [
@@ -49,6 +77,10 @@ defmodule Selecto.Builder.Subselect do
   end
   
   defp build_aggregated_subselect(selecto, subselect_config) do
+    build_aggregated_subselect(selecto, subselect_config, "selecto_root")
+  end
+
+  defp build_aggregated_subselect(selecto, subselect_config, source_alias) do
     target_table = get_target_table(selecto, subselect_config.target_schema)
     target_alias = generate_subquery_alias(subselect_config.target_schema)
     
@@ -63,18 +95,19 @@ defmodule Selecto.Builder.Subselect do
         # Multiple fields - build JSON objects
         json_pairs = Enum.map(subselect_config.fields, fn field ->
           field_name = escape_identifier(to_string(field))
-          field_key = {:param, to_string(field)}
+          # Use literal string for field key, not parameter
+          field_key = escape_string(to_string(field))
           [field_key, ", ", target_alias, ".", field_name]
         end)
-        
+
         json_build = [
-          "json_agg(json_build_object(", 
-          Enum.intersperse(json_pairs, [", "]), 
+          "json_agg(json_build_object(",
+          Enum.intersperse(json_pairs, [", "]),
           "))"
         ]
-        
-        field_names = Enum.map(subselect_config.fields, &to_string/1)
-        {json_build, field_names}
+
+        # No parameters needed for field names - they're literal strings
+        {json_build, []}
         
       :array_agg ->
         [field] = subselect_config.fields  # Simplify for now
@@ -96,7 +129,8 @@ defmodule Selecto.Builder.Subselect do
     {correlation_where, correlation_params} = build_correlation_condition(
       selecto, 
       subselect_config, 
-      target_alias
+      target_alias,
+      source_alias
     )
     
     # Build additional filters if specified
@@ -130,6 +164,20 @@ defmodule Selecto.Builder.Subselect do
   """
   @spec build_correlated_subquery(Types.t(), Types.subselect_selector()) :: {Types.iodata_with_markers(), Types.sql_params()}
   def build_correlated_subquery(selecto, subselect_config) do
+    # Determine the correct source alias based on pivot context
+    source_alias = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context, use "s" for source table
+      "s"
+    else
+      # In standard context, use "selecto_root"
+      "selecto_root"
+    end
+
+    build_correlated_subquery(selecto, subselect_config, source_alias)
+  end
+
+  @spec build_correlated_subquery(Types.t(), Types.subselect_selector(), String.t()) :: {Types.iodata_with_markers(), Types.sql_params()}
+  def build_correlated_subquery(selecto, subselect_config, source_alias) do
     target_table = get_target_table(selecto, subselect_config.target_schema)
     target_alias = generate_subquery_alias(subselect_config.target_schema)
     
@@ -140,7 +188,8 @@ defmodule Selecto.Builder.Subselect do
     {correlation_where, correlation_params} = build_correlation_condition(
       selecto, 
       subselect_config, 
-      target_alias
+      target_alias,
+      source_alias
     )
     
     # Build additional filters if specified
@@ -223,22 +272,40 @@ defmodule Selecto.Builder.Subselect do
 
   @spec resolve_join_condition_with_path(Types.t(), atom()) :: {:ok, Types.iodata_with_markers()} | {:error, String.t()}
   def resolve_join_condition_with_path(selecto, target_schema) do
+    # Determine the correct source alias based on pivot context
+    source_alias = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context, use "s" for source table
+      "s"
+    else
+      # In standard context, use "selecto_root"
+      "selecto_root"
+    end
+
+    resolve_join_condition_with_path(selecto, target_schema, source_alias)
+  end
+
+  @spec resolve_join_condition_with_path(Types.t(), atom(), String.t()) :: {:ok, Types.iodata_with_markers()} | {:error, String.t()}
+  def resolve_join_condition_with_path(selecto, target_schema, source_alias) do
     # Special handling for known Pagila relationships
     case {selecto.domain.source.source_table, target_schema} do
       {"actor", :film} ->
         # Use the known actor -> film_actor -> film relationship
-        build_pagila_actor_film_correlation(selecto, target_schema)
+        build_pagila_actor_film_correlation(selecto, target_schema, source_alias)
+        
+      {"film", :film_actors} ->
+        # Use the known film -> film_actor relationship (direct)
+        build_pagila_film_actors_correlation(selecto, target_schema, source_alias)
         
       _ ->
         # General case - use join path resolution
         case Selecto.Subselect.resolve_join_path(selecto, target_schema) do
           {:ok, []} ->
             # Direct relationship - build simple correlation
-            build_direct_correlation(selecto, target_schema)
+            build_direct_correlation(selecto, target_schema, source_alias)
             
           {:ok, join_path} ->
             # Multi-step relationship - build EXISTS condition
-            build_exists_correlation(selecto, target_schema, join_path)
+            build_exists_correlation(selecto, target_schema, join_path, source_alias)
             
           {:error, reason} ->
             {:error, "Cannot resolve join condition: #{reason}"}
@@ -248,22 +315,42 @@ defmodule Selecto.Builder.Subselect do
 
   # Private helper functions
 
-  defp build_pagila_actor_film_correlation(_selecto, target_schema) do
-    source_alias = get_main_query_alias()
+  defp build_pagila_actor_film_correlation(_selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
     
-    # Hard-coded EXISTS subquery for actor -> film_actor -> film relationship
-    exists_condition = [
-      "EXISTS (SELECT 1 FROM film_actor fa",
-      " WHERE fa.actor_id = ", escape_identifier(source_alias), ".actor_id",
-      " AND fa.film_id = ", escape_identifier(target_alias), ".film_id)"
-    ]
-    
-    {:ok, exists_condition}
+    # Check if we're in pivot context (source_alias is "t" for target table)
+    if source_alias == "t" do
+      # In pivot context, correlate directly with the main query's target table
+      # Use film_id as the primary key for film table
+      condition = [
+        target_alias, ".film_id = ", source_alias, ".film_id"
+      ]
+      
+      {:ok, condition}
+    else
+      # Standard actor-to-film correlation
+      exists_condition = [
+        "EXISTS (SELECT 1 FROM film_actor fa",
+        " WHERE fa.actor_id = ", escape_identifier(source_alias), ".actor_id",
+        " AND fa.film_id = ", escape_identifier(target_alias), ".film_id)"
+      ]
+      
+      {:ok, exists_condition}
+    end
   end
 
-  defp build_direct_correlation(_selecto, target_schema) do
-    source_alias = get_main_query_alias()
+  defp build_pagila_film_actors_correlation(_selecto, target_schema, source_alias) do
+    target_alias = generate_subquery_alias(target_schema)
+    
+    # Direct relationship: film -> film_actors via film_id
+    condition = [
+      target_alias, ".", escape_identifier("film_id"), " = ", source_alias, ".", escape_identifier("film_id")
+    ]
+    
+    {:ok, condition}
+  end
+
+  defp build_direct_correlation(_selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
     
     # Simple direct relationship - assume primary key correlation
@@ -274,22 +361,21 @@ defmodule Selecto.Builder.Subselect do
     {:ok, condition}
   end
 
-  defp build_exists_correlation(selecto, target_schema, join_path) do
+  defp build_exists_correlation(selecto, target_schema, join_path, source_alias) do
     # For actor → film_actors → film, we need:
     # EXISTS (SELECT 1 FROM film_actor fa WHERE fa.actor_id = selecto_root.actor_id AND fa.film_id = sub_film.film_id)
     case join_path do
       [junction_schema] ->
         # Simple one-step junction (actor → film_actors → film)
-        build_single_junction_exists(selecto, target_schema, junction_schema)
+        build_single_junction_exists(selecto, target_schema, junction_schema, source_alias)
       
       multi_path ->
         # Multi-step path (more complex)
-        build_multi_step_exists(selecto, target_schema, multi_path)
+        build_multi_step_exists(selecto, target_schema, multi_path, source_alias)
     end
   end
 
-  defp build_single_junction_exists(selecto, target_schema, junction_schema) do
-    source_alias = get_main_query_alias()
+  defp build_single_junction_exists(selecto, target_schema, junction_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
     junction_alias = generate_subquery_alias(junction_schema)
     
@@ -317,7 +403,7 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_multi_step_exists(_selecto, _target_schema, _multi_path) do
+  defp build_multi_step_exists(_selecto, _target_schema, _multi_path, _source_alias) do
     # For now, return an error - can be implemented later for more complex paths
     {:error, "Multi-step join paths not yet implemented for subselects"}
   end
@@ -341,23 +427,24 @@ defmodule Selecto.Builder.Subselect do
         # Single field - return the value directly for json_agg
         field_name = escape_identifier(to_string(single_field))
         {[target_alias, ".", field_name], []}
-        
+
       multiple_fields ->
         # Multiple fields - build JSON object
         json_pairs = Enum.map(multiple_fields, fn field ->
           field_name = escape_identifier(to_string(field))
-          field_key = {:param, to_string(field)}
+          # Use literal string for field key, not parameter
+          field_key = escape_string(to_string(field))
           [field_key, ", ", target_alias, ".", field_name]
         end)
-        
+
         json_build_call = [
-          "json_build_object(", 
-          Enum.intersperse(json_pairs, [", "]), 
+          "json_build_object(",
+          Enum.intersperse(json_pairs, [", "]),
           ")"
         ]
-        
-        field_names = Enum.map(multiple_fields, &to_string/1)
-        {json_build_call, field_names}
+
+        # No parameters needed for field names - they're literal strings
+        {json_build_call, []}
     end
   end
 
@@ -376,16 +463,29 @@ defmodule Selecto.Builder.Subselect do
   end
 
   defp build_correlation_condition(selecto, subselect_config, target_alias) do
-    case resolve_join_condition_with_path(selecto, subselect_config.target_schema) do
+    # Determine the correct source alias based on pivot context
+    source_alias = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context, use "s" for source table
+      "s"
+    else
+      # In standard context, use "selecto_root"
+      "selecto_root"
+    end
+
+    build_correlation_condition(selecto, subselect_config, target_alias, source_alias)
+  end
+
+  defp build_correlation_condition(selecto, subselect_config, target_alias, source_alias) do
+    case resolve_join_condition_with_path(selecto, subselect_config.target_schema, source_alias) do
       {:ok, condition_sql} ->
         {condition_sql, []}
-        
+
       {:error, _reason} ->
         # Fallback to simple ID correlation
         condition = [
-          target_alias, ".id = ", get_main_query_alias(), ".id"
+          target_alias, ".id = ", source_alias, ".id"
         ]
-        
+
         {condition, []}
     end
   end
@@ -468,6 +568,10 @@ defmodule Selecto.Builder.Subselect do
     "selecto_root"  # Main query uses 'selecto_root' as source alias
   end
 
+  defp get_main_query_alias(source_alias) do
+    source_alias
+  end
+
   defp get_connection_fields(selecto, target_schema, join_path) do
     # Determine the fields that connect the main query to the subquery target
     # This is a simplified implementation - needs refinement based on actual join path
@@ -507,6 +611,11 @@ defmodule Selecto.Builder.Subselect do
   end
 
   defp extract_params(_), do: []
+
+  defp escape_string(string) do
+    # Escape SQL string literals
+    "'#{String.replace(string, "'", "''")}'"
+  end
 
   defp escape_identifier(identifier) do
     # Escape SQL identifiers - simplified implementation

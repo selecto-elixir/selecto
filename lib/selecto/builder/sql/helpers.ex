@@ -29,7 +29,8 @@ defmodule Selecto.Builder.Sql.Helpers do
   end
 
   def build_selector_string(_selecto, join, field) do
-    "#{double_wrap(join)}.#{double_wrap(field)}"
+    join_str = if is_atom(join), do: Atom.to_string(join), else: join
+    "#{double_wrap(join_str)}.#{double_wrap(field)}"
   end
 
   def build_join_string(_selecto, join) do
