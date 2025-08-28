@@ -37,22 +37,92 @@ defmodule Selecto.Builder.Subselect do
   """
   @spec build_single_subselect(Types.t(), Types.subselect_selector()) :: {Types.iodata_with_markers(), Types.sql_params()}
   def build_single_subselect(selecto, subselect_config) do
-    {subquery_iodata, subquery_params} = build_correlated_subquery(selecto, subselect_config)
-    
-    # Wrap in aggregation function
-    {aggregation_iodata, aggregation_params} = wrap_in_aggregation(
-      subquery_iodata, 
-      subquery_params,
-      subselect_config.format,
-      subselect_config
-    )
+    # Build the complete subselect with aggregation function
+    {subselect_iodata, subselect_params} = build_aggregated_subselect(selecto, subselect_config)
     
     # Add alias for the subselect field
     field_with_alias = [
-      "(", aggregation_iodata, ") AS ", escape_identifier(subselect_config.alias)
+      "(", subselect_iodata, ") AS ", escape_identifier(subselect_config.alias)
     ]
     
-    {field_with_alias, aggregation_params}
+    {field_with_alias, subselect_params}
+  end
+  
+  defp build_aggregated_subselect(selecto, subselect_config) do
+    target_table = get_target_table(selecto, subselect_config.target_schema)
+    target_alias = generate_subquery_alias(subselect_config.target_schema)
+    
+    # Build SELECT fields for the subquery based on aggregation type
+    {select_clause, select_params} = case subselect_config.format do
+      :json_agg when length(subselect_config.fields) == 1 ->
+        [field] = subselect_config.fields
+        field_name = escape_identifier(to_string(field))
+        {["json_agg(", target_alias, ".", field_name, ")"], []}
+        
+      :json_agg ->
+        # Multiple fields - build JSON objects
+        json_pairs = Enum.map(subselect_config.fields, fn field ->
+          field_name = escape_identifier(to_string(field))
+          field_key = {:param, to_string(field)}
+          [field_key, ", ", target_alias, ".", field_name]
+        end)
+        
+        json_build = [
+          "json_agg(json_build_object(", 
+          Enum.intersperse(json_pairs, [", "]), 
+          "))"
+        ]
+        
+        field_names = Enum.map(subselect_config.fields, &to_string/1)
+        {json_build, field_names}
+        
+      :array_agg ->
+        [field] = subselect_config.fields  # Simplify for now
+        field_name = escape_identifier(to_string(field))
+        {["array_agg(", target_alias, ".", field_name, ")"], []}
+        
+      :string_agg ->
+        [field] = subselect_config.fields  # Simplify for now  
+        field_name = escape_identifier(to_string(field))
+        separator = Map.get(subselect_config, :separator, ",")
+        separator_param = {:param, separator}
+        {["string_agg(", target_alias, ".", field_name, ", ", separator_param, ")"], [separator]}
+        
+      :count ->
+        {["count(*)"], []}
+    end
+    
+    # Build correlation WHERE clause
+    {correlation_where, correlation_params} = build_correlation_condition(
+      selecto, 
+      subselect_config, 
+      target_alias
+    )
+    
+    # Build additional filters if specified
+    {additional_where, additional_params} = build_additional_filters(
+      subselect_config, 
+      target_alias
+    )
+    
+    # Combine all WHERE conditions
+    all_where_conditions = [correlation_where] ++ 
+      if additional_where != [], do: [additional_where], else: []
+    
+    where_clause = case all_where_conditions do
+      [single] -> single
+      multiple -> Enum.intersperse(multiple, [" AND "])
+    end
+    
+    # Build complete subquery
+    subselect_iodata = [
+      "SELECT ", select_clause,
+      " FROM ", target_table, " ", target_alias,
+      " WHERE ", where_clause
+    ]
+    
+    all_params = select_params ++ correlation_params ++ additional_params
+    {subselect_iodata, all_params}
   end
 
   @doc """
@@ -94,16 +164,16 @@ defmodule Selecto.Builder.Subselect do
       multiple -> Enum.intersperse(multiple, [" AND "])
     end
     
-    subquery_iodata = [
+    base_subquery = [
       "SELECT ", select_fields,
       " FROM ", target_table, " ", target_alias,
       " WHERE ", where_clause
     ]
     
     subquery_iodata = if order_clause != [] do
-      subquery_iodata ++ [" ORDER BY ", order_clause]
+      base_subquery ++ [" ORDER BY ", order_clause]
     else
-      subquery_iodata
+      base_subquery
     end
     
     all_params = select_params ++ correlation_params ++ additional_params ++ order_params
@@ -118,30 +188,19 @@ defmodule Selecto.Builder.Subselect do
   def wrap_in_aggregation(subquery_iodata, subquery_params, format, config) do
     case format do
       :json_agg ->
-        {["json_agg(", subquery_iodata, ")"], subquery_params}
+        {["(", subquery_iodata, ")"], subquery_params}
         
       :array_agg ->
-        if length(config.fields) == 1 do
-          # Single field - simple array_agg
-          {["array_agg(", subquery_iodata, ")"], subquery_params}
-        else
-          # Multiple fields - array of ROW types
-          {["array_agg(ROW(", subquery_iodata, "))"], subquery_params}
-        end
+        {["(", subquery_iodata, ")"], subquery_params}
         
       :string_agg ->
-        separator = Map.get(config, :separator, ",")
-        separator_param = {:param, separator}
-        
-        if length(config.fields) == 1 do
-          {["string_agg(", subquery_iodata, ", ", separator_param, ")"], subquery_params ++ [separator]}
-        else
-          # Multiple fields - concatenate them first
-          {["string_agg(", subquery_iodata, ", ", separator_param, ")"], subquery_params ++ [separator]}
-        end
+        {["(", subquery_iodata, ")"], subquery_params}
         
       :count ->
-        {["(SELECT count(*) FROM (", subquery_iodata, ") _count_sub)"], subquery_params}
+        # For count, we need to modify the SELECT clause
+        count_subquery = String.replace(IO.iodata_to_binary(subquery_iodata), "SELECT ", "SELECT count(*) FROM (SELECT ")
+        count_subquery = count_subquery <> ") _count_sub"
+        {[count_subquery], subquery_params}
     end
   end
 
@@ -181,14 +240,14 @@ defmodule Selecto.Builder.Subselect do
     case fields do
       [single_field] ->
         # Single field - return the value directly for json_agg
-        field_name = escape_identifier(Atom.to_string(single_field))
+        field_name = escape_identifier(to_string(single_field))
         {[target_alias, ".", field_name], []}
         
       multiple_fields ->
         # Multiple fields - build JSON object
         json_pairs = Enum.map(multiple_fields, fn field ->
-          field_name = escape_identifier(Atom.to_string(field))
-          field_key = {:param, Atom.to_string(field)}
+          field_name = escape_identifier(to_string(field))
+          field_key = {:param, to_string(field)}
           [field_key, ", ", target_alias, ".", field_name]
         end)
         
@@ -198,14 +257,14 @@ defmodule Selecto.Builder.Subselect do
           ")"
         ]
         
-        field_names = Enum.map(multiple_fields, &Atom.to_string/1)
+        field_names = Enum.map(multiple_fields, &to_string/1)
         {json_build_call, field_names}
     end
   end
 
   defp build_simple_select_fields(fields, target_alias) do
     field_clauses = Enum.map(fields, fn field ->
-      field_name = escape_identifier(Atom.to_string(field))
+      field_name = escape_identifier(to_string(field))
       [target_alias, ".", field_name]
     end)
     
@@ -259,7 +318,7 @@ defmodule Selecto.Builder.Subselect do
       order_specs ->
         order_clauses = Enum.map(order_specs, fn
           {direction, field} ->
-            field_name = escape_identifier(Atom.to_string(field))
+            field_name = escape_identifier(to_string(field))
             direction_sql = case direction do
               :asc -> "ASC"
               :desc -> "DESC"
@@ -268,7 +327,7 @@ defmodule Selecto.Builder.Subselect do
             [target_alias, ".", field_name, " ", direction_sql]
             
           field when is_atom(field) ->
-            field_name = escape_identifier(Atom.to_string(field))
+            field_name = escape_identifier(to_string(field))
             [target_alias, ".", field_name]
             
           field when is_binary(field) ->
@@ -286,7 +345,7 @@ defmodule Selecto.Builder.Subselect do
     # This is simplified - in reality, we'd reuse Selecto.Builder.Sql.Where logic
     condition_clauses = Enum.map(filters, fn
       {field, value} ->
-        field_name = escape_identifier(Atom.to_string(field))
+        field_name = escape_identifier(to_string(field))
         value_param = {:param, value}
         [target_alias, ".", field_name, " = ", value_param]
     end)
@@ -310,7 +369,7 @@ defmodule Selecto.Builder.Subselect do
   end
 
   defp generate_subquery_alias(target_schema) do
-    "sub_" <> Atom.to_string(target_schema)
+    "sub_" <> to_string(target_schema)
   end
 
   defp get_main_query_alias do
@@ -329,8 +388,8 @@ defmodule Selecto.Builder.Subselect do
       [first_join | _rest] ->
         # Get the association configuration for the first join
         association = get_association_config(selecto, first_join)
-        source_field = Atom.to_string(association.owner_key)
-        target_field = Atom.to_string(association.related_key)
+        source_field = to_string(association.owner_key)
+        target_field = to_string(association.related_key)
         {source_field, target_field}
     end
   end

@@ -79,7 +79,7 @@ defmodule Selecto.Pivot do
   def calculate_join_path(selecto, target_schema) do
     source_name = get_source_schema_name(selecto)
     
-    case find_join_path(selecto.domain.schemas, source_name, target_schema, []) do
+    case find_join_path(selecto.domain, source_name, target_schema, []) do
       {:ok, path} -> {:ok, path}
       :not_found -> {:error, "No join path found from #{source_name} to #{target_schema}"}
     end
@@ -124,13 +124,11 @@ defmodule Selecto.Pivot do
   # Private helper functions
 
   defp get_source_schema_name(selecto) do
-    # Extract schema name from source configuration
-    # This is a simplified version - may need refinement based on actual source structure
-    selecto.domain.source.source_table
-    |> String.to_atom()
+    # The source is always the starting point for path finding
+    :source
   end
 
-  defp find_join_path(schemas, from_schema, to_schema, visited) do
+  defp find_join_path(domain, from_schema, to_schema, visited) do
     cond do
       from_schema == to_schema ->
         {:ok, []}
@@ -139,10 +137,14 @@ defmodule Selecto.Pivot do
         :not_found
         
       true ->
-        from_schema_config = Map.get(schemas, from_schema)
+        from_schema_config = case from_schema do
+          :source -> domain.source
+          schema_name -> Map.get(domain.schemas, schema_name)
+        end
+        
         if from_schema_config do
           find_path_through_associations(
-            schemas, 
+            domain, 
             from_schema_config.associations, 
             to_schema, 
             [from_schema | visited]
@@ -153,12 +155,12 @@ defmodule Selecto.Pivot do
     end
   end
 
-  defp find_path_through_associations(schemas, associations, target, visited) do
+  defp find_path_through_associations(domain, associations, target, visited) do
     associations
     |> Enum.reduce_while(:not_found, fn {assoc_name, assoc_config}, _acc ->
       next_schema = assoc_config.queryable
       
-      case find_join_path(schemas, next_schema, target, visited) do
+      case find_join_path(domain, next_schema, target, visited) do
         {:ok, path} -> {:halt, {:ok, [assoc_name | path]}}
         :not_found -> {:cont, :not_found}
       end
