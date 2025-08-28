@@ -9,7 +9,7 @@ defmodule Selecto.Error do
   ## Error Types
 
   - `:connection_error` - Database connection failures
-  - `:query_error` - SQL query execution failures  
+  - `:query_error` - SQL query execution failures
   - `:validation_error` - Input validation failures
   - `:configuration_error` - Invalid domain or Selecto configuration
   - `:no_results` - Query returned no results when one expected
@@ -45,7 +45,7 @@ defmodule Selecto.Error do
     params: [term()] | nil
   }
 
-  @type error_type :: 
+  @type error_type ::
     :connection_error |
     :query_error |
     :validation_error |
@@ -53,7 +53,8 @@ defmodule Selecto.Error do
     :no_results |
     :multiple_results |
     :timeout_error |
-    :field_resolution_error
+    :field_resolution_error |
+    :transformation_error
 
   @doc """
   Creates a connection error.
@@ -164,6 +165,18 @@ defmodule Selecto.Error do
   end
 
   @doc """
+  Creates a transformation error for output format processing.
+  """
+  @spec transformation_error(String.t(), map()) :: t()
+  def transformation_error(message, details \\ %{}) do
+    %__MODULE__{
+      type: :transformation_error,
+      message: message,
+      details: details
+    }
+  end
+
+  @doc """
   Converts various error types to standardized Selecto.Error.
   """
   @spec from_reason(term()) :: t()
@@ -237,6 +250,10 @@ defmodule Selecto.Error do
 
   def to_display_message(%__MODULE__{type: :field_resolution_error, message: message}) do
     "Field resolution error: #{message}"
+  end
+
+  def to_display_message(%__MODULE__{type: :transformation_error, message: message}) do
+    "Output format transformation error: #{message}"
   end
 
   def to_display_message(%__MODULE__{message: message}) do

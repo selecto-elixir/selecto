@@ -54,7 +54,22 @@ defmodule Selecto.Executor do
       duration = System.monotonic_time(:millisecond) - start_time
       track_query_execution(query, duration, result)
 
-      result
+      # Apply output format transformation if specified
+      case result do
+        {:ok, {rows, columns, aliases}} ->
+          format = Keyword.get(opts, :format, :raw)
+          format_options = Keyword.get(opts, :format_options, [])
+
+          case Selecto.Output.Formats.transform({rows, columns, aliases}, format, format_options) do
+            {:ok, transformed_result} -> {:ok, transformed_result}
+            {:error, transform_error} -> {:error, Selecto.Error.transformation_error("Output format transformation failed", %{
+              format: format,
+              options: format_options,
+              error: transform_error
+            })}
+          end
+        error_result -> error_result
+      end
     rescue
       error ->
         duration = System.monotonic_time(:millisecond) - start_time
