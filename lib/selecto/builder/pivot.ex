@@ -54,7 +54,7 @@ defmodule Selecto.Builder.Pivot do
     source_table = selecto.config.source_table
     target_schema = pivot_config.target_schema
     
-    {from_clause, join_clauses, join_params} = build_join_sequence(selecto, join_path)
+    {_source_alias, join_clauses, join_params} = build_join_sequence(selecto, join_path)
     {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config)
     
     # Get the final connection field for the subquery result
@@ -219,7 +219,7 @@ defmodule Selecto.Builder.Pivot do
   defp get_target_alias, do: "t"
   
   defp generate_join_alias(join_name) do
-    "j_" <> Atom.to_string(join_name)
+    "j_" <> to_string(join_name)
   end
 
   defp get_join_config(selecto, join_name) do
@@ -230,10 +230,12 @@ defmodule Selecto.Builder.Pivot do
   end
 
   defp get_join_table(selecto, join_name) do
-    join_config = get_join_config(selecto, join_name)
+    # Get the association to find the target schema
+    association = get_association_for_join(selecto, join_name)
+    target_schema = association.queryable
     
-    case Map.get(selecto.domain.schemas, join_config.source) do
-      nil -> raise ArgumentError, "Schema #{join_config.source} not found for join #{join_name}"
+    case Map.get(selecto.domain.schemas, target_schema) do
+      nil -> raise ArgumentError, "Schema #{target_schema} not found for join #{join_name}"
       schema_config -> schema_config.source_table
     end
   end
@@ -245,7 +247,7 @@ defmodule Selecto.Builder.Pivot do
     owner_key = association.owner_key
     related_key = association.related_key
     
-    on_clause = [current_alias, ".", Atom.to_string(owner_key), " = ", next_alias, ".", Atom.to_string(related_key)]
+    on_clause = [current_alias, ".", to_string(owner_key), " = ", next_alias, ".", to_string(related_key)]
     {on_clause, []}
   end
 
@@ -271,9 +273,26 @@ defmodule Selecto.Builder.Pivot do
     {[], []}
   end
 
-  defp build_filter_conditions(selecto, filters) do
-    # Use existing WHERE clause building logic
-    Selecto.Builder.Sql.Where.build(selecto, {:and, filters})
+  defp build_filter_conditions(_selecto, filters) do
+    # Build simple WHERE conditions for pivot subqueries
+    if length(filters) == 0 do
+      {[], []}
+    else
+      conditions = Enum.map(filters, fn {field, value} ->
+        field_name = escape_identifier(to_string(field))
+        ["s.", field_name, " = ", {:param, value}]
+      end)
+      
+      where_clause = case conditions do
+        [single] -> single
+        multiple -> Enum.intersperse(multiple, [" AND "])
+      end
+      
+      # Extract parameters
+      params = Enum.map(filters, fn {_field, value} -> value end)
+      
+      {where_clause, params}
+    end
   end
 
   defp get_connection_field(_selecto, _target_schema, join_path) do
@@ -281,7 +300,7 @@ defmodule Selecto.Builder.Pivot do
     # This is simplified - needs refinement based on actual join path structure
     case List.last(join_path) do
       nil -> "id"
-      last_join -> Atom.to_string(last_join) <> "_id"
+      last_join -> to_string(last_join) <> "_id"
     end
   end
 
@@ -306,4 +325,9 @@ defmodule Selecto.Builder.Pivot do
   defp sql_join_type(:inner), do: "INNER"
   defp sql_join_type(:full), do: "FULL"
   defp sql_join_type(_), do: "LEFT"  # Default
+
+  defp escape_identifier(identifier) do
+    # Escape SQL identifiers - simplified implementation
+    "\"#{identifier}\""
+  end
 end
