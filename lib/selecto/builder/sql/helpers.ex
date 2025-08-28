@@ -36,4 +36,26 @@ defmodule Selecto.Builder.Sql.Helpers do
     double_wrap(join)
   end
 
+  @doc """
+  Build selector string for parameterized joins with signature support.
+  """
+  def build_parameterized_selector_string(_selecto, join, field, parameter_signature \\ nil) do
+    case parameter_signature do
+      nil -> "#{double_wrap(join)}.#{double_wrap(field)}"
+      "" -> "#{double_wrap(join)}.#{double_wrap(field)}"
+      sig -> "#{double_wrap("#{join}_#{sig}")}.#{double_wrap(field)}"
+    end
+  end
+
+  @doc """
+  Build join alias string for parameterized joins.
+  """
+  def build_parameterized_join_string(_selecto, join, parameter_signature \\ nil) do
+    case parameter_signature do
+      nil -> double_wrap(join)
+      "" -> double_wrap(join)
+      sig -> double_wrap("#{join}_#{sig}")
+    end
+  end
+
 end
