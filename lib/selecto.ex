@@ -243,6 +243,7 @@ defmodule Selecto do
       set: %{
         selected: Map.get(domain, :required_selected, []),
         filtered: [],
+        post_pivot_filters: [],
         order_by: Map.get(domain, :required_order_by, []),
         group_by: Map.get(domain, :required_group_by, [])
       }
@@ -372,7 +373,7 @@ defmodule Selecto do
 
       {:error, _} ->
         # Fallback to legacy field resolution
-        fallback_result = selecto_struct.config.columns[field]
+        fallback_result = selecto_struct.config.columns[field] || selecto_struct.config.columns[String.to_atom(field)]
 
         if fallback_result do
           # Ensure the field property contains the database field name
@@ -468,12 +469,31 @@ defmodule Selecto do
   """
   #  @spec filter(t(), [filter()]) :: t()
   def filter(selecto, filters) when is_list(filters) do
-    put_in(selecto.set.filtered, selecto.set.filtered ++ filters)
+    # Track whether this filter is applied before or after pivot
+    has_pivot = Selecto.Pivot.has_pivot?(selecto)
+    pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+
+    # Separate filters into pre-pivot and post-pivot
+    {pre_pivot_filters, post_pivot_filters} = case {has_pivot, pivot_config} do
+      {false, _} ->
+        # No pivot yet, all filters are pre-pivot
+        {selecto.set.filtered ++ filters, []}
+      {true, _} ->
+        # Pivot exists, new filters are post-pivot
+        {selecto.set.filtered, filters}
+    end
+
+    # Update the set with new filter lists
+    updated_set = selecto.set
+    |> Map.put(:filtered, pre_pivot_filters)
+    |> Map.put(:post_pivot_filters, post_pivot_filters)
+
+    %{selecto | set: updated_set}
   end
 
   #  @spec filter(t(), filter()) :: t()
-  def filter(selecto, filters) do
-    put_in(selecto.set.filtered, selecto.set.filtered ++ [filters])
+  def filter(selecto, filter) do
+    Selecto.filter(selecto, [filter])
   end
 
   @doc """
@@ -505,7 +525,7 @@ defmodule Selecto do
   @doc """
   Pivot the query to focus on a different table while preserving existing context.
 
-  This allows you to retarget a Selecto query from the source table to any joined 
+  This allows you to retarget a Selecto query from the source table to any joined
   table, while preserving existing filters through subqueries.
 
   ## Examples

@@ -167,9 +167,11 @@ defmodule Selecto.Subselect do
   end
 
   defp parse_field_string(field_string, default_format, alias_prefix, default_order_by) do
-    # Parse "table[field]" format
-    case Regex.run(~r/^([^[]+)\[([^]]+)\]$/, field_string) do
-      [_, table_part, field_part] ->
+    # Parse "table[field]" format (legacy) or "table.field" format (dot notation)
+    cond do
+      # Try bracket notation first for backward compatibility
+      match = Regex.run(~r/^([^[]+)\[([^]]+)\]$/, field_string) ->
+        [_, table_part, field_part] = match
         target_schema = String.to_atom(table_part)
         fields = String.split(field_part, ",") |> Enum.map(&String.trim/1)
         
@@ -181,9 +183,24 @@ defmodule Selecto.Subselect do
           order_by: default_order_by,
           filters: []
         }
+      
+      # Try dot notation
+      match = Regex.run(~r/^([^.]+)\.([^.]+)$/, field_string) ->
+        [_, table_part, field_part] = match
+        target_schema = String.to_atom(table_part)
+        fields = [field_part]
         
-      nil ->
-        raise ArgumentError, "Invalid field format: #{field_string}. Expected 'table[field]' format."
+        %{
+          fields: fields,
+          target_schema: target_schema,
+          format: default_format,
+          alias: generate_alias(target_schema, alias_prefix),
+          order_by: default_order_by,
+          filters: []
+        }
+      
+      true ->
+        raise ArgumentError, "Invalid field format: #{field_string}. Expected 'table[field]' or 'table.field' format."
     end
   end
 

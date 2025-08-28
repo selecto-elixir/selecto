@@ -29,11 +29,34 @@ defmodule Selecto.Builder.Sql.Helpers do
   end
 
   def build_selector_string(_selecto, join, field) do
-    "#{double_wrap(join)}.#{double_wrap(field)}"
+    join_str = if is_atom(join), do: Atom.to_string(join), else: join
+    "#{double_wrap(join_str)}.#{double_wrap(field)}"
   end
 
   def build_join_string(_selecto, join) do
     double_wrap(join)
+  end
+
+  @doc """
+  Build selector string for parameterized joins with signature support.
+  """
+  def build_parameterized_selector_string(_selecto, join, field, parameter_signature \\ nil) do
+    case parameter_signature do
+      nil -> "#{double_wrap(join)}.#{double_wrap(field)}"
+      "" -> "#{double_wrap(join)}.#{double_wrap(field)}"
+      sig -> "#{double_wrap("#{join}_#{sig}")}.#{double_wrap(field)}"
+    end
+  end
+
+  @doc """
+  Build join alias string for parameterized joins.
+  """
+  def build_parameterized_join_string(_selecto, join, parameter_signature \\ nil) do
+    case parameter_signature do
+      nil -> double_wrap(join)
+      "" -> double_wrap(join)
+      sig -> double_wrap("#{join}_#{sig}")
+    end
   end
 
 end
