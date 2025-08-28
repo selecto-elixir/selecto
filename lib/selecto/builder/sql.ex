@@ -1,7 +1,7 @@
 defmodule Selecto.Builder.Sql do
   import Selecto.Builder.Sql.Helpers
   # import Selecto.Types - removed to avoid circular dependency
-  
+
   alias Selecto.SQL.Params
   alias Selecto.Builder.Cte
   alias Selecto.Builder.Sql.Hierarchy
@@ -29,7 +29,7 @@ defmodule Selecto.Builder.Sql do
         List.flatten(sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
       )
 
-    # Phase 1: Enhanced FROM builder with CTE detection  
+    # Phase 1: Enhanced FROM builder with CTE detection
     {from_iodata, from_params, required_ctes} = build_from_with_ctes(selecto, joins_in_order)
 
     {where_section, where_finalized_params} =
@@ -79,9 +79,9 @@ defmodule Selecto.Builder.Sql do
 
     # Phase 1: Integrate CTEs with main query
     all_base_params = select_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
-    {final_query_iodata, _cte_integrated_params} = 
+    {final_query_iodata, _cte_integrated_params} =
       Cte.integrate_ctes_with_query(required_ctes, base_query_iodata, all_base_params)
-    
+
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
     {sql, final_params} = Params.finalize(final_query_iodata)
 
@@ -93,30 +93,30 @@ defmodule Selecto.Builder.Sql do
   defp build_pivot_query(selecto, _opts) do
     # Use Pivot builder to construct the entire query
     pivot_config = Selecto.Pivot.get_pivot_config(selecto)
-    
+
     # Build pivot-specific SELECT with subselects if needed
     # Pass pivot alias information to SELECT builder
     pivot_aliases = get_pivot_aliases(pivot_config)
     {aliases, _sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto, pivot_aliases)
-    
+
     # Build pivot FROM clause and WHERE conditions
     {from_iodata, pivot_where_iodata, from_params, _join_deps} = Selecto.Builder.Pivot.build_pivot_query(selecto, [])
-    
+
     # Assemble final query
     base_iodata = [
       "\n        select ", select_iodata,
       "\n        from ", from_iodata
     ]
-    
+
     final_iodata = if pivot_where_iodata != [] do
       base_iodata ++ ["\n        where ", pivot_where_iodata]
     else
       base_iodata
     end
-    
+
     all_params = select_params ++ from_params
     {sql, final_params} = Params.finalize(final_iodata)
-    
+
     {sql, aliases, final_params}
   end
 
@@ -128,21 +128,21 @@ defmodule Selecto.Builder.Sql do
   defp build_select_with_subselects(selecto, pivot_aliases) do
     # Determine the source alias to use for subselect correlation
     source_alias = get_source_alias_for_subselects(pivot_aliases)
-    
+
     # Build regular SELECT fields
     {aliases, sel_joins, select_iodata, select_params} = build_select(selecto, pivot_aliases)
-    
+
     # Add subselect fields if they exist
     if Selecto.Subselect.has_subselects?(selecto) do
       {subselect_clauses, subselect_params} = Selecto.Builder.Subselect.build_subselect_clauses(selecto, source_alias)
-      
+
       # Combine regular and subselect fields
       combined_select = if select_iodata != [] and subselect_clauses != [] do
         [select_iodata, ", "] ++ Enum.intersperse(subselect_clauses, ", ")
       else
         select_iodata ++ subselect_clauses
       end
-      
+
       {aliases, sel_joins, combined_select, select_params ++ subselect_params}
     else
       {aliases, sel_joins, select_iodata, select_params}
@@ -233,28 +233,28 @@ defmodule Selecto.Builder.Sql do
 
   # Phase 1: Enhanced FROM builder with CTE detection and hierarchy support
   defp build_from_with_ctes(selecto, joins) do
-    Enum.reduce(joins, {[], [], []}, fn 
+    Enum.reduce(joins, {[], [], []}, fn
       :selecto_root, {fc, p, ctes} ->
         root_table = Selecto.source_table(selecto)
         root_alias = build_join_string(selecto, "selecto_root")
         {fc ++ [[root_table, " ", root_alias]], p, ctes}
-      
+
       join, {fc, p, ctes} ->
         config = Selecto.joins(selecto)[join]
-        
+
         case detect_advanced_join_pattern(config) do
-          {:hierarchy, pattern} -> 
+          {:hierarchy, pattern} ->
             Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
-          
-          {:tagging, _} -> 
+
+          {:tagging, _} ->
             build_tagging_join(selecto, join, config, fc, p, ctes)
-          
+
           {:olap, type} ->
             build_olap_join(selecto, join, config, type, fc, p, ctes)
-          
+
           {:enhanced, join_type} ->
             build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
-            
+
           :basic ->
             # Existing basic join logic
             join_iodata = [
@@ -271,7 +271,7 @@ defmodule Selecto.Builder.Sql do
   defp detect_advanced_join_pattern(config) do
     case Map.get(config, :join_type) do
       :hierarchical_adjacency -> {:hierarchy, :adjacency_list}
-      :hierarchical_materialized_path -> {:hierarchy, :materialized_path}  
+      :hierarchical_materialized_path -> {:hierarchy, :materialized_path}
       :hierarchical_closure_table -> {:hierarchy, :closure_table}
       :many_to_many -> {:tagging, nil}
       :star_dimension -> {:olap, :star}
@@ -307,16 +307,16 @@ defmodule Selecto.Builder.Sql do
           " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
         ]
         {fc ++ [join_iodata], p, ctes}
-      
+
       enhanced_join_iodata ->
         # Use the enhanced join SQL
         {fc ++ [enhanced_join_iodata], p, ctes}
     end
   end
-  
+
   # Note: Using existing helper functions from Selecto.Builder.Sql.Helpers
   # build_join_string/2 and build_selector_string/3 are imported at the top of the module
-  
+
   # Phase 1: Legacy join builders removed - replaced with CTE-enhanced versions above
   # Phase 2+: Full advanced join functionality will be implemented in specialized modules
 end

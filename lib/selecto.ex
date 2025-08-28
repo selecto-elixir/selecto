@@ -525,7 +525,7 @@ defmodule Selecto do
   @doc """
   Pivot the query to focus on a different table while preserving existing context.
 
-  This allows you to retarget a Selecto query from the source table to any joined 
+  This allows you to retarget a Selecto query from the source table to any joined
   table, while preserving existing filters through subqueries.
 
   ## Examples
