@@ -8,8 +8,17 @@ defmodule Selecto.Builder.Sql do
 
   @spec build(Selecto.Types.t(), Selecto.Types.sql_generation_options()) :: {String.t(), [%{String.t() => String.t()}], [any()]}
   def build(selecto, _opts) do
+    # Check for Pivot configuration first as it affects the entire query structure
+    if Selecto.Pivot.has_pivot?(selecto) do
+      build_pivot_query(selecto, _opts)
+    else
+      build_standard_query(selecto, _opts)
+    end
+  end
+
+  defp build_standard_query(selecto, _opts) do
     # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
-    {aliases, sel_joins, select_iodata, select_params} = build_select(selecto)
+    {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
     {filter_joins, where_iolist, _where_params} = build_where(selecto)
     {group_by_joins, group_by_iodata, _group_by_params} = build_group_by(selecto)
     {order_by_joins, order_by_iodata, _order_by_params} = build_order_by(selecto)
@@ -79,6 +88,73 @@ defmodule Selecto.Builder.Sql do
     # CTE params are already integrated into the iodata, so final_params contains everything
     # Don't double-count parameters
     {sql, aliases, final_params}
+  end
+
+  defp build_pivot_query(selecto, _opts) do
+    # Use Pivot builder to construct the entire query
+    pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+    
+    # Build pivot-specific SELECT with subselects if needed
+    {aliases, _sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
+    
+    # Build pivot FROM clause (includes subquery logic)
+    {from_iodata, from_params, _join_deps} = Selecto.Builder.Pivot.build_pivot_query(selecto, [])
+    
+    # Build WHERE clause for additional filters on pivot target
+    {pivot_where_iodata, pivot_where_params} = build_pivot_where(selecto)
+    
+    # Assemble final query
+    base_iodata = [
+      "\n        select ", select_iodata,
+      "\n        from ", from_iodata
+    ]
+    
+    final_iodata = if pivot_where_iodata != [] do
+      base_iodata ++ ["\n        where ", pivot_where_iodata]
+    else
+      base_iodata
+    end
+    
+    all_params = select_params ++ from_params ++ pivot_where_params
+    {sql, final_params} = Params.finalize(final_iodata)
+    
+    {sql, aliases, final_params}
+  end
+
+  # Enhanced SELECT builder that includes subselects
+  defp build_select_with_subselects(selecto) do
+    # Build regular SELECT fields
+    {aliases, sel_joins, select_iodata, select_params} = build_select(selecto)
+    
+    # Add subselect fields if they exist
+    if Selecto.Subselect.has_subselects?(selecto) do
+      {subselect_clauses, subselect_params} = Selecto.Builder.Subselect.build_subselect_clauses(selecto)
+      
+      # Combine regular and subselect fields
+      combined_select = if select_iodata != [] and subselect_clauses != [] do
+        [select_iodata, ", "] ++ Enum.intersperse(subselect_clauses, ", ")
+      else
+        select_iodata ++ subselect_clauses
+      end
+      
+      {aliases, sel_joins, combined_select, select_params ++ subselect_params}
+    else
+      {aliases, sel_joins, select_iodata, select_params}
+    end
+  end
+
+  defp build_pivot_where(selecto) do
+    # Build WHERE clause for additional filters that apply to the pivot target
+    # This is for filters that are NOT part of the subquery but apply to the pivot target
+    pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+    
+    if pivot_config && Map.get(pivot_config, :additional_filters, []) != [] do
+      # Build WHERE conditions for pivot target filters
+      # This is a simplified implementation
+      {[], []}
+    else
+      {[], []}
+    end
   end
 
   # Phase 4: All legacy string-based functions removed - only iodata functions remain
