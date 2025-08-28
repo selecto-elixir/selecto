@@ -78,6 +78,41 @@ defmodule Selecto.Types do
     window_selector() |
     custom_selector()
 
+  # Pivot feature types
+  @type pivot_config :: %{
+    required(:target_schema) => atom(),
+    required(:join_path) => [atom()],
+    optional(:preserve_filters) => boolean(),
+    optional(:subquery_strategy) => :exists | :in | :join
+  }
+
+  @type pivot_join_path :: [%{
+    required(:from_schema) => atom(),
+    required(:to_schema) => atom(),
+    required(:association_name) => atom(),
+    required(:join_type) => join_type()
+  }]
+
+  # Subselect feature types
+  @type subselect_format :: :json_agg | :array_agg | :string_agg | :count
+  
+  @type subselect_selector :: %{
+    required(:fields) => [field_name()],
+    required(:target_schema) => atom(),
+    required(:format) => subselect_format(),
+    optional(:alias) => String.t(),
+    optional(:separator) => String.t(),
+    optional(:order_by) => [order_spec()],
+    optional(:filters) => [filter()]
+  }
+
+  @type subselect_config :: %{
+    required(:target_table) => table_name(),
+    required(:join_condition) => {field_name(), field_name()},
+    required(:aggregation_type) => subselect_format(),
+    optional(:additional_filters) => [filter()]
+  }
+
   # Filter types for WHERE clauses
   @type comparison_operator :: 
     :eq | :not_eq | :gt | :gte | :lt | :lte |
@@ -189,7 +224,9 @@ defmodule Selecto.Types do
     required(:selected) => [selector()],
     required(:filtered) => [filter()],
     required(:order_by) => [order_spec()],
-    required(:group_by) => [field_name()]
+    required(:group_by) => [field_name()],
+    optional(:pivot_state) => pivot_config(),
+    optional(:subselected) => [subselect_selector()]
   }
 
   # Main Selecto struct

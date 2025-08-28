@@ -502,6 +502,66 @@ defmodule Selecto do
     put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
   end
 
+  @doc """
+  Pivot the query to focus on a different table while preserving existing context.
+
+  This allows you to retarget a Selecto query from the source table to any joined 
+  table, while preserving existing filters through subqueries.
+
+  ## Examples
+
+      # Pivot from events to orders while preserving event filters
+      selecto
+      |> Selecto.filter([{"event_id", 123}])
+      |> Selecto.pivot(:orders)
+      |> Selecto.select(["product_name", "quantity"])
+
+  ## Options
+
+  - `:preserve_filters` - Whether to preserve existing filters (default: true)
+  - `:subquery_strategy` - How to generate the subquery (`:in`, `:exists`, `:join`)
+
+  See `Selecto.Pivot` module for more details.
+  """
+  def pivot(selecto, target_schema, opts \\ []) do
+    Selecto.Pivot.pivot(selecto, target_schema, opts)
+  end
+
+  @doc """
+  Add subselect fields to return related data as aggregated arrays.
+
+  This prevents result set denormalization while maintaining relational context
+  by returning related data as JSON arrays, PostgreSQL arrays, or other formats.
+
+  ## Examples
+
+      # Basic subselect - get orders as JSON for each attendee
+      selecto
+      |> Selecto.select(["attendee[name]"])
+      |> Selecto.subselect(["order[product_name]", "order[quantity]"])
+
+      # With custom configuration
+      selecto
+      |> Selecto.subselect([
+           %{
+             fields: ["product_name", "quantity"],
+             target_schema: :order,
+             format: :json_agg,
+             alias: "order_items"
+           }
+         ])
+
+  ## Options
+
+  - `:format` - Aggregation format (`:json_agg`, `:array_agg`, `:string_agg`, `:count`)
+  - `:alias_prefix` - Prefix for generated field aliases
+
+  See `Selecto.Subselect` module for more details.
+  """
+  def subselect(selecto, field_specs, opts \\ []) do
+    Selecto.Subselect.subselect(selecto, field_specs, opts)
+  end
+
   #  @spec gen_sql(t(), sql_generation_options()) :: {String.t(), %{String.t() => String.t()}, sql_params()}
   def gen_sql(selecto, opts) do
     # Support both old and new query generation approaches
