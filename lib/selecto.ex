@@ -373,7 +373,7 @@ defmodule Selecto do
 
       {:error, _} ->
         # Fallback to legacy field resolution
-        fallback_result = selecto_struct.config.columns[field]
+        fallback_result = selecto_struct.config.columns[field] || selecto_struct.config.columns[String.to_atom(field)]
 
         if fallback_result do
           # Ensure the field property contains the database field name

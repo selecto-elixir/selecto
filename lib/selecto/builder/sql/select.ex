@@ -303,7 +303,11 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def prep_selector(selecto, selector) when is_atom(selector) do
-    prep_selector(selecto, Atom.to_string(selector))
+    prep_selector(selecto, Atom.to_string(selector), %{})
+  end
+
+  def prep_selector(selecto, selector, pivot_aliases) when is_atom(selector) do
+    prep_selector(selecto, Atom.to_string(selector), pivot_aliases)
   end
 
   def prep_selector(selecto, selector) do
