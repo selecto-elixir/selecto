@@ -1207,4 +1207,96 @@ defmodule Selecto do
     
     put_in(selecto.set[:ctes], updated_ctes)
   end
+
+  @doc """
+  Add a simple CASE expression to the select fields.
+  
+  Simple CASE expressions test a column against specific values and return
+  corresponding results. This is useful for data transformation and categorization.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `column` - Column to test against
+  - `when_clauses` - List of {value, result} tuples for WHEN conditions
+  - `opts` - Options including :else and :as
+  
+  ## Examples
+  
+      # Simple CASE for film ratings
+      selecto
+      |> Selecto.case_select("film.rating", [
+          {"G", "General Audience"},
+          {"PG", "Parental Guidance"},
+          {"PG-13", "Parents Strongly Cautioned"},
+          {"R", "Restricted"}
+        ], else: "Not Rated", as: "rating_description")
+      |> Selecto.select(["film.title", "rating_description"])
+      
+      # Generated SQL:
+      # SELECT film.title,
+      #        CASE film.rating
+      #          WHEN 'G' THEN 'General Audience'
+      #          WHEN 'PG' THEN 'Parental Guidance'
+      #          WHEN 'PG-13' THEN 'Parents Strongly Cautioned'
+      #          WHEN 'R' THEN 'Restricted'
+      #          ELSE 'Not Rated'
+      #        END AS rating_description
+  """
+  def case_select(selecto, column, when_clauses, opts \\ []) do
+    # Create CASE specification
+    case_spec = Selecto.Advanced.CaseExpression.create_simple_case(column, when_clauses, opts)
+    
+    # Add to select fields
+    case_field = {:case, case_spec}
+    select(selecto, case_field)
+  end
+
+  @doc """
+  Add a searched CASE expression to the select fields.
+  
+  Searched CASE expressions evaluate multiple conditions and return results
+  based on the first true condition. This enables complex conditional logic.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `when_clauses` - List of {conditions, result} tuples
+  - `opts` - Options including :else and :as
+  
+  ## Examples
+  
+      # Customer tier based on payment totals
+      selecto
+      |> Selecto.case_when_select([
+          {[{"payment_total", {:>, 100}}], "Premium"},
+          {[{"payment_total", {:between, 50, 100}}], "Standard"},
+          {[{"payment_total", {:>, 0}}], "Basic"}
+        ], else: "No Purchases", as: "customer_tier")
+      |> Selecto.select(["customer.first_name", "customer_tier"])
+      
+      # Multiple conditions per WHEN clause
+      selecto
+      |> Selecto.case_when_select([
+          {[{"film.rating", "R"}, {"film.length", {:>, 120}}], "Long Adult Film"},
+          {[{"film.rating", "G"}, {"film.special_features", {:like, "%Family%"}}], "Family Film"}
+        ], else: "Regular Film", as: "film_category")
+      
+      # Generated SQL:
+      # SELECT customer.first_name,
+      #        CASE 
+      #          WHEN payment_total > $1 THEN $2
+      #          WHEN payment_total BETWEEN $3 AND $4 THEN $5
+      #          WHEN payment_total > $6 THEN $7
+      #          ELSE $8
+      #        END AS customer_tier
+  """
+  def case_when_select(selecto, when_clauses, opts \\ []) do
+    # Create CASE specification  
+    case_spec = Selecto.Advanced.CaseExpression.create_searched_case(when_clauses, opts)
+    
+    # Add to select fields
+    case_field = {:case_when, case_spec}
+    select(selecto, case_field)
+  end
 end
