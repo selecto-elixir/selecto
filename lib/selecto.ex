@@ -678,4 +678,79 @@ defmodule Selecto do
   def window_function(selecto, function, arguments \\ [], options) do
     Selecto.Window.add_window_function(selecto, function, arguments, options)
   end
+
+  @doc """
+  Create a UNION set operation between two queries.
+  
+  Combines results from multiple queries using UNION or UNION ALL.
+  All queries must have compatible column counts and types.
+  
+  ## Options
+  
+  - `:all` - Use UNION ALL to include duplicates (default: false)  
+  - `:column_mapping` - Map columns between incompatible schemas
+  
+  ## Examples
+  
+      # Basic UNION (removes duplicates)
+      query1 |> Selecto.union(query2)
+      
+      # UNION ALL (includes duplicates, faster)
+      query1 |> Selecto.union(query2, all: true)
+      
+      # UNION with column mapping
+      customers |> Selecto.union(vendors,
+        column_mapping: [
+          {"name", "company_name"},
+          {"email", "contact_email"}
+        ]
+      )
+  """
+  def union(left_query, right_query, opts \\ []) do
+    Selecto.SetOperations.union(left_query, right_query, opts)
+  end
+
+  @doc """
+  Create an INTERSECT set operation between two queries.
+  
+  Returns only rows that appear in both queries.
+  
+  ## Options
+  
+  - `:all` - Use INTERSECT ALL to include duplicate intersections (default: false)
+  - `:column_mapping` - Map columns between incompatible schemas
+  
+  ## Examples
+  
+      # Find users who are both active and premium
+      active_users |> Selecto.intersect(premium_users)
+      
+      # Include duplicate intersections
+      query1 |> Selecto.intersect(query2, all: true)
+  """
+  def intersect(left_query, right_query, opts \\ []) do
+    Selecto.SetOperations.intersect(left_query, right_query, opts)
+  end
+
+  @doc """
+  Create an EXCEPT set operation between two queries.
+  
+  Returns rows from the first query that don't appear in the second query.
+  
+  ## Options
+  
+  - `:all` - Use EXCEPT ALL to include duplicates in difference (default: false)
+  - `:column_mapping` - Map columns between incompatible schemas
+  
+  ## Examples
+  
+      # Find free users (all users except premium)
+      all_users |> Selecto.except(premium_users)
+      
+      # Include duplicates in difference
+      query1 |> Selecto.except(query2, all: true)
+  """  
+  def except(left_query, right_query, opts \\ []) do
+    Selecto.SetOperations.except(left_query, right_query, opts)
+  end
 end

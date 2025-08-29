@@ -8,11 +8,16 @@ defmodule Selecto.Builder.Sql do
 
   @spec build(Selecto.Types.t(), Selecto.Types.sql_generation_options()) :: {String.t(), [%{String.t() => String.t()}], [any()]}
   def build(selecto, _opts) do
-    # Check for Pivot configuration first as it affects the entire query structure
-    if Selecto.Pivot.has_pivot?(selecto) do
-      build_pivot_query(selecto, _opts)
-    else
-      build_standard_query(selecto, _opts)
+    # Check for Set Operations first as they completely override query structure
+    cond do
+      Selecto.Builder.SetOperations.has_set_operations?(selecto) ->
+        build_set_operation_query(selecto, _opts)
+      
+      Selecto.Pivot.has_pivot?(selecto) ->
+        build_pivot_query(selecto, _opts)
+        
+      true ->
+        build_standard_query(selecto, _opts)
     end
   end
 
@@ -125,6 +130,34 @@ defmodule Selecto.Builder.Sql do
     all_params = select_params ++ from_params
     {sql, final_params} = Params.finalize(final_iodata)
 
+    {sql, aliases, final_params}
+  end
+
+  defp build_set_operation_query(selecto, _opts) do
+    # Build set operations using the dedicated builder
+    {set_op_iodata, set_op_params} = Selecto.Builder.SetOperations.build_set_operations(selecto)
+    
+    # Check if we need to add ORDER BY to the entire set operation result
+    order_by_iodata = []
+    order_by_params = []
+    
+    if Selecto.Builder.SetOperations.should_apply_outer_order_by?(selecto) do
+      {_order_by_joins, order_by_iodata_result, order_by_params_result} = build_order_by(selecto)
+      order_by_iodata = if order_by_iodata_result != [], do: ["\nORDER BY ", order_by_iodata_result], else: []
+      order_by_params = order_by_params_result
+    end
+    
+    # Combine set operations with any outer ORDER BY
+    final_iodata = [set_op_iodata] ++ order_by_iodata
+    all_params = set_op_params ++ order_by_params
+    
+    # Finalize the SQL
+    {sql, final_params} = Selecto.SQL.Params.finalize(final_iodata)
+    
+    # For set operations, we don't return field aliases since the result schema
+    # depends on the left query's structure
+    aliases = %{}
+    
     {sql, aliases, final_params}
   end
 
