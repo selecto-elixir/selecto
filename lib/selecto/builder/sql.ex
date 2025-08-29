@@ -183,20 +183,50 @@ defmodule Selecto.Builder.Sql do
     # Build regular SELECT fields
     {aliases, sel_joins, select_iodata, select_params} = build_select(selecto, pivot_aliases)
 
+    # Build JSON operations SELECT fields if they exist
+    json_select_clauses = []
+    json_select_params = []
+    
+    {json_select_clauses, json_select_params} = 
+      case Map.get(selecto.set, :json_selects) do
+        nil -> {[], []}
+        json_specs when is_list(json_specs) ->
+          json_specs
+          |> Enum.map(&Selecto.Builder.JsonOperations.build_json_select/1)
+          |> Enum.unzip()
+          |> case do
+            {[], []} -> {[], []}
+            {clauses, params} -> {clauses, List.flatten(params)}
+          end
+      end
+
     # Add subselect fields if they exist
     if Selecto.Subselect.has_subselects?(selecto) do
       {subselect_clauses, subselect_params} = Selecto.Builder.Subselect.build_subselect_clauses(selecto, source_alias)
 
-      # Combine regular and subselect fields
-      combined_select = if select_iodata != [] and subselect_clauses != [] do
-        [select_iodata, ", "] ++ Enum.intersperse(subselect_clauses, ", ")
+      # Combine regular, JSON, and subselect fields
+      all_select_parts = [select_iodata, json_select_clauses, subselect_clauses] 
+                        |> Enum.reject(&(&1 == []))
+      
+      combined_select = if length(all_select_parts) > 1 do
+        Enum.intersperse(all_select_parts, ", ") |> List.flatten()
       else
-        select_iodata ++ subselect_clauses
+        List.flatten(all_select_parts)
       end
 
-      {aliases, sel_joins, combined_select, select_params ++ subselect_params}
+      {aliases, sel_joins, combined_select, select_params ++ json_select_params ++ subselect_params}
     else
-      {aliases, sel_joins, select_iodata, select_params}
+      # No subselects, but might have JSON operations
+      if json_select_clauses != [] do
+        combined_select = if select_iodata != [] do
+          [select_iodata, ", "] ++ Enum.intersperse(json_select_clauses, ", ")
+        else
+          json_select_clauses
+        end
+        {aliases, sel_joins, combined_select, select_params ++ json_select_params}
+      else
+        {aliases, sel_joins, select_iodata, select_params}
+      end
     end
   end
 
@@ -243,10 +273,19 @@ defmodule Selecto.Builder.Sql do
 
   @spec build_where(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_where(selecto) do
-    Selecto.Builder.Sql.Where.build(
-      selecto,
-      {:and, Map.get(Selecto.domain(selecto), :required_filters, []) ++ selecto.set.filtered}
-    )
+    # Combine regular filters with JSON filters
+    regular_filters = Map.get(Selecto.domain(selecto), :required_filters, []) ++ selecto.set.filtered
+    
+    # Add JSON filters if they exist
+    json_filters = case Map.get(selecto.set, :json_filters) do
+      nil -> []
+      json_specs when is_list(json_specs) ->
+        Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_filter/1)
+    end
+    
+    all_filters = regular_filters ++ json_filters
+    
+    Selecto.Builder.Sql.Where.build(selecto, {:and, all_filters})
   end
 
   @spec build_group_by(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
@@ -256,7 +295,38 @@ defmodule Selecto.Builder.Sql do
 
   @spec build_order_by(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_order_by(selecto) do
-    Selecto.Builder.Sql.Order.build(selecto)
+    # Build regular ORDER BY clauses
+    {order_joins, order_iodata, order_params} = Selecto.Builder.Sql.Order.build(selecto)
+    
+    # Build JSON ORDER BY clauses if they exist
+    {json_order_joins, json_order_iodata, json_order_params} = 
+      case Map.get(selecto.set, :json_order_by) do
+        nil -> {[], [], []}
+        json_sorts when is_list(json_sorts) ->
+          json_sorts
+          |> Enum.map(fn {spec, direction} ->
+            json_sql = Selecto.Builder.JsonOperations.build_json_select(spec)
+            dir_str = case direction do
+              :desc -> " desc"
+              _ -> " asc"
+            end
+            {[], [json_sql, dir_str], []}
+          end)
+          |> Enum.reduce({[], [], []}, fn {j, c, p}, {acc_j, acc_c, acc_p} ->
+            {acc_j ++ j, acc_c ++ [c], acc_p ++ p}
+          end)
+      end
+    
+    # Combine regular and JSON ORDER BY clauses
+    all_joins = order_joins ++ json_order_joins
+    all_iodata = if order_iodata != [] and json_order_iodata != [] do
+      order_iodata ++ [", "] ++ Enum.intersperse(json_order_iodata, ", ")
+    else
+      order_iodata ++ json_order_iodata
+    end
+    all_params = order_params ++ json_order_params
+    
+    {all_joins, all_iodata, all_params}
   end
 
   # Phase 4: SELECT now uses iodata by default

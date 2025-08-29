@@ -871,4 +871,185 @@ defmodule Selecto do
     
     put_in(selecto.set[:values_clauses], updated_values_clauses)
   end
+
+  @doc """
+  Add JSON operations to SELECT clauses for PostgreSQL JSON/JSONB functionality.
+  
+  Supports JSON path extraction, aggregation, construction, and manipulation operations.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `json_operations` - List of JSON operation tuples or single operation
+  - `opts` - Options (reserved for future use)
+  
+  ## Examples
+  
+      # JSON path extraction
+      selecto
+      |> Selecto.json_select([
+          {:json_extract, "metadata", "$.category", as: "category"},
+          {:json_extract, "metadata", "$.specs.weight", as: "weight"}
+        ])
+      
+      # JSON aggregation
+      selecto
+      |> Selecto.json_select([
+          {:json_agg, "product_name", as: "products"},
+          {:json_object_agg, "product_id", "price", as: "price_map"}
+        ])
+      |> Selecto.group_by(["category"])
+      
+      # Single JSON operation
+      selecto
+      |> Selecto.json_select({:json_extract, "data", "$.status", as: "status"})
+  """
+  def json_select(selecto, json_operations, opts \\ [])
+  
+  def json_select(selecto, json_operations, _opts) when is_list(json_operations) do
+    # Create JSON operation specifications
+    json_specs = 
+      json_operations
+      |> Enum.map(fn
+        {operation, column, path_or_opts} when is_binary(path_or_opts) ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path_or_opts)
+        
+        {operation, column, path, opts} when is_binary(path) ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, [path: path] ++ opts)
+        
+        {operation, column, opts} when is_list(opts) ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, opts)
+          
+        {operation, column} ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
+      end)
+    
+    # Add to selecto set
+    current_json_selects = Map.get(selecto.set, :json_selects, [])
+    updated_json_selects = current_json_selects ++ json_specs
+    
+    put_in(selecto.set[:json_selects], updated_json_selects)
+  end
+  
+  def json_select(selecto, json_operation, opts) do
+    json_select(selecto, [json_operation], opts)
+  end
+
+  @doc """
+  Add JSON operations to WHERE clauses for filtering with PostgreSQL JSON/JSONB functionality.
+  
+  Supports JSON containment, existence, and comparison operations.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance  
+  - `json_filters` - List of JSON filter tuples or single filter
+  - `opts` - Options (reserved for future use)
+  
+  ## Examples
+  
+      # JSON containment and existence
+      selecto
+      |> Selecto.json_filter([
+          {:json_contains, "metadata", %{"category" => "electronics"}},
+          {:json_path_exists, "metadata", "$.specs.warranty"}
+        ])
+      
+      # JSON path comparison
+      selecto
+      |> Selecto.json_filter([
+          {:json_extract_text, "settings", "$.theme", {:=, "dark"}},
+          {:json_extract, "data", "$.priority", {:>, 5}}
+        ])
+      
+      # Single JSON filter
+      selecto
+      |> Selecto.json_filter({:json_exists, "tags", "electronics"})
+  """
+  def json_filter(selecto, json_filters, opts \\ [])
+  
+  def json_filter(selecto, json_filters, _opts) when is_list(json_filters) do
+    # Create JSON filter specifications
+    json_specs = 
+      json_filters
+      |> Enum.map(fn
+        {operation, column, path_or_value, comparison} when is_binary(path_or_value) ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, 
+            path: path_or_value, comparison: comparison)
+        
+        {operation, column, value} ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, 
+            value: value)
+        
+        {operation, column} ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
+      end)
+    
+    # Add to selecto set  
+    current_json_filters = Map.get(selecto.set, :json_filters, [])
+    updated_json_filters = current_json_filters ++ json_specs
+    
+    put_in(selecto.set[:json_filters], updated_json_filters)
+  end
+  
+  def json_filter(selecto, json_filter, opts) do
+    json_filter(selecto, [json_filter], opts)
+  end
+
+  @doc """
+  Add JSON operations to ORDER BY clauses for sorting with PostgreSQL JSON/JSONB functionality.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `json_sorts` - List of JSON sort tuples or single sort  
+  - `opts` - Options (reserved for future use)
+  
+  ## Examples
+  
+      # Sort by JSON path values
+      selecto
+      |> Selecto.json_order_by([
+          {:json_extract, "metadata", "$.priority", :desc},
+          {:json_extract_text, "data", "$.created_at", :asc}
+        ])
+      
+      # Single JSON sort
+      selecto
+      |> Selecto.json_order_by({:json_extract, "settings", "$.sort_order"})
+  """
+  def json_order_by(selecto, json_sorts, opts \\ [])
+  
+  def json_order_by(selecto, json_sorts, _opts) when is_list(json_sorts) do
+    # Create JSON sort specifications
+    json_specs = 
+      json_sorts
+      |> Enum.map(fn
+        {operation, column, path, direction} when is_binary(path) ->
+          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
+          {spec, direction || :asc}
+          
+        {operation, column, direction} when direction in [:asc, :desc] ->
+          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
+          {spec, direction}
+        
+        {operation, column, path} when is_binary(path) ->
+          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
+          {spec, :asc}
+          
+        {operation, column} ->
+          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
+          {spec, :asc}
+      end)
+    
+    # Add to selecto set
+    current_json_sorts = Map.get(selecto.set, :json_order_by, [])  
+    updated_json_sorts = current_json_sorts ++ json_specs
+    
+    put_in(selecto.set[:json_order_by], updated_json_sorts)
+  end
+  
+  def json_order_by(selecto, json_sort, opts) do
+    json_order_by(selecto, [json_sort], opts)
+  end
 end
