@@ -178,7 +178,6 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(_sel, other) do
-    IO.inspect(other, label: "Where clause not handled")
     raise "Not Found"
   end
 
