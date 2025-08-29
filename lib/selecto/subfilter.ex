@@ -73,12 +73,12 @@ defmodule Selecto.Subfilter do
       :min_value,  # for range filters
       :max_value,  # for range filters
       :agg_function, # :count, :sum, :avg, :min, :max
-      :temporal_type # :recent_years, :within_days
+      :temporal_type # :recent_years, :within_days, :within_hours, :since_date
     ]
 
     @type filter_type :: :equality | :comparison | :in_list | :range | :aggregation | :temporal
     @type agg_function :: :count | :sum | :avg | :min | :max
-    @type temporal_type :: :recent_years | :within_days
+    @type temporal_type :: :recent_years | :within_days | :within_hours | :since_date
 
     @type t :: %__MODULE__{
       type: filter_type(),

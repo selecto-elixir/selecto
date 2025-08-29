@@ -82,11 +82,50 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
     # This needs to correlate the subquery with the main query
     correlation_sql = "#{target_table}.film_id = film.film_id" # This is a simplification
 
-    # This needs to apply the filter spec
-    filter_sql = "#{target_table}.#{target_field} #{filter_spec.operator} ?"
+    # Build the filter SQL based on filter spec type
+    with {:ok, filter_sql, params} <- build_filter_condition(filter_spec, target_table, target_field) do
+      {:ok, "#{correlation_sql} AND #{filter_sql}", params}
+    end
+  end
 
+  # Build filter condition based on filter spec type
+  defp build_filter_condition(%{type: :temporal} = filter_spec, target_table, target_field) do
+    qualified_field = "#{target_table}.#{target_field}"
+    
+    case filter_spec.temporal_type do
+      :recent_years ->
+        sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} years')"
+        {:ok, sql, []}
+        
+      :within_days ->
+        sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} days')"
+        {:ok, sql, []}
+        
+      :within_hours ->
+        sql = "#{qualified_field} > (NOW() - INTERVAL '#{filter_spec.value} hours')"
+        {:ok, sql, []}
+        
+      :since_date ->
+        sql = "#{qualified_field} > ?"
+        {:ok, sql, [filter_spec.value]}
+        
+      _ ->
+        {:error, "Unsupported temporal type: #{filter_spec.temporal_type}"}
+    end
+  end
+
+  defp build_filter_condition(%{type: :range} = filter_spec, target_table, target_field) do
+    qualified_field = "#{target_table}.#{target_field}"
+    sql = "#{qualified_field} BETWEEN ? AND ?"
+    params = [filter_spec.min_value, filter_spec.max_value]
+    {:ok, sql, params}
+  end
+
+  defp build_filter_condition(filter_spec, target_table, target_field) do
+    # Default case for existing equality, comparison, in_list, aggregation filters
+    qualified_field = "#{target_table}.#{target_field}"
+    sql = "#{qualified_field} #{filter_spec.operator} ?"
     params = [filter_spec.value]
-
-    {:ok, "#{correlation_sql} AND #{filter_sql}", params}
+    {:ok, sql, params}
   end
 end

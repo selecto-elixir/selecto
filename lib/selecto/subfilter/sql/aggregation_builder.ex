@@ -73,10 +73,62 @@ defmodule Selecto.Subfilter.SQL.AggregationBuilder do
   defp join_type_to_sql(:full), do: "FULL"
   defp join_type_to_sql(:self), do: ""
 
-  defp build_where_sql(_spec, %JoinResolution{joins: [first_join | _]}) do
+  defp build_where_sql(%Spec{filter_spec: filter_spec} = _spec, %JoinResolution{joins: [first_join | _], target_table: target_table, target_field: target_field}) do
     # Correlate the subquery with the main query
     correlation_sql = "#{first_join.from}.film_id = film.film_id" # Simplification
     
-    {:ok, correlation_sql, []}
+    # Add temporal or range conditions if applicable
+    case filter_spec.type do
+      :temporal when not is_nil(filter_spec.temporal_type) ->
+        with {:ok, temporal_sql, params} <- build_temporal_condition(filter_spec, target_table, target_field) do
+          {:ok, "#{correlation_sql} AND #{temporal_sql}", params}
+        end
+        
+      :range when not is_nil(filter_spec.min_value) and not is_nil(filter_spec.max_value) ->
+        with {:ok, range_sql, params} <- build_range_condition(filter_spec, target_table, target_field) do
+          {:ok, "#{correlation_sql} AND #{range_sql}", params}
+        end
+        
+      _ ->
+        {:ok, correlation_sql, []}
+    end
+  end
+
+  # Build temporal condition for aggregation subqueries
+  defp build_temporal_condition(filter_spec, target_table, target_field) do
+    qualified_field = "#{target_table}.#{target_field}"
+    
+    case filter_spec.temporal_type do
+      :recent_years ->
+        sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} years')"
+        {:ok, sql, []}
+        
+      :within_days ->
+        sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} days')"
+        {:ok, sql, []}
+        
+      :within_hours ->
+        sql = "#{qualified_field} > (NOW() - INTERVAL '#{filter_spec.value} hours')"
+        {:ok, sql, []}
+        
+      :since_date ->
+        sql = "#{qualified_field} > ?"
+        {:ok, sql, [filter_spec.value]}
+        
+      _ ->
+        {:error, %Error{
+          type: :unsupported_temporal_type,
+          message: "Unsupported temporal type: #{filter_spec.temporal_type}",
+          details: %{temporal_type: filter_spec.temporal_type}
+        }}
+    end
+  end
+
+  # Build range condition for aggregation subqueries
+  defp build_range_condition(filter_spec, target_table, target_field) do
+    qualified_field = "#{target_table}.#{target_field}"
+    sql = "#{qualified_field} BETWEEN ? AND ?"
+    params = [filter_spec.min_value, filter_spec.max_value]
+    {:ok, sql, params}
   end
 end

@@ -19,6 +19,7 @@ defmodule Selecto.Builder.Sql do
   defp build_standard_query(selecto, _opts) do
     # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
     {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
+    {window_joins, window_iodata, window_params} = Selecto.Builder.Window.build_window_functions(selecto)
     {filter_joins, where_iolist, _where_params} = build_where(selecto)
     {group_by_joins, group_by_iodata, _group_by_params} = build_group_by(selecto)
     {order_by_joins, order_by_iodata, _order_by_params} = build_order_by(selecto)
@@ -26,7 +27,7 @@ defmodule Selecto.Builder.Sql do
     joins_in_order =
       Selecto.Builder.Join.get_join_order(
         Selecto.joins(selecto),
-        List.flatten(sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
+        List.flatten(sel_joins ++ window_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
       )
 
     # Phase 1: Enhanced FROM builder with CTE detection
@@ -57,8 +58,15 @@ defmodule Selecto.Builder.Sql do
       end
 
     # Phase 4: Build complete iodata structure - all SQL clauses converted
+    # Combine regular select fields with window functions
+    combined_select_iodata = 
+      case window_iodata do
+        [] -> select_iodata
+        _ -> [select_iodata, ", ", window_iodata]
+      end
+    
     base_iodata = [
-      "\n        select ", select_iodata,
+      "\n        select ", combined_select_iodata,
       "\n        from ", from_iodata
     ]
 
@@ -78,7 +86,7 @@ defmodule Selecto.Builder.Sql do
       end
 
     # Phase 1: Integrate CTEs with main query
-    all_base_params = select_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
+    all_base_params = select_params ++ window_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
     {final_query_iodata, _cte_integrated_params} =
       Cte.integrate_ctes_with_query(required_ctes, base_query_iodata, all_base_params)
 

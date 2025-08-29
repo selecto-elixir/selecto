@@ -652,4 +652,30 @@ defmodule Selecto do
     {query, _aliases, params} = gen_sql(selecto, opts)
     {query, params}
   end
+
+  @doc """
+  Add a window function to the query.
+
+  Window functions provide analytical capabilities over a set of rows related to
+  the current row, without grouping rows into a single result.
+
+  ## Examples
+
+      # Add row numbers within each category
+      selecto |> Selecto.window_function(:row_number, 
+        over: [partition_by: ["category"], order_by: ["created_at"]])
+
+      # Calculate running total
+      selecto |> Selecto.window_function(:sum, ["amount"], 
+        over: [partition_by: ["user_id"], order_by: ["date"]], 
+        as: "running_total")
+
+      # Get previous value for comparison
+      selecto |> Selecto.window_function(:lag, ["amount", 1], 
+        over: [partition_by: ["user_id"], order_by: ["date"]], 
+        as: "prev_amount")
+  """
+  def window_function(selecto, function, arguments \\ [], options) do
+    Selecto.Window.add_window_function(selecto, function, arguments, options)
+  end
 end

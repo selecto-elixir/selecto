@@ -73,13 +73,63 @@ defmodule Selecto.Subfilter.SQL.AnyAllBuilder do
   defp join_type_to_sql(:full), do: "FULL"
   defp join_type_to_sql(:self), do: ""
 
-  defp build_where_sql(_spec, _join_resolution) do
-    # ANY/ALL subqueries often don't have their own WHERE clause,
-    # as the filtering is done by the main query's comparison.
-    # However, we can add correlation if needed.
-    
+  defp build_where_sql(%Spec{filter_spec: filter_spec} = spec, %JoinResolution{target_table: target_table, target_field: target_field} = join_resolution) do
+    # Build correlation and any additional filter conditions
     correlation_sql = "film.film_id = film_actor.film_id" # Simplification
     
-    {:ok, "WHERE #{correlation_sql}", []}
+    case filter_spec.type do
+      # For temporal and range filters in ANY/ALL context, we need to add them to the WHERE clause
+      :temporal ->
+        with {:ok, temporal_sql, params} <- build_temporal_condition(filter_spec, target_table, target_field) do
+          {:ok, "WHERE #{correlation_sql} AND #{temporal_sql}", params}
+        end
+        
+      :range ->
+        with {:ok, range_sql, params} <- build_range_condition(filter_spec, target_table, target_field) do
+          {:ok, "WHERE #{correlation_sql} AND #{range_sql}", params}
+        end
+        
+      _ ->
+        # For other filter types, correlation is usually sufficient
+        {:ok, "WHERE #{correlation_sql}", []}
+    end
+  end
+
+  # Build temporal condition for ANY/ALL subqueries
+  defp build_temporal_condition(filter_spec, target_table, target_field) do
+    qualified_field = "#{target_table}.#{target_field}"
+    
+    case filter_spec.temporal_type do
+      :recent_years ->
+        sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} years')"
+        {:ok, sql, []}
+        
+      :within_days ->
+        sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} days')"
+        {:ok, sql, []}
+        
+      :within_hours ->
+        sql = "#{qualified_field} > (NOW() - INTERVAL '#{filter_spec.value} hours')"
+        {:ok, sql, []}
+        
+      :since_date ->
+        sql = "#{qualified_field} > ?"
+        {:ok, sql, [filter_spec.value]}
+        
+      _ ->
+        {:error, %Error{
+          type: :unsupported_temporal_type,
+          message: "Unsupported temporal type: #{filter_spec.temporal_type}",
+          details: %{temporal_type: filter_spec.temporal_type}
+        }}
+    end
+  end
+
+  # Build range condition for ANY/ALL subqueries
+  defp build_range_condition(filter_spec, target_table, target_field) do
+    qualified_field = "#{target_table}.#{target_field}"
+    sql = "#{qualified_field} BETWEEN ? AND ?"
+    params = [filter_spec.min_value, filter_spec.max_value]
+    {:ok, sql, params}
   end
 end
