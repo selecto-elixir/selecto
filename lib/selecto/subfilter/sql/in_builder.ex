@@ -61,9 +61,15 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
   end
 
   defp build_joins_sql(%JoinResolution{joins: joins}) do
-    join_clauses = Enum.map(joins, fn join ->
-      "#{join_type_to_sql(join.type)} JOIN #{join.to} ON #{join.on}"
-    end)
+    join_clauses = 
+      joins
+      |> Enum.reject(fn join -> join.type == :self end)
+      |> Enum.map(fn join ->
+        case Map.get(join, :on) do
+          nil -> "#{join_type_to_sql(join.type)} JOIN #{join.to}"
+          on_clause -> "#{join_type_to_sql(join.type)} JOIN #{join.to} ON #{on_clause}"
+        end
+      end)
     
     {:ok, Enum.join(join_clauses, "\n"), []}
   end
@@ -75,24 +81,64 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
   defp join_type_to_sql(:self), do: ""
 
   defp build_where_sql(%Spec{filter_spec: filter_spec}, %JoinResolution{target_table: target_table, target_field: target_field}) do
-    case filter_spec.type do
-      :in_list ->
-        placeholders = Enum.map_join(filter_spec.values, ", ", fn _ -> "?" end)
-        filter_sql = "#{target_table}.#{target_field} IN (#{placeholders})"
-        params = filter_spec.values
-        {:ok, filter_sql, params}
+    build_filter_condition(filter_spec, target_table, target_field)
+  end
+
+  # Build filter condition based on filter spec type
+  defp build_filter_condition(%{type: :temporal} = filter_spec, target_table, target_field) do
+    qualified_field = "#{target_table}.#{target_field}"
+    
+    case filter_spec.temporal_type do
+      :recent_years ->
+        sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} years')"
+        {:ok, sql, []}
         
-      :equality ->
-        filter_sql = "#{target_table}.#{target_field} = ?"
-        params = [filter_spec.value]
-        {:ok, filter_sql, params}
+      :within_days ->
+        sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} days')"
+        {:ok, sql, []}
+        
+      :within_hours ->
+        sql = "#{qualified_field} > (NOW() - INTERVAL '#{filter_spec.value} hours')"
+        {:ok, sql, []}
+        
+      :since_date ->
+        sql = "#{qualified_field} > ?"
+        {:ok, sql, [filter_spec.value]}
         
       _ ->
         {:error, %Error{
-          type: :unsupported_filter_for_in_strategy,
-          message: "IN strategy only supports equality and IN list filters",
-          details: %{filter_type: filter_spec.type}
+          type: :unsupported_temporal_type,
+          message: "Unsupported temporal type: #{filter_spec.temporal_type}",
+          details: %{temporal_type: filter_spec.temporal_type}
         }}
     end
+  end
+
+  defp build_filter_condition(%{type: :range} = filter_spec, target_table, target_field) do
+    qualified_field = "#{target_table}.#{target_field}"
+    sql = "#{qualified_field} BETWEEN ? AND ?"
+    params = [filter_spec.min_value, filter_spec.max_value]
+    {:ok, sql, params}
+  end
+
+  defp build_filter_condition(%{type: :in_list} = filter_spec, target_table, target_field) do
+    placeholders = Enum.map_join(filter_spec.values, ", ", fn _ -> "?" end)
+    filter_sql = "#{target_table}.#{target_field} IN (#{placeholders})"
+    params = filter_spec.values
+    {:ok, filter_sql, params}
+  end
+
+  defp build_filter_condition(%{type: :equality} = filter_spec, target_table, target_field) do
+    filter_sql = "#{target_table}.#{target_field} = ?"
+    params = [filter_spec.value]
+    {:ok, filter_sql, params}
+  end
+
+  defp build_filter_condition(filter_spec, _target_table, _target_field) do
+    {:error, %Error{
+      type: :unsupported_filter_for_in_strategy,
+      message: "IN strategy only supports equality, IN list, temporal, and range filters",
+      details: %{filter_type: filter_spec.type}
+    }}
   end
 end

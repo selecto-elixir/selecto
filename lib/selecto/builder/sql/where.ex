@@ -121,12 +121,29 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " ", to_string(comp), " ", {:param, value}, " "], param}
   end
 
+  def build(selecto, {field, {comp, value}}) when comp in [:=, :!=, :<, :>, :<=, :>=] do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " ", to_string(comp), " ", {:param, to_type(conf.type, value)}, " "], param}
+  end
+
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
      [" ", sel, " ", comp, " ", {:param, to_type(conf.type, value)}, " "], param}
+  end
+
+  def build(selecto, {field, {:in, list}}) when is_list(list) do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "],
+     param}
   end
 
   def build(selecto, {field, list}) when is_list(list) do
@@ -136,6 +153,11 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(conf.requires_join) ++ List.wrap(join),
      [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "],
      param}
+  end
+
+  def build(selecto, {field, {:not, nil}}) do
+    # Handle {:not, nil} as "IS NOT NULL"
+    build(selecto, {field, :not_null})
   end
 
   def build(selecto, {field, :not_null}) do
@@ -156,7 +178,6 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(_sel, other) do
-    IO.inspect(other, label: "Where clause not handled")
     raise "Not Found"
   end
 

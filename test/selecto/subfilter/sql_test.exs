@@ -59,5 +59,72 @@ defmodule Selecto.Subfilter.SQLTest do
       assert sql =~ "WHERE ((EXISTS"
       assert sql =~ "AND (EXISTS"
     end
+
+    test "generates SQL for temporal subfilter - recent years" do
+      registry = Registry.new(:film_domain, base_table: :film)
+      {:ok, registry} = Registry.add_subfilter(registry, "film.release_year", {:recent, years: 5})
+
+      {:ok, sql, params} = SQL.generate(registry)
+
+      assert sql =~ "EXISTS ("
+      assert sql =~ "film.release_year > (CURRENT_DATE - INTERVAL '5 years')"
+      assert params == []
+    end
+
+    test "generates SQL for temporal subfilter - within days" do
+      registry = Registry.new(:film_domain, base_table: :film)
+      {:ok, registry} = Registry.add_subfilter(registry, "film.release_year", {:within_days, 30})
+
+      {:ok, sql, params} = SQL.generate(registry)
+
+      assert sql =~ "EXISTS ("
+      assert sql =~ "film.release_year > (CURRENT_DATE - INTERVAL '30 days')"
+      assert params == []
+    end
+
+    test "generates SQL for temporal subfilter - since date" do
+      date = ~D[2023-01-01]
+      registry = Registry.new(:film_domain, base_table: :film)
+      {:ok, registry} = Registry.add_subfilter(registry, "film.release_year", {:since_date, date})
+
+      {:ok, sql, params} = SQL.generate(registry)
+
+      assert sql =~ "EXISTS ("
+      assert sql =~ "film.release_year > ?"
+      assert params == [date]
+    end
+
+    test "generates SQL for range subfilter" do
+      registry = Registry.new(:film_domain, base_table: :film)
+      {:ok, registry} = Registry.add_subfilter(registry, "film.rental_rate", {"between", 2.99, 4.99})
+
+      {:ok, sql, params} = SQL.generate(registry)
+
+      assert sql =~ "EXISTS ("
+      assert sql =~ "film.rental_rate BETWEEN ? AND ?"
+      assert params == [2.99, 4.99]
+    end
+
+    test "generates SQL for temporal subfilter with IN strategy" do
+      registry = Registry.new(:film_domain, base_table: :film)
+      {:ok, registry} = Registry.add_subfilter(registry, "film.release_year", {:within_days, 7}, strategy: :in)
+
+      {:ok, sql, params} = SQL.generate(registry)
+
+      assert sql =~ "film.film_id IN ("
+      assert sql =~ "film.release_year > (CURRENT_DATE - INTERVAL '7 days')"
+      assert params == []
+    end
+
+    test "generates SQL for range subfilter with IN strategy" do
+      registry = Registry.new(:film_domain, base_table: :film)
+      {:ok, registry} = Registry.add_subfilter(registry, "film.rental_rate", {"between", 2.99, 4.99}, strategy: :in)
+
+      {:ok, sql, params} = SQL.generate(registry)
+
+      assert sql =~ "film.film_id IN ("
+      assert sql =~ "film.rental_rate BETWEEN ? AND ?"
+      assert params == [2.99, 4.99]
+    end
   end
 end

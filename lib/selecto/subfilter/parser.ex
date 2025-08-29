@@ -106,7 +106,8 @@ defmodule Selecto.Subfilter.Parser do
       case filter_spec do
         spec when is_binary(spec) -> String.slice(spec, 0, 10)
         spec when is_list(spec) -> "list_#{length(spec)}"
-        {op, val} when is_atom(op) -> "#{op}_#{val}"
+        {op, val} when is_atom(op) and not is_list(val) -> "#{op}_#{val}"
+        {op, val} when is_atom(op) and is_list(val) -> "#{op}_#{Keyword.get(val, :years, Keyword.get(val, :days, Keyword.get(val, :hours, "opts")))}"
         _ -> "complex"
       end
 
@@ -243,6 +244,22 @@ defmodule Selecto.Subfilter.Parser do
       type: :temporal,
       temporal_type: :within_days,
       value: days
+    }}
+  end
+
+  defp parse_filter_specification({:within_hours, hours}) when is_integer(hours) and hours > 0 do
+    {:ok, %FilterSpec{
+      type: :temporal,
+      temporal_type: :within_hours,
+      value: hours
+    }}
+  end
+
+  defp parse_filter_specification({:since_date, date}) do
+    {:ok, %FilterSpec{
+      type: :temporal,
+      temporal_type: :since_date,
+      value: date
     }}
   end
 

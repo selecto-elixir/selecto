@@ -40,7 +40,13 @@ defmodule Selecto.Builder.Subselect do
         Enum.map(subselects, &build_single_subselect(selecto, &1, source_alias))
         |> Enum.unzip()
 
-      {clauses, List.flatten(all_params)}
+      # Join multiple subselect clauses with commas
+      combined_clauses = case clauses do
+        [single] -> single
+        multiple -> Enum.intersperse(multiple, ", ")
+      end
+
+      {combined_clauses, List.flatten(all_params)}
     else
       {[], []}
     end

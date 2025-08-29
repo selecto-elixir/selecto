@@ -154,6 +154,28 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
+  # Handle new CASE expression specifications
+  def prep_selector(selecto, {:case, case_spec}) do
+    prep_selector(selecto, {:case, case_spec}, %{})
+  end
+
+  def prep_selector(selecto, {:case, case_spec}, _pivot_aliases) do
+    # Use the CaseExpression builder for the new specification format
+    {case_sql, params} = Selecto.Builder.CaseExpression.build_case_for_select(case_spec, selecto)
+    {case_sql, [], params}
+  end
+
+  # Handle searched CASE expression specifications
+  def prep_selector(selecto, {:case_when, case_spec}) do
+    prep_selector(selecto, {:case_when, case_spec}, %{})
+  end
+
+  def prep_selector(selecto, {:case_when, case_spec}, _pivot_aliases) do
+    # Use the CaseExpression builder for the new specification format
+    {case_sql, params} = Selecto.Builder.CaseExpression.build_case_for_select(case_spec, selecto)
+    {case_sql, [], params}
+  end
+
   def prep_selector(selecto, {func, fields})
       when func in [:concat, :coalesce, :greatest, :least, :nullif] do
     prep_selector(selecto, {func, fields}, %{})
@@ -161,8 +183,21 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {func, fields}, pivot_aliases)
       when func in [:concat, :coalesce, :greatest, :least, :nullif] do
+    # Special handling for CONCAT to avoid PostgreSQL parameter type issues
+    processed_fields = if func == :concat do
+      Enum.map(List.wrap(fields), fn
+        {:literal, value} when is_bitstring(value) ->
+          # Convert string literals to non-parameterized form for CONCAT
+          {:literal_string, value}
+        other ->
+          other
+      end)
+    else
+      List.wrap(fields)
+    end
+
     {sel_parts, join, param} =
-      Enum.reduce(List.wrap(fields), {[], [], []}, fn f, {select, join, param} ->
+      Enum.reduce(processed_fields, {[], [], []}, fn f, {select, join, param} ->
         {s_iodata, j, p} = prep_selector(selecto, f, pivot_aliases)
         {select ++ [s_iodata], join ++ List.wrap(j), param ++ p}
       end)

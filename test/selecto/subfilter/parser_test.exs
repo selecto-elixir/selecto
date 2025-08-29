@@ -138,4 +138,81 @@ defmodule Selecto.Subfilter.ParserTest do
       {:error, %Error{type: :invalid_filter_spec}} = Parser.parse_compound(:and, ["invalid"])
     end
   end
+
+  describe "Temporal filter parsing" do
+    test "parses recent years temporal filter" do
+      {:ok, spec} = Parser.parse("film.release_date", {:recent, years: 5})
+
+      assert %Spec{
+               filter_spec: %FilterSpec{
+                 type: :temporal,
+                 temporal_type: :recent_years,
+                 value: 5
+               }
+             } = spec
+    end
+
+    test "parses within days temporal filter" do
+      {:ok, spec} = Parser.parse("rental.rental_date", {:within_days, 30})
+
+      assert %Spec{
+               filter_spec: %FilterSpec{
+                 type: :temporal,
+                 temporal_type: :within_days,
+                 value: 30
+               }
+             } = spec
+    end
+
+    test "parses within hours temporal filter" do
+      {:ok, spec} = Parser.parse("payment.payment_date", {:within_hours, 24})
+
+      assert %Spec{
+               filter_spec: %FilterSpec{
+                 type: :temporal,
+                 temporal_type: :within_hours,
+                 value: 24
+               }
+             } = spec
+    end
+
+    test "parses since date temporal filter" do
+      date = ~D[2023-01-01]
+      {:ok, spec} = Parser.parse("film.last_update", {:since_date, date})
+
+      assert %Spec{
+               filter_spec: %FilterSpec{
+                 type: :temporal,
+                 temporal_type: :since_date,
+                 value: ^date
+               }
+             } = spec
+    end
+  end
+
+  describe "Range filter parsing" do
+    test "parses BETWEEN range filter" do
+      {:ok, spec} = Parser.parse("film.rental_rate", {"between", 2.99, 4.99})
+
+      assert %Spec{
+               filter_spec: %FilterSpec{
+                 type: :range,
+                 min_value: 2.99,
+                 max_value: 4.99
+               }
+             } = spec
+    end
+
+    test "parses integer range filter" do
+      {:ok, spec} = Parser.parse("film.length", {"between", 90, 180})
+
+      assert %Spec{
+               filter_spec: %FilterSpec{
+                 type: :range,
+                 min_value: 90,
+                 max_value: 180
+               }
+             } = spec
+    end
+  end
 end

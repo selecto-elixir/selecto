@@ -3,22 +3,30 @@ defmodule Selecto.Builder.Sql do
   # import Selecto.Types - removed to avoid circular dependency
 
   alias Selecto.SQL.Params
-  alias Selecto.Builder.Cte
+  alias Selecto.Builder.CTE, as: Cte
   alias Selecto.Builder.Sql.Hierarchy
+  alias Selecto.Builder.LateralJoin
+  alias Selecto.Builder.ValuesClause
 
   @spec build(Selecto.Types.t(), Selecto.Types.sql_generation_options()) :: {String.t(), [%{String.t() => String.t()}], [any()]}
   def build(selecto, _opts) do
-    # Check for Pivot configuration first as it affects the entire query structure
-    if Selecto.Pivot.has_pivot?(selecto) do
-      build_pivot_query(selecto, _opts)
-    else
-      build_standard_query(selecto, _opts)
+    # Check for Set Operations first as they completely override query structure
+    cond do
+      Selecto.Builder.SetOperations.has_set_operations?(selecto) ->
+        build_set_operation_query(selecto, _opts)
+      
+      Selecto.Pivot.has_pivot?(selecto) ->
+        build_pivot_query(selecto, _opts)
+        
+      true ->
+        build_standard_query(selecto, _opts)
     end
   end
 
   defp build_standard_query(selecto, _opts) do
     # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
     {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
+    {window_joins, window_iodata, window_params} = Selecto.Builder.Window.build_window_functions(selecto)
     {filter_joins, where_iolist, _where_params} = build_where(selecto)
     {group_by_joins, group_by_iodata, _group_by_params} = build_group_by(selecto)
     {order_by_joins, order_by_iodata, _order_by_params} = build_order_by(selecto)
@@ -26,11 +34,30 @@ defmodule Selecto.Builder.Sql do
     joins_in_order =
       Selecto.Builder.Join.get_join_order(
         Selecto.joins(selecto),
-        List.flatten(sel_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
+        List.flatten(sel_joins ++ window_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
       )
 
     # Phase 1: Enhanced FROM builder with CTE detection
     {from_iodata, from_params, required_ctes} = build_from_with_ctes(selecto, joins_in_order)
+    
+    # Add VALUES clauses as CTEs
+    values_ctes = build_values_clauses_as_ctes(selecto)
+    
+    # Add user-defined CTEs
+    user_ctes = case Map.get(selecto.set, :ctes) do
+      nil -> []
+      ctes when is_list(ctes) -> ctes
+    end
+    
+    all_required_ctes = required_ctes ++ values_ctes ++ user_ctes
+    
+    # Add LATERAL joins to FROM clause
+    {lateral_join_iodata, lateral_join_params} = build_lateral_joins(selecto)
+    
+    # Add UNNEST operations to FROM clause
+    {unnest_iodata, unnest_params} = build_unnest_operations(selecto)
+    
+    combined_from_iodata = combine_from_with_lateral_and_unnest(from_iodata, lateral_join_iodata, unnest_iodata)
 
     {where_section, where_finalized_params} =
       cond do
@@ -57,9 +84,16 @@ defmodule Selecto.Builder.Sql do
       end
 
     # Phase 4: Build complete iodata structure - all SQL clauses converted
+    # Combine regular select fields with window functions
+    combined_select_iodata = 
+      case window_iodata do
+        [] -> select_iodata
+        _ -> [select_iodata, ", ", window_iodata]
+      end
+    
     base_iodata = [
-      "\n        select ", select_iodata,
-      "\n        from ", from_iodata
+      "\n        select ", combined_select_iodata,
+      "\n        from ", combined_from_iodata
     ]
 
     # Convert sections to iodata
@@ -78,9 +112,9 @@ defmodule Selecto.Builder.Sql do
       end
 
     # Phase 1: Integrate CTEs with main query
-    all_base_params = select_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
+    all_base_params = select_params ++ window_params ++ from_params ++ lateral_join_params ++ unnest_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
     {final_query_iodata, _cte_integrated_params} =
-      Cte.integrate_ctes_with_query(required_ctes, base_query_iodata, all_base_params)
+      Cte.integrate_ctes_with_query(all_required_ctes, base_query_iodata, all_base_params)
 
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
     {sql, final_params} = Params.finalize(final_query_iodata)
@@ -120,6 +154,34 @@ defmodule Selecto.Builder.Sql do
     {sql, aliases, final_params}
   end
 
+  defp build_set_operation_query(selecto, _opts) do
+    # Build set operations using the dedicated builder
+    {set_op_iodata, set_op_params} = Selecto.Builder.SetOperations.build_set_operations(selecto)
+    
+    # Check if we need to add ORDER BY to the entire set operation result
+    order_by_iodata = []
+    order_by_params = []
+    
+    if Selecto.Builder.SetOperations.should_apply_outer_order_by?(selecto) do
+      {_order_by_joins, order_by_iodata_result, order_by_params_result} = build_order_by(selecto)
+      order_by_iodata = if order_by_iodata_result != [], do: ["\nORDER BY ", order_by_iodata_result], else: []
+      order_by_params = order_by_params_result
+    end
+    
+    # Combine set operations with any outer ORDER BY
+    final_iodata = [set_op_iodata] ++ order_by_iodata
+    all_params = set_op_params ++ order_by_params
+    
+    # Finalize the SQL
+    {sql, final_params} = Selecto.SQL.Params.finalize(final_iodata)
+    
+    # For set operations, we don't return field aliases since the result schema
+    # depends on the left query's structure
+    aliases = %{}
+    
+    {sql, aliases, final_params}
+  end
+
   # Enhanced SELECT builder that includes subselects
   defp build_select_with_subselects(selecto) do
     build_select_with_subselects(selecto, %{})
@@ -132,20 +194,71 @@ defmodule Selecto.Builder.Sql do
     # Build regular SELECT fields
     {aliases, sel_joins, select_iodata, select_params} = build_select(selecto, pivot_aliases)
 
+    # Build JSON operations SELECT fields if they exist
+    json_select_clauses = []
+    json_select_params = []
+    
+    {json_select_clauses, json_select_params} = 
+      case Map.get(selecto.set, :json_selects) do
+        nil -> {[], []}
+        json_specs when is_list(json_specs) ->
+          json_specs
+          |> Enum.map(&Selecto.Builder.JsonOperations.build_json_select/1)
+          |> Enum.unzip()
+          |> case do
+            {[], []} -> {[], []}
+            {clauses, params} -> {clauses, List.flatten(params)}
+          end
+      end
+
+    # Build Array operations SELECT fields if they exist
+    array_select_clauses = []
+    array_select_params = []
+    
+    {array_select_clauses, array_select_params} = 
+      case Map.get(selecto.set, :array_operations) do
+        nil -> {[], []}
+        array_specs when is_list(array_specs) ->
+          array_specs
+          |> Enum.filter(fn spec -> not Selecto.Advanced.ArrayOperations.is_unnest?(spec) end)
+          |> Enum.map(fn spec -> 
+            Selecto.Advanced.ArrayOperations.to_sql(spec, [])
+          end)
+          |> Enum.unzip()
+          |> case do
+            {[], []} -> {[], []}
+            {clauses, params} -> {clauses, List.flatten(params)}
+          end
+      end
+
     # Add subselect fields if they exist
     if Selecto.Subselect.has_subselects?(selecto) do
       {subselect_clauses, subselect_params} = Selecto.Builder.Subselect.build_subselect_clauses(selecto, source_alias)
 
-      # Combine regular and subselect fields
-      combined_select = if select_iodata != [] and subselect_clauses != [] do
-        [select_iodata, ", "] ++ Enum.intersperse(subselect_clauses, ", ")
+      # Combine regular, JSON, array, and subselect fields
+      all_select_parts = [select_iodata, json_select_clauses, array_select_clauses, subselect_clauses] 
+                        |> Enum.reject(&(&1 == []))
+      
+      combined_select = if length(all_select_parts) > 1 do
+        Enum.intersperse(all_select_parts, ", ") |> List.flatten()
       else
-        select_iodata ++ subselect_clauses
+        List.flatten(all_select_parts)
       end
 
-      {aliases, sel_joins, combined_select, select_params ++ subselect_params}
+      {aliases, sel_joins, combined_select, select_params ++ json_select_params ++ array_select_params ++ subselect_params}
     else
-      {aliases, sel_joins, select_iodata, select_params}
+      # No subselects, but might have JSON or array operations
+      extra_clauses = json_select_clauses ++ array_select_clauses
+      if extra_clauses != [] do
+        combined_select = if select_iodata != [] do
+          [select_iodata, ", "] ++ Enum.intersperse(extra_clauses, ", ")
+        else
+          extra_clauses
+        end
+        {aliases, sel_joins, combined_select, select_params ++ json_select_params ++ array_select_params}
+      else
+        {aliases, sel_joins, select_iodata, select_params}
+      end
     end
   end
 
@@ -192,10 +305,29 @@ defmodule Selecto.Builder.Sql do
 
   @spec build_where(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_where(selecto) do
-    Selecto.Builder.Sql.Where.build(
-      selecto,
-      {:and, Map.get(Selecto.domain(selecto), :required_filters, []) ++ selecto.set.filtered}
-    )
+    # Combine regular filters with JSON and array filters
+    regular_filters = Map.get(Selecto.domain(selecto), :required_filters, []) ++ selecto.set.filtered
+    
+    # Add JSON filters if they exist
+    json_filters = case Map.get(selecto.set, :json_filters) do
+      nil -> []
+      json_specs when is_list(json_specs) ->
+        Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_filter/1)
+    end
+    
+    # Add Array filters if they exist
+    array_filters = case Map.get(selecto.set, :array_filters) do
+      nil -> []
+      array_specs when is_list(array_specs) ->
+        Enum.map(array_specs, fn spec ->
+          {sql, _params} = Selecto.Advanced.ArrayOperations.to_sql(spec, [])
+          sql
+        end)
+    end
+    
+    all_filters = regular_filters ++ json_filters ++ array_filters
+    
+    Selecto.Builder.Sql.Where.build(selecto, {:and, all_filters})
   end
 
   @spec build_group_by(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
@@ -205,7 +337,38 @@ defmodule Selecto.Builder.Sql do
 
   @spec build_order_by(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_order_by(selecto) do
-    Selecto.Builder.Sql.Order.build(selecto)
+    # Build regular ORDER BY clauses
+    {order_joins, order_iodata, order_params} = Selecto.Builder.Sql.Order.build(selecto)
+    
+    # Build JSON ORDER BY clauses if they exist
+    {json_order_joins, json_order_iodata, json_order_params} = 
+      case Map.get(selecto.set, :json_order_by) do
+        nil -> {[], [], []}
+        json_sorts when is_list(json_sorts) ->
+          json_sorts
+          |> Enum.map(fn {spec, direction} ->
+            json_sql = Selecto.Builder.JsonOperations.build_json_select(spec)
+            dir_str = case direction do
+              :desc -> " desc"
+              _ -> " asc"
+            end
+            {[], [json_sql, dir_str], []}
+          end)
+          |> Enum.reduce({[], [], []}, fn {j, c, p}, {acc_j, acc_c, acc_p} ->
+            {acc_j ++ j, acc_c ++ [c], acc_p ++ p}
+          end)
+      end
+    
+    # Combine regular and JSON ORDER BY clauses
+    all_joins = order_joins ++ json_order_joins
+    all_iodata = if order_iodata != [] and json_order_iodata != [] do
+      order_iodata ++ [", "] ++ Enum.intersperse(json_order_iodata, ", ")
+    else
+      order_iodata ++ json_order_iodata
+    end
+    all_params = order_params ++ json_order_params
+    
+    {all_joins, all_iodata, all_params}
   end
 
   # Phase 4: SELECT now uses iodata by default
@@ -316,6 +479,53 @@ defmodule Selecto.Builder.Sql do
 
   # Note: Using existing helper functions from Selecto.Builder.Sql.Helpers
   # build_join_string/2 and build_selector_string/3 are imported at the top of the module
+
+  # Phase 4: LATERAL join integration functions
+  defp build_lateral_joins(selecto) do
+    lateral_specs = Map.get(selecto.set, :lateral_joins, [])
+    
+    case lateral_specs do
+      [] -> {[], []}
+      specs -> LateralJoin.build_lateral_joins(specs)
+    end
+  end
+  
+  defp combine_from_with_lateral_and_unnest(from_iodata, lateral_join_iodata, unnest_iodata) do
+    all_joins = lateral_join_iodata ++ unnest_iodata
+    case all_joins do
+      [] -> from_iodata
+      joins -> from_iodata ++ [" "] ++ Enum.intersperse(joins, " ")
+    end
+  end
+  
+  defp build_unnest_operations(selecto) do
+    case Map.get(selecto.set, :unnests, []) do
+      [] -> {[], []}
+      specs -> 
+        {unnest_clauses, unnest_params} = 
+          specs
+          |> Enum.map(fn spec ->
+            Selecto.Advanced.ArrayOperations.to_sql(spec, [])
+          end)
+          |> Enum.unzip()
+        
+        # Format as comma-separated FROM clause additions
+        formatted_unnests = Enum.map(unnest_clauses, fn clause -> [", ", clause] end)
+        {formatted_unnests, List.flatten(unnest_params)}
+    end
+  end
+
+  # Phase 4.2: VALUES clause integration as CTEs
+  defp build_values_clauses_as_ctes(selecto) do
+    values_specs = Map.get(selecto.set, :values_clauses, [])
+    
+    Enum.map(values_specs, fn spec ->
+      values_cte_sql = ValuesClause.build_values_cte(spec)
+      # VALUES clauses don't have parameters in our simple implementation
+      # but this structure is consistent with other CTE builders
+      {values_cte_sql, []}
+    end)
+  end
 
   # Phase 1: Legacy join builders removed - replaced with CTE-enhanced versions above
   # Phase 2+: Full advanced join functionality will be implemented in specialized modules
