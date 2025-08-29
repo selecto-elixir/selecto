@@ -1052,4 +1052,159 @@ defmodule Selecto do
   def json_order_by(selecto, json_sort, opts) do
     json_order_by(selecto, [json_sort], opts)
   end
+
+  @doc """
+  Add a Common Table Expression (CTE) to the query using WITH clause.
+  
+  CTEs provide a way to create temporary named result sets that can be
+  referenced within the main query, enabling query modularity and readability.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `name` - CTE name (must be valid SQL identifier)
+  - `query_builder` - Function that returns a Selecto query for the CTE
+  - `opts` - Options including :columns, :dependencies
+  
+  ## Examples
+  
+      # Simple CTE for filtering
+      selecto
+      |> Selecto.with_cte("active_customers", fn ->
+          Selecto.configure(customer_domain, connection)
+          |> Selecto.filter([{"active", true}])
+        end)
+      |> Selecto.select(["film.title", "active_customers.first_name"])
+      |> Selecto.join(:inner, "active_customers", 
+          on: "rental.customer_id = active_customers.customer_id")
+      
+      # CTE with explicit columns
+      selecto
+      |> Selecto.with_cte("customer_stats", 
+          fn ->
+            Selecto.configure(customer_domain, connection)
+            |> Selecto.select(["customer_id", {:func, "COUNT", ["rental_id"], as: "rental_count"}])
+            |> Selecto.join(:left, "rental", on: "customer.customer_id = rental.customer_id")
+            |> Selecto.group_by(["customer_id"])
+          end,
+          columns: ["customer_id", "rental_count"]
+        )
+      
+      # Generated SQL:
+      # WITH active_customers AS (
+      #   SELECT * FROM customer WHERE active = true
+      # )
+      # SELECT film.title, active_customers.first_name
+      # FROM film
+      # INNER JOIN active_customers ON rental.customer_id = active_customers.customer_id
+  """
+  def with_cte(selecto, name, query_builder, opts \\ []) do
+    # Create CTE specification
+    cte_spec = Selecto.Advanced.CTE.create_cte(name, query_builder, opts)
+    
+    # Add to selecto set
+    current_ctes = Map.get(selecto.set, :ctes, [])
+    updated_ctes = current_ctes ++ [cte_spec]
+    
+    put_in(selecto.set[:ctes], updated_ctes)
+  end
+
+  @doc """
+  Add a recursive Common Table Expression (CTE) to the query.
+  
+  Recursive CTEs enable hierarchical queries by combining an anchor query
+  with a recursive query that references the CTE itself.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `name` - CTE name (must be valid SQL identifier)
+  - `opts` - Options with :base_query and :recursive_query functions
+  
+  ## Examples
+  
+      # Hierarchical employee structure
+      selecto
+      |> Selecto.with_recursive_cte("employee_hierarchy",
+          base_query: fn ->
+            # Anchor: top-level managers
+            Selecto.configure(employee_domain, connection)
+            |> Selecto.select(["employee_id", "name", "manager_id", {:literal, 0, as: "level"}])
+            |> Selecto.filter([{"manager_id", nil}])
+          end,
+          recursive_query: fn cte_ref ->
+            # Recursive: subordinates
+            Selecto.configure(employee_domain, connection)
+            |> Selecto.select(["employee.employee_id", "employee.name", "employee.manager_id",
+                              {:func, "employee_hierarchy.level + 1", as: "level"}])
+            |> Selecto.join(:inner, cte_ref, on: "employee.manager_id = employee_hierarchy.employee_id")
+          end
+        )
+      |> Selecto.select(["employee_id", "name", "level"])
+      |> Selecto.from("employee_hierarchy")
+      |> Selecto.order_by([{"level", :asc}, {"name", :asc}])
+      
+      # Generated SQL:
+      # WITH RECURSIVE employee_hierarchy AS (
+      #   SELECT employee_id, name, manager_id, 0 as level
+      #   FROM employee 
+      #   WHERE manager_id IS NULL
+      #   UNION ALL
+      #   SELECT employee.employee_id, employee.name, employee.manager_id, employee_hierarchy.level + 1
+      #   FROM employee
+      #   INNER JOIN employee_hierarchy ON employee.manager_id = employee_hierarchy.employee_id
+      # )
+      # SELECT employee_id, name, level
+      # FROM employee_hierarchy
+      # ORDER BY level ASC, name ASC
+  """
+  def with_recursive_cte(selecto, name, opts) do
+    # Create recursive CTE specification
+    cte_spec = Selecto.Advanced.CTE.create_recursive_cte(name, opts)
+    
+    # Add to selecto set
+    current_ctes = Map.get(selecto.set, :ctes, [])
+    updated_ctes = current_ctes ++ [cte_spec]
+    
+    put_in(selecto.set[:ctes], updated_ctes)
+  end
+
+  @doc """
+  Add multiple CTEs to the query in a single operation.
+  
+  Useful for complex queries that require multiple temporary result sets.
+  CTEs will be automatically ordered based on their dependencies.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `cte_specs` - List of CTE specifications created with create_cte/3
+  
+  ## Examples
+  
+      # Multiple related CTEs
+      active_customers_cte = Selecto.Advanced.CTE.create_cte("active_customers", fn ->
+        Selecto.configure(customer_domain, connection)
+        |> Selecto.filter([{"active", true}])
+      end)
+      
+      high_value_cte = Selecto.Advanced.CTE.create_cte("high_value_customers", fn ->
+        Selecto.configure(customer_domain, connection)  
+        |> Selecto.aggregate([{"payment.amount", :sum, as: "total_spent"}])
+        |> Selecto.join(:inner, "payment", on: "customer.customer_id = payment.customer_id")
+        |> Selecto.group_by(["customer.customer_id"])
+        |> Selecto.having([{"total_spent", {:>, 100}}])
+      end, dependencies: ["active_customers"])
+      
+      selecto
+      |> Selecto.with_ctes([active_customers_cte, high_value_cte])
+      |> Selecto.select(["film.title", "high_value_customers.total_spent"])
+  """
+  def with_ctes(selecto, cte_specs) when is_list(cte_specs) do
+    # Add all CTEs to selecto set
+    current_ctes = Map.get(selecto.set, :ctes, [])
+    updated_ctes = current_ctes ++ cte_specs
+    
+    put_in(selecto.set[:ctes], updated_ctes)
+  end
 end

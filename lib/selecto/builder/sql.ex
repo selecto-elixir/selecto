@@ -3,7 +3,7 @@ defmodule Selecto.Builder.Sql do
   # import Selecto.Types - removed to avoid circular dependency
 
   alias Selecto.SQL.Params
-  alias Selecto.Builder.Cte
+  alias Selecto.Builder.CTE, as: Cte
   alias Selecto.Builder.Sql.Hierarchy
   alias Selecto.Builder.LateralJoin
   alias Selecto.Builder.ValuesClause
@@ -42,7 +42,14 @@ defmodule Selecto.Builder.Sql do
     
     # Add VALUES clauses as CTEs
     values_ctes = build_values_clauses_as_ctes(selecto)
-    all_required_ctes = required_ctes ++ values_ctes
+    
+    # Add user-defined CTEs
+    user_ctes = case Map.get(selecto.set, :ctes) do
+      nil -> []
+      ctes when is_list(ctes) -> ctes
+    end
+    
+    all_required_ctes = required_ctes ++ values_ctes ++ user_ctes
     
     # Add LATERAL joins to FROM clause
     {lateral_join_iodata, lateral_join_params} = build_lateral_joins(selecto)
