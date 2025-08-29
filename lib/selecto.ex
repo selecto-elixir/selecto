@@ -1299,4 +1299,245 @@ defmodule Selecto do
     case_field = {:case_when, case_spec}
     select(selecto, case_field)
   end
+
+  @doc """
+  Add array aggregation operations to select fields.
+  
+  Supports ARRAY_AGG, STRING_AGG, and other array aggregation functions
+  with optional DISTINCT, ORDER BY, and filtering.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `array_operations` - List of array operation tuples or single operation
+  - `opts` - Additional options
+  
+  ## Examples
+  
+      # Simple array aggregation
+      selecto
+      |> Selecto.array_select({:array_agg, "film.title", as: "film_titles"})
+      
+      # Array aggregation with DISTINCT and ORDER BY
+      selecto
+      |> Selecto.array_select({:array_agg, "actor.name", 
+          distinct: true, 
+          order_by: [{"actor.last_name", :asc}],
+          as: "unique_actors"})
+      
+      # String aggregation with custom delimiter
+      selecto
+      |> Selecto.array_select({:string_agg, "tag.name", 
+          delimiter: ", ",
+          as: "tag_list"})
+      
+      # Array length operation
+      selecto
+      |> Selecto.array_select({:array_length, "tags", 1, as: "tag_count"})
+  """
+  def array_select(selecto, array_operations, opts \\ [])
+  
+  def array_select(selecto, array_operations, _opts) when is_list(array_operations) do
+    # Create array operation specifications
+    array_specs = 
+      array_operations
+      |> Enum.map(fn
+        {:array_agg, column, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg, column, opts)
+        
+        {:array_agg_distinct, column, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg_distinct, column, opts)
+        
+        {:string_agg, column, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:string_agg, column, opts)
+          
+        {:array_length, column, dimension, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_size(:array_length, column, dimension, opts)
+          
+        {:cardinality, column, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_size(:cardinality, column, nil, opts)
+          
+        {operation, column, opts} when is_atom(operation) and is_list(opts) ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
+          
+        _ = spec ->
+          spec
+      end)
+    
+    # Add to selecto set
+    current_array_ops = Map.get(selecto.set, :array_operations, [])
+    updated_array_ops = current_array_ops ++ array_specs
+    
+    put_in(selecto.set[:array_operations], updated_array_ops)
+  end
+  
+  def array_select(selecto, array_operation, opts) do
+    array_select(selecto, [array_operation], opts)
+  end
+
+  @doc """
+  Add array filtering operations to WHERE clauses.
+  
+  Supports array containment, overlap, and equality operations.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `array_filters` - List of array filter tuples or single filter
+  - `opts` - Additional options
+  
+  ## Examples
+  
+      # Array contains
+      selecto
+      |> Selecto.array_filter({:array_contains, "tags", ["featured", "new"]})
+      
+      # Array overlap (has any of the elements)
+      selecto
+      |> Selecto.array_filter({:array_overlap, "categories", ["electronics", "computers"]})
+      
+      # Array contained by
+      selecto
+      |> Selecto.array_filter({:array_contained, "permissions", ["read", "write", "admin"]})
+      
+      # Multiple filters
+      selecto
+      |> Selecto.array_filter([
+          {:array_contains, "special_features", ["Trailers"]},
+          {:array_overlap, "languages", ["English", "Spanish"]}
+        ])
+  """
+  def array_filter(selecto, array_filters, opts \\ [])
+  
+  def array_filter(selecto, array_filters, _opts) when is_list(array_filters) do
+    # Create array filter specifications
+    array_specs = 
+      array_filters
+      |> Enum.map(fn
+        {operation, column, value} ->
+          Selecto.Advanced.ArrayOperations.create_array_filter(operation, column, value)
+          
+        _ = spec ->
+          spec
+      end)
+    
+    # Add to selecto set filters
+    current_filters = Map.get(selecto.set, :array_filters, [])
+    updated_filters = current_filters ++ array_specs
+    
+    put_in(selecto.set[:array_filters], updated_filters)
+  end
+  
+  def array_filter(selecto, array_filter, opts) do
+    array_filter(selecto, [array_filter], opts)
+  end
+
+  @doc """
+  Add UNNEST operation to expand array columns into rows.
+  
+  The UNNEST operation transforms an array column into multiple rows,
+  with one row per array element.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `column` - The array column to unnest
+  - `opts` - Options including :as for aliasing and :with_ordinality for row numbers
+  
+  ## Examples
+  
+      # Simple unnest
+      selecto
+      |> Selecto.select(["film.title", "feature"])
+      |> Selecto.unnest("film.special_features", as: "feature")
+      
+      # Unnest with ordinality (adds row number)
+      selecto
+      |> Selecto.select(["product.name", "tag", "position"])
+      |> Selecto.unnest("product.tags", as: "tag", with_ordinality: true)
+  """
+  def unnest(selecto, column, opts \\ []) do
+    # Create unnest specification
+    unnest_spec = Selecto.Advanced.ArrayOperations.create_unnest(column, opts)
+    
+    # Add to selecto set
+    current_unnests = Map.get(selecto.set, :unnests, [])
+    updated_unnests = current_unnests ++ [unnest_spec]
+    
+    put_in(selecto.set[:unnests], updated_unnests)
+  end
+
+  @doc """
+  Add array manipulation operations to select fields.
+  
+  Supports array construction, modification, and transformation operations.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto instance
+  - `array_operations` - List of array manipulation operations
+  - `opts` - Additional options
+  
+  ## Examples
+  
+      # Array append
+      selecto
+      |> Selecto.array_manipulate({:array_append, "tags", "new-tag", as: "updated_tags"})
+      
+      # Array remove
+      selecto
+      |> Selecto.array_manipulate({:array_remove, "tags", "deprecated", as: "cleaned_tags"})
+      
+      # Array to string
+      selecto
+      |> Selecto.array_manipulate({:array_to_string, "tags", ", ", as: "tag_string"})
+  """
+  def array_manipulate(selecto, array_operations, opts \\ [])
+  
+  def array_manipulate(selecto, array_operations, _opts) when is_list(array_operations) do
+    # Create array operation specifications
+    array_specs = 
+      array_operations
+      |> Enum.map(fn
+        {:array_append, column, value, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_append, column, 
+            Keyword.put(opts, :value, value))
+        
+        {:array_prepend, column, value, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_prepend, column,
+            Keyword.put(opts, :value, value))
+            
+        {:array_remove, column, value, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_remove, column,
+            Keyword.put(opts, :value, value))
+            
+        {:array_replace, column, old_value, new_value, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_replace, column,
+            opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value))
+            
+        {:array_to_string, column, delimiter, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_to_string, column,
+            Keyword.put(opts, :value, delimiter))
+            
+        {:string_to_array, column, delimiter, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(:string_to_array, column,
+            Keyword.put(opts, :value, delimiter))
+            
+        {operation, column, opts} when is_atom(operation) ->
+          Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
+          
+        _ = spec ->
+          spec
+      end)
+    
+    # Add to selecto set
+    current_array_ops = Map.get(selecto.set, :array_operations, [])
+    updated_array_ops = current_array_ops ++ array_specs
+    
+    put_in(selecto.set[:array_operations], updated_array_ops)
+  end
+  
+  def array_manipulate(selecto, array_operation, opts) do
+    array_manipulate(selecto, [array_operation], opts)
+  end
 end

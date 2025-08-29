@@ -53,7 +53,11 @@ defmodule Selecto.Builder.Sql do
     
     # Add LATERAL joins to FROM clause
     {lateral_join_iodata, lateral_join_params} = build_lateral_joins(selecto)
-    combined_from_iodata = combine_from_with_lateral_joins(from_iodata, lateral_join_iodata)
+    
+    # Add UNNEST operations to FROM clause
+    {unnest_iodata, unnest_params} = build_unnest_operations(selecto)
+    
+    combined_from_iodata = combine_from_with_lateral_and_unnest(from_iodata, lateral_join_iodata, unnest_iodata)
 
     {where_section, where_finalized_params} =
       cond do
@@ -108,7 +112,7 @@ defmodule Selecto.Builder.Sql do
       end
 
     # Phase 1: Integrate CTEs with main query
-    all_base_params = select_params ++ window_params ++ from_params ++ lateral_join_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
+    all_base_params = select_params ++ window_params ++ from_params ++ lateral_join_params ++ unnest_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
     {final_query_iodata, _cte_integrated_params} =
       Cte.integrate_ctes_with_query(all_required_ctes, base_query_iodata, all_base_params)
 
@@ -207,12 +211,32 @@ defmodule Selecto.Builder.Sql do
           end
       end
 
+    # Build Array operations SELECT fields if they exist
+    array_select_clauses = []
+    array_select_params = []
+    
+    {array_select_clauses, array_select_params} = 
+      case Map.get(selecto.set, :array_operations) do
+        nil -> {[], []}
+        array_specs when is_list(array_specs) ->
+          array_specs
+          |> Enum.filter(fn spec -> not Selecto.Advanced.ArrayOperations.is_unnest?(spec) end)
+          |> Enum.map(fn spec -> 
+            Selecto.Advanced.ArrayOperations.to_sql(spec, [])
+          end)
+          |> Enum.unzip()
+          |> case do
+            {[], []} -> {[], []}
+            {clauses, params} -> {clauses, List.flatten(params)}
+          end
+      end
+
     # Add subselect fields if they exist
     if Selecto.Subselect.has_subselects?(selecto) do
       {subselect_clauses, subselect_params} = Selecto.Builder.Subselect.build_subselect_clauses(selecto, source_alias)
 
-      # Combine regular, JSON, and subselect fields
-      all_select_parts = [select_iodata, json_select_clauses, subselect_clauses] 
+      # Combine regular, JSON, array, and subselect fields
+      all_select_parts = [select_iodata, json_select_clauses, array_select_clauses, subselect_clauses] 
                         |> Enum.reject(&(&1 == []))
       
       combined_select = if length(all_select_parts) > 1 do
@@ -221,16 +245,17 @@ defmodule Selecto.Builder.Sql do
         List.flatten(all_select_parts)
       end
 
-      {aliases, sel_joins, combined_select, select_params ++ json_select_params ++ subselect_params}
+      {aliases, sel_joins, combined_select, select_params ++ json_select_params ++ array_select_params ++ subselect_params}
     else
-      # No subselects, but might have JSON operations
-      if json_select_clauses != [] do
+      # No subselects, but might have JSON or array operations
+      extra_clauses = json_select_clauses ++ array_select_clauses
+      if extra_clauses != [] do
         combined_select = if select_iodata != [] do
-          [select_iodata, ", "] ++ Enum.intersperse(json_select_clauses, ", ")
+          [select_iodata, ", "] ++ Enum.intersperse(extra_clauses, ", ")
         else
-          json_select_clauses
+          extra_clauses
         end
-        {aliases, sel_joins, combined_select, select_params ++ json_select_params}
+        {aliases, sel_joins, combined_select, select_params ++ json_select_params ++ array_select_params}
       else
         {aliases, sel_joins, select_iodata, select_params}
       end
@@ -280,7 +305,7 @@ defmodule Selecto.Builder.Sql do
 
   @spec build_where(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_where(selecto) do
-    # Combine regular filters with JSON filters
+    # Combine regular filters with JSON and array filters
     regular_filters = Map.get(Selecto.domain(selecto), :required_filters, []) ++ selecto.set.filtered
     
     # Add JSON filters if they exist
@@ -290,7 +315,17 @@ defmodule Selecto.Builder.Sql do
         Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_filter/1)
     end
     
-    all_filters = regular_filters ++ json_filters
+    # Add Array filters if they exist
+    array_filters = case Map.get(selecto.set, :array_filters) do
+      nil -> []
+      array_specs when is_list(array_specs) ->
+        Enum.map(array_specs, fn spec ->
+          {sql, _params} = Selecto.Advanced.ArrayOperations.to_sql(spec, [])
+          sql
+        end)
+    end
+    
+    all_filters = regular_filters ++ json_filters ++ array_filters
     
     Selecto.Builder.Sql.Where.build(selecto, {:and, all_filters})
   end
@@ -455,10 +490,28 @@ defmodule Selecto.Builder.Sql do
     end
   end
   
-  defp combine_from_with_lateral_joins(from_iodata, lateral_join_iodata) do
-    case lateral_join_iodata do
+  defp combine_from_with_lateral_and_unnest(from_iodata, lateral_join_iodata, unnest_iodata) do
+    all_joins = lateral_join_iodata ++ unnest_iodata
+    case all_joins do
       [] -> from_iodata
-      lateral_joins -> from_iodata ++ [" "] ++ Enum.intersperse(lateral_joins, " ")
+      joins -> from_iodata ++ [" "] ++ Enum.intersperse(joins, " ")
+    end
+  end
+  
+  defp build_unnest_operations(selecto) do
+    case Map.get(selecto.set, :unnests, []) do
+      [] -> {[], []}
+      specs -> 
+        {unnest_clauses, unnest_params} = 
+          specs
+          |> Enum.map(fn spec ->
+            Selecto.Advanced.ArrayOperations.to_sql(spec, [])
+          end)
+          |> Enum.unzip()
+        
+        # Format as comma-separated FROM clause additions
+        formatted_unnests = Enum.map(unnest_clauses, fn clause -> [", ", clause] end)
+        {formatted_unnests, List.flatten(unnest_params)}
     end
   end
 
