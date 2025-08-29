@@ -5,6 +5,7 @@ defmodule Selecto.Builder.Sql do
   alias Selecto.SQL.Params
   alias Selecto.Builder.Cte
   alias Selecto.Builder.Sql.Hierarchy
+  alias Selecto.Builder.LateralJoin
 
   @spec build(Selecto.Types.t(), Selecto.Types.sql_generation_options()) :: {String.t(), [%{String.t() => String.t()}], [any()]}
   def build(selecto, _opts) do
@@ -37,6 +38,10 @@ defmodule Selecto.Builder.Sql do
 
     # Phase 1: Enhanced FROM builder with CTE detection
     {from_iodata, from_params, required_ctes} = build_from_with_ctes(selecto, joins_in_order)
+    
+    # Add LATERAL joins to FROM clause
+    {lateral_join_iodata, lateral_join_params} = build_lateral_joins(selecto)
+    combined_from_iodata = combine_from_with_lateral_joins(from_iodata, lateral_join_iodata)
 
     {where_section, where_finalized_params} =
       cond do
@@ -72,7 +77,7 @@ defmodule Selecto.Builder.Sql do
     
     base_iodata = [
       "\n        select ", combined_select_iodata,
-      "\n        from ", from_iodata
+      "\n        from ", combined_from_iodata
     ]
 
     # Convert sections to iodata
@@ -91,7 +96,7 @@ defmodule Selecto.Builder.Sql do
       end
 
     # Phase 1: Integrate CTEs with main query
-    all_base_params = select_params ++ window_params ++ from_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
+    all_base_params = select_params ++ window_params ++ from_params ++ lateral_join_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
     {final_query_iodata, _cte_integrated_params} =
       Cte.integrate_ctes_with_query(required_ctes, base_query_iodata, all_base_params)
 
@@ -357,6 +362,23 @@ defmodule Selecto.Builder.Sql do
 
   # Note: Using existing helper functions from Selecto.Builder.Sql.Helpers
   # build_join_string/2 and build_selector_string/3 are imported at the top of the module
+
+  # Phase 4: LATERAL join integration functions
+  defp build_lateral_joins(selecto) do
+    lateral_specs = Map.get(selecto.set, :lateral_joins, [])
+    
+    case lateral_specs do
+      [] -> {[], []}
+      specs -> LateralJoin.build_lateral_joins(specs)
+    end
+  end
+  
+  defp combine_from_with_lateral_joins(from_iodata, lateral_join_iodata) do
+    case lateral_join_iodata do
+      [] -> from_iodata
+      lateral_joins -> from_iodata ++ [" "] ++ Enum.intersperse(lateral_joins, " ")
+    end
+  end
 
   # Phase 1: Legacy join builders removed - replaced with CTE-enhanced versions above
   # Phase 2+: Full advanced join functionality will be implemented in specialized modules

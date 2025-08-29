@@ -753,4 +753,71 @@ defmodule Selecto do
   def except(left_query, right_query, opts \\ []) do
     Selecto.SetOperations.except(left_query, right_query, opts)
   end
+  
+  @doc """
+  Add a LATERAL join to the query.
+  
+  LATERAL joins allow the right side of the join to reference columns from the
+  left side, enabling powerful correlated subquery patterns.
+  
+  ## Parameters
+  
+  - `join_type` - Type of join (:left, :inner, :right, :full)
+  - `subquery_builder_or_function` - Function that builds correlated subquery or table function tuple
+  - `alias_name` - Alias for the LATERAL join results
+  - `opts` - Additional options
+  
+  ## Examples
+  
+      # LATERAL join with correlated subquery
+      selecto
+      |> Selecto.lateral_join(
+        :left,
+        fn base_query ->
+          Selecto.configure(rental_domain, connection)
+          |> Selecto.select([{:func, "COUNT", ["*"], as: "rental_count"}])
+          |> Selecto.filter([{"customer_id", {:ref, "customer.customer_id"}}])
+          |> Selecto.limit(5)
+        end,
+        "recent_rentals"
+      )
+      
+      # LATERAL join with table function
+      selecto
+      |> Selecto.lateral_join(
+        :inner,
+        {:unnest, "film.special_features"},
+        "features"
+      )
+      
+      # LATERAL join with generate_series
+      selecto
+      |> Selecto.lateral_join(
+        :inner,
+        {:function, :generate_series, [1, 10]},
+        "numbers"
+      )
+  """
+  def lateral_join(selecto, join_type, subquery_builder_or_function, alias_name, opts \\ []) do
+    # Create LATERAL join specification
+    lateral_spec = Selecto.Advanced.LateralJoin.create_lateral_join(
+      join_type, 
+      subquery_builder_or_function, 
+      alias_name, 
+      opts
+    )
+    
+    # Validate correlations
+    case Selecto.Advanced.LateralJoin.validate_correlations(lateral_spec, selecto) do
+      {:ok, validated_spec} ->
+        # Add to selecto set
+        current_lateral_joins = Map.get(selecto.set, :lateral_joins, [])
+        updated_lateral_joins = current_lateral_joins ++ [validated_spec]
+        
+        put_in(selecto.set[:lateral_joins], updated_lateral_joins)
+        
+      {:error, correlation_error} ->
+        raise correlation_error
+    end
+  end
 end
