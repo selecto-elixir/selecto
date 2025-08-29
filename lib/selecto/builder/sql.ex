@@ -6,6 +6,7 @@ defmodule Selecto.Builder.Sql do
   alias Selecto.Builder.Cte
   alias Selecto.Builder.Sql.Hierarchy
   alias Selecto.Builder.LateralJoin
+  alias Selecto.Builder.ValuesClause
 
   @spec build(Selecto.Types.t(), Selecto.Types.sql_generation_options()) :: {String.t(), [%{String.t() => String.t()}], [any()]}
   def build(selecto, _opts) do
@@ -38,6 +39,10 @@ defmodule Selecto.Builder.Sql do
 
     # Phase 1: Enhanced FROM builder with CTE detection
     {from_iodata, from_params, required_ctes} = build_from_with_ctes(selecto, joins_in_order)
+    
+    # Add VALUES clauses as CTEs
+    values_ctes = build_values_clauses_as_ctes(selecto)
+    all_required_ctes = required_ctes ++ values_ctes
     
     # Add LATERAL joins to FROM clause
     {lateral_join_iodata, lateral_join_params} = build_lateral_joins(selecto)
@@ -98,7 +103,7 @@ defmodule Selecto.Builder.Sql do
     # Phase 1: Integrate CTEs with main query
     all_base_params = select_params ++ window_params ++ from_params ++ lateral_join_params ++ where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
     {final_query_iodata, _cte_integrated_params} =
-      Cte.integrate_ctes_with_query(required_ctes, base_query_iodata, all_base_params)
+      Cte.integrate_ctes_with_query(all_required_ctes, base_query_iodata, all_base_params)
 
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
     {sql, final_params} = Params.finalize(final_query_iodata)
@@ -378,6 +383,18 @@ defmodule Selecto.Builder.Sql do
       [] -> from_iodata
       lateral_joins -> from_iodata ++ [" "] ++ Enum.intersperse(lateral_joins, " ")
     end
+  end
+
+  # Phase 4.2: VALUES clause integration as CTEs
+  defp build_values_clauses_as_ctes(selecto) do
+    values_specs = Map.get(selecto.set, :values_clauses, [])
+    
+    Enum.map(values_specs, fn spec ->
+      values_cte_sql = ValuesClause.build_values_cte(spec)
+      # VALUES clauses don't have parameters in our simple implementation
+      # but this structure is consistent with other CTE builders
+      {values_cte_sql, []}
+    end)
   end
 
   # Phase 1: Legacy join builders removed - replaced with CTE-enhanced versions above

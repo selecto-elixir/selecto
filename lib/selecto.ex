@@ -820,4 +820,55 @@ defmodule Selecto do
         raise correlation_error
     end
   end
+
+  @doc """
+  Add a VALUES clause to create an inline table from literal data.
+  
+  VALUES clauses allow creating inline tables from literal values, useful for
+  data transformations, lookup tables, and testing scenarios.
+  
+  ## Parameters
+  
+  - `selecto` - The Selecto struct
+  - `data` - List of data rows (lists or maps)
+  - `opts` - Options including `:columns` (explicit column names) and `:as` (table alias)
+  
+  ## Examples
+  
+      # Basic VALUES table with explicit columns
+      selecto
+      |> Selecto.with_values([
+          ["PG", "Family Friendly", 1],
+          ["PG-13", "Teen", 2],
+          ["R", "Adult", 3]
+        ], 
+        columns: ["rating_code", "description", "sort_order"],
+        as: "rating_lookup"
+      )
+      
+      # Map-based VALUES (columns inferred from keys)
+      selecto
+      |> Selecto.with_values([
+          %{month: 1, name: "January", days: 31},
+          %{month: 2, name: "February", days: 28},
+          %{month: 3, name: "March", days: 31}
+        ], as: "months")
+      
+      # Generated SQL:
+      # WITH rating_lookup (rating_code, description, sort_order) AS (
+      #   VALUES ('PG', 'Family Friendly', 1),
+      #          ('PG-13', 'Teen', 2),
+      #          ('R', 'Adult', 3)
+      # )
+  """
+  def with_values(selecto, data, opts \\ []) do
+    # Create VALUES clause specification
+    values_spec = Selecto.Advanced.ValuesClause.create_values_clause(data, opts)
+    
+    # Add to selecto set
+    current_values_clauses = Map.get(selecto.set, :values_clauses, [])
+    updated_values_clauses = current_values_clauses ++ [values_spec]
+    
+    put_in(selecto.set[:values_clauses], updated_values_clauses)
+  end
 end
