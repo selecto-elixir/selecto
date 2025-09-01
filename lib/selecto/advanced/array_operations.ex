@@ -229,6 +229,16 @@ defmodule Selecto.Advanced.ArrayOperations do
     spec
   end
   
+  defp validate_column!(%Spec{operation: :array, column: nil} = spec) do
+    # ARRAY constructor doesn't need a column
+    spec
+  end
+  
+  defp validate_column!(%Spec{operation: :array_fill, column: nil} = spec) do
+    # ARRAY_FILL doesn't need a column
+    spec
+  end
+  
   defp validate_column!(%Spec{column: nil} = spec) do
     raise ValidationError,
       type: :invalid_column,
@@ -278,8 +288,8 @@ defmodule Selecto.Advanced.ArrayOperations do
   @doc """
   Generate SQL for an array operation.
   """
-  def to_sql(%Spec{} = spec, params_list) do
-    Selecto.Builder.ArrayOperations.build_array_sql(spec, params_list)
+  def to_sql(%Spec{} = spec, params_list, selecto \\ nil) do
+    Selecto.Builder.ArrayOperations.build_array_sql(spec, params_list, selecto)
   end
   
   @doc """

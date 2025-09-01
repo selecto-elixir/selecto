@@ -100,15 +100,26 @@ defmodule Selecto.Builder.Sql do
     where_iodata_section = if where_section == "", do: [], else: ["\n        where ", where_iolist, "\n      "]
     group_by_iodata_section = if group_by_section == "", do: [], else: ["\n        group by ", group_by_iodata, "\n      "]
     order_by_iodata_section = if order_by_section == "", do: [], else: ["\n        order by ", order_by_iodata, "\n      "]
+    
+    # Add LIMIT and OFFSET sections
+    limit_iodata_section = case Map.get(selecto.set, :limit) do
+      nil -> []
+      limit_value -> ["\n        limit ", Integer.to_string(limit_value), "\n      "]
+    end
+    
+    offset_iodata_section = case Map.get(selecto.set, :offset) do
+      nil -> []
+      offset_value -> ["\n        offset ", Integer.to_string(offset_value), "\n      "]
+    end
 
     # Build base query iodata
     base_query_iodata =
       if group_by_section != "" and String.contains?(group_by_section, "rollup") and order_by_section != "" do
         # Rollup case: wrap in subquery
-        ["select * from (", base_iodata, where_iodata_section, group_by_iodata_section, ") as rollupfix", order_by_iodata_section]
+        ["select * from (", base_iodata, where_iodata_section, group_by_iodata_section, ") as rollupfix", order_by_iodata_section, limit_iodata_section, offset_iodata_section]
       else
         # Normal case: combine all sections
-        base_iodata ++ where_iodata_section ++ group_by_iodata_section ++ order_by_iodata_section
+        base_iodata ++ where_iodata_section ++ group_by_iodata_section ++ order_by_iodata_section ++ limit_iodata_section ++ offset_iodata_section
       end
 
     # Phase 1: Integrate CTEs with main query
@@ -195,9 +206,6 @@ defmodule Selecto.Builder.Sql do
     {aliases, sel_joins, select_iodata, select_params} = build_select(selecto, pivot_aliases)
 
     # Build JSON operations SELECT fields if they exist
-    json_select_clauses = []
-    json_select_params = []
-    
     {json_select_clauses, json_select_params} = 
       case Map.get(selecto.set, :json_selects) do
         nil -> {[], []}
@@ -212,9 +220,6 @@ defmodule Selecto.Builder.Sql do
       end
 
     # Build Array operations SELECT fields if they exist
-    array_select_clauses = []
-    array_select_params = []
-    
     {array_select_clauses, array_select_params} = 
       case Map.get(selecto.set, :array_operations) do
         nil -> {[], []}
@@ -222,7 +227,7 @@ defmodule Selecto.Builder.Sql do
           array_specs
           |> Enum.filter(fn spec -> not Selecto.Advanced.ArrayOperations.is_unnest?(spec) end)
           |> Enum.map(fn spec -> 
-            Selecto.Advanced.ArrayOperations.to_sql(spec, [])
+            Selecto.Advanced.ArrayOperations.to_sql(spec, [], selecto)
           end)
           |> Enum.unzip()
           |> case do
@@ -319,9 +324,9 @@ defmodule Selecto.Builder.Sql do
     array_filters = case Map.get(selecto.set, :array_filters) do
       nil -> []
       array_specs when is_list(array_specs) ->
+        # Wrap array specs in a tuple to identify them in WHERE builder
         Enum.map(array_specs, fn spec ->
-          {sql, _params} = Selecto.Advanced.ArrayOperations.to_sql(spec, [])
-          sql
+          {:array_filter, spec}
         end)
     end
     
@@ -505,7 +510,7 @@ defmodule Selecto.Builder.Sql do
         {unnest_clauses, unnest_params} = 
           specs
           |> Enum.map(fn spec ->
-            Selecto.Advanced.ArrayOperations.to_sql(spec, [])
+            Selecto.Advanced.ArrayOperations.to_sql(spec, [], selecto)
           end)
           |> Enum.unzip()
         

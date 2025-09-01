@@ -7,45 +7,47 @@ defmodule Selecto.Builder.ArrayOperations do
   """
   
   alias Selecto.Advanced.ArrayOperations.Spec
+  import Selecto.Builder.Sql.Helpers
   
   @doc """
   Build SQL for an array operation.
+  Returns iodata with parameter markers instead of SQL strings.
   """
-  def build_array_sql(%Spec{} = spec, params_list) do
+  def build_array_sql(%Spec{} = spec, params_list, selecto \\ nil) do
     case spec.operation do
       # Aggregation operations
       op when op in [:array_agg, :array_agg_distinct] ->
-        build_array_agg_sql(spec, params_list)
+        build_array_agg_sql(spec, params_list, selecto)
         
       :string_agg ->
-        build_string_agg_sql(spec, params_list)
+        build_string_agg_sql(spec, params_list, selecto)
         
       # Testing operations
       op when op in [:array_contains, :array_contained, :array_overlap, :array_eq] ->
-        build_array_test_sql(spec, params_list)
+        build_array_test_sql(spec, params_list, selecto)
         
       # Size operations
       op when op in [:array_length, :cardinality, :array_ndims, :array_dims] ->
-        build_array_size_sql(spec, params_list)
+        build_array_size_sql(spec, params_list, selecto)
         
       # Construction operations
       op when op in [:array, :array_fill, :array_append, :array_prepend, :array_cat] ->
-        build_array_construct_sql(spec, params_list)
+        build_array_construct_sql(spec, params_list, selecto)
         
       # Element operations
       op when op in [:array_position, :array_positions, :array_remove, :array_replace] ->
-        build_array_element_sql(spec, params_list)
+        build_array_element_sql(spec, params_list, selecto)
         
       # Transformation operations
       :unnest ->
-        build_unnest_sql(spec, params_list)
+        build_unnest_sql(spec, params_list, selecto)
         
       op when op in [:array_to_string, :string_to_array] ->
-        build_array_transform_sql(spec, params_list)
+        build_array_transform_sql(spec, params_list, selecto)
         
       # Set operations
       op when op in [:array_union, :array_intersect, :array_except] ->
-        build_array_set_sql(spec, params_list)
+        build_array_set_sql(spec, params_list, selecto)
         
       _ ->
         raise "Unsupported array operation: #{spec.operation}"
@@ -53,59 +55,64 @@ defmodule Selecto.Builder.ArrayOperations do
   end
   
   # Array aggregation operations
-  defp build_array_agg_sql(%Spec{operation: op} = spec, params_list) do
+  defp build_array_agg_sql(%Spec{operation: op} = spec, params_list, selecto) do
     distinct = if op == :array_agg_distinct or spec.distinct, do: "DISTINCT ", else: ""
-    column_sql = build_column_reference(spec.column)
+    column_sql = build_column_reference(spec.column, selecto)
     
     # Build ORDER BY clause if present
     order_clause = if spec.order_by do
       order_parts = Enum.map(spec.order_by, fn
-        {col, dir} -> "#{col} #{String.upcase(to_string(dir))}"
-        col -> col
+        {col, dir} -> 
+          col_ref = build_column_reference(col, selecto)
+          "#{col_ref} #{String.upcase(to_string(dir))}"
+        col -> 
+          build_column_reference(col, selecto)
       end)
       " ORDER BY #{Enum.join(order_parts, ", ")}"
     else
       ""
     end
     
-    sql = "ARRAY_AGG(#{distinct}#{column_sql}#{order_clause})"
+    iodata = ["ARRAY_AGG(", distinct, column_sql, order_clause, ")"]
     
     # Add alias if present
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list}
   end
   
-  defp build_string_agg_sql(%Spec{} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
+  defp build_string_agg_sql(%Spec{} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     
     # Get delimiter from options or use default
     delimiter = spec.options[:delimiter] || ","
-    {delimiter_param, params_list} = add_param(delimiter, params_list)
     
     # Build ORDER BY clause if present
     order_clause = if spec.order_by do
       order_parts = Enum.map(spec.order_by, fn
-        {col, dir} -> "#{col} #{String.upcase(to_string(dir))}"
-        col -> col
+        {col, dir} -> 
+          col_ref = build_column_reference(col, selecto)
+          "#{col_ref} #{String.upcase(to_string(dir))}"
+        col -> 
+          build_column_reference(col, selecto)
       end)
       " ORDER BY #{Enum.join(order_parts, ", ")}"
     else
       ""
     end
     
-    sql = "STRING_AGG(#{column_sql}, #{delimiter_param}#{order_clause})"
+    iodata = ["STRING_AGG(", column_sql, ", ", {:param, delimiter}, order_clause, ")"]
     
     # Add alias if present
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    # Return with parameters appended
+    {iodata, params_list ++ [delimiter]}
   end
   
   # Array testing operations
-  defp build_array_test_sql(%Spec{} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
-    {value_param, params_list} = format_array_value(spec.value, params_list)
+  defp build_array_test_sql(%Spec{} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     
     operator = case spec.operation do
       :array_contains -> "@>"
@@ -114,187 +121,192 @@ defmodule Selecto.Builder.ArrayOperations do
       :array_eq -> "="
     end
     
-    sql = "#{column_sql} #{operator} #{value_param}"
-    {sql, params_list}
+    iodata = [column_sql, " ", operator, " ", {:param, spec.value}]
+    {iodata, params_list ++ [spec.value]}
   end
   
   # Array size operations
-  defp build_array_size_sql(%Spec{operation: :array_length} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
-    sql = "ARRAY_LENGTH(#{column_sql}, #{spec.dimension})"
+  defp build_array_size_sql(%Spec{operation: :array_length} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
+    iodata = ["ARRAY_LENGTH(", column_sql, ", ", Integer.to_string(spec.dimension), ")"]
     
     # Add alias if present
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list}
   end
   
-  defp build_array_size_sql(%Spec{operation: :cardinality} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
-    sql = "CARDINALITY(#{column_sql})"
+  defp build_array_size_sql(%Spec{operation: :cardinality} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
+    iodata = ["CARDINALITY(", column_sql, ")"]
     
     # Add alias if present
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list}
   end
   
-  defp build_array_size_sql(%Spec{operation: op} = spec, params_list) when op in [:array_ndims, :array_dims] do
-    column_sql = build_column_reference(spec.column)
+  defp build_array_size_sql(%Spec{operation: op} = spec, params_list, selecto) when op in [:array_ndims, :array_dims] do
+    column_sql = build_column_reference(spec.column, selecto)
     func_name = String.upcase(to_string(op))
-    sql = "#{func_name}(#{column_sql})"
+    iodata = [func_name, "(", column_sql, ")"]
     
     # Add alias if present
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list}
   end
   
   # Array construction operations
-  defp build_array_construct_sql(%Spec{operation: :array} = spec, params_list) do
+  defp build_array_construct_sql(%Spec{operation: :array} = spec, params_list, _selecto) do
     # spec.value should contain the array elements
-    {array_sql, params_list} = format_array_literal(spec.value, params_list)
+    elements = spec.value || []
+    element_parts = elements |> Enum.map(fn elem -> {:param, elem} end) |> Enum.intersperse(", ")
     
-    sql = "ARRAY[#{array_sql}]"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = ["ARRAY["] ++ element_parts ++ ["]"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list ++ elements}
   end
   
-  defp build_array_construct_sql(%Spec{operation: :array_append} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
-    {value_param, params_list} = add_param(spec.value, params_list)
+  defp build_array_construct_sql(%Spec{operation: :array_append} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     
-    sql = "ARRAY_APPEND(#{column_sql}, #{value_param})"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = ["ARRAY_APPEND(", column_sql, ", ", {:param, spec.value}, ")"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list ++ [spec.value]}
   end
   
-  defp build_array_construct_sql(%Spec{operation: :array_prepend} = spec, params_list) do
-    {value_param, params_list} = add_param(spec.value, params_list)
-    column_sql = build_column_reference(spec.column)
+  defp build_array_construct_sql(%Spec{operation: :array_prepend} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     
-    sql = "ARRAY_PREPEND(#{value_param}, #{column_sql})"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = ["ARRAY_PREPEND(", {:param, spec.value}, ", ", column_sql, ")"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list ++ [spec.value]}
   end
   
-  defp build_array_construct_sql(%Spec{operation: :array_cat} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
-    {value_param, params_list} = format_array_value(spec.value, params_list)
+  defp build_array_construct_sql(%Spec{operation: :array_cat} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     
-    sql = "ARRAY_CAT(#{column_sql}, #{value_param})"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = ["ARRAY_CAT(", column_sql, ", ", {:param, spec.value}, ")"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list ++ [spec.value]}
   end
   
-  defp build_array_construct_sql(%Spec{operation: :array_fill} = spec, params_list) do
-    {value_param, params_list} = add_param(spec.value, params_list)
-    {dims_param, params_list} = format_array_value(spec.options[:dimensions], params_list)
+  defp build_array_construct_sql(%Spec{operation: :array_fill} = spec, params_list, _selecto) do
+    dims = spec.options[:dimensions]
     
-    sql = "ARRAY_FILL(#{value_param}, #{dims_param})"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = ["ARRAY_FILL(", {:param, spec.value}, ", ", {:param, dims}, ")"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list ++ [spec.value, dims]}
   end
   
   # Array element operations
-  defp build_array_element_sql(%Spec{operation: op} = spec, params_list) when op in [:array_position, :array_positions] do
-    column_sql = build_column_reference(spec.column)
-    {value_param, params_list} = add_param(spec.value, params_list)
-    
+  defp build_array_element_sql(%Spec{operation: op} = spec, params_list, selecto) when op in [:array_position, :array_positions] do
+    column_sql = build_column_reference(spec.column, selecto)
     func_name = String.upcase(to_string(op))
-    sql = "#{func_name}(#{column_sql}, #{value_param})"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
     
-    {sql, params_list}
+    iodata = [func_name, "(", column_sql, ", ", {:param, spec.value}, ")"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
+    
+    {iodata, params_list ++ [spec.value]}
   end
   
-  defp build_array_element_sql(%Spec{operation: :array_remove} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
-    {value_param, params_list} = add_param(spec.value, params_list)
+  defp build_array_element_sql(%Spec{operation: :array_remove} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     
-    sql = "ARRAY_REMOVE(#{column_sql}, #{value_param})"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = ["ARRAY_REMOVE(", column_sql, ", ", {:param, spec.value}, ")"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list ++ [spec.value]}
   end
   
-  defp build_array_element_sql(%Spec{operation: :array_replace} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
-    {old_param, params_list} = add_param(spec.value, params_list)
-    {new_param, params_list} = add_param(spec.options[:new_value], params_list)
+  defp build_array_element_sql(%Spec{operation: :array_replace} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
+    new_value = spec.options[:new_value]
     
-    sql = "ARRAY_REPLACE(#{column_sql}, #{old_param}, #{new_param})"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = ["ARRAY_REPLACE(", column_sql, ", ", {:param, spec.value}, ", ", {:param, new_value}, ")"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list ++ [spec.value, new_value]}
   end
   
   # Unnest operation
-  defp build_unnest_sql(%Spec{operation: :unnest} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
+  defp build_unnest_sql(%Spec{operation: :unnest} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     
-    sql = if spec.options[:with_ordinality] do
-      "UNNEST(#{column_sql}) WITH ORDINALITY"
+    iodata = if spec.options[:with_ordinality] do
+      ["UNNEST(", column_sql, ") WITH ORDINALITY"]
     else
-      "UNNEST(#{column_sql})"
+      ["UNNEST(", column_sql, ")"]
     end
     
     # Add alias if present
-    sql = if spec.alias do
+    iodata = if spec.alias do
       if spec.options[:with_ordinality] do
-        "#{sql} AS #{spec.alias}(value, ordinality)"
+        iodata ++ [" AS ", spec.alias, "(value, ordinality)"]
       else
-        "#{sql} AS #{spec.alias}"
+        iodata ++ [" AS ", spec.alias]
       end
     else
-      sql
+      iodata
     end
     
-    {sql, params_list}
+    {iodata, params_list}
   end
   
   # Array transformation operations
-  defp build_array_transform_sql(%Spec{operation: :array_to_string} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
+  defp build_array_transform_sql(%Spec{operation: :array_to_string} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     delimiter = spec.value || ","
-    {delimiter_param, params_list} = add_param(delimiter, params_list)
     
-    sql = if spec.options[:null_string] do
-      {null_param, params_list} = add_param(spec.options[:null_string], params_list)
-      "ARRAY_TO_STRING(#{column_sql}, #{delimiter_param}, #{null_param})"
+    iodata = if spec.options[:null_string] do
+      null_string = spec.options[:null_string]
+      ["ARRAY_TO_STRING(", column_sql, ", ", {:param, delimiter}, ", ", {:param, null_string}, ")"]
     else
-      "ARRAY_TO_STRING(#{column_sql}, #{delimiter_param})"
+      ["ARRAY_TO_STRING(", column_sql, ", ", {:param, delimiter}, ")"]
     end
     
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
-    {sql, params_list}
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
+    
+    params = if spec.options[:null_string] do
+      params_list ++ [delimiter, spec.options[:null_string]]
+    else
+      params_list ++ [delimiter]
+    end
+    
+    {iodata, params}
   end
   
-  defp build_array_transform_sql(%Spec{operation: :string_to_array} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
+  defp build_array_transform_sql(%Spec{operation: :string_to_array} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     delimiter = spec.value || ","
-    {delimiter_param, params_list} = add_param(delimiter, params_list)
     
-    sql = if spec.options[:null_string] do
-      {null_param, params_list} = add_param(spec.options[:null_string], params_list)
-      "STRING_TO_ARRAY(#{column_sql}, #{delimiter_param}, #{null_param})"
+    iodata = if spec.options[:null_string] do
+      null_string = spec.options[:null_string]
+      ["STRING_TO_ARRAY(", column_sql, ", ", {:param, delimiter}, ", ", {:param, null_string}, ")"]
     else
-      "STRING_TO_ARRAY(#{column_sql}, #{delimiter_param})"
+      ["STRING_TO_ARRAY(", column_sql, ", ", {:param, delimiter}, ")"]
     end
     
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
-    {sql, params_list}
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
+    
+    params = if spec.options[:null_string] do
+      params_list ++ [delimiter, spec.options[:null_string]]
+    else
+      params_list ++ [delimiter]
+    end
+    
+    {iodata, params}
   end
   
   # Array set operations (PostgreSQL 14+)
-  defp build_array_set_sql(%Spec{operation: op} = spec, params_list) do
-    column_sql = build_column_reference(spec.column)
-    {value_param, params_list} = format_array_value(spec.value, params_list)
+  defp build_array_set_sql(%Spec{operation: op} = spec, params_list, selecto) do
+    column_sql = build_column_reference(spec.column, selecto)
     
     func_name = case op do
       :array_union -> "ARRAY_UNION"
@@ -302,56 +314,48 @@ defmodule Selecto.Builder.ArrayOperations do
       :array_except -> "ARRAY_EXCEPT"
     end
     
-    sql = "#{func_name}(#{column_sql}, #{value_param})"
-    sql = if spec.alias, do: "#{sql} AS #{spec.alias}", else: sql
+    iodata = [func_name, "(", column_sql, ", ", {:param, spec.value}, ")"]
+    iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
-    {sql, params_list}
+    {iodata, params_list ++ [spec.value]}
   end
   
   # Helper functions
   
-  defp add_param(value, params_list) do
-    param_num = length(params_list) + 1
-    {"$#{param_num}", params_list ++ [value]}
+  defp build_column_reference(column, selecto) when is_binary(column) do
+    # Try to get field config to determine if we need a join
+    if selecto do
+      # Check if it's a dynamic column first
+      dynamic_columns = Map.get(selecto.set || %{}, :dynamic_columns, %{})
+      
+      if Map.has_key?(dynamic_columns, column) do
+        # Dynamic columns don't need table qualification
+        column
+      else
+        # Try to get field configuration
+        case Selecto.field(selecto, column) do
+          nil -> 
+            # No field config, use column as-is
+            column
+          conf ->
+            # Use proper table qualification
+            table_alias = conf.requires_join || :selecto_root
+            field_name = conf.field || conf.name
+            build_selector_string(selecto, table_alias, field_name)
+        end
+      end
+    else
+      column
+    end
   end
   
-  defp build_column_reference(column) when is_binary(column), do: column
-  
-  defp build_column_reference({:array_agg, column}) do
-    "ARRAY_AGG(#{column})"
+  defp build_column_reference({:array_agg, column}, selecto) do
+    column_ref = build_column_reference(column, selecto)
+    ["ARRAY_AGG(", column_ref, ")"]
   end
   
-  defp build_column_reference(column) when is_tuple(column) do
+  defp build_column_reference(column, _selecto) when is_tuple(column) do
     # Handle nested operations
     Tuple.to_list(column) |> Enum.join(".")
-  end
-  
-  defp format_array_value(value, params_list) when is_list(value) do
-    # Convert Elixir list to PostgreSQL array format
-    {param, params_list} = add_param(value, params_list)
-    {param, params_list}
-  end
-  
-  defp format_array_value(value, params_list) when is_binary(value) do
-    # Already a string reference (like column name)
-    {value, params_list}
-  end
-  
-  defp format_array_value(value, params_list) do
-    add_param(value, params_list)
-  end
-  
-  defp format_array_literal(elements, params_list) when is_list(elements) do
-    {element_params, params_list} = 
-      Enum.reduce(elements, {[], params_list}, fn elem, {acc, params} ->
-        {param, new_params} = add_param(elem, params)
-        {acc ++ [param], new_params}
-      end)
-    
-    {Enum.join(element_params, ", "), params_list}
-  end
-  
-  defp format_array_literal(elements, params_list) do
-    format_array_value(elements, params_list)
   end
 end
