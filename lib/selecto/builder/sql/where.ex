@@ -172,6 +172,14 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " is null "], param}
   end
 
+  # Handle array filter specifications (must come before generic {field, value})
+  def build(selecto, {:array_filter, spec}) do
+    {sql, params} = Selecto.Advanced.ArrayOperations.to_sql(spec, [], selecto)
+    # Convert params to iodata with markers
+    iodata = convert_array_sql_to_iodata(sql, params)
+    {[], iodata, params}
+  end
+
   def build(selecto, {field, value}) do
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
@@ -179,6 +187,24 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(_sel, other) do
     raise "Not Found"
+  end
+
+  # Helper to convert array SQL with params to iodata format
+  defp convert_array_sql_to_iodata(sql, params) do
+    # Replace $1, $2, etc. with {:param, value} markers
+    params
+    |> Enum.with_index(1)
+    |> Enum.reduce([sql], fn {value, idx}, acc ->
+      Enum.flat_map(acc, fn
+        s when is_binary(s) ->
+          String.split(s, "$#{idx}", parts: 2)
+          |> case do
+            [before_text] -> [before_text]
+            [before_text, after_text] -> [before_text, {:param, value}, after_text]
+          end
+        other -> [other]
+      end)
+    end)
   end
 
   defp to_type(:id, value) when is_integer(value) do

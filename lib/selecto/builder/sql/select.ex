@@ -310,21 +310,42 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def prep_selector(selecto, selector, pivot_aliases) when is_binary(selector) do
-    conf = Selecto.field(selecto, selector)
+    # First check if it's a dynamic column (from UNNEST, CTE, etc.)
+    dynamic_columns = Map.get(selecto.set, :dynamic_columns, %{})
+    
+    conf = if Map.has_key?(dynamic_columns, selector) do
+      # Create a minimal field config for dynamic columns
+      %{
+        name: selector,
+        field: selector,
+        requires_join: nil,
+        select: nil
+      }
+    else
+      Selecto.field(selecto, selector)
+    end
 
     # Handle case where field configuration doesn't exist
     if conf == nil do
-      raise "Field '#{selector}' not found in selecto configuration. Available fields: #{inspect(Map.keys(selecto.config.columns || %{}))}"
+      available_fields = Map.keys(selecto.config.columns || %{}) ++ Map.keys(dynamic_columns)
+      raise "Field '#{selector}' not found in selecto configuration. Available fields: #{inspect(available_fields)}"
     end
 
     case Map.get(conf, :select) do
       nil ->
         # Use the database field name (field property) instead of display name (name property)
         field_name = Map.get(conf, :field, conf.name)
-        # Check if we have a pivot alias for this join
-        join_alias = Map.get(pivot_aliases, conf.requires_join, conf.requires_join)
-        field_iodata = [build_selector_string(selecto, join_alias, field_name)]
-        {field_iodata, conf.requires_join, []}
+        
+        # For dynamic columns, use them directly without table qualification
+        if Map.has_key?(dynamic_columns, selector) do
+          # Dynamic columns from UNNEST don't need table qualification
+          {[field_name], :selecto_root, []}
+        else
+          # Check if we have a pivot alias for this join
+          join_alias = Map.get(pivot_aliases, conf.requires_join, conf.requires_join)
+          field_iodata = [build_selector_string(selecto, join_alias, field_name)]
+          {field_iodata, conf.requires_join, []}
+        end
 
       sub when is_binary(sub) ->
         # If the select value is a string, treat it as literal SQL

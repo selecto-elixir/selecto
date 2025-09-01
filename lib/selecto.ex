@@ -523,6 +523,36 @@ defmodule Selecto do
   end
 
   @doc """
+  Limit the number of rows returned by the query.
+  
+  ## Examples
+  
+      # Limit to 10 rows
+      selecto |> Selecto.limit(10)
+      
+      # Limit with offset for pagination
+      selecto |> Selecto.limit(10) |> Selecto.offset(20)
+  """
+  def limit(selecto, limit_value) when is_integer(limit_value) and limit_value >= 0 do
+    put_in(selecto.set[:limit], limit_value)
+  end
+
+  @doc """
+  Set the offset for the query results.
+  
+  ## Examples
+  
+      # Skip first 20 rows
+      selecto |> Selecto.offset(20)
+      
+      # Pagination: page 3 with 10 items per page
+      selecto |> Selecto.limit(10) |> Selecto.offset(20)
+  """
+  def offset(selecto, offset_value) when is_integer(offset_value) and offset_value >= 0 do
+    put_in(selecto.set[:offset], offset_value)
+  end
+
+  @doc """
   Pivot the query to focus on a different table while preserving existing context.
 
   This allows you to retarget a Selecto query from the source table to any joined
@@ -1342,6 +1372,7 @@ defmodule Selecto do
     array_specs = 
       array_operations
       |> Enum.map(fn
+        # Aggregation operations
         {:array_agg, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg, column, opts)
         
@@ -1351,12 +1382,64 @@ defmodule Selecto do
         {:string_agg, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:string_agg, column, opts)
           
+        # Size operations with dimension
         {:array_length, column, dimension, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_size(:array_length, column, dimension, opts)
           
+        # Size operations without dimension
         {:cardinality, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_size(:cardinality, column, nil, opts)
           
+        {:array_ndims, column, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_size(:array_ndims, column, nil, opts)
+          
+        {:array_dims, column, opts} ->
+          Selecto.Advanced.ArrayOperations.create_array_size(:array_dims, column, nil, opts)
+          
+        # Array construction/manipulation with value
+        {:array_append, column, value, opts} ->
+          spec_opts = Keyword.put(opts, :value, value)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_append, column, spec_opts)
+          
+        {:array_prepend, column, value, opts} ->
+          spec_opts = Keyword.put(opts, :value, value)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_prepend, column, spec_opts)
+          
+        {:array_remove, column, value, opts} ->
+          spec_opts = Keyword.put(opts, :value, value)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_remove, column, spec_opts)
+          
+        {:array_replace, column, old_value, new_value, opts} ->
+          spec_opts = opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_replace, column, spec_opts)
+          
+        {:array_cat, column, value, opts} ->
+          spec_opts = Keyword.put(opts, :value, value)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_cat, column, spec_opts)
+          
+        {:array_position, column, value, opts} ->
+          spec_opts = Keyword.put(opts, :value, value)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_position, column, spec_opts)
+          
+        {:array_positions, column, value, opts} ->
+          spec_opts = Keyword.put(opts, :value, value)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_positions, column, spec_opts)
+          
+        # Array transformation operations
+        {:array_to_string, column, delimiter, opts} ->
+          spec_opts = Keyword.put(opts, :value, delimiter)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_to_string, column, spec_opts)
+          
+        {:string_to_array, column, delimiter, opts} ->
+          spec_opts = Keyword.put(opts, :value, delimiter)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:string_to_array, column, spec_opts)
+          
+        # Array constructor (no column)
+        {:array, elements, opts} ->
+          spec_opts = Keyword.put(opts, :value, elements)
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array, nil, spec_opts)
+          
+        # Generic pattern for operations with column and options
         {operation, column, opts} when is_atom(operation) and is_list(opts) ->
           Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
           
@@ -1464,7 +1547,28 @@ defmodule Selecto do
     current_unnests = Map.get(selecto.set, :unnests, [])
     updated_unnests = current_unnests ++ [unnest_spec]
     
-    put_in(selecto.set[:unnests], updated_unnests)
+    # Register dynamic columns created by UNNEST
+    selecto_with_unnest = put_in(selecto.set[:unnests], updated_unnests)
+    
+    # Add the dynamic column(s) to available fields
+    if alias_name = opts[:as] do
+      current_dynamic = Map.get(selecto_with_unnest.set, :dynamic_columns, %{})
+      
+      # For UNNEST with ordinality, we get two columns: value and ordinality
+      dynamic_columns = if opts[:with_ordinality] do
+        Map.merge(current_dynamic, %{
+          alias_name => %{type: :any, source: :unnest},
+          "#{alias_name}.value" => %{type: :any, source: :unnest},
+          "#{alias_name}.ordinality" => %{type: :integer, source: :unnest}
+        })
+      else
+        Map.put(current_dynamic, alias_name, %{type: :any, source: :unnest})
+      end
+      
+      put_in(selecto_with_unnest.set[:dynamic_columns], dynamic_columns)
+    else
+      selecto_with_unnest
+    end
   end
 
   @doc """
