@@ -40,9 +40,9 @@ defmodule Selecto.Performance.Hooks do
       end)
       
       # Register a logging hook
-      Hooks.register(:after_execution, fn context ->
-        Logger.info("Query executed in #{context.execution_time}ms")
-        context
+      Hooks.register(:after_execution, fn ctx ->
+        Logger.info("Query executed in \#{ctx.execution_time}ms")
+        ctx
       end)
   """
   def register(hook_point, hook_fn) when hook_point in @hook_points and is_function(hook_fn, 1) do
@@ -117,13 +117,13 @@ defmodule Selecto.Performance.Hooks do
           context
           |> Map.put(:cache_hit, true)
           |> Map.put(:cached_result, cached_result)
-          |> run_hooks(:on_cache_hit, _)
+          |> run_hooks(:on_cache_hit)
         
         :miss ->
           context
           |> Map.put(:cache_hit, false)
           |> Map.put(:cache_key, cache_key)
-          |> run_hooks(:on_cache_miss, _)
+          |> run_hooks(:on_cache_miss)
       end
     else
       context
@@ -273,7 +273,7 @@ defmodule Selecto.Performance.Hooks do
       hook = Hooks.conditional_hook(
         fn ctx -> String.contains?(ctx.sql, "users") end,
         fn ctx -> 
-          Logger.info("User table query: #{ctx.sql}")
+          Logger.info("User table query: \#{ctx.sql}")
           ctx
         end
       )
