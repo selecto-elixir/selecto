@@ -218,6 +218,58 @@ defmodule Selecto.Builder.Sql.Select do
     {extract_iodata, join, param}
   end
 
+  # Handle array_length function (2-tuple)
+  def prep_selector(selecto, {:array_length, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_length, _} = selector, _pivot_aliases) do
+    # Delegate to Functions module
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_length function not properly implemented"
+      result -> result
+    end
+  end
+
+  # Handle array functions specifically before generic 3-tuple handler
+  # These have a third argument that is NOT a filter
+  def prep_selector(selecto, {:array_cat, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_cat, _, _} = selector, _pivot_aliases) do
+    # Delegate to Functions module
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_cat function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_to_string, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_to_string, _, _} = selector, _pivot_aliases) do
+    # Delegate to Functions module
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_to_string function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:string_to_array, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:string_to_array, _, _} = selector, _pivot_aliases) do
+    # Delegate to Functions module
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "string_to_array function not properly implemented"
+      result -> result
+    end
+  end
+
+  # Generic 3-tuple handler - assumes third element is a filter
   def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
     prep_selector(selecto, {func, field, filter}, %{})
   end

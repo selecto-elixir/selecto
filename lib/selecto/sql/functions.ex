@@ -172,10 +172,10 @@ defmodule Selecto.SQL.Functions do
         prep_array_function(selecto, "array_length", [field, {:literal, 1}])
 
       {:array_to_string, field, delimiter} ->
-        prep_array_function(selecto, "array_to_string", [field, delimiter])
+        prep_array_function(selecto, "array_to_string", [field, {:literal, delimiter}])
 
       {:string_to_array, field, delimiter} ->
-        prep_array_function(selecto, "string_to_array", [field, delimiter])
+        prep_array_function(selecto, "string_to_array", [field, {:literal, delimiter}])
 
       {:unnest, field} ->
         prep_array_function(selecto, "unnest", [field])
