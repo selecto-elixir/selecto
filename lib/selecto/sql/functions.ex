@@ -183,6 +183,40 @@ defmodule Selecto.SQL.Functions do
       {:array_cat, array1, array2} ->
         prep_array_function(selecto, "array_cat", [array1, array2])
 
+      # Additional array functions
+      {:cardinality, field} ->
+        prep_array_function(selecto, "cardinality", [field])
+
+      {:array_ndims, field} ->
+        prep_array_function(selecto, "array_ndims", [field])
+
+      {:array_dims, field} ->
+        prep_array_function(selecto, "array_dims", [field])
+
+      {:array_append, array, element} ->
+        prep_array_function(selecto, "array_append", [array, {:literal, element}])
+
+      {:array_prepend, element, array} ->
+        prep_array_function(selecto, "array_prepend", [{:literal, element}, array])
+
+      {:array_fill, value, dimensions} ->
+        prep_array_function(selecto, "array_fill", [{:literal, value}, {:literal, dimensions}])
+
+      {:array_remove, array, element} ->
+        prep_array_function(selecto, "array_remove", [array, {:literal, element}])
+
+      {:array_replace, array, from_elem, to_elem} ->
+        prep_array_function(selecto, "array_replace", [array, {:literal, from_elem}, {:literal, to_elem}])
+
+      {:array_position, array, element} ->
+        prep_array_function(selecto, "array_position", [array, {:literal, element}])
+
+      {:array_position, array, element, start} ->
+        prep_array_function(selecto, "array_position", [array, {:literal, element}, {:literal, start}])
+
+      {:array_positions, array, element} ->
+        prep_array_function(selecto, "array_positions", [array, {:literal, element}])
+
       # Window Functions
       {:window, func, opts} ->
         prep_window_function(selecto, func, opts)

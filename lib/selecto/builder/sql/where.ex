@@ -180,6 +180,30 @@ defmodule Selecto.Builder.Sql.Where do
     {[], iodata, params}
   end
 
+  # Array contains - checks if array contains all specified elements
+  def build(selecto, {:array_contains, field, values}) when is_list(values) do
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(join), [" ", sel, " @> ", {:param, values}, " "], param ++ [values]}
+  end
+
+  # Array contained - checks if array is contained by specified elements  
+  def build(selecto, {:array_contained, field, values}) when is_list(values) do
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(join), [" ", sel, " <@ ", {:param, values}, " "], param ++ [values]}
+  end
+
+  # Array overlap - checks if arrays have any common elements
+  def build(selecto, {:array_overlap, field, values}) when is_list(values) do
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(join), [" ", sel, " && ", {:param, values}, " "], param ++ [values]}
+  end
+
+  # Array equality - checks if arrays are equal
+  def build(selecto, {:array_eq, field, values}) when is_list(values) do
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(join), [" ", sel, " = ", {:param, values}, " "], param ++ [values]}
+  end
+
   def build(selecto, {field, value}) do
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
