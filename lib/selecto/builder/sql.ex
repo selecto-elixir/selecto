@@ -411,33 +411,40 @@ defmodule Selecto.Builder.Sql do
 
       join, {fc, p, ctes} ->
         config = Selecto.joins(selecto)[join]
+        
+        # Skip if join doesn't exist in config
+        if config == nil do
+          {fc, p, ctes}
+        else
+          case detect_advanced_join_pattern(config) do
+            {:hierarchy, pattern} ->
+              Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
 
-        case detect_advanced_join_pattern(config) do
-          {:hierarchy, pattern} ->
-            Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
+            {:tagging, _} ->
+              build_tagging_join(selecto, join, config, fc, p, ctes)
 
-          {:tagging, _} ->
-            build_tagging_join(selecto, join, config, fc, p, ctes)
+            {:olap, type} ->
+              build_olap_join(selecto, join, config, type, fc, p, ctes)
 
-          {:olap, type} ->
-            build_olap_join(selecto, join, config, type, fc, p, ctes)
+            {:enhanced, join_type} ->
+              build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
 
-          {:enhanced, join_type} ->
-            build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
-
-          :basic ->
-            # Existing basic join logic
-            join_iodata = [
-              " left join ", config.source, " ", build_join_string(selecto, join),
-              " on ", build_selector_string(selecto, join, config.my_key),
-              " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-            ]
-            {fc ++ [join_iodata], p, ctes}
+            :basic ->
+              # Existing basic join logic
+              join_iodata = [
+                " left join ", config.source, " ", build_join_string(selecto, join),
+                " on ", build_selector_string(selecto, join, config.my_key),
+                " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
+              ]
+              {fc ++ [join_iodata], p, ctes}
+          end
         end
     end)
   end
 
   # Phase 1: Join pattern detection for advanced join types
+  defp detect_advanced_join_pattern(nil), do: :basic
+  
   defp detect_advanced_join_pattern(config) do
     case Map.get(config, :join_type) do
       :hierarchical_adjacency -> {:hierarchy, :adjacency_list}
@@ -613,7 +620,9 @@ defmodule Selecto.Builder.Sql do
       type: :recursive,
       base_query: spec.base_query,
       recursive_query: spec.recursive_query,
-      validated: true
+      validated: true,
+      dependencies: Map.get(spec, :dependencies, []),
+      columns: Map.get(spec, :columns)
     }
   end
   
@@ -623,7 +632,8 @@ defmodule Selecto.Builder.Sql do
       type: :normal,
       query_builder: spec.query_builder || spec.query,
       validated: true,
-      columns: spec[:columns]
+      columns: Map.get(spec, :columns),
+      dependencies: Map.get(spec, :dependencies, [])
     }
   end
 

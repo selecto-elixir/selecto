@@ -332,17 +332,17 @@ defmodule Selecto do
 
   #  @spec columns(t()) :: %{String.t() => %{required(:name) => String.t()}}
   def columns(selecto_struct) do
-    selecto_struct.config.columns
+    Map.get(selecto_struct.config, :columns, %{})
   end
 
   #  @spec joins(t()) :: %{atom() => processed_join()}
   def joins(selecto_struct) do
-    selecto_struct.config.joins
+    Map.get(selecto_struct.config, :joins, %{})
   end
 
   #  @spec source_table(t()) :: table_name()
   def source_table(selecto_struct) do
-    selecto_struct.config.source_table
+    Map.get(selecto_struct.config, :source_table, nil)
   end
 
   #  @spec domain(t()) :: domain()
@@ -739,7 +739,36 @@ defmodule Selecto do
     }
     
     current_unnests = Map.get(selecto.set, :unnest, [])
-    put_in(selecto.set[:unnest], current_unnests ++ [unnest_spec])
+    updated_selecto = put_in(selecto.set[:unnest], current_unnests ++ [unnest_spec])
+    
+    # Register the unnested field in the configuration
+    # This allows it to be selected and used in GROUP BY
+    current_columns = Map.get(updated_selecto.config, :columns, %{})
+    
+    # Add the unnested field as a column
+    unnested_column = %{
+      name: alias_name,
+      field: alias_name,
+      requires_join: nil,
+      type: :text  # Default type for unnested array elements
+    }
+    
+    # Also add ordinality column if requested
+    columns_to_add = if ordinality do
+      %{
+        alias_name => unnested_column,
+        "#{alias_name}_ordinality" => %{
+          name: "#{alias_name}_ordinality",
+          field: "#{alias_name}_ordinality",
+          requires_join: nil,
+          type: :integer
+        }
+      }
+    else
+      %{alias_name => unnested_column}
+    end
+    
+    put_in(updated_selecto.config[:columns], Map.merge(current_columns, columns_to_add))
   end
 
   @doc """
@@ -775,17 +804,13 @@ defmodule Selecto do
       )
   """
   def with_recursive_cte(selecto, cte_name, base_fn, recursive_fn, opts \\ []) do
-    # Build base query
-    base_query = base_fn.()
-    
-    # Build recursive query with self-reference
-    recursive_query = recursive_fn.(cte_name)
-    
+    # Store the functions, not their results
+    # The CTE builder will execute them when needed
     cte_spec = %{
       name: cte_name,
       type: :recursive,
-      base_query: base_query,
-      recursive_query: recursive_query,
+      base_query: base_fn,
+      recursive_query: recursive_fn,
       max_depth: Keyword.get(opts, :max_depth),
       cycle_detection: Keyword.get(opts, :cycle_detection, false)
     }

@@ -328,7 +328,8 @@ defmodule Selecto.Advanced.CTE do
   # Build dependency graph from CTE list
   defp build_dependency_graph(ctes) do
     Enum.reduce(ctes, %{}, fn cte, graph ->
-      Map.put(graph, cte.name, cte.dependencies)
+      deps = cte.dependencies || []
+      Map.put(graph, cte.name, deps)
     end)
   end
   
