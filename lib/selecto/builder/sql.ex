@@ -532,8 +532,9 @@ defmodule Selecto.Builder.Sql do
     {field_iodata, field_params} = 
       case field do
         f when is_binary(f) ->
-          # Simple field reference
-          {["\"selecto_root\".\"", field, "\""], []}
+          # Simple field reference - use adapter-aware quoting
+          quote = Selecto.Builder.Sql.Helpers.get_quote_char(selecto)
+          {[quote, "selecto_root", quote, ".", quote, field, quote], []}
         {:array, _} = array_expr ->
           # Array construction expression
           Selecto.Builder.Sql.Select.prep_selector(selecto, array_expr)
@@ -589,7 +590,9 @@ defmodule Selecto.Builder.Sql do
           spec.arguments
           |> Enum.map(fn arg ->
             case arg do
-              {:ref, field} -> {["\"selecto_root\".\"", field, "\""], []}
+              {:ref, field} -> 
+                quote = Selecto.Builder.Sql.Helpers.get_quote_char(selecto)
+                {[quote, "selecto_root", quote, ".", quote, field, quote], []}
               value -> {[{:param, value}], [value]}
             end
           end)

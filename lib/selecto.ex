@@ -633,10 +633,18 @@ defmodule Selecto do
   #  @spec gen_sql(t(), sql_generation_options()) :: {String.t(), %{String.t() => String.t()}, sql_params()}
   def gen_sql(selecto, opts) do
     # Support both old and new query generation approaches
-    if Keyword.get(opts, :use_new_generator, false) do
+    # Default to PostgreSQL if adapter is not specified
+    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    
+    # For now, always use the existing SQL builder for all adapters
+    # The QueryGenerator is incomplete and shouldn't be used yet
+    # use_new = Keyword.get(opts, :use_new_generator, false)
+    use_new = Keyword.get(opts, :use_new_generator, false)
+    
+    if use_new do
       Selecto.QueryGenerator.generate_sql(selecto, opts)
     else
-      # Keep existing implementation for backward compatibility
+      # Use existing implementation for all adapters
       Selecto.Builder.Sql.build(selecto, opts)
     end
   end

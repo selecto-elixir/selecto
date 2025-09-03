@@ -169,6 +169,8 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
   Parse a single parameter string into a typed value.
   Used for testing and debugging individual parameters.
   """
+  def parse_single_parameter(nil), do: {:error, "Cannot parse nil parameter"}
+  
   def parse_single_parameter(param) when is_binary(param) do
     cond do
       # Boolean literals
