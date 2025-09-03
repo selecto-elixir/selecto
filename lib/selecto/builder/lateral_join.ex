@@ -7,7 +7,7 @@ defmodule Selecto.Builder.LateralJoin do
   """
   
   alias Selecto.Advanced.LateralJoin.Spec
-  alias Selecto.Builder.SQL
+  # alias Selecto.Builder.SQL
   
   @doc """
   Build LATERAL JOIN SQL clauses from specifications.

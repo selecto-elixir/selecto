@@ -9,17 +9,17 @@ defmodule Selecto.Builder.Sql do
   alias Selecto.Builder.ValuesClause
 
   @spec build(Selecto.Types.t(), Selecto.Types.sql_generation_options()) :: {String.t(), [%{String.t() => String.t()}], [any()]}
-  def build(selecto, _opts) do
+  def build(selecto, opts) do
     # Check for Set Operations first as they completely override query structure
     cond do
       Selecto.Builder.SetOperations.has_set_operations?(selecto) ->
-        build_set_operation_query(selecto, _opts)
+        build_set_operation_query(selecto, opts)
       
       Selecto.Pivot.has_pivot?(selecto) ->
-        build_pivot_query(selecto, _opts)
+        build_pivot_query(selecto, opts)
         
       true ->
-        build_standard_query(selecto, _opts)
+        build_standard_query(selecto, opts)
     end
   end
 
@@ -161,7 +161,7 @@ defmodule Selecto.Builder.Sql do
       base_iodata
     end
 
-    all_params = select_params ++ from_params
+    _all_params = select_params ++ from_params
     {sql, final_params} = Params.finalize(final_iodata)
 
     {sql, aliases, final_params}
@@ -172,18 +172,18 @@ defmodule Selecto.Builder.Sql do
     {set_op_iodata, set_op_params} = Selecto.Builder.SetOperations.build_set_operations(selecto)
     
     # Check if we need to add ORDER BY to the entire set operation result
-    order_by_iodata = []
-    order_by_params = []
-    
-    if Selecto.Builder.SetOperations.should_apply_outer_order_by?(selecto) do
-      {_order_by_joins, order_by_iodata_result, order_by_params_result} = build_order_by(selecto)
-      order_by_iodata = if order_by_iodata_result != [], do: ["\nORDER BY ", order_by_iodata_result], else: []
-      order_by_params = order_by_params_result
-    end
+    {order_by_iodata, order_by_params} = 
+      if Selecto.Builder.SetOperations.should_apply_outer_order_by?(selecto) do
+        {_order_by_joins, order_by_iodata_result, order_by_params_result} = build_order_by(selecto)
+        order_iodata = if order_by_iodata_result != [], do: ["\nORDER BY ", order_by_iodata_result], else: []
+        {order_iodata, order_by_params_result}
+      else
+        {[], []}
+      end
     
     # Combine set operations with any outer ORDER BY
     final_iodata = [set_op_iodata] ++ order_by_iodata
-    all_params = set_op_params ++ order_by_params
+    _all_params = set_op_params ++ order_by_params
     
     # Finalize the SQL
     {sql, final_params} = Selecto.SQL.Params.finalize(final_iodata)
@@ -373,9 +373,9 @@ defmodule Selecto.Builder.Sql do
     else
       order_iodata ++ json_order_iodata
     end
-    all_params = order_params ++ json_order_params
+    _all_params = order_params ++ json_order_params
     
-    {all_joins, all_iodata, all_params}
+    {all_joins, all_iodata, _all_params}
   end
 
   # Phase 4: SELECT now uses iodata by default

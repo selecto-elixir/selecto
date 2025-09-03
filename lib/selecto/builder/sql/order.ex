@@ -71,7 +71,7 @@ defmodule Selecto.Builder.Sql.Order do
   # Build CASE expression for ORDER BY clause
   defp build_order_case_expression(selecto, when_clauses, else_clause) do
     alias Selecto.Builder.Sql.Where
-    alias Selecto.Builder.Sql.Select
+    # alias Selecto.Builder.Sql.Select
     
     # Collect joins and params from all parts
     {when_parts, all_joins, all_params} = 
