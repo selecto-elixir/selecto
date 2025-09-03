@@ -1,6 +1,6 @@
 defmodule Selecto do
-  @derive {Inspect, only: [:postgrex_opts, :set]}
-  defstruct [:postgrex_opts, :domain, :config, :set]
+  @derive {Inspect, only: [:postgrex_opts, :adapter, :connection, :set]}
+  defstruct [:postgrex_opts, :adapter, :connection, :domain, :config, :set]
 
   # import Selecto.Types - removed to avoid circular dependency
 
@@ -167,6 +167,7 @@ defmodule Selecto do
       or invalid advanced join configurations.
     - `:pool` - (boolean, default: false) Whether to enable connection pooling
     - `:pool_options` - Connection pool configuration options
+    - `:adapter` - (module, default: Selecto.Adapters.PostgreSQL) Database adapter module
 
     ## Validation
 
@@ -211,6 +212,7 @@ defmodule Selecto do
     validate? = Keyword.get(opts, :validate, true)
     use_pool? = Keyword.get(opts, :pool, false)
     pool_options = Keyword.get(opts, :pool_options, [])
+    adapter = Keyword.get(opts, :adapter, Selecto.Adapters.PostgreSQL)
 
     if validate? do
       Selecto.DomainValidator.validate_domain!(domain)
@@ -236,8 +238,24 @@ defmodule Selecto do
         postgrex_opts
       end
 
+    # Initialize connection based on adapter
+    # For backward compatibility, if adapter is PostgreSQL and we have postgrex_opts, use them directly
+    connection = if adapter == Selecto.Adapters.PostgreSQL do
+      # Backward compatibility: use postgrex_opts directly for PostgreSQL
+      final_postgrex_opts
+    else
+      # For other adapters, let them handle their own connection
+      case adapter.connect(postgrex_opts) do
+        {:ok, conn} -> conn
+        {:error, reason} ->
+          raise "Failed to connect with adapter #{inspect(adapter)}: #{inspect(reason)}"
+      end
+    end
+
     %Selecto{
-      postgrex_opts: final_postgrex_opts,
+      postgrex_opts: final_postgrex_opts,  # Keep for backward compatibility
+      adapter: adapter,
+      connection: connection,
       domain: domain,
       config: configure_domain(domain),
       set: %{
