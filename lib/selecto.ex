@@ -167,7 +167,7 @@ defmodule Selecto do
       or invalid advanced join configurations.
     - `:pool` - (boolean, default: false) Whether to enable connection pooling
     - `:pool_options` - Connection pool configuration options
-    - `:adapter` - (module, default: Selecto.Adapters.PostgreSQL) Database adapter module
+    - `:adapter` - (module, default: Selecto.DB.PostgreSQL) Database adapter module
 
     ## Validation
 
@@ -212,7 +212,7 @@ defmodule Selecto do
     validate? = Keyword.get(opts, :validate, true)
     use_pool? = Keyword.get(opts, :pool, false)
     pool_options = Keyword.get(opts, :pool_options, [])
-    adapter = Keyword.get(opts, :adapter, Selecto.Adapters.PostgreSQL)
+    adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
 
     if validate? do
       Selecto.DomainValidator.validate_domain!(domain)
@@ -240,7 +240,7 @@ defmodule Selecto do
 
     # Initialize connection based on adapter
     # For backward compatibility, if adapter is PostgreSQL and we have postgrex_opts, use them directly
-    connection = if adapter == Selecto.Adapters.PostgreSQL do
+    connection = if adapter == Selecto.DB.PostgreSQL do
       # Backward compatibility: use postgrex_opts directly for PostgreSQL
       final_postgrex_opts
     else
@@ -306,7 +306,7 @@ defmodule Selecto do
     fields =
       Selecto.Schema.Column.configure_columns(
         :selecto_root,
-        source.fields -- source.redact_fields,
+        source.fields -- Map.get(source, :redact_fields, []),
         source,
         domain
       )

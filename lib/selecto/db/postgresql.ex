@@ -1,4 +1,4 @@
-defmodule Selecto.Adapters.PostgreSQL do
+defmodule Selecto.DB.PostgreSQL do
   @moduledoc """
   Built-in PostgreSQL adapter for Selecto.
   
@@ -34,7 +34,7 @@ defmodule Selecto.Adapters.PostgreSQL do
   # Query Execution
   
   @impl true
-  def execute(conn, query, params, opts \\ []) do
+  def execute(conn, query, params, opts) do
     # Mock implementation for testing
     {:ok, %{
       rows: [],
@@ -57,7 +57,7 @@ defmodule Selecto.Adapters.PostgreSQL do
   # Transaction Management
   
   @impl true
-  def transaction(conn, fun, opts \\ []) do
+  def transaction(conn, fun, opts) do
     try do
       {:ok, fun.()}
     rescue
@@ -66,7 +66,7 @@ defmodule Selecto.Adapters.PostgreSQL do
   end
 
   @impl true
-  def begin(conn, _opts \\ []) do
+  def begin(conn, opts) do
     {:ok, Map.put(conn, :in_transaction, true)}
   end
 
@@ -183,18 +183,18 @@ defmodule Selecto.Adapters.PostgreSQL do
   # Introspection
   
   @impl true
-  def list_tables(_conn, _opts \\ []) do
+  def list_tables(conn, opts) do
     {:ok, ["films", "actors", "categories", "customers", "rentals"]}  # Mock data
   end
 
   @impl true
-  def table_exists?(_conn, table, opts \\ []) do
-    {:ok, tables} = list_tables(nil, opts)
+  def table_exists?(conn, table, opts) do
+    {:ok, tables} = list_tables(conn, opts)
     table in tables
   end
 
   @impl true
-  def describe_table(_conn, table, _opts \\ []) do
+  def describe_table(conn, table, opts) do
     # Mock implementation
     {:ok, %{
       name: table,
@@ -207,7 +207,7 @@ defmodule Selecto.Adapters.PostgreSQL do
   # Performance & Optimization
   
   @impl true
-  def explain(conn, query, opts \\ []) do
+  def explain(conn, query, opts) do
     analyze = Keyword.get(opts, :analyze, false)
     
     explain_query = if analyze do
@@ -220,7 +220,7 @@ defmodule Selecto.Adapters.PostgreSQL do
   end
 
   @impl true
-  def analyze(conn, table, opts \\ []) do
+  def analyze(conn, table, opts) do
     execute(conn, "ANALYZE #{quote_identifier(table)}", [], opts)
     :ok
   end
@@ -228,7 +228,7 @@ defmodule Selecto.Adapters.PostgreSQL do
   # Streaming Support
   
   @impl true
-  def stream(_conn, _query, _params, _opts \\ []) do
+  def stream(conn, query, params, opts) do
     # Mock implementation
     {:ok, Stream.resource(
       fn -> :ok end,

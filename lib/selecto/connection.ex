@@ -36,6 +36,8 @@ defmodule Selecto.Connection do
       )
   """
   def connect(adapter, opts) when is_atom(adapter) do
+    Code.ensure_loaded(adapter)
+    
     if function_exported?(adapter, :connect, 1) do
       adapter.connect(opts)
     else
@@ -127,19 +129,14 @@ defmodule Selecto.Connection do
   the adapter behavior.
   """
   def discover_adapters do
-    # Built-in adapters
+    # Only PostgreSQL is built-in to Selecto core
     builtin = [
-      Selecto.Adapters.PostgreSQL
+      Selecto.DB.PostgreSQL
     ]
     
-    # Optional external adapters
-    external = [
-      Selecto.DB.SQLite,
-      Selecto.DB.MySQL
-    ]
-    
-    # Check which ones are actually available
-    (builtin ++ external)
+    # External adapters can be discovered dynamically
+    # They should be in separate packages
+    builtin
     |> Enum.filter(&adapter_available?/1)
     |> Enum.map(fn adapter ->
       %{
@@ -154,7 +151,7 @@ defmodule Selecto.Connection do
   Returns the default adapter to use when none is specified.
   """
   def default_adapter do
-    Selecto.Adapters.PostgreSQL
+    Selecto.DB.PostgreSQL
   end
 
   @doc """
@@ -170,11 +167,20 @@ defmodule Selecto.Connection do
   Gets human-readable name for an adapter.
   """
   def adapter_name(adapter) when is_atom(adapter) do
-    case adapter do
-      Selecto.Adapters.PostgreSQL -> "PostgreSQL"
-      Selecto.DB.SQLite -> "SQLite"
-      Selecto.DB.MySQL -> "MySQL"
-      _ -> 
+    Code.ensure_loaded(adapter)
+    
+    cond do
+      adapter == Selecto.DB.PostgreSQL -> 
+        "PostgreSQL"
+      adapter == Selecto.DB.SQLite ->
+        "SQLite"
+      adapter == Selecto.DB.MySQL ->
+        "MySQL"
+      
+      function_exported?(adapter, :adapter_name, 0) ->
+        adapter.adapter_name()
+      
+      true ->
         adapter
         |> Module.split()
         |> List.last()
@@ -185,7 +191,16 @@ defmodule Selecto.Connection do
   Gets the SQL dialect for an adapter.
   """
   def adapter_dialect(adapter) when is_atom(adapter) do
+    Code.ensure_loaded(adapter)
+    
     cond do
+      adapter == Selecto.DB.PostgreSQL ->
+        "postgresql"
+      adapter == Selecto.DB.SQLite ->
+        "sqlite"  
+      adapter == Selecto.DB.MySQL ->
+        "mysql"
+      
       function_exported?(adapter, :dialect, 0) ->
         adapter.dialect()
       
@@ -196,12 +211,7 @@ defmodule Selecto.Connection do
         end
       
       true ->
-        case adapter do
-          Selecto.Adapters.PostgreSQL -> "postgresql"
-          Selecto.DB.SQLite -> "sqlite"
-          Selecto.DB.MySQL -> "mysql"
-          _ -> "unknown"
-        end
+        "unknown"
     end
   end
 

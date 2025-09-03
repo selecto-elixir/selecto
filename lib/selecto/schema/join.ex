@@ -77,7 +77,8 @@ defmodule Selecto.Schema.Join do
   # we consume the join tree (atom/list) to a flat map of joins then into a map
   @spec recurse_joins(Selecto.Types.source(), Selecto.Types.domain()) :: %{atom() => Selecto.Types.processed_join()}
   def recurse_joins(source, domain) do
-    normalize_joins(source, domain.joins, :selecto_root, domain)
+    joins = Map.get(domain, :joins, %{})
+    normalize_joins(source, joins, :selecto_root, domain)
     |> List.flatten()
     |> Enum.reduce(%{}, fn j, acc -> Map.put(acc, j.id, j) end)
   end
