@@ -292,6 +292,13 @@ defmodule Selecto.SQL.Functions do
         {["last_value(", field_iodata, ")"], joins, params}
       {:ntile, buckets} ->
         {["ntile(", Integer.to_string(buckets), ")"], [], []}
+      {:nth_value, field, n} ->
+        {field_iodata, joins, params} = prep_function_args(selecto, [field])
+        {["nth_value(", field_iodata, ", ", Integer.to_string(n), ")"], joins, params}
+      {:cume_dist} ->
+        {["cume_dist()"], [], []}
+      {:percent_rank} ->
+        {["percent_rank()"], [], []}
       {agg_func, field} when agg_func in [:sum, :count, :avg, :min, :max] ->
         {field_iodata, joins, params} = prep_function_args(selecto, [field])
         func_name = Atom.to_string(agg_func)
