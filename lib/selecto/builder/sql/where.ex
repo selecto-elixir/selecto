@@ -19,6 +19,16 @@ defmodule Selecto.Builder.Sql.Where do
       {:exists, SUBQUERY}
   """
 
+  # Handle CASE expressions in WHERE clause
+  def build(selecto, {:case, when_clauses, else_clause}) when is_list(when_clauses) do
+    {case_iodata, joins, params} = build_case_expression(selecto, when_clauses, else_clause)
+    {joins, [" ", case_iodata, " "], params}
+  end
+  
+  def build(selecto, {:case, when_clauses}) when is_list(when_clauses) do
+    build(selecto, {:case, when_clauses, nil})
+  end
+
   def build(selecto, {field, {:text_search, value}}) do
     conf = Selecto.field(selecto, field)
     ### Don't think we ever have to cook the field because it has to be the tsvector...
@@ -209,8 +219,55 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
   end
 
-  def build(_sel, other) do
+  def build(_sel, _other) do
     raise "Not Found"
+  end
+  
+  # Build CASE expression for WHERE clause
+  defp build_case_expression(selecto, when_clauses, else_clause) do
+    # Collect joins and params from all parts
+    {when_parts, all_joins, all_params} = 
+      when_clauses
+      |> Enum.reduce({[], [], []}, fn {condition, result}, {parts_acc, joins_acc, params_acc} ->
+        # Build the condition (could be complex filter)
+        {cond_joins, cond_iodata, cond_params} = build(selecto, condition)
+        
+        # Build the result (could be a filter expression or boolean)
+        {result_joins, result_iodata, result_params} = 
+          case result do
+            true -> {[], ["TRUE"], []}
+            false -> {[], ["FALSE"], []}
+            nil -> {[], ["NULL"], []}
+            result when is_tuple(result) -> build(selecto, result)
+            result when is_binary(result) or is_number(result) -> 
+              {[], [{:param, result}], [result]}
+          end
+        
+        when_part = ["WHEN ", cond_iodata, " THEN ", result_iodata]
+        
+        {parts_acc ++ [when_part],
+         joins_acc ++ List.wrap(cond_joins) ++ List.wrap(result_joins),
+         params_acc ++ cond_params ++ result_params}
+      end)
+    
+    # Build ELSE clause
+    {else_joins, else_iodata, else_params} = 
+      case else_clause do
+        nil -> {[], [], []}
+        true -> {[], [" ELSE TRUE"], []}
+        false -> {[], [" ELSE FALSE"], []}
+        else_clause when is_tuple(else_clause) -> 
+          {ej, ei, ep} = build(selecto, else_clause)
+          {ej, [" ELSE ", ei], ep}
+        else_clause when is_binary(else_clause) or is_number(else_clause) ->
+          {[], [" ELSE ", {:param, else_clause}], [else_clause]}
+      end
+    
+    case_iodata = ["CASE ", Enum.intersperse(when_parts, " ")] ++ else_iodata ++ [" END"]
+    
+    {case_iodata,
+     all_joins ++ List.wrap(else_joins),
+     all_params ++ else_params}
   end
 
   # Helper to convert array SQL with params to iodata format

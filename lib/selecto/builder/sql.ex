@@ -46,7 +46,9 @@ defmodule Selecto.Builder.Sql do
     # Add user-defined CTEs
     user_ctes = case Map.get(selecto.set, :ctes) do
       nil -> []
-      ctes when is_list(ctes) -> ctes
+      ctes when is_list(ctes) -> 
+        # Convert our simplified CTE specs to proper format
+        Enum.map(ctes, &convert_user_cte_spec/1)
     end
     
     all_required_ctes = required_ctes ++ values_ctes ++ user_ctes
@@ -504,20 +506,125 @@ defmodule Selecto.Builder.Sql do
   end
   
   defp build_unnest_operations(selecto) do
-    case Map.get(selecto.set, :unnests, []) do
+    case Map.get(selecto.set, :unnest, []) do
       [] -> {[], []}
       specs -> 
-        {unnest_clauses, unnest_params} = 
+        {unnest_clauses, params} = 
           specs
-          |> Enum.map(fn spec ->
-            Selecto.Advanced.ArrayOperations.to_sql(spec, [], selecto)
+          |> Enum.map(&build_single_unnest(selecto, &1))
+          |> Enum.reduce({[], []}, fn {clause, p}, {clauses, params} ->
+            {clauses ++ [clause], params ++ p}
           end)
-          |> Enum.unzip()
         
-        # Format as comma-separated FROM clause additions
-        formatted_unnests = Enum.map(unnest_clauses, fn clause -> [", ", clause] end)
-        {formatted_unnests, List.flatten(unnest_params)}
+        # Format as comma-separated FROM clause additions  
+        {unnest_clauses, params}
     end
+  end
+  
+  defp build_single_unnest(selecto, %{field: field, alias: alias_name, ordinality: ordinality}) do
+    {field_iodata, field_params} = 
+      case field do
+        f when is_binary(f) ->
+          # Simple field reference
+          {["\"selecto_root\".\"", field, "\""], []}
+        {:array, _} = array_expr ->
+          # Array construction expression
+          Selecto.Builder.Sql.Select.prep_selector(selecto, array_expr)
+      end
+    
+    unnest_clause = 
+      case ordinality do
+        nil ->
+          ["UNNEST(", field_iodata, ") AS ", alias_name]
+        ord_alias ->
+          ["UNNEST(", field_iodata, ") WITH ORDINALITY AS ", alias_name, "(value, ", ord_alias, ")"]
+      end
+    
+    {unnest_clause, field_params}
+  end
+  
+  defp build_lateral_joins(selecto) do
+    case Map.get(selecto.set, :lateral_joins, []) do
+      [] -> {[], []}
+      specs ->
+        {join_clauses, params} = 
+          specs
+          |> Enum.map(&build_single_lateral_join(selecto, &1))
+          |> Enum.reduce({[], []}, fn {clause, p}, {clauses, params} ->
+            {clauses ++ [clause], params ++ p}
+          end)
+        
+        {join_clauses, params}
+    end
+  end
+  
+  defp build_single_lateral_join(selecto, spec) do
+    join_type_str = 
+      case spec.join_type do
+        :left -> "LEFT JOIN"
+        :inner -> "INNER JOIN"
+        :cross -> "CROSS JOIN"
+        _ -> "LEFT JOIN"
+      end
+    
+    case spec.type do
+      :subquery ->
+        # Build the subquery with context
+        subquery = spec.query_fn.(selecto)
+        {sql, params} = Selecto.to_sql(subquery)
+        
+        clause = [" ", join_type_str, " LATERAL (", sql, ") AS ", spec.alias]
+        {clause, params}
+        
+      :table_function ->
+        # Build table function call
+        {args_iodata, args_params} = 
+          spec.arguments
+          |> Enum.map(fn arg ->
+            case arg do
+              {:ref, field} -> {["\"selecto_root\".\"", field, "\""], []}
+              value -> {[{:param, value}], [value]}
+            end
+          end)
+          |> Enum.reduce({[], []}, fn {io, p}, {acc_io, acc_p} ->
+            {acc_io ++ [io], acc_p ++ p}
+          end)
+        
+        args_formatted = Enum.intersperse(args_iodata, ", ")
+        
+        clause = [" ", join_type_str, " LATERAL ", spec.function, "(", args_formatted, ") AS ", spec.alias]
+        {clause, args_params}
+    end
+  end
+  
+  defp combine_from_with_lateral_and_unnest(from_iodata, lateral_iodata, unnest_iodata) do
+    # Combine all FROM clause components
+    all_components = [from_iodata] ++ 
+                    (if unnest_iodata != [], do: [[", "] ++ unnest_iodata], else: []) ++
+                    (if lateral_iodata != [], do: [lateral_iodata], else: [])
+    
+    List.flatten(all_components)
+  end
+
+  # Convert user CTE spec to builder format
+  defp convert_user_cte_spec(%{type: :recursive} = spec) do
+    %Selecto.Advanced.CTE.Spec{
+      name: spec.name,
+      type: :recursive,
+      base_query: spec.base_query,
+      recursive_query: spec.recursive_query,
+      validated: true
+    }
+  end
+  
+  defp convert_user_cte_spec(%{type: type} = spec) when type in [:normal, nil] do
+    %Selecto.Advanced.CTE.Spec{
+      name: spec.name,
+      type: :normal,
+      query_builder: spec.query_builder || spec.query,
+      validated: true,
+      columns: spec[:columns]
+    }
   end
 
   # Phase 4.2: VALUES clause integration as CTEs

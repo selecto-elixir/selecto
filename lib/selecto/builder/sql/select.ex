@@ -277,6 +277,41 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # Handle array functions specifically before generic 3-tuple handler
+  # Array construction - build array from values
+  def prep_selector(selecto, {:array, values}) when is_list(values) do
+    prep_selector(selecto, {:array, values}, %{})
+  end
+  
+  def prep_selector(selecto, {:array, values}, _pivot_aliases) when is_list(values) do
+    # Build ARRAY[val1, val2, ...] expression
+    {values_iodata, values_params} = 
+      values
+      |> Enum.map(fn value ->
+        case value do
+          v when is_binary(v) or is_number(v) or is_boolean(v) ->
+            {{:param, v}, [v]}
+          nil ->
+            {"NULL", []}
+          field when is_binary(field) ->
+            # Could be a field reference
+            {sel, _join, param} = prep_selector(selecto, field)
+            {sel, param}
+          expr when is_tuple(expr) ->
+            # Complex expression
+            {sel, _join, param} = prep_selector(selecto, expr)
+            {sel, param}
+        end
+      end)
+      |> Enum.reduce({[], []}, fn {io, p}, {acc_io, acc_p} ->
+        {acc_io ++ [io], acc_p ++ p}
+      end)
+    
+    array_elements = Enum.intersperse(values_iodata, ", ")
+    iodata = ["ARRAY[", array_elements, "]"]
+    
+    {iodata, [], values_params}
+  end
+
   # These have a third argument that is NOT a filter
   def prep_selector(selecto, {:array_cat, _, _} = selector) do
     prep_selector(selecto, selector, %{})
