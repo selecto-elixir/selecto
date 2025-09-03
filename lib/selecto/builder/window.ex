@@ -71,14 +71,18 @@ defmodule Selecto.Builder.Window do
       # NTILE function - takes bucket count
       :ntile ->
         bucket_count = get_ntile_bucket_count(arguments)
-        {["NTILE(", "?", ")"], [bucket_count]}
+        {["NTILE(", {:param, bucket_count}, ")"], [bucket_count]}
         
+      # Cumulative distribution
+      :cume_dist ->
+        {["CUME_DIST()"], []}
+      
       # Offset functions - field and optional offset
       func when func in [:lag, :lead] ->
         build_offset_function(selecto, func, arguments)
         
       # Value functions - field argument
-      func when func in [:first_value, :last_value] ->
+      func when func in [:first_value, :last_value, :nth_value] ->
         build_value_function(selecto, func, arguments)
         
       # Aggregate functions - field argument
@@ -104,7 +108,7 @@ defmodule Selecto.Builder.Window do
       1 -> 
         {[func_name, "(", resolved_field, ")"], []}
       offset when is_integer(offset) ->
-        {[func_name, "(", resolved_field, ", ", "?", ")"], [offset]}
+        {[func_name, "(", resolved_field, ", ", {:param, offset}, ")"], [offset]}
     end
   end
 
@@ -114,13 +118,26 @@ defmodule Selecto.Builder.Window do
   defp parse_offset_arguments([field | _]), do: {field, 1}
   defp parse_offset_arguments(_), do: {nil, 1}
 
-  # Build value functions (FIRST_VALUE, LAST_VALUE)
+  # Build value functions (FIRST_VALUE, LAST_VALUE, NTH_VALUE)
   defp build_value_function(selecto, function, arguments) do
-    field = get_first_argument(arguments)
-    resolved_field = resolve_field_reference(selecto, field)
-    func_name = String.upcase(to_string(function))
-    
-    {[func_name, "(", resolved_field, ")"], []}
+    case function do
+      :nth_value ->
+        # NTH_VALUE takes field and position
+        case arguments do
+          [field, n] when is_integer(n) ->
+            resolved_field = resolve_field_reference(selecto, field)
+            {["NTH_VALUE(", resolved_field, ", ", {:param, n}, ")"], [n]}
+          _ ->
+            raise ArgumentError, "NTH_VALUE requires field and position arguments"
+        end
+      
+      func ->
+        # FIRST_VALUE and LAST_VALUE take only field
+        field = get_first_argument(arguments)
+        resolved_field = resolve_field_reference(selecto, field)
+        func_name = String.upcase(to_string(func))
+        {[func_name, "(", resolved_field, ")"], []}
+    end
   end
 
   # Build aggregate functions with OVER

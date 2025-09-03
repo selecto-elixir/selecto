@@ -42,8 +42,8 @@ defmodule Selecto.Window do
     ]
 
     @type window_function :: :row_number | :rank | :dense_rank | :percent_rank | :ntile |
-                             :lag | :lead | :first_value | :last_value |
-                             :sum | :avg | :count | :min | :max | :stddev | :variance
+                             :lag | :lead | :first_value | :last_value | :nth_value |
+                             :cume_dist | :sum | :avg | :count | :min | :max | :stddev | :variance
 
     @type t :: %__MODULE__{
       id: String.t(),

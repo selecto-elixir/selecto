@@ -172,16 +172,50 @@ defmodule Selecto.SQL.Functions do
         prep_array_function(selecto, "array_length", [field, {:literal, 1}])
 
       {:array_to_string, field, delimiter} ->
-        prep_array_function(selecto, "array_to_string", [field, delimiter])
+        prep_array_function(selecto, "array_to_string", [field, {:literal, delimiter}])
 
       {:string_to_array, field, delimiter} ->
-        prep_array_function(selecto, "string_to_array", [field, delimiter])
+        prep_array_function(selecto, "string_to_array", [field, {:literal, delimiter}])
 
       {:unnest, field} ->
         prep_array_function(selecto, "unnest", [field])
 
       {:array_cat, array1, array2} ->
         prep_array_function(selecto, "array_cat", [array1, array2])
+
+      # Additional array functions
+      {:cardinality, field} ->
+        prep_array_function(selecto, "cardinality", [field])
+
+      {:array_ndims, field} ->
+        prep_array_function(selecto, "array_ndims", [field])
+
+      {:array_dims, field} ->
+        prep_array_function(selecto, "array_dims", [field])
+
+      {:array_append, array, element} ->
+        prep_array_function(selecto, "array_append", [array, {:literal, element}])
+
+      {:array_prepend, element, array} ->
+        prep_array_function(selecto, "array_prepend", [{:literal, element}, array])
+
+      {:array_fill, value, dimensions} ->
+        prep_array_function(selecto, "array_fill", [{:literal, value}, {:literal, dimensions}])
+
+      {:array_remove, array, element} ->
+        prep_array_function(selecto, "array_remove", [array, {:literal, element}])
+
+      {:array_replace, array, from_elem, to_elem} ->
+        prep_array_function(selecto, "array_replace", [array, {:literal, from_elem}, {:literal, to_elem}])
+
+      {:array_position, array, element} ->
+        prep_array_function(selecto, "array_position", [array, {:literal, element}])
+
+      {:array_position, array, element, start} ->
+        prep_array_function(selecto, "array_position", [array, {:literal, element}, {:literal, start}])
+
+      {:array_positions, array, element} ->
+        prep_array_function(selecto, "array_positions", [array, {:literal, element}])
 
       # Window Functions
       {:window, func, opts} ->
@@ -258,6 +292,13 @@ defmodule Selecto.SQL.Functions do
         {["last_value(", field_iodata, ")"], joins, params}
       {:ntile, buckets} ->
         {["ntile(", Integer.to_string(buckets), ")"], [], []}
+      {:nth_value, field, n} ->
+        {field_iodata, joins, params} = prep_function_args(selecto, [field])
+        {["nth_value(", field_iodata, ", ", Integer.to_string(n), ")"], joins, params}
+      {:cume_dist} ->
+        {["cume_dist()"], [], []}
+      {:percent_rank} ->
+        {["percent_rank()"], [], []}
       {agg_func, field} when agg_func in [:sum, :count, :avg, :min, :max] ->
         {field_iodata, joins, params} = prep_function_args(selecto, [field])
         func_name = Atom.to_string(agg_func)

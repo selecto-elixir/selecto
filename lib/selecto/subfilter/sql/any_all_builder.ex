@@ -73,7 +73,7 @@ defmodule Selecto.Subfilter.SQL.AnyAllBuilder do
   defp join_type_to_sql(:full), do: "FULL"
   defp join_type_to_sql(:self), do: ""
 
-  defp build_where_sql(%Spec{filter_spec: filter_spec} = spec, %JoinResolution{target_table: target_table, target_field: target_field} = join_resolution) do
+  defp build_where_sql(%Spec{filter_spec: filter_spec} = _spec, %JoinResolution{target_table: target_table, target_field: target_field} = _join_resolution) do
     # Build correlation and any additional filter conditions
     correlation_sql = "film.film_id = film_actor.film_id" # Simplification
     

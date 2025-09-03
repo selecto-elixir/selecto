@@ -72,16 +72,19 @@ defmodule Selecto.Builder.CTE do
     # Generate SQL from the Selecto query
     {sql, _aliases, params} = Sql.build(selecto_query, [])
     
+    # Convert SQL string back to iodata with param markers
+    sql_iodata = convert_sql_to_iodata(sql, params)
+    
     # Build CTE definition
     cte_name = escape_identifier(spec.name)
     
     cte_definition = case spec.columns do
       nil ->
-        [cte_name, " AS (\n    ", sql, "\n)"]
+        [cte_name, " AS (\n    ", sql_iodata, "\n)"]
         
       columns when is_list(columns) ->
         column_list = columns |> Enum.map(&escape_identifier/1) |> Enum.join(", ")
-        [cte_name, " (", column_list, ") AS (\n    ", sql, "\n)"]
+        [cte_name, " (", column_list, ") AS (\n    ", sql_iodata, "\n)"]
     end
     
     {cte_definition, params}
@@ -99,20 +102,25 @@ defmodule Selecto.Builder.CTE do
     recursive_selecto = spec.recursive_query.(cte_ref)
     {recursive_sql, _recursive_aliases, recursive_params} = Sql.build(recursive_selecto, [])
     
+    # Convert SQL strings back to iodata with param markers
+    base_sql_iodata = convert_sql_to_iodata(base_sql, base_params)
+    # Adjust param indices for recursive part
+    recursive_sql_iodata = convert_sql_to_iodata_with_offset(recursive_sql, recursive_params, length(base_params))
+    
     # Build recursive CTE definition
     cte_name = escape_identifier(spec.name)
     
     cte_definition = case spec.columns do
       nil ->
         [cte_name, " AS (\n    ", 
-         base_sql, "\n    UNION ALL\n    ", 
-         recursive_sql, "\n)"]
+         base_sql_iodata, "\n    UNION ALL\n    ", 
+         recursive_sql_iodata, "\n)"]
         
       columns when is_list(columns) ->
         column_list = columns |> Enum.map(&escape_identifier/1) |> Enum.join(", ")
         [cte_name, " (", column_list, ") AS (\n    ",
-         base_sql, "\n    UNION ALL\n    ",
-         recursive_sql, "\n)"]
+         base_sql_iodata, "\n    UNION ALL\n    ",
+         recursive_sql_iodata, "\n)"]
     end
     
     combined_params = base_params ++ recursive_params
@@ -163,5 +171,30 @@ defmodule Selecto.Builder.CTE do
     else
       "\"#{String.replace(identifier, "\"", "\"\"")}\""
     end
+  end
+  
+  # Convert SQL string with $1, $2 placeholders back to iodata with {:param, value} markers
+  defp convert_sql_to_iodata(sql, params) do
+    convert_sql_to_iodata_with_offset(sql, params, 0)
+  end
+  
+  defp convert_sql_to_iodata_with_offset(sql, params, offset) do
+    params
+    |> Enum.with_index(1)
+    |> Enum.reduce([sql], fn {value, idx}, acc ->
+      placeholder = "$#{idx}"
+      
+      Enum.flat_map(acc, fn
+        s when is_binary(s) ->
+          case String.split(s, placeholder, parts: 2) do
+            [before, after_str] ->
+              [before, {:param, value}, after_str]
+            [unchanged] ->
+              [unchanged]
+          end
+        other ->
+          [other]
+      end)
+    end)
   end
 end

@@ -332,17 +332,17 @@ defmodule Selecto do
 
   #  @spec columns(t()) :: %{String.t() => %{required(:name) => String.t()}}
   def columns(selecto_struct) do
-    selecto_struct.config.columns
+    Map.get(selecto_struct.config, :columns, %{})
   end
 
   #  @spec joins(t()) :: %{atom() => processed_join()}
   def joins(selecto_struct) do
-    selecto_struct.config.joins
+    Map.get(selecto_struct.config, :joins, %{})
   end
 
   #  @spec source_table(t()) :: table_name()
   def source_table(selecto_struct) do
-    selecto_struct.config.source_table
+    Map.get(selecto_struct.config, :source_table, nil)
   end
 
   #  @spec domain(t()) :: domain()
@@ -707,6 +707,175 @@ defmodule Selecto do
   """
   def window_function(selecto, function, arguments \\ [], options) do
     Selecto.Window.add_window_function(selecto, function, arguments, options)
+  end
+
+  @doc """
+  Add an UNNEST operation to expand array columns into rows.
+  
+  UNNEST transforms array values into a set of rows, one for each array element.
+  Can optionally include ordinality to track position in the array.
+  
+  ## Examples
+  
+      # Basic unnest
+      selecto |> Selecto.unnest("tags", as: "tag")
+      
+      # Unnest with ordinality (includes position)
+      selecto |> Selecto.unnest("tags", as: "tag", ordinality: "tag_position")
+      
+      # Multiple unnests (will be cross-joined)
+      selecto 
+      |> Selecto.unnest("tags", as: "tag")
+      |> Selecto.unnest("categories", as: "category")
+  """
+  def unnest(selecto, array_field, opts \\ []) do
+    alias_name = Keyword.get(opts, :as, "unnested_#{array_field}")
+    ordinality = Keyword.get(opts, :ordinality)
+    
+    unnest_spec = %{
+      field: array_field,
+      alias: alias_name,
+      ordinality: ordinality
+    }
+    
+    current_unnests = Map.get(selecto.set, :unnest, [])
+    updated_selecto = put_in(selecto.set[:unnest], current_unnests ++ [unnest_spec])
+    
+    # Register the unnested field in the configuration
+    # This allows it to be selected and used in GROUP BY
+    current_columns = Map.get(updated_selecto.config, :columns, %{})
+    
+    # Add the unnested field as a column
+    unnested_column = %{
+      name: alias_name,
+      field: alias_name,
+      requires_join: nil,
+      type: :text  # Default type for unnested array elements
+    }
+    
+    # Also add ordinality column if requested
+    columns_to_add = if ordinality do
+      %{
+        alias_name => unnested_column,
+        "#{alias_name}_ordinality" => %{
+          name: "#{alias_name}_ordinality",
+          field: "#{alias_name}_ordinality",
+          requires_join: nil,
+          type: :integer
+        }
+      }
+    else
+      %{alias_name => unnested_column}
+    end
+    
+    put_in(updated_selecto.config[:columns], Map.merge(current_columns, columns_to_add))
+  end
+
+  @doc """
+  Add a recursive Common Table Expression (CTE).
+  
+  Recursive CTEs allow iterative queries that reference their own output,
+  useful for hierarchical data like organizational charts or file systems.
+  
+  ## Examples
+  
+      # Organizational hierarchy
+      Selecto.with_recursive_cte(selecto, "org_chart", 
+        fn -> 
+          # Non-recursive term (anchor)
+          Selecto.configure(domain, repo)
+          |> Selecto.select(["id", "name", "manager_id", {:literal, 1, as: "level"}])
+          |> Selecto.filter({"manager_id", nil})
+        end,
+        fn recursive_ref ->
+          # Recursive term
+          Selecto.configure(domain, repo)
+          |> Selecto.select(["e.id", "e.name", "e.manager_id", 
+                            {:+, "\#{recursive_ref}.level", 1, as: "level"}])
+          |> Selecto.join("\#{recursive_ref}", on: {"e.manager_id", "\#{recursive_ref}.id"})
+        end
+      )
+      
+      # Path traversal
+      Selecto.with_recursive_cte(selecto, "paths",
+        fn -> base_query end,
+        fn ref -> recursive_query_with_ref(ref) end,
+        max_depth: 10
+      )
+  """
+  def with_recursive_cte(selecto, cte_name, base_fn, recursive_fn, opts \\ []) do
+    # Store the functions, not their results
+    # The CTE builder will execute them when needed
+    cte_spec = %{
+      name: cte_name,
+      type: :recursive,
+      base_query: base_fn,
+      recursive_query: recursive_fn,
+      max_depth: Keyword.get(opts, :max_depth),
+      cycle_detection: Keyword.get(opts, :cycle_detection, false)
+    }
+    
+    current_ctes = Map.get(selecto.set, :ctes, [])
+    put_in(selecto.set[:ctes], current_ctes ++ [cte_spec])
+  end
+
+  @doc """
+  Create a LATERAL join to reference columns from preceding tables.
+  
+  LATERAL joins allow subqueries to reference columns from tables that
+  appear earlier in the FROM clause, enabling correlated subqueries.
+  
+  ## Examples
+  
+      # Get latest 3 orders for each customer
+      customers
+      |> Selecto.lateral_join(
+        fn customer -> 
+          orders
+          |> Selecto.filter({"customer_id", {:ref, "\#{customer}.id"}})
+          |> Selecto.order_by([{"order_date", :desc}])
+          |> Selecto.limit(3)
+        end,
+        as: "latest_orders"
+      )
+      
+      # Join with table function
+      selecto
+      |> Selecto.lateral_join(
+        {:function, "jsonb_to_recordset", ["data"], 
+         returns: [id: :integer, name: :text]},
+        as: "json_records"
+      )
+  """
+  def lateral_join(selecto, lateral_source, opts \\ []) do
+    alias_name = Keyword.fetch!(opts, :as)
+    join_type = Keyword.get(opts, :type, :left)
+    
+    lateral_spec = 
+      case lateral_source do
+        func when is_function(func) ->
+          # Subquery lateral join
+          %{
+            type: :subquery,
+            query_fn: func,
+            alias: alias_name,
+            join_type: join_type
+          }
+          
+        {:function, func_name, args, returns: returns} ->
+          # Table function lateral join
+          %{
+            type: :table_function,
+            function: func_name,
+            arguments: args,
+            returns: returns,
+            alias: alias_name,
+            join_type: join_type
+          }
+      end
+    
+    current_laterals = Map.get(selecto.set, :lateral_joins, [])
+    put_in(selecto.set[:lateral_joins], current_laterals ++ [lateral_spec])
   end
 
   @doc """
@@ -1519,57 +1688,6 @@ defmodule Selecto do
   Add UNNEST operation to expand array columns into rows.
   
   The UNNEST operation transforms an array column into multiple rows,
-  with one row per array element.
-  
-  ## Parameters
-  
-  - `selecto` - The Selecto instance
-  - `column` - The array column to unnest
-  - `opts` - Options including :as for aliasing and :with_ordinality for row numbers
-  
-  ## Examples
-  
-      # Simple unnest
-      selecto
-      |> Selecto.select(["film.title", "feature"])
-      |> Selecto.unnest("film.special_features", as: "feature")
-      
-      # Unnest with ordinality (adds row number)
-      selecto
-      |> Selecto.select(["product.name", "tag", "position"])
-      |> Selecto.unnest("product.tags", as: "tag", with_ordinality: true)
-  """
-  def unnest(selecto, column, opts \\ []) do
-    # Create unnest specification
-    unnest_spec = Selecto.Advanced.ArrayOperations.create_unnest(column, opts)
-    
-    # Add to selecto set
-    current_unnests = Map.get(selecto.set, :unnests, [])
-    updated_unnests = current_unnests ++ [unnest_spec]
-    
-    # Register dynamic columns created by UNNEST
-    selecto_with_unnest = put_in(selecto.set[:unnests], updated_unnests)
-    
-    # Add the dynamic column(s) to available fields
-    if alias_name = opts[:as] do
-      current_dynamic = Map.get(selecto_with_unnest.set, :dynamic_columns, %{})
-      
-      # For UNNEST with ordinality, we get two columns: value and ordinality
-      dynamic_columns = if opts[:with_ordinality] do
-        Map.merge(current_dynamic, %{
-          alias_name => %{type: :any, source: :unnest},
-          "#{alias_name}.value" => %{type: :any, source: :unnest},
-          "#{alias_name}.ordinality" => %{type: :integer, source: :unnest}
-        })
-      else
-        Map.put(current_dynamic, alias_name, %{type: :any, source: :unnest})
-      end
-      
-      put_in(selecto_with_unnest.set[:dynamic_columns], dynamic_columns)
-    else
-      selecto_with_unnest
-    end
-  end
 
   @doc """
   Add array manipulation operations to select fields.

@@ -34,7 +34,7 @@ defmodule Selecto.Output.Transformers.Json do
   """
 
   alias Selecto.Error
-  alias Selecto.Output.TypeCoercion
+  # alias Selecto.Output.TypeCoercion
 
   @type json_option ::
           {:include_meta, boolean()}
@@ -173,7 +173,7 @@ defmodule Selecto.Output.Transformers.Json do
 
   defp convert_to_maps(rows, columns, aliases, opts) do
     # Use the Maps transformer logic to convert to maps first
-    maps_options = [
+    _maps_options = [
       keys: opts.keys,
       coerce_types: opts.coerce_types
     ]
@@ -229,7 +229,7 @@ defmodule Selecto.Output.Transformers.Json do
     end
   end
 
-  defp coerce_for_json(value, opts) when is_nil(value), do: nil
+  defp coerce_for_json(value, _opts) when is_nil(value), do: nil
 
   defp coerce_for_json(%Decimal{} = decimal, opts) do
     case opts.decimal_format do

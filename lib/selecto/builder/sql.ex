@@ -9,17 +9,17 @@ defmodule Selecto.Builder.Sql do
   alias Selecto.Builder.ValuesClause
 
   @spec build(Selecto.Types.t(), Selecto.Types.sql_generation_options()) :: {String.t(), [%{String.t() => String.t()}], [any()]}
-  def build(selecto, _opts) do
+  def build(selecto, opts) do
     # Check for Set Operations first as they completely override query structure
     cond do
       Selecto.Builder.SetOperations.has_set_operations?(selecto) ->
-        build_set_operation_query(selecto, _opts)
+        build_set_operation_query(selecto, opts)
       
       Selecto.Pivot.has_pivot?(selecto) ->
-        build_pivot_query(selecto, _opts)
+        build_pivot_query(selecto, opts)
         
       true ->
-        build_standard_query(selecto, _opts)
+        build_standard_query(selecto, opts)
     end
   end
 
@@ -46,7 +46,9 @@ defmodule Selecto.Builder.Sql do
     # Add user-defined CTEs
     user_ctes = case Map.get(selecto.set, :ctes) do
       nil -> []
-      ctes when is_list(ctes) -> ctes
+      ctes when is_list(ctes) -> 
+        # Convert our simplified CTE specs to proper format
+        Enum.map(ctes, &convert_user_cte_spec/1)
     end
     
     all_required_ctes = required_ctes ++ values_ctes ++ user_ctes
@@ -159,7 +161,7 @@ defmodule Selecto.Builder.Sql do
       base_iodata
     end
 
-    all_params = select_params ++ from_params
+    _all_params = select_params ++ from_params
     {sql, final_params} = Params.finalize(final_iodata)
 
     {sql, aliases, final_params}
@@ -170,18 +172,18 @@ defmodule Selecto.Builder.Sql do
     {set_op_iodata, set_op_params} = Selecto.Builder.SetOperations.build_set_operations(selecto)
     
     # Check if we need to add ORDER BY to the entire set operation result
-    order_by_iodata = []
-    order_by_params = []
-    
-    if Selecto.Builder.SetOperations.should_apply_outer_order_by?(selecto) do
-      {_order_by_joins, order_by_iodata_result, order_by_params_result} = build_order_by(selecto)
-      order_by_iodata = if order_by_iodata_result != [], do: ["\nORDER BY ", order_by_iodata_result], else: []
-      order_by_params = order_by_params_result
-    end
+    {order_by_iodata, order_by_params} = 
+      if Selecto.Builder.SetOperations.should_apply_outer_order_by?(selecto) do
+        {_order_by_joins, order_by_iodata_result, order_by_params_result} = build_order_by(selecto)
+        order_iodata = if order_by_iodata_result != [], do: ["\nORDER BY ", order_by_iodata_result], else: []
+        {order_iodata, order_by_params_result}
+      else
+        {[], []}
+      end
     
     # Combine set operations with any outer ORDER BY
     final_iodata = [set_op_iodata] ++ order_by_iodata
-    all_params = set_op_params ++ order_by_params
+    _all_params = set_op_params ++ order_by_params
     
     # Finalize the SQL
     {sql, final_params} = Selecto.SQL.Params.finalize(final_iodata)
@@ -371,9 +373,9 @@ defmodule Selecto.Builder.Sql do
     else
       order_iodata ++ json_order_iodata
     end
-    all_params = order_params ++ json_order_params
+    _all_params = order_params ++ json_order_params
     
-    {all_joins, all_iodata, all_params}
+    {all_joins, all_iodata, _all_params}
   end
 
   # Phase 4: SELECT now uses iodata by default
@@ -409,33 +411,40 @@ defmodule Selecto.Builder.Sql do
 
       join, {fc, p, ctes} ->
         config = Selecto.joins(selecto)[join]
+        
+        # Skip if join doesn't exist in config
+        if config == nil do
+          {fc, p, ctes}
+        else
+          case detect_advanced_join_pattern(config) do
+            {:hierarchy, pattern} ->
+              Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
 
-        case detect_advanced_join_pattern(config) do
-          {:hierarchy, pattern} ->
-            Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
+            {:tagging, _} ->
+              build_tagging_join(selecto, join, config, fc, p, ctes)
 
-          {:tagging, _} ->
-            build_tagging_join(selecto, join, config, fc, p, ctes)
+            {:olap, type} ->
+              build_olap_join(selecto, join, config, type, fc, p, ctes)
 
-          {:olap, type} ->
-            build_olap_join(selecto, join, config, type, fc, p, ctes)
+            {:enhanced, join_type} ->
+              build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
 
-          {:enhanced, join_type} ->
-            build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
-
-          :basic ->
-            # Existing basic join logic
-            join_iodata = [
-              " left join ", config.source, " ", build_join_string(selecto, join),
-              " on ", build_selector_string(selecto, join, config.my_key),
-              " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-            ]
-            {fc ++ [join_iodata], p, ctes}
+            :basic ->
+              # Existing basic join logic
+              join_iodata = [
+                " left join ", config.source, " ", build_join_string(selecto, join),
+                " on ", build_selector_string(selecto, join, config.my_key),
+                " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
+              ]
+              {fc ++ [join_iodata], p, ctes}
+          end
         end
     end)
   end
 
   # Phase 1: Join pattern detection for advanced join types
+  defp detect_advanced_join_pattern(nil), do: :basic
+  
   defp detect_advanced_join_pattern(config) do
     case Map.get(config, :join_type) do
       :hierarchical_adjacency -> {:hierarchy, :adjacency_list}
@@ -504,20 +513,128 @@ defmodule Selecto.Builder.Sql do
   end
   
   defp build_unnest_operations(selecto) do
-    case Map.get(selecto.set, :unnests, []) do
+    case Map.get(selecto.set, :unnest, []) do
       [] -> {[], []}
       specs -> 
-        {unnest_clauses, unnest_params} = 
+        {unnest_clauses, params} = 
           specs
-          |> Enum.map(fn spec ->
-            Selecto.Advanced.ArrayOperations.to_sql(spec, [], selecto)
+          |> Enum.map(&build_single_unnest(selecto, &1))
+          |> Enum.reduce({[], []}, fn {clause, p}, {clauses, params} ->
+            {clauses ++ [clause], params ++ p}
           end)
-          |> Enum.unzip()
         
-        # Format as comma-separated FROM clause additions
-        formatted_unnests = Enum.map(unnest_clauses, fn clause -> [", ", clause] end)
-        {formatted_unnests, List.flatten(unnest_params)}
+        # Format as comma-separated FROM clause additions  
+        {unnest_clauses, params}
     end
+  end
+  
+  defp build_single_unnest(selecto, %{field: field, alias: alias_name, ordinality: ordinality}) do
+    {field_iodata, field_params} = 
+      case field do
+        f when is_binary(f) ->
+          # Simple field reference
+          {["\"selecto_root\".\"", field, "\""], []}
+        {:array, _} = array_expr ->
+          # Array construction expression
+          Selecto.Builder.Sql.Select.prep_selector(selecto, array_expr)
+      end
+    
+    unnest_clause = 
+      case ordinality do
+        nil ->
+          ["UNNEST(", field_iodata, ") AS ", alias_name]
+        ord_alias ->
+          ["UNNEST(", field_iodata, ") WITH ORDINALITY AS ", alias_name, "(value, ", ord_alias, ")"]
+      end
+    
+    {unnest_clause, field_params}
+  end
+  
+  defp build_lateral_joins(selecto) do
+    case Map.get(selecto.set, :lateral_joins, []) do
+      [] -> {[], []}
+      specs ->
+        {join_clauses, params} = 
+          specs
+          |> Enum.map(&build_single_lateral_join(selecto, &1))
+          |> Enum.reduce({[], []}, fn {clause, p}, {clauses, params} ->
+            {clauses ++ [clause], params ++ p}
+          end)
+        
+        {join_clauses, params}
+    end
+  end
+  
+  defp build_single_lateral_join(selecto, spec) do
+    join_type_str = 
+      case spec.join_type do
+        :left -> "LEFT JOIN"
+        :inner -> "INNER JOIN"
+        :cross -> "CROSS JOIN"
+        _ -> "LEFT JOIN"
+      end
+    
+    case spec.type do
+      :subquery ->
+        # Build the subquery with context
+        subquery = spec.query_fn.(selecto)
+        {sql, params} = Selecto.to_sql(subquery)
+        
+        clause = [" ", join_type_str, " LATERAL (", sql, ") AS ", spec.alias]
+        {clause, params}
+        
+      :table_function ->
+        # Build table function call
+        {args_iodata, args_params} = 
+          spec.arguments
+          |> Enum.map(fn arg ->
+            case arg do
+              {:ref, field} -> {["\"selecto_root\".\"", field, "\""], []}
+              value -> {[{:param, value}], [value]}
+            end
+          end)
+          |> Enum.reduce({[], []}, fn {io, p}, {acc_io, acc_p} ->
+            {acc_io ++ [io], acc_p ++ p}
+          end)
+        
+        args_formatted = Enum.intersperse(args_iodata, ", ")
+        
+        clause = [" ", join_type_str, " LATERAL ", spec.function, "(", args_formatted, ") AS ", spec.alias]
+        {clause, args_params}
+    end
+  end
+  
+  defp combine_from_with_lateral_and_unnest(from_iodata, lateral_iodata, unnest_iodata) do
+    # Combine all FROM clause components
+    all_components = [from_iodata] ++ 
+                    (if unnest_iodata != [], do: [[", "] ++ unnest_iodata], else: []) ++
+                    (if lateral_iodata != [], do: [lateral_iodata], else: [])
+    
+    List.flatten(all_components)
+  end
+
+  # Convert user CTE spec to builder format
+  defp convert_user_cte_spec(%{type: :recursive} = spec) do
+    %Selecto.Advanced.CTE.Spec{
+      name: spec.name,
+      type: :recursive,
+      base_query: spec.base_query,
+      recursive_query: spec.recursive_query,
+      validated: true,
+      dependencies: Map.get(spec, :dependencies, []),
+      columns: Map.get(spec, :columns)
+    }
+  end
+  
+  defp convert_user_cte_spec(%{type: type} = spec) when type in [:normal, nil] do
+    %Selecto.Advanced.CTE.Spec{
+      name: spec.name,
+      type: :normal,
+      query_builder: spec.query_builder || spec.query,
+      validated: true,
+      columns: Map.get(spec, :columns),
+      dependencies: Map.get(spec, :dependencies, [])
+    }
   end
 
   # Phase 4.2: VALUES clause integration as CTEs

@@ -17,6 +17,26 @@ defmodule Selecto.Builder.Sql.Order do
     :desc_nulls_last
   ]
 
+  # Handle CASE expressions in ORDER BY
+  def order(selecto, {:case, when_clauses, else_clause}) when is_list(when_clauses) do
+    {case_iodata, joins, params} = build_order_case_expression(selecto, when_clauses, else_clause)
+    {joins, case_iodata, params}
+  end
+  
+  def order(selecto, {:case, when_clauses}) when is_list(when_clauses) do
+    order(selecto, {:case, when_clauses, nil})
+  end
+  
+  # Handle CASE with direction: {{:case, ...}, :asc}
+  def order(selecto, {{:case, when_clauses, else_clause}, dir}) when dir in @dir_list and is_list(when_clauses) do
+    {case_iodata, joins, params} = build_order_case_expression(selecto, when_clauses, else_clause)
+    {joins, [case_iodata, " ", @dirs[dir]], params}
+  end
+  
+  def order(selecto, {{:case, when_clauses}, dir}) when dir in @dir_list and is_list(when_clauses) do
+    order(selecto, {{:case, when_clauses, nil}, dir})
+  end
+
   def order(selecto, {dir, order}) when dir in @dir_list do
     {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
     {j, [c, " ", @dirs[dir]], p}
@@ -46,5 +66,51 @@ defmodule Selecto.Builder.Sql.Order do
     # Join clauses with ", " separator as iodata
     clause_parts = Enum.intersperse(clauses_iodata, ", ")
     {joins, clause_parts, params}
+  end
+  
+  # Build CASE expression for ORDER BY clause
+  defp build_order_case_expression(selecto, when_clauses, else_clause) do
+    alias Selecto.Builder.Sql.Where
+    # alias Selecto.Builder.Sql.Select
+    
+    # Collect joins and params from all parts
+    {when_parts, all_joins, all_params} = 
+      when_clauses
+      |> Enum.reduce({[], [], []}, fn {condition, result}, {parts_acc, joins_acc, params_acc} ->
+        # Build the condition - use standard WHERE builder  
+        {cond_joins, cond_iodata, cond_params} = Where.build(selecto, condition)
+        
+        # Build the result (typically a number for ordering)
+        result_iodata = 
+          case result do
+            r when is_number(r) -> [{:param, r}]
+            r when is_binary(r) -> [{:param, r}]
+            nil -> ["NULL"]
+          end
+        
+        result_params = 
+          case result do
+            r when is_number(r) or is_binary(r) -> [r]
+            _ -> []
+          end
+        
+        when_part = ["WHEN ", cond_iodata, " THEN ", result_iodata]
+        
+        {parts_acc ++ [when_part],
+         joins_acc ++ List.wrap(cond_joins),
+         params_acc ++ cond_params ++ result_params}
+      end)
+    
+    # Build ELSE clause
+    {else_iodata, else_params} = 
+      case else_clause do
+        nil -> {[], []}
+        e when is_number(e) -> {[" ELSE ", {:param, e}], [e]}
+        e when is_binary(e) -> {[" ELSE ", {:param, e}], [e]}
+      end
+    
+    case_iodata = ["CASE ", Enum.intersperse(when_parts, " ")] ++ else_iodata ++ [" END"]
+    
+    {case_iodata, all_joins, all_params ++ else_params}
   end
 end

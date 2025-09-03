@@ -218,6 +218,228 @@ defmodule Selecto.Builder.Sql.Select do
     {extract_iodata, join, param}
   end
 
+  # Handle array_length function (2-tuple)
+  def prep_selector(selecto, {:array_length, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_length, _} = selector, _pivot_aliases) do
+    # Delegate to Functions module
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_length function not properly implemented"
+      result -> result
+    end
+  end
+
+  # Handle other 2-tuple array functions
+  def prep_selector(selecto, {:cardinality, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:cardinality, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "cardinality function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_ndims, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_ndims, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_ndims function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_dims, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_dims, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_dims function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:unnest, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:unnest, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "unnest function not properly implemented"
+      result -> result
+    end
+  end
+
+  # Handle array functions specifically before generic 3-tuple handler
+  # Array construction - build array from values
+  def prep_selector(selecto, {:array, values}) when is_list(values) do
+    prep_selector(selecto, {:array, values}, %{})
+  end
+  
+  def prep_selector(selecto, {:array, values}, _pivot_aliases) when is_list(values) do
+    # Build ARRAY[val1, val2, ...] expression
+    {values_iodata, values_params} = 
+      values
+      |> Enum.map(fn value ->
+        case value do
+          v when is_binary(v) or is_number(v) or is_boolean(v) ->
+            {{:param, v}, [v]}
+          nil ->
+            {"NULL", []}
+          field when is_binary(field) ->
+            # Could be a field reference
+            {sel, _join, param} = prep_selector(selecto, field)
+            {sel, param}
+          expr when is_tuple(expr) ->
+            # Complex expression
+            {sel, _join, param} = prep_selector(selecto, expr)
+            {sel, param}
+        end
+      end)
+      |> Enum.reduce({[], []}, fn {io, p}, {acc_io, acc_p} ->
+        {acc_io ++ [io], acc_p ++ p}
+      end)
+    
+    array_elements = Enum.intersperse(values_iodata, ", ")
+    iodata = ["ARRAY[", array_elements, "]"]
+    
+    {iodata, [], values_params}
+  end
+
+  # These have a third argument that is NOT a filter
+  def prep_selector(selecto, {:array_cat, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_cat, _, _} = selector, _pivot_aliases) do
+    # Delegate to Functions module
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_cat function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_to_string, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_to_string, _, _} = selector, _pivot_aliases) do
+    # Delegate to Functions module
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_to_string function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:string_to_array, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:string_to_array, _, _} = selector, _pivot_aliases) do
+    # Delegate to Functions module
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "string_to_array function not properly implemented"
+      result -> result
+    end
+  end
+
+  # Handle 3-tuple array functions before generic handler
+  def prep_selector(selecto, {:array_append, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_append, _, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_append function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_prepend, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_prepend, _, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_prepend function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_fill, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_fill, _, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_fill function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_remove, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_remove, _, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_remove function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_position, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_position, _, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_position function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_positions, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_positions, _, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_positions function not properly implemented"
+      result -> result
+    end
+  end
+
+  # Handle 4-tuple array functions
+  def prep_selector(selecto, {:array_replace, _, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_replace, _, _, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_replace function not properly implemented"
+      result -> result
+    end
+  end
+
+  def prep_selector(selecto, {:array_position, _, _, _} = selector) do
+    prep_selector(selecto, selector, %{})
+  end
+
+  def prep_selector(selecto, {:array_position, _, _, _} = selector, _pivot_aliases) do
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil -> raise "array_position with start function not properly implemented"
+      result -> result
+    end
+  end
+
+  # Generic 3-tuple handler - assumes third element is a filter
   def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
     prep_selector(selecto, {func, field, filter}, %{})
   end
