@@ -148,12 +148,23 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " ", to_string(comp), " ", {:param, value}, " "], param}
   end
 
-  def build(selecto, {field, {comp, value}}) when comp in [:=, :!=, :<, :>, :<=, :>=] do
+  def build(selecto, {field, {comp, value}}) when comp in [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
+    
+    # Convert alternative operator names to SQL operators
+    sql_op = case comp do
+      :gt -> ">"
+      :lt -> "<"
+      :gte -> ">="
+      :lte -> "<="
+      :eq -> "="
+      :ne -> "!="
+      other -> to_string(other)
+    end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
-     [" ", sel, " ", to_string(comp), " ", {:param, to_type(conf.type, value)}, " "], param}
+     [" ", sel, " ", sql_op, " ", {:param, to_type(conf.type, value)}, " "], param}
   end
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
@@ -168,18 +179,30 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join),
-     [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "],
-     param}
+    # Use adapter-specific syntax for IN/ANY
+    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    in_clause = case adapter do
+      Selecto.DB.MySQL -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+      Selecto.DB.MariaDB -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+      _ -> [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+    end
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
   end
 
   def build(selecto, {field, list}) when is_list(list) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join),
-     [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "],
-     param}
+    # Use adapter-specific syntax for IN/ANY
+    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    in_clause = case adapter do
+      Selecto.DB.MySQL -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+      Selecto.DB.MariaDB -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+      _ -> [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+    end
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
   end
 
   def build(selecto, {field, {:not, nil}}) do

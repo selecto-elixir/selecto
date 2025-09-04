@@ -9,10 +9,11 @@ defmodule Selecto.SQL.Params do
 
   @type fragment :: iodata() | {:param, any()} | {:cte, String.t(), iodata()}
 
-  @spec finalize(iodata() | [fragment]) :: {String.t(), [any()]}
-  def finalize(fragments) do
+  @spec finalize(iodata() | [fragment], Keyword.t()) :: {String.t(), [any()]}
+  def finalize(fragments, opts \\ []) do
+    adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
     {iodata, params, _idx} =
-      traverse(List.wrap(fragments), {[], [], 0})
+      traverse(List.wrap(fragments), {[], [], 0}, adapter)
 
     {IO.iodata_to_binary(iodata), params}
   end
@@ -25,20 +26,21 @@ defmodule Selecto.SQL.Params do
   
   Returns: {processed_ctes, main_sql, final_params}
   """
-  @spec finalize_with_ctes(iodata() | [fragment]) :: {[{String.t(), String.t()}], String.t(), [any()]}
-  def finalize_with_ctes(iodata_with_ctes) do
+  @spec finalize_with_ctes(iodata() | [fragment], Keyword.t()) :: {[{String.t(), String.t()}], String.t(), [any()]}
+  def finalize_with_ctes(iodata_with_ctes, opts \\ []) do
+    adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
     {cte_sections, main_iodata, extracted_params} = extract_ctes(List.wrap(iodata_with_ctes))
     
     # Process CTEs first to establish parameter numbering baseline
     {processed_ctes, cte_params} = 
       Enum.map_reduce(cte_sections, [], fn {cte_name, cte_iodata}, acc_params ->
-        {cte_sql, cte_specific_params} = finalize(cte_iodata)
+        {cte_sql, cte_specific_params} = finalize(cte_iodata, adapter: adapter)
         {{cte_name, cte_sql}, acc_params ++ cte_specific_params}
       end)
     
     # Process main query with parameter offset to avoid conflicts
     param_offset = length(cte_params)
-    {main_sql, main_specific_params} = finalize_with_offset(main_iodata, param_offset)
+    {main_sql, main_specific_params} = finalize_with_offset(main_iodata, param_offset, adapter)
     
     # Combine all parameters in correct order
     final_params = cte_params ++ main_specific_params ++ extracted_params
@@ -46,9 +48,9 @@ defmodule Selecto.SQL.Params do
   end
 
   # Process iodata with parameter offset for coordinated numbering
-  defp finalize_with_offset(fragments, offset) do
+  defp finalize_with_offset(fragments, offset, adapter \\ Selecto.DB.PostgreSQL) do
     {iodata, params, _idx} =
-      traverse_with_offset(List.wrap(fragments), {[], [], offset})
+      traverse_with_offset(List.wrap(fragments), {[], [], offset}, adapter)
 
     {IO.iodata_to_binary(iodata), params}
   end
@@ -83,38 +85,42 @@ defmodule Selecto.SQL.Params do
   end
 
   # Traverse with parameter offset support
-  defp traverse_with_offset([h | t], {acc_io, acc_params, idx}) do
+  defp traverse_with_offset([h | t], {acc_io, acc_params, idx}, adapter) do
     case h do
       {:param, v} ->
-        placeholder = ["$", Integer.to_string(idx + 1)]
-        traverse_with_offset(t, {acc_io ++ [placeholder], acc_params ++ [v], idx + 1})
+        placeholder = get_param_placeholder(adapter, idx + 1)
+        traverse_with_offset(t, {acc_io ++ [placeholder], acc_params ++ [v], idx + 1}, adapter)
       list when is_list(list) ->
-        {inner_io, inner_params, inner_idx} = traverse_with_offset(list, {[], [], idx})
-        traverse_with_offset(t, {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx})
+        {inner_io, inner_params, inner_idx} = traverse_with_offset(list, {[], [], idx}, adapter)
+        traverse_with_offset(t, {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx}, adapter)
       bin when is_binary(bin) ->
-        traverse_with_offset(t, {acc_io ++ [bin], acc_params, idx})
+        traverse_with_offset(t, {acc_io ++ [bin], acc_params, idx}, adapter)
       other ->
-        traverse_with_offset(t, {acc_io ++ [to_string(other)], acc_params, idx})
+        traverse_with_offset(t, {acc_io ++ [to_string(other)], acc_params, idx}, adapter)
     end
   end
 
-  defp traverse_with_offset([], state), do: state
+  defp traverse_with_offset([], state, _adapter), do: state
 
-  defp traverse([h | t], {acc_io, acc_params, idx}) do
+  defp traverse([h | t], {acc_io, acc_params, idx}, adapter) do
     case h do
       {:param, v} ->
-        placeholder = ["$", Integer.to_string(idx + 1)]
-        traverse(t, {acc_io ++ [placeholder], acc_params ++ [v], idx + 1})
+        placeholder = get_param_placeholder(adapter, idx + 1)
+        traverse(t, {acc_io ++ [placeholder], acc_params ++ [v], idx + 1}, adapter)
       list when is_list(list) ->
-        {inner_io, inner_params, inner_idx} = traverse(list, {[], [], idx})
-        traverse(t, {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx})
+        {inner_io, inner_params, inner_idx} = traverse(list, {[], [], idx}, adapter)
+        traverse(t, {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx}, adapter)
       bin when is_binary(bin) ->
-        traverse(t, {acc_io ++ [bin], acc_params, idx})
+        traverse(t, {acc_io ++ [bin], acc_params, idx}, adapter)
       other ->
         # Allow numbers/atoms to be coerced; they should rarely appear directly.
-        traverse(t, {acc_io ++ [to_string(other)], acc_params, idx})
+        traverse(t, {acc_io ++ [to_string(other)], acc_params, idx}, adapter)
     end
   end
 
-  defp traverse([], state), do: state
+  defp traverse([], state, _adapter), do: state
+  
+  defp get_param_placeholder(Selecto.DB.MySQL, _idx), do: "?"
+  defp get_param_placeholder(Selecto.DB.MariaDB, _idx), do: "?"
+  defp get_param_placeholder(_adapter, idx), do: ["$", Integer.to_string(idx)]
 end
