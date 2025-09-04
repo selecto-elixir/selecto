@@ -406,8 +406,10 @@ defmodule Selecto.Builder.Sql do
     Enum.reduce(joins, {[], [], []}, fn
       :selecto_root, {fc, p, ctes} ->
         root_table = Selecto.source_table(selecto)
+        # Quote both the table name and alias for the adapter
+        quoted_table = quote_identifier(selecto, root_table)
         root_alias = build_join_string(selecto, "selecto_root")
-        {fc ++ [[root_table, " ", root_alias]], p, ctes}
+        {fc ++ [[quoted_table, " ", root_alias]], p, ctes}
 
       join, {fc, p, ctes} ->
         config = Selecto.joins(selecto)[join]
@@ -432,7 +434,7 @@ defmodule Selecto.Builder.Sql do
             :basic ->
               # Existing basic join logic
               join_iodata = [
-                " left join ", config.source, " ", build_join_string(selecto, join),
+                " left join ", quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
                 " on ", build_selector_string(selecto, join, config.my_key),
                 " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
               ]
@@ -479,7 +481,7 @@ defmodule Selecto.Builder.Sql do
       nil ->
         # Fallback to basic join if enhanced join fails
         join_iodata = [
-          " left join ", config.source, " ", build_join_string(selecto, join),
+          " left join ", quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
           " on ", build_selector_string(selecto, join, config.my_key),
           " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
         ]

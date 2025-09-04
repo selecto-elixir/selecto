@@ -148,6 +148,8 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
     end
   end
 
+  defp parse_parameters(nil), do: {:ok, []}
+  
   defp parse_parameters(params) do
     try do
       parsed_params = Enum.map(params, &parse_single_parameter/1)

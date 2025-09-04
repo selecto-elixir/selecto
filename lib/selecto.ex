@@ -829,21 +829,9 @@ defmodule Selecto do
         max_depth: 10
       )
   """
-  def with_recursive_cte(selecto, cte_name, base_fn, recursive_fn, opts \\ []) do
-    # Store the functions, not their results
-    # The CTE builder will execute them when needed
-    cte_spec = %{
-      name: cte_name,
-      type: :recursive,
-      base_query: base_fn,
-      recursive_query: recursive_fn,
-      max_depth: Keyword.get(opts, :max_depth),
-      cycle_detection: Keyword.get(opts, :cycle_detection, false)
-    }
-    
-    current_ctes = Map.get(selecto.set, :ctes, [])
-    put_in(selecto.set[:ctes], current_ctes ++ [cte_spec])
-  end
+  # DUPLICATE REMOVED - Consolidated with the version below that uses Advanced.CTE
+  # This version accepted (selecto, cte_name, base_fn, recursive_fn, opts)
+  # The consolidated version below now handles both parameter formats
 
   @doc """
   Create a LATERAL join to reference columns from preceding tables.
@@ -873,36 +861,9 @@ defmodule Selecto do
         as: "json_records"
       )
   """
-  def lateral_join(selecto, lateral_source, opts \\ []) do
-    alias_name = Keyword.fetch!(opts, :as)
-    join_type = Keyword.get(opts, :type, :left)
-    
-    lateral_spec = 
-      case lateral_source do
-        func when is_function(func) ->
-          # Subquery lateral join
-          %{
-            type: :subquery,
-            query_fn: func,
-            alias: alias_name,
-            join_type: join_type
-          }
-          
-        {:function, func_name, args, returns: returns} ->
-          # Table function lateral join
-          %{
-            type: :table_function,
-            function: func_name,
-            arguments: args,
-            returns: returns,
-            alias: alias_name,
-            join_type: join_type
-          }
-      end
-    
-    current_laterals = Map.get(selecto.set, :lateral_joins, [])
-    put_in(selecto.set[:lateral_joins], current_laterals ++ [lateral_spec])
-  end
+  # DUPLICATE REMOVED - Consolidated with the version below that uses Advanced.LateralJoin
+  # This version accepted (selecto, lateral_source, opts) 
+  # The consolidated version below now handles both parameter formats
 
   @doc """
   Create a UNION set operation between two queries.
@@ -1023,14 +984,46 @@ defmodule Selecto do
         "numbers"
       )
   """
-  def lateral_join(selecto, join_type, subquery_builder_or_function, alias_name, opts \\ []) do
-    # Create LATERAL join specification
-    lateral_spec = Selecto.Advanced.LateralJoin.create_lateral_join(
-      join_type, 
-      subquery_builder_or_function, 
-      alias_name, 
-      opts
-    )
+  # Consolidated version that handles both parameter formats:
+  # 1. (selecto, lateral_source, opts) - where opts contains :as and :type
+  # 2. (selecto, join_type, subquery_builder_or_function, alias_name, opts)
+  def lateral_join(selecto, arg2, arg3 \\ [], arg4 \\ nil, arg5 \\ []) do
+    # Determine which parameter format is being used
+    {join_type, subquery_builder_or_function, alias_name, opts} = 
+      case {arg2, arg3, arg4, arg5} do
+        # Format 1: (selecto, lateral_source, opts)
+        {lateral_source, opts, nil, []} when is_list(opts) ->
+          alias_name = Keyword.fetch!(opts, :as)
+          join_type = Keyword.get(opts, :type, :left)
+          {join_type, lateral_source, alias_name, opts}
+          
+        # Format 2: (selecto, join_type, subquery_builder_or_function, alias_name, opts)
+        {join_type, subquery_builder_or_function, alias_name, opts} ->
+          {join_type, subquery_builder_or_function, alias_name, opts}
+      end
+    # Handle different lateral source types
+    lateral_spec = 
+      case subquery_builder_or_function do
+        # Handle inline spec format from old version
+        {:function, func_name, args, returns: returns} ->
+          %{
+            type: :table_function,
+            function: func_name,
+            arguments: args,
+            returns: returns,
+            alias: alias_name,
+            join_type: join_type
+          }
+          
+        # For other cases, use Advanced.LateralJoin
+        _ ->
+          Selecto.Advanced.LateralJoin.create_lateral_join(
+            join_type, 
+            subquery_builder_or_function, 
+            alias_name, 
+            opts
+          )
+      end
     
     # Validate correlations
     case Selecto.Advanced.LateralJoin.validate_correlations(lateral_spec, selecto) do
@@ -1383,9 +1376,29 @@ defmodule Selecto do
       # FROM employee_hierarchy
       # ORDER BY level ASC, name ASC
   """
-  def with_recursive_cte(selecto, name, opts) do
-    # Create recursive CTE specification
-    cte_spec = Selecto.Advanced.CTE.create_recursive_cte(name, opts)
+  # Consolidated version that handles both parameter formats:
+  # 1. (selecto, cte_name, base_fn, recursive_fn, opts) - original inline format
+  # 2. (selecto, name, opts) - newer format using Advanced.CTE
+  def with_recursive_cte(selecto, arg2, arg3, arg4 \\ nil, arg5 \\ []) do
+    cte_spec = 
+      case {arg2, arg3, arg4, arg5} do
+        # Format 1: (selecto, cte_name, base_fn, recursive_fn, opts)
+        {cte_name, base_fn, recursive_fn, opts} when is_function(base_fn) and is_function(recursive_fn) ->
+          # Inline spec format
+          %{
+            name: cte_name,
+            type: :recursive,
+            base_query: base_fn,
+            recursive_query: recursive_fn,
+            max_depth: Keyword.get(opts, :max_depth),
+            cycle_detection: Keyword.get(opts, :cycle_detection, false)
+          }
+          
+        # Format 2: (selecto, name, opts) 
+        {name, opts, nil, []} when is_list(opts) or is_map(opts) ->
+          # Use Advanced.CTE module
+          Selecto.Advanced.CTE.create_recursive_cte(name, opts)
+      end
     
     # Add to selecto set
     current_ctes = Map.get(selecto.set, :ctes, [])

@@ -110,6 +110,23 @@ defmodule Selecto.Builder.Sql.Where do
     end
   end
 
+  # Handle :between with list format [{min, max}]
+  def build(selecto, {field, {:between, [min, max]}}) do
+    conf = Selecto.field(selecto, field)
+
+    {conf.requires_join,
+     [
+       " ",
+       build_selector_string(selecto, conf.requires_join, conf.name),
+       " between ",
+       {:param, to_type(conf.type, min)},
+       " and ",
+       {:param, to_type(conf.type, max)},
+       " "
+     ], []}
+  end
+  
+  # Handle :between with separate min, max parameters
   def build(selecto, {field, {:between, min, max}}) do
     conf = Selecto.field(selecto, field)
 
