@@ -148,6 +148,8 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
     end
   end
 
+  defp parse_parameters(nil), do: {:ok, []}
+  
   defp parse_parameters(params) do
     try do
       parsed_params = Enum.map(params, &parse_single_parameter/1)
@@ -169,6 +171,8 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
   Parse a single parameter string into a typed value.
   Used for testing and debugging individual parameters.
   """
+  def parse_single_parameter(nil), do: {:error, "Cannot parse nil parameter"}
+  
   def parse_single_parameter(param) when is_binary(param) do
     cond do
       # Boolean literals

@@ -39,15 +39,19 @@ defmodule Selecto.Executor do
     try do
       {query, aliases, params} = Selecto.gen_sql(selecto, opts)
 
-      # Handle both Ecto repos and direct Postgrex connections
-      result = case selecto.postgrex_opts do
+      # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
+      result = cond do
+        # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
+        selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+          execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
+        
         # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
-        repo when is_atom(repo) and not is_nil(repo) ->
-          execute_with_ecto_repo(repo, query, params, aliases)
+        is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
+          execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
 
-        # If it's a Postgrex connection, use Postgrex.query directly
-        conn ->
-          execute_with_postgrex(conn, query, params, aliases)
+        # If it's a Postgrex connection, use Postgrex.query directly (PostgreSQL backward compatibility)
+        true ->
+          execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
       end
 
       # Track query execution for monitoring (if SelectoDev.QueryMonitor is available)
@@ -116,6 +120,39 @@ defmodule Selecto.Executor do
         {:error, Selecto.Error.multiple_results_error()}
       {:error, %Selecto.Error{} = error} ->
         {:error, error}
+    end
+  end
+
+  @doc """
+  Execute query using a database adapter.
+  
+  This function delegates to the adapter's execute/4 function, allowing
+  for different database types like SQLite, MySQL, etc.
+  """
+  def execute_with_adapter(adapter, connection, query, params, aliases) do
+    try do
+      case adapter.execute(connection, query, params, []) do
+        {:ok, result} -> 
+          # Ensure consistent result format across adapters
+          rows = Map.get(result, :rows, [])
+          columns = Map.get(result, :columns, [])
+          {:ok, {rows, columns, aliases}}
+        {:error, reason} -> 
+          {:error, Selecto.Error.from_reason(reason)}
+      end
+    rescue
+      error ->
+        {:error, Selecto.Error.connection_error("Adapter execution failed", %{
+          adapter: adapter,
+          connection: inspect(connection),
+          error: inspect(error)
+        })}
+    catch
+      :exit, reason ->
+        {:error, Selecto.Error.connection_error("Adapter connection failed", %{
+          adapter: adapter, 
+          exit_reason: reason
+        })}
     end
   end
 

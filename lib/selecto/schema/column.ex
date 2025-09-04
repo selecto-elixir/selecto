@@ -69,7 +69,7 @@ defmodule Selecto.Schema.Column do
     base_col = %{
       colid: colid,
       field: field,
-      name: "#{domain.name}: #{name}",
+      name: "#{Map.get(domain, :name, "Domain")}: #{name}",
       type: source.columns[field].type,
       requires_join: join,
       format: Map.get(config, :format)

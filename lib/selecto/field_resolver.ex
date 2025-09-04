@@ -371,16 +371,39 @@ defmodule Selecto.FieldResolver do
 
   defp get_source_fields(selecto) do
     source = selecto.config.source
-
-    source.fields
-    |> Enum.filter(fn field -> field not in source.redact_fields end)
+    
+    # Handle case where source might be a string (table name) or a map/struct
+    fields = case source do
+      source_map when is_map(source_map) -> 
+        Map.get(source_map, :fields, [])
+      _ -> 
+        # Fallback for when source is a string
+        []  
+    end
+    
+    redact_fields = case source do
+      source_map when is_map(source_map) -> 
+        Map.get(source_map, :redact_fields, [])
+      _ -> 
+        []
+    end
+    
+    source_columns = case source do
+      source_map when is_map(source_map) -> 
+        Map.get(source_map, :columns, %{})
+      _ -> 
+        %{}
+    end
+    
+    fields
+    |> Enum.filter(fn field -> field not in redact_fields end)
     |> Enum.into(%{}, fn field ->
       field_str = Atom.to_string(field)
       field_info = %{
         name: field_str,
         qualified_name: field_str,
         source_join: :selecto_root,
-        type: get_field_type(source.columns, field),
+        type: get_field_type(source_columns, field),
         alias: nil,
         table_alias: "selecto_root",
         field: field_str,

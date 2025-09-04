@@ -41,10 +41,11 @@ defmodule Selecto.QueryGenerator do
       domain = selecto.domain
       _config = selecto.config || %{}
       set = selecto.set || %{}
+      adapter = selecto.adapter || Selecto.DB.PostgreSQL
 
       # Build query components
-      {select_clause, aliases} = build_select_clause(set, domain, opts)
-      from_clause = build_from_clause(domain)
+      {select_clause, aliases} = build_select_clause(adapter, set, domain, opts)
+      from_clause = build_from_clause(adapter, domain)
       join_clauses = build_join_clauses(domain, set)
       where_clause = build_where_clause(set, domain)
       group_by_clause = build_group_by_clause(set, domain)
@@ -107,23 +108,23 @@ defmodule Selecto.QueryGenerator do
   @doc """
   Build the SELECT clause with proper aliasing.
   """
-  def build_select_clause(set, domain, opts) do
+  def build_select_clause(adapter, set, domain, opts) do
     include_aliases = Keyword.get(opts, :include_aliases, true)
 
     case Map.get(set, :select) do
-      nil -> build_default_select(domain, include_aliases)
-      select_spec -> build_custom_select(select_spec, domain, include_aliases)
+      nil -> build_default_select(adapter, domain, include_aliases)
+      select_spec -> build_custom_select(adapter, select_spec, domain, include_aliases)
     end
   end
 
   @doc """
   Build the FROM clause from domain configuration.
   """
-  def build_from_clause(domain) do
+  def build_from_clause(adapter, domain) do
     source_table = get_in(domain, [:source, :source_table])
 
     if source_table do
-      quote_identifier(source_table)
+      quote_identifier(adapter, source_table)
     else
       raise ArgumentError, "Domain must specify a source_table"
     end
@@ -226,15 +227,15 @@ defmodule Selecto.QueryGenerator do
 
   # Private helper functions
 
-  defp build_default_select(domain, include_aliases) do
+  defp build_default_select(adapter, domain, include_aliases) do
     source = domain.source
     default_fields = Map.get(source, :default_selected, Map.get(source, :fields, []))
 
     field_clauses = Enum.map(default_fields, fn field ->
       if include_aliases do
-        "#{quote_identifier(field)} AS #{quote_identifier(field)}"
+        "#{quote_identifier(adapter, field)} AS #{quote_identifier(adapter, field)}"
       else
-        quote_identifier(field)
+        quote_identifier(adapter, field)
       end
     end)
 
@@ -244,9 +245,9 @@ defmodule Selecto.QueryGenerator do
     {select_clause, aliases}
   end
 
-  defp build_custom_select(_select_spec, domain, include_aliases) do
+  defp build_custom_select(adapter, _select_spec, domain, include_aliases) do
     # TODO: Implement custom select handling
-    build_default_select(domain, include_aliases)
+    build_default_select(adapter, domain, include_aliases)
   end
 
   defp build_single_join(_join_spec, _joins_config, _domain) do
@@ -274,7 +275,17 @@ defmodule Selecto.QueryGenerator do
   end
 
   defp quote_identifier(identifier) when is_binary(identifier) do
+    # Default to PostgreSQL style if no adapter context available
     "\"#{identifier}\""
+  end
+  
+  # Adapter-aware version
+  defp quote_identifier(adapter, identifier) when is_atom(identifier) do
+    quote_identifier(adapter, Atom.to_string(identifier))
+  end
+  
+  defp quote_identifier(adapter, identifier) when is_binary(identifier) do
+    adapter.quote_identifier(identifier)
   end
 
   defp format_pretty_sql(sql) do

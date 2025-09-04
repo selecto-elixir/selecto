@@ -55,7 +55,7 @@ defmodule Selecto.ConnectionPool do
   
   ## Parameters
   
-  - `connection_config` - Postgrex connection configuration
+  - `connection_config` - Database connection configuration
   - `pool_options` - Pool-specific options (optional)
   
   ## Returns
@@ -65,7 +65,7 @@ defmodule Selecto.ConnectionPool do
   
   ## Examples
   
-      # Start pool with Postgrex config
+      # Start pool with Postgrex config (default adapter)
       config = [
         hostname: "localhost",
         username: "user", 
@@ -74,16 +74,32 @@ defmodule Selecto.ConnectionPool do
       ]
       {:ok, pool} = Selecto.ConnectionPool.start_pool(config)
       
-      # Start pool with custom options
-      {:ok, pool} = Selecto.ConnectionPool.start_pool(config, pool_size: 20)
+      # Start pool with custom options and adapter
+      {:ok, pool} = Selecto.ConnectionPool.start_pool(config, 
+        pool_size: 20,
+        adapter: Selecto.DB.MySQL
+      )
   """
   @spec start_pool(connection_config(), pool_options()) :: {:ok, pool_ref()} | {:error, term()}
   def start_pool(connection_config, pool_options \\ []) do
     pool_config = Keyword.merge(@default_pool_config, pool_options)
+    adapter = Keyword.get(pool_options, :adapter, Selecto.Adapters.PostgreSQL)
     
     # Create unique pool name based on connection config
     pool_name = generate_pool_name(connection_config)
     
+    # Check if adapter supports pooling
+    if adapter == Selecto.Adapters.PostgreSQL do
+      # Use DBConnection pooling for PostgreSQL
+      start_postgrex_pool(connection_config, pool_config, pool_name)
+    else
+      # For other adapters, create a simple pool manager
+      # Many adapters may have their own pooling mechanisms
+      start_generic_pool(adapter, connection_config, pool_config, pool_name)
+    end
+  end
+  
+  defp start_postgrex_pool(connection_config, pool_config, pool_name) do
     # Prepare DBConnection configuration
     dbconnection_opts = [
       name: pool_name,
@@ -102,6 +118,7 @@ defmodule Selecto.ConnectionPool do
       {:ok, pool_pid} ->
         # Start pool manager
         manager_opts = [
+          adapter: Selecto.Adapters.PostgreSQL,
           pool_pid: pool_pid,
           pool_name: pool_name,
           pool_config: pool_config,
@@ -110,11 +127,29 @@ defmodule Selecto.ConnectionPool do
         
         case GenServer.start_link(__MODULE__, manager_opts, name: :"#{pool_name}_manager") do
           {:ok, manager_pid} ->
-            {:ok, %{pool: pool_pid, manager: manager_pid, name: pool_name}}
+            {:ok, %{adapter: Selecto.Adapters.PostgreSQL, pool: pool_pid, manager: manager_pid, name: pool_name}}
           {:error, reason} ->
             GenServer.stop(pool_pid)
             {:error, reason}
         end
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+  
+  defp start_generic_pool(adapter, connection_config, pool_config, pool_name) do
+    # For non-PostgreSQL adapters, create a simple connection manager
+    # The adapter itself may handle pooling internally
+    manager_opts = [
+      adapter: adapter,
+      pool_name: pool_name,
+      pool_config: pool_config,
+      connection_config: connection_config
+    ]
+    
+    case GenServer.start_link(__MODULE__, manager_opts, name: :"#{pool_name}_manager") do
+      {:ok, manager_pid} ->
+        {:ok, %{adapter: adapter, manager: manager_pid, name: pool_name}}
       {:error, reason} ->
         {:error, reason}
     end

@@ -231,7 +231,9 @@ defmodule Selecto.Types do
 
   # Main Selecto struct
   @type t :: %Selecto{
-    postgrex_opts: Postgrex.conn(),
+    postgrex_opts: Postgrex.conn() | nil,
+    adapter: module() | nil,
+    connection: term() | nil,
     domain: domain(),
     config: processed_config(),
     set: query_set()
