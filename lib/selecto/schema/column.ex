@@ -60,7 +60,7 @@ defmodule Selecto.Schema.Column do
         :id,
         case join do
           :selecto_root -> Atom.to_string(field)
-          _ -> "#{Atom.to_string(join)}[#{Atom.to_string(field)}]"
+          _ -> "#{Atom.to_string(join)}.#{Atom.to_string(field)}"
         end
       )
 
