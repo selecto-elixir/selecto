@@ -47,32 +47,75 @@ defmodule Selecto.Builder.Pivot do
   @spec build_join_chain_subquery(Types.t(), Types.pivot_config(), [atom()]) :: {Types.iodata_with_markers(), Types.sql_params()}
   def build_join_chain_subquery(selecto, pivot_config, join_path) do
     source_table = selecto.config.source_table
-    target_schema = pivot_config.target_schema
-
-    {_source_alias, join_clauses, join_params} = build_join_sequence(selecto, join_path)
-    {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, get_source_alias())
-
-    # Get the final connection field for the subquery result
-    connection_field = get_connection_field(selecto, target_schema, join_path)
-
-    # Get the final alias in the join chain to qualify the connection field
-    final_alias = get_final_join_alias(join_path)
-
+    
+    # For pivots, we always have FK relationships defined in the schema
+    # Use the optimized direct FK approach
+    case join_path do
+      [single_assoc] ->
+        # Single association - use direct FK
+        build_direct_fk_subquery(selecto, pivot_config, single_assoc)
+      multiple_assocs ->
+        # Multiple associations in path - need to follow the chain
+        # but still optimize to avoid double nesting
+        build_multi_hop_subquery(selecto, pivot_config, multiple_assocs, source_table)
+    end
+  end
+  
+  defp build_direct_fk_subquery(selecto, pivot_config, assoc_name) do
+    source_table = selecto.config.source_table
+    
+    # Get the association configuration to find the FK field
+    assoc_config = get_association_config(selecto, assoc_name)
+    
+    # Get the foreign key field from the source table
+    foreign_key = assoc_config.owner_key || :"#{assoc_name}_id"
+    
+    {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, nil)
+    
+    # Build a simple subquery that just selects the foreign key
     subquery_iodata = [
-      "SELECT ", "subq.", connection_field, " FROM (SELECT DISTINCT ", final_alias, ".", connection_field, " AS ", connection_field,
-      " FROM ", source_table, " ", get_source_alias(),
-      join_clauses
+      "SELECT DISTINCT ", escape_identifier(to_string(foreign_key)),
+      " FROM ", source_table
     ]
-
+    
     subquery_iodata = if where_clause != [] do
       subquery_iodata ++ [" WHERE ", where_clause]
     else
       subquery_iodata
     end
-
-    # Close the inner subquery and add alias
-    subquery_iodata = subquery_iodata ++ [") AS subq"]
-
+    
+    {subquery_iodata, where_params}
+  end
+  
+  defp build_multi_hop_subquery(selecto, pivot_config, join_path, source_table) do
+    # For multi-hop pivots, build the join chain but avoid double nesting
+    {_source_alias, join_clauses, join_params} = build_join_sequence(selecto, join_path)
+    {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, get_source_alias())
+    
+    # Get the target schema from the last association in the path
+    last_assoc = List.last(join_path)
+    last_assoc_config = get_association_config(selecto, last_assoc)
+    target_schema = last_assoc_config.queryable
+    
+    # Get the connection field (usually the primary key of the target)
+    connection_field = get_connection_field(selecto, target_schema, join_path)
+    
+    # Get the final alias in the join chain
+    final_alias = get_final_join_alias(join_path)
+    
+    # Build a single-level subquery (no double nesting)
+    subquery_iodata = [
+      "SELECT DISTINCT ", final_alias, ".", connection_field,
+      " FROM ", source_table, " ", get_source_alias(),
+      join_clauses
+    ]
+    
+    subquery_iodata = if where_clause != [] do
+      subquery_iodata ++ [" WHERE ", where_clause]
+    else
+      subquery_iodata
+    end
+    
     {subquery_iodata, join_params ++ where_params}
   end
 
@@ -271,6 +314,11 @@ defmodule Selecto.Builder.Pivot do
 
   defp get_source_alias, do: "s"
   defp get_target_alias, do: "t"
+  
+  defp get_association_config(selecto, assoc_name) do
+    # Get association config from the source schema
+    selecto.domain.source.associations[assoc_name]
+  end
   defp get_final_join_alias([]), do: get_source_alias()
   defp get_final_join_alias(join_path) do
     # The final alias is the alias of the last join in the path
