@@ -309,6 +309,10 @@ defmodule Selecto.Builder.Subselect do
             # Direct relationship - build simple correlation
             build_direct_correlation(selecto, target_schema, source_alias)
 
+          {:ok, [single_schema]} when single_schema == target_schema ->
+            # Single-step direct foreign key relationship
+            build_direct_correlation(selecto, target_schema, source_alias)
+
           {:ok, join_path} ->
             # Multi-step relationship - build EXISTS condition
             build_exists_correlation(selecto, target_schema, join_path, source_alias)
@@ -356,15 +360,31 @@ defmodule Selecto.Builder.Subselect do
     {:ok, condition}
   end
 
-  defp build_direct_correlation(_selecto, target_schema, source_alias) do
+  defp build_direct_correlation(selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
 
-    # Simple direct relationship - assume primary key correlation
-    condition = [
-      target_alias, ".id = ", source_alias, ".id"
-    ]
-
-    {:ok, condition}
+    # Find the association from source to target
+    association = Map.get(selecto.domain.source.associations, target_schema)
+    
+    if association do
+      # Use the proper foreign key from the association
+      source_field = to_string(association.owner_key)  # e.g., "category_id"
+      target_field = to_string(association.related_key)  # e.g., "id"
+      
+      condition = [
+        target_alias, ".", escape_identifier(target_field), " = ", 
+        source_alias, ".", escape_identifier(source_field)
+      ]
+      
+      {:ok, condition}
+    else
+      # Fallback - this shouldn't happen if properly configured
+      condition = [
+        target_alias, ".id = ", source_alias, ".", to_string(target_schema) <> "_id"
+      ]
+      
+      {:ok, condition}
+    end
   end
 
   defp build_exists_correlation(selecto, target_schema, join_path, source_alias) do
