@@ -298,21 +298,22 @@ defmodule Selecto.ConnectionPool do
   
   defp execute_with_pool(pool_pid, query, params, cache_key, opts) do
     case checkout_connection(pool_pid, opts) do
-      {:ok, conn} ->
-        try do
-          result = if cache_key do
-            execute_with_prepared_cache(conn, query, params, cache_key)
-          else
-            Postgrex.query(conn, query, params)
-          end
-          
-          checkin_connection(pool_pid, conn)
-          result
-        rescue
-          error ->
-            checkin_connection(pool_pid, conn)
-            {:error, error}
-        end
+      # NOTE: This clause will never match as checkout_connection always returns {:error, :not_implemented}
+      # {:ok, conn} ->
+      #   try do
+      #     result = if cache_key do
+      #       execute_with_prepared_cache(conn, query, params, cache_key)
+      #     else
+      #       Postgrex.query(conn, query, params)
+      #     end
+      #     
+      #     checkin_connection(pool_pid, conn)
+      #     result
+      #   rescue
+      #     error ->
+      #       checkin_connection(pool_pid, conn)
+      #       {:error, error}
+      #   end
       {:error, reason} ->
         {:error, reason}
     end

@@ -6,8 +6,7 @@ defmodule Selecto.Builder.SetOperations do
   using standard SQL set operations.
   """
 
-  alias Selecto.SetOperations.Spec
-  alias Selecto.Builder.SQL
+  alias Selecto.Builder.Sql
 
   @doc """
   Build SQL for set operations in the query.
@@ -90,7 +89,7 @@ defmodule Selecto.Builder.SetOperations do
     clean_selecto = %{selecto | set: Map.delete(selecto.set, :set_operations)}
     
     # Generate SQL for the individual query
-    {sql, _aliases, params} = SQL.build(clean_selecto, [])
+    {sql, _aliases, params} = Sql.build(clean_selecto, [])
     {sql, params}
   end
 

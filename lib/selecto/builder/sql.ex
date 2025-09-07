@@ -269,19 +269,7 @@ defmodule Selecto.Builder.Sql do
     end
   end
 
-  defp build_pivot_where(selecto) do
-    # Post-pivot filters are now handled within the pivot FROM clause
-    # This function is kept for backward compatibility but returns empty
-    # since filters are already incorporated into the pivot subquery
-    {[], []}
-  end
 
-  defp get_target_alias, do: "t"
-
-  defp escape_identifier(identifier) do
-    # Escape SQL identifiers - simplified implementation
-    "\"#{identifier}\""
-  end
 
   defp get_pivot_aliases(pivot_config) do
     # Extract table aliases from pivot configuration
@@ -553,70 +541,6 @@ defmodule Selecto.Builder.Sql do
     {unnest_clause, field_params}
   end
   
-  defp build_lateral_joins(selecto) do
-    case Map.get(selecto.set, :lateral_joins, []) do
-      [] -> {[], []}
-      specs ->
-        {join_clauses, params} = 
-          specs
-          |> Enum.map(&build_single_lateral_join(selecto, &1))
-          |> Enum.reduce({[], []}, fn {clause, p}, {clauses, params} ->
-            {clauses ++ [clause], params ++ p}
-          end)
-        
-        {join_clauses, params}
-    end
-  end
-  
-  defp build_single_lateral_join(selecto, spec) do
-    join_type_str = 
-      case spec.join_type do
-        :left -> "LEFT JOIN"
-        :inner -> "INNER JOIN"
-        :cross -> "CROSS JOIN"
-        _ -> "LEFT JOIN"
-      end
-    
-    case spec.type do
-      :subquery ->
-        # Build the subquery with context
-        subquery = spec.query_fn.(selecto)
-        {sql, params} = Selecto.to_sql(subquery)
-        
-        clause = [" ", join_type_str, " LATERAL (", sql, ") AS ", spec.alias]
-        {clause, params}
-        
-      :table_function ->
-        # Build table function call
-        {args_iodata, args_params} = 
-          spec.arguments
-          |> Enum.map(fn arg ->
-            case arg do
-              {:ref, field} -> 
-                quote = Selecto.Builder.Sql.Helpers.get_quote_char(selecto)
-                {[quote, "selecto_root", quote, ".", quote, field, quote], []}
-              value -> {[{:param, value}], [value]}
-            end
-          end)
-          |> Enum.reduce({[], []}, fn {io, p}, {acc_io, acc_p} ->
-            {acc_io ++ [io], acc_p ++ p}
-          end)
-        
-        args_formatted = Enum.intersperse(args_iodata, ", ")
-        
-        clause = [" ", join_type_str, " LATERAL ", spec.function, "(", args_formatted, ") AS ", spec.alias]
-        {clause, args_params}
-    end
-  end
-  
-  defp combine_from_with_lateral_and_unnest(from_iodata, lateral_iodata, unnest_iodata) do
-    # Combine all FROM clause components
-    all_components = [from_iodata] ++ 
-                    (if unnest_iodata != [], do: [[", "] ++ unnest_iodata], else: []) ++
-                    (if lateral_iodata != [], do: [lateral_iodata], else: [])
-    
-    List.flatten(all_components)
-  end
 
   # Convert user CTE spec to builder format
   defp convert_user_cte_spec(%{type: :recursive} = spec) do

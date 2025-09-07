@@ -191,6 +191,49 @@ defmodule Selecto.FieldResolver do
     {:ok, %{type: :disambiguated, field: field_name, from_join: from_join, parameters: nil}}
   end
 
+  defp do_resolve_field(selecto, %{type: :qualified, join: join_name, field: field_name}) do
+    available_fields = get_available_fields(selecto)
+    qualified_name = "#{join_name}.#{field_name}"
+
+    case Map.get(available_fields, qualified_name) do
+      nil ->
+        # Check if the join exists
+        if Map.has_key?(selecto.config.joins, String.to_atom(join_name)) do
+          join_atom = String.to_atom(join_name)
+          join_info = selecto.config.joins[join_atom]
+          available_join_fields = Map.keys(join_info.fields || %{})
+          {:error, Error.field_resolution_error(
+            "Field '#{field_name}' not found in join '#{join_name}'",
+            qualified_name,
+            %{available_fields_in_join: available_join_fields}
+          )}
+        else
+          available_joins = Map.keys(selecto.config.joins)
+          {:error, Error.field_resolution_error(
+            "Join '#{join_name}' not found",
+            qualified_name,
+            %{available_joins: available_joins}
+          )}
+        end
+      field_info ->
+        {:ok, field_info}
+    end
+  end
+
+  defp do_resolve_field(selecto, %{type: :aliased, field: field_name, alias: alias_name}) do
+    case do_resolve_field(selecto, %{type: :simple, field: field_name}) do
+      {:ok, field_info} ->
+        {:ok, Map.put(field_info, :alias, alias_name)}
+      error ->
+        error
+    end
+  end
+
+  defp do_resolve_field(selecto, %{type: :disambiguated, field: field_name, from_join: from_join}) do
+    _qualified_name = "#{from_join}.#{field_name}"
+    do_resolve_field(selecto, %{type: :qualified, join: from_join, field: field_name})
+  end
+
   defp parse_field_reference(field_ref) do
     {:error, "Unsupported field reference format: #{inspect(field_ref)}"}
   end
@@ -256,48 +299,6 @@ defmodule Selecto.FieldResolver do
     end
   end
 
-  defp do_resolve_field(selecto, %{type: :qualified, join: join_name, field: field_name}) do
-    available_fields = get_available_fields(selecto)
-    qualified_name = "#{join_name}.#{field_name}"
-
-    case Map.get(available_fields, qualified_name) do
-      nil ->
-        # Check if the join exists
-        if Map.has_key?(selecto.config.joins, String.to_atom(join_name)) do
-          join_atom = String.to_atom(join_name)
-          join_info = selecto.config.joins[join_atom]
-          available_join_fields = Map.keys(join_info.fields || %{})
-          {:error, Error.field_resolution_error(
-            "Field '#{field_name}' not found in join '#{join_name}'",
-            qualified_name,
-            %{available_fields_in_join: available_join_fields}
-          )}
-        else
-          available_joins = Map.keys(selecto.config.joins)
-          {:error, Error.field_resolution_error(
-            "Join '#{join_name}' not found",
-            qualified_name,
-            %{available_joins: available_joins}
-          )}
-        end
-      field_info ->
-        {:ok, field_info}
-    end
-  end
-
-  defp do_resolve_field(selecto, %{type: :aliased, field: field_name, alias: alias_name}) do
-    case do_resolve_field(selecto, %{type: :simple, field: field_name}) do
-      {:ok, field_info} ->
-        {:ok, Map.put(field_info, :alias, alias_name)}
-      error ->
-        error
-    end
-  end
-
-  defp do_resolve_field(selecto, %{type: :disambiguated, field: field_name, from_join: from_join}) do
-    _qualified_name = "#{from_join}.#{field_name}"
-    do_resolve_field(selecto, %{type: :qualified, join: from_join, field: field_name})
-  end
 
   defp do_resolve_field(selecto, %{type: :explicitly_qualified} = parsed_ref) do
     # Remove the :explicitly_qualified type and treat as regular qualified

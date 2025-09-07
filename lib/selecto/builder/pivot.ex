@@ -6,8 +6,6 @@ defmodule Selecto.Builder.Pivot do
   to a target table while preserving existing filters through subqueries.
   """
 
-  import Selecto.Builder.Sql.Helpers
-  alias Selecto.SQL.Params
   alias Selecto.Types
 
   @spec build_pivot_query(Types.t(), keyword()) :: Types.builder_result()

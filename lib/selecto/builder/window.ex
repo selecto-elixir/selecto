@@ -9,8 +9,6 @@ defmodule Selecto.Builder.Window do
   - Window frame specifications
   """
 
-  import Selecto.Builder.Sql.Helpers
-  alias Selecto.SQL.Params
   alias Selecto.Window.{Spec, Frame}
 
   @doc """

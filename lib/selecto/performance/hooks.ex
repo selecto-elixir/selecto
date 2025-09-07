@@ -8,6 +8,15 @@ defmodule Selecto.Performance.Hooks do
   """
   
   @behaviour Selecto.Performance.HookBehaviour
+
+  # Behaviour callbacks
+  @impl true
+  def init(_opts), do: {:ok, %{}}
+
+  @impl true
+  def handle_hook(hook_point, context, _state) do
+    run_hooks(hook_point, context)
+  end
   
   @hook_points ~w(
     before_query_build

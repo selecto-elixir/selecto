@@ -26,7 +26,6 @@ defmodule Selecto.Subfilter.JoinPathResolver do
       }}
   """
 
-  alias Selecto.Subfilter
   alias Selecto.Subfilter.{RelationshipPath, Error}
 
   # Structure to hold resolved join path information

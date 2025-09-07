@@ -80,14 +80,15 @@ defmodule Selecto.Output.Formats do
         Selecto.Output.Transformers.Json.transform(rows, columns, aliases, json_options)
 
       :csv ->
-        Selecto.Output.Transformers.Csv.transform(rows, columns, aliases, [])
+        Selecto.Output.Transformers.CSV.transform(rows, columns, aliases, [])
 
       {:csv, csv_options} ->
-        Selecto.Output.Transformers.Csv.transform(rows, columns, aliases, csv_options)
+        Selecto.Output.Transformers.CSV.transform(rows, columns, aliases, csv_options)
 
       {:stream, inner_format} ->
-        # For streaming, we'll delegate to the streaming transformer
-        Selecto.Output.Transformers.Stream.transform(rows, columns, aliases, inner_format, options)
+        # TODO: Implement streaming transformer
+        # Selecto.Output.Transformers.Stream.transform(rows, columns, aliases, inner_format, options)
+        {:error, "Streaming output not yet implemented"}
 
       {:typed_maps, type_options} ->
         # For typed maps with type coercion

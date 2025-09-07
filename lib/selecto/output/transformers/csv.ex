@@ -39,7 +39,6 @@ defmodule Selecto.Output.Transformers.CSV do
   alias Selecto.Output.TypeCoercion
   alias Selecto.Error
 
-  @behaviour Selecto.Output.Formats
 
   @default_options [
     headers: true,

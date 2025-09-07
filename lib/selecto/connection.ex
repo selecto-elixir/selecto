@@ -7,7 +7,6 @@ defmodule Selecto.Connection do
   and transaction management.
   """
 
-  alias Selecto.Database.Registry
   
   @doc """
   Establishes a connection using the specified adapter.

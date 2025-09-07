@@ -7,8 +7,8 @@ defmodule Selecto.Builder.Subselect do
   or other aggregate formats.
   """
 
-  import Selecto.Builder.Sql.Helpers
-  alias Selecto.SQL.Params
+  #import Selecto.Builder.Sql.Helpers
+  #alias Selecto.SQL.Params
   alias Selecto.Types
 
   @doc """
@@ -365,24 +365,24 @@ defmodule Selecto.Builder.Subselect do
 
     # Find the association from source to target
     association = Map.get(selecto.domain.source.associations, target_schema)
-    
+
     if association do
       # Use the proper foreign key from the association
       source_field = to_string(association.owner_key)  # e.g., "category_id"
       target_field = to_string(association.related_key)  # e.g., "id"
-      
+
       condition = [
-        target_alias, ".", escape_identifier(target_field), " = ", 
+        target_alias, ".", escape_identifier(target_field), " = ",
         source_alias, ".", escape_identifier(source_field)
       ]
-      
+
       {:ok, condition}
     else
       # Fallback - this shouldn't happen if properly configured
       condition = [
         target_alias, ".id = ", source_alias, ".", to_string(target_schema) <> "_id"
       ]
-      
+
       {:ok, condition}
     end
   end

@@ -20,35 +20,35 @@ defmodule Selecto.SQL.Params do
 
   @doc """
   Handle CTE markers in iodata structures for advanced join patterns.
-  
+
   CTE markers are processed before main query finalization to properly
   coordinate parameter numbering between CTEs and main query.
-  
+
   Returns: {processed_ctes, main_sql, final_params}
   """
   @spec finalize_with_ctes(iodata() | [fragment], Keyword.t()) :: {[{String.t(), String.t()}], String.t(), [any()]}
   def finalize_with_ctes(iodata_with_ctes, opts \\ []) do
     adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
     {cte_sections, main_iodata, extracted_params} = extract_ctes(List.wrap(iodata_with_ctes))
-    
+
     # Process CTEs first to establish parameter numbering baseline
-    {processed_ctes, cte_params} = 
+    {processed_ctes, cte_params} =
       Enum.map_reduce(cte_sections, [], fn {cte_name, cte_iodata}, acc_params ->
         {cte_sql, cte_specific_params} = finalize(cte_iodata, adapter: adapter)
         {{cte_name, cte_sql}, acc_params ++ cte_specific_params}
       end)
-    
+
     # Process main query with parameter offset to avoid conflicts
     param_offset = length(cte_params)
     {main_sql, main_specific_params} = finalize_with_offset(main_iodata, param_offset, adapter)
-    
+
     # Combine all parameters in correct order
     final_params = cte_params ++ main_specific_params ++ extracted_params
     {processed_ctes, main_sql, final_params}
   end
 
   # Process iodata with parameter offset for coordinated numbering
-  defp finalize_with_offset(fragments, offset, adapter \\ Selecto.DB.PostgreSQL) do
+  defp finalize_with_offset(fragments, offset, adapter) do
     {iodata, params, _idx} =
       traverse_with_offset(List.wrap(fragments), {[], [], offset}, adapter)
 
@@ -119,7 +119,7 @@ defmodule Selecto.SQL.Params do
   end
 
   defp traverse([], state, _adapter), do: state
-  
+
   defp get_param_placeholder(Selecto.DB.MySQL, _idx), do: "?"
   defp get_param_placeholder(Selecto.DB.MariaDB, _idx), do: "?"
   defp get_param_placeholder(_adapter, idx), do: ["$", Integer.to_string(idx)]

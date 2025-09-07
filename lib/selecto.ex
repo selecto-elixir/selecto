@@ -634,7 +634,7 @@ defmodule Selecto do
   def gen_sql(selecto, opts) do
     # Support both old and new query generation approaches
     # Default to PostgreSQL if adapter is not specified
-    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    _adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
     
     # For now, always use the existing SQL builder for all adapters
     # The QueryGenerator is incomplete and shouldn't be used yet
