@@ -225,7 +225,7 @@ defmodule Selecto.Subfilter.Registry do
   subquery SQL that integrates with the main query.
   """
   @spec generate_sql(t(), String.t()) :: {:ok, String.t(), [any()]} | {:error, Error.t()}
-  def generate_sql(%__MODULE__{} = registry, base_query) do
+  def generate_sql(%__MODULE__{} = _registry, base_query) do
     # This would coordinate with the SQL builder system
     # For now, return a placeholder
     {:ok, "#{base_query} -- subfilters would be added here", []}

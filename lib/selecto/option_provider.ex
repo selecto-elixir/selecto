@@ -172,12 +172,26 @@ defmodule Selecto.OptionProvider do
   # Helper functions
 
   defp get_domain_config(domain_name, _selecto) do
-    # This would need to be implemented based on how domains are registered
-    # For now, we'll assume domains are stored somewhere accessible
-    case domain_name do
-      :actors_domain -> SelectoTest.PagilaDomain.actors_domain()
-      _ -> nil
-    end
+    # This function should retrieve domain configurations from a registry or
+    # configuration system. The domain configurations should be registered
+    # at application startup or passed in through configuration.
+    #
+    # For now, returning nil will cause the function to return an error
+    # {:error, {:domain_not_found, domain_name}} which is the appropriate
+    # response when a domain is not configured.
+    #
+    # In a production system, this could:
+    # 1. Look up domains from a GenServer registry
+    # 2. Read from application configuration
+    # 3. Accept domains passed through Selecto configuration
+    #
+    # Example implementation pattern:
+    # Registry.lookup(:selecto_domains, domain_name)
+    # or
+    # Application.get_env(:selecto, :domains)[domain_name]
+    
+    _ = domain_name
+    nil
   end
 
   defp apply_domain_filters(selecto, %{filters: filters}) when is_list(filters) do

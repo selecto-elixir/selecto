@@ -7,12 +7,10 @@ defmodule Selecto.Output.TypeCoercion do
   to support custom type mappings and coercion functions.
   """
 
-  @doc """
-  PostgreSQL type mappings to Elixir types.
-
-  This provides the standard mapping from PostgreSQL column types to
-  their corresponding Elixir types.
-  """
+  # PostgreSQL type mappings to Elixir types.
+  #
+  # This provides the standard mapping from PostgreSQL column types to
+  # their corresponding Elixir types.
   @type_mappings %{
     # Integer types
     "integer" => :integer,
@@ -122,7 +120,7 @@ defmodule Selecto.Output.TypeCoercion do
   end
 
   # Main coercion logic
-  def coerce_value(value, column_type, strategy, custom_coercions) when column_type != nil do
+  def coerce_value(value, column_type, strategy, _custom_coercions) when column_type != nil do
     target_type = Map.get(@type_mappings, column_type)
     do_coerce_value(value, target_type, strategy)
   end

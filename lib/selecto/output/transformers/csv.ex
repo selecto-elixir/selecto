@@ -269,7 +269,7 @@ defmodule Selecto.Output.Transformers.CSV do
   defp safe_to_string(value), do: inspect(value)
 
   # Validate transformation options
-  defp validate_options(opts, columns \\ []) do
+  defp validate_options(opts, columns) do
     cond do
       not is_boolean(opts[:headers]) ->
         {:error, Error.transformation_error("headers option must be a boolean", %{columns: length(columns)})}

@@ -165,6 +165,7 @@ defmodule Selecto.FieldResolver do
 
   # Private Implementation
 
+  # All parse_field_reference/1 clauses grouped together
   defp parse_field_reference(field_ref) when is_binary(field_ref) do
     ParameterizedParser.parse_field_reference(field_ref)
   end
@@ -191,6 +192,11 @@ defmodule Selecto.FieldResolver do
     {:ok, %{type: :disambiguated, field: field_name, from_join: from_join, parameters: nil}}
   end
 
+  defp parse_field_reference(field_ref) do
+    {:error, "Unsupported field reference format: #{inspect(field_ref)}"}
+  end
+
+  # All do_resolve_field/2 clauses grouped together
   defp do_resolve_field(selecto, %{type: :qualified, join: join_name, field: field_name}) do
     available_fields = get_available_fields(selecto)
     qualified_name = "#{join_name}.#{field_name}"
@@ -234,10 +240,6 @@ defmodule Selecto.FieldResolver do
     do_resolve_field(selecto, %{type: :qualified, join: from_join, field: field_name})
   end
 
-  defp parse_field_reference(field_ref) do
-    {:error, "Unsupported field reference format: #{inspect(field_ref)}"}
-  end
-
   defp do_resolve_field(selecto, %{type: :simple, field: field_name}) do
     available_fields = get_available_fields(selecto)
 
@@ -277,28 +279,6 @@ defmodule Selecto.FieldResolver do
         {:ok, field_info}
     end
   end
-
-  # Helper function to handle field not found cases
-  defp handle_field_not_found(selecto, field_name, available_fields) do
-    # Check if it's an ambiguous field
-    if is_ambiguous_field?(selecto, field_name) do
-      options = get_disambiguation_options(selecto, field_name)
-      qualified_names = Enum.map(options, & &1.qualified_name)
-      {:error, Error.field_resolution_error(
-        "Ambiguous field reference '#{field_name}'. Please qualify with table name.",
-        field_name,
-        %{available_options: qualified_names}
-      )}
-    else
-      suggestions = suggest_fields(selecto, field_name)
-      {:error, Error.field_resolution_error(
-        "Field '#{field_name}' not found",
-        field_name,
-        %{suggestions: suggestions, available_fields: Map.keys(available_fields)}
-      )}
-    end
-  end
-
 
   defp do_resolve_field(selecto, %{type: :explicitly_qualified} = parsed_ref) do
     # Remove the :explicitly_qualified type and treat as regular qualified
@@ -367,6 +347,27 @@ defmodule Selecto.FieldResolver do
         do_resolve_field(selecto, %{type: :qualified, join: join_name, field: field_name, parameters: nil})
       field_info ->
         {:ok, field_info}
+    end
+  end
+
+  # Helper function to handle field not found cases
+  defp handle_field_not_found(selecto, field_name, available_fields) do
+    # Check if it's an ambiguous field
+    if is_ambiguous_field?(selecto, field_name) do
+      options = get_disambiguation_options(selecto, field_name)
+      qualified_names = Enum.map(options, & &1.qualified_name)
+      {:error, Error.field_resolution_error(
+        "Ambiguous field reference '#{field_name}'. Please qualify with table name.",
+        field_name,
+        %{available_options: qualified_names}
+      )}
+    else
+      suggestions = suggest_fields(selecto, field_name)
+      {:error, Error.field_resolution_error(
+        "Field '#{field_name}' not found",
+        field_name,
+        %{suggestions: suggestions, available_fields: Map.keys(available_fields)}
+      )}
     end
   end
 

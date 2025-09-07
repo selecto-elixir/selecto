@@ -242,7 +242,7 @@ defmodule Selecto.Subfilter.JoinPathResolver do
         {:ok, [join_config]}
 
       # Single complex join with via table
-      %{via: via_table} = join_config ->
+      %{via: _via_table} = join_config ->
         # Decompose complex join into sequence of simple joins
         joins = decompose_via_join(join_config, base_table)
         {:ok, joins}
@@ -305,7 +305,7 @@ defmodule Selecto.Subfilter.JoinPathResolver do
     end
   end
 
-  defp try_step_by_step_resolution([single_table], target_field, domain_config, base_table) do
+  defp try_step_by_step_resolution([single_table], target_field, domain_config, _base_table) do
     # Simple field access
     field_path = "#{single_table}.#{target_field}"
     case Map.get(domain_config.joins, field_path) do

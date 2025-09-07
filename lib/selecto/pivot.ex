@@ -123,7 +123,7 @@ defmodule Selecto.Pivot do
 
   # Private helper functions
 
-  defp get_source_schema_name(selecto) do
+  defp get_source_schema_name(_selecto) do
     # The source is always the starting point for path finding
     :source
   end

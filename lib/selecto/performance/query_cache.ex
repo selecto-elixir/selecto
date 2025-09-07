@@ -236,55 +236,6 @@ defmodule Selecto.Performance.QueryCache do
   end
   
   @impl true
-  def handle_cast({:put, cache_key, result, options}, state) do
-    ttl = Keyword.get(options, :ttl, state.config.default_ttl)
-    tags = Keyword.get(options, :tags, [])
-    
-    # Calculate size
-    result_size = :erlang.external_size(result)
-    
-    # Compress if needed
-    {final_result, compressed} = if should_compress?(result_size, options, state.config) do
-      {compress_result(result), true}
-    else
-      {result, false}
-    end
-    
-    entry = %{
-      result: final_result,
-      inserted_at: System.monotonic_time(:millisecond),
-      ttl: ttl,
-      tags: tags,
-      size: result_size,
-      compressed: compressed,
-      access_count: 0,
-      last_accessed: System.monotonic_time(:millisecond)
-    }
-    
-    # Check if we need to evict
-    new_state = if state.item_count >= state.config.max_size do
-      evict_entry(state)
-    else
-      state
-    end
-    
-    # Insert into cache
-    insert_into_cache(new_state.cache_table, cache_key, entry)
-    
-    # Update state
-    new_state = %{new_state |
-      item_count: new_state.item_count + 1,
-      size_bytes: new_state.size_bytes + result_size,
-      lru_list: [cache_key | new_state.lru_list] |> Enum.take(state.config.max_size)
-    }
-    
-    update_stats(new_state, :item_count, new_state.item_count)
-    update_stats(new_state, :size_bytes, new_state.size_bytes)
-    
-    {:noreply, new_state}
-  end
-  
-  @impl true
   def handle_call({:invalidate, pattern}, _from, state) do
     count = invalidate_pattern(state.cache_table, pattern)
     
@@ -356,6 +307,55 @@ defmodule Selecto.Performance.QueryCache do
     end)
     
     {:reply, {:ok, warmed}, state}
+  end
+  
+  @impl true
+  def handle_cast({:put, cache_key, result, options}, state) do
+    ttl = Keyword.get(options, :ttl, state.config.default_ttl)
+    tags = Keyword.get(options, :tags, [])
+    
+    # Calculate size
+    result_size = :erlang.external_size(result)
+    
+    # Compress if needed
+    {final_result, compressed} = if should_compress?(result_size, options, state.config) do
+      {compress_result(result), true}
+    else
+      {result, false}
+    end
+    
+    entry = %{
+      result: final_result,
+      inserted_at: System.monotonic_time(:millisecond),
+      ttl: ttl,
+      tags: tags,
+      size: result_size,
+      compressed: compressed,
+      access_count: 0,
+      last_accessed: System.monotonic_time(:millisecond)
+    }
+    
+    # Check if we need to evict
+    new_state = if state.item_count >= state.config.max_size do
+      evict_entry(state)
+    else
+      state
+    end
+    
+    # Insert into cache
+    insert_into_cache(new_state.cache_table, cache_key, entry)
+    
+    # Update state
+    new_state = %{new_state |
+      item_count: new_state.item_count + 1,
+      size_bytes: new_state.size_bytes + result_size,
+      lru_list: [cache_key | new_state.lru_list] |> Enum.take(state.config.max_size)
+    }
+    
+    update_stats(new_state, :item_count, new_state.item_count)
+    update_stats(new_state, :size_bytes, new_state.size_bytes)
+    
+    {:noreply, new_state}
   end
   
   @impl true

@@ -82,9 +82,6 @@ defmodule Selecto.Builder.Subselect do
     {field_with_alias, subselect_params}
   end
 
-  defp build_aggregated_subselect(selecto, subselect_config) do
-    build_aggregated_subselect(selecto, subselect_config, "selecto_root")
-  end
 
   defp build_aggregated_subselect(selecto, subselect_config, source_alias) do
     target_table = get_target_table(selecto, subselect_config.target_schema)
@@ -240,7 +237,7 @@ defmodule Selecto.Builder.Subselect do
   """
   @spec wrap_in_aggregation(Types.iodata_with_markers(), Types.sql_params(), Types.subselect_format(), Types.subselect_selector()) ::
     {Types.iodata_with_markers(), Types.sql_params()}
-  def wrap_in_aggregation(subquery_iodata, subquery_params, format, config) do
+  def wrap_in_aggregation(subquery_iodata, subquery_params, format, _config) do
     case format do
       :json_agg ->
         {["(", subquery_iodata, ")"], subquery_params}
@@ -488,18 +485,6 @@ defmodule Selecto.Builder.Subselect do
     {select_clause, []}
   end
 
-  defp build_correlation_condition(selecto, subselect_config, target_alias) do
-    # Determine the correct source alias based on pivot context
-    source_alias = if Selecto.Pivot.has_pivot?(selecto) do
-      # In pivot context, use "s" for source table
-      "s"
-    else
-      # In standard context, use "selecto_root"
-      "selecto_root"
-    end
-
-    build_correlation_condition(selecto, subselect_config, target_alias, source_alias)
-  end
 
   defp build_correlation_condition(selecto, subselect_config, target_alias, source_alias) do
     case resolve_join_condition_with_path(selecto, subselect_config.target_schema, source_alias) do
@@ -589,16 +574,8 @@ defmodule Selecto.Builder.Subselect do
     "sub_" <> to_string(target_schema)
   end
 
-  defp get_main_query_alias do
-    # This should match the alias used in the main query
-    "selecto_root"  # Main query uses 'selecto_root' as source alias
-  end
 
-  defp get_main_query_alias(source_alias) do
-    source_alias
-  end
-
-  defp get_connection_fields(selecto, target_schema, join_path) do
+  defp get_connection_fields(selecto, _target_schema, join_path) do
     # Determine the fields that connect the main query to the subquery target
     # This is a simplified implementation - needs refinement based on actual join path
     case join_path do

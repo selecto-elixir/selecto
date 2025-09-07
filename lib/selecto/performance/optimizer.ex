@@ -178,7 +178,7 @@ defmodule Selecto.Performance.Optimizer do
     end)
   end
   
-  defp analyze_filter_field(field, selecto) do
+  defp analyze_filter_field(field, _selecto) do
     # Parse field to get table and column
     {table, column} = parse_field_reference(field)
     

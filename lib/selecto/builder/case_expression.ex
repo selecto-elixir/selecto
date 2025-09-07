@@ -106,7 +106,7 @@ defmodule Selecto.Builder.CaseExpression do
   end
   
   # Build WHEN clauses for searched CASE
-  defp build_searched_when_clauses(when_clauses, selecto \\ nil) do
+  defp build_searched_when_clauses(when_clauses, selecto) do
     {when_parts, all_params} = 
       when_clauses
       |> Enum.map(fn {conditions, result} ->

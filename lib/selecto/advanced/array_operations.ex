@@ -255,7 +255,7 @@ defmodule Selecto.Advanced.ArrayOperations do
     spec
   end
   
-  defp validate_column!(%Spec{column: column} = spec) do
+  defp validate_column!(%Spec{column: column} = _spec) do
     raise ValidationError,
       type: :invalid_column,
       message: "Invalid column type: #{inspect(column)}",

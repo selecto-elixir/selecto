@@ -361,17 +361,12 @@ defmodule Selecto.Builder.Sql do
     else
       order_iodata ++ json_order_iodata
     end
-    _all_params = order_params ++ json_order_params
+    all_params = order_params ++ json_order_params
     
-    {all_joins, all_iodata, _all_params}
+    {all_joins, all_iodata, all_params}
   end
 
   # Phase 4: SELECT now uses iodata by default
-  @spec build_select(Selecto.Types.t()) :: {[%{String.t() => String.t()}], Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
-  defp build_select(selecto) do
-    build_select(selecto, %{})
-  end
-
   defp build_select(selecto, pivot_aliases) do
     {aliases, joins, selects_iodata, params} =
       selecto.set.selected

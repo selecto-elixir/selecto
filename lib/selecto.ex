@@ -797,70 +797,10 @@ defmodule Selecto do
     put_in(updated_selecto.config[:columns], Map.merge(current_columns, columns_to_add))
   end
 
-  @doc """
-  Add a recursive Common Table Expression (CTE).
-  
-  Recursive CTEs allow iterative queries that reference their own output,
-  useful for hierarchical data like organizational charts or file systems.
-  
-  ## Examples
-  
-      # Organizational hierarchy
-      Selecto.with_recursive_cte(selecto, "org_chart", 
-        fn -> 
-          # Non-recursive term (anchor)
-          Selecto.configure(domain, repo)
-          |> Selecto.select(["id", "name", "manager_id", {:literal, 1, as: "level"}])
-          |> Selecto.filter({"manager_id", nil})
-        end,
-        fn recursive_ref ->
-          # Recursive term
-          Selecto.configure(domain, repo)
-          |> Selecto.select(["e.id", "e.name", "e.manager_id", 
-                            {:+, "\#{recursive_ref}.level", 1, as: "level"}])
-          |> Selecto.join("\#{recursive_ref}", on: {"e.manager_id", "\#{recursive_ref}.id"})
-        end
-      )
-      
-      # Path traversal
-      Selecto.with_recursive_cte(selecto, "paths",
-        fn -> base_query end,
-        fn ref -> recursive_query_with_ref(ref) end,
-        max_depth: 10
-      )
-  """
   # DUPLICATE REMOVED - Consolidated with the version below that uses Advanced.CTE
   # This version accepted (selecto, cte_name, base_fn, recursive_fn, opts)
   # The consolidated version below now handles both parameter formats
 
-  @doc """
-  Create a LATERAL join to reference columns from preceding tables.
-  
-  LATERAL joins allow subqueries to reference columns from tables that
-  appear earlier in the FROM clause, enabling correlated subqueries.
-  
-  ## Examples
-  
-      # Get latest 3 orders for each customer
-      customers
-      |> Selecto.lateral_join(
-        fn customer -> 
-          orders
-          |> Selecto.filter({"customer_id", {:ref, "\#{customer}.id"}})
-          |> Selecto.order_by([{"order_date", :desc}])
-          |> Selecto.limit(3)
-        end,
-        as: "latest_orders"
-      )
-      
-      # Join with table function
-      selecto
-      |> Selecto.lateral_join(
-        {:function, "jsonb_to_recordset", ["data"], 
-         returns: [id: :integer, name: :text]},
-        as: "json_records"
-      )
-  """
   # DUPLICATE REMOVED - Consolidated with the version below that uses Advanced.LateralJoin
   # This version accepted (selecto, lateral_source, opts) 
   # The consolidated version below now handles both parameter formats

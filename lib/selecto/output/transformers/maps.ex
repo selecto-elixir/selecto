@@ -150,7 +150,7 @@ defmodule Selecto.Output.Transformers.Maps do
   end
 
   # Basic type coercion - this would be expanded with proper PostgreSQL type mapping
-  defp coerce_value(value, opts) when is_nil(value), do: value
+  defp coerce_value(value, _opts) when is_nil(value), do: value
   defp coerce_value(value, opts) do
     case opts[:coerce] do
       :none -> value

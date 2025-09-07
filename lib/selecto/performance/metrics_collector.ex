@@ -18,19 +18,6 @@ defmodule Selecto.Performance.MetricsCollector do
   @cleanup_interval :timer.minutes(5)
   @slow_query_threshold_ms 100
   
-  # Metric types
-  @metric_types ~w(
-    execution_time
-    row_count
-    column_count
-    join_count
-    filter_count
-    group_count
-    cte_count
-    subquery_count
-    memory_used
-    cpu_time
-  )a
   
   defstruct [
     :ets_table,
