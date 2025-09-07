@@ -18,7 +18,7 @@ defmodule Selecto.Subfilter.Registry do
       {:ok, optimized_query_with_subfilters}
   """
 
-  alias Selecto.Subfilter
+  #alias Selecto.Subfilter
   alias Selecto.Subfilter.{Spec, Parser, JoinPathResolver, Error}
 
   # Registry structure to manage multiple subfilters
