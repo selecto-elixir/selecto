@@ -12,8 +12,6 @@ defmodule Selecto.Performance.QueryAnalyzer do
   
   require Logger
   
-  @explain_formats ~w(text json xml yaml)a
-  @explain_options ~w(analyze buffers verbose costs timing summary settings)a
   
   @doc """
   Analyze a query using EXPLAIN ANALYZE and return detailed performance information.

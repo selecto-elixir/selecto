@@ -7,8 +7,8 @@ defmodule Selecto.Builder.Subselect do
   or other aggregate formats.
   """
 
-  import Selecto.Builder.Sql.Helpers
-  alias Selecto.SQL.Params
+  #import Selecto.Builder.Sql.Helpers
+  #alias Selecto.SQL.Params
   alias Selecto.Types
 
   @doc """
@@ -82,9 +82,6 @@ defmodule Selecto.Builder.Subselect do
     {field_with_alias, subselect_params}
   end
 
-  defp build_aggregated_subselect(selecto, subselect_config) do
-    build_aggregated_subselect(selecto, subselect_config, "selecto_root")
-  end
 
   defp build_aggregated_subselect(selecto, subselect_config, source_alias) do
     target_table = get_target_table(selecto, subselect_config.target_schema)
@@ -240,7 +237,7 @@ defmodule Selecto.Builder.Subselect do
   """
   @spec wrap_in_aggregation(Types.iodata_with_markers(), Types.sql_params(), Types.subselect_format(), Types.subselect_selector()) ::
     {Types.iodata_with_markers(), Types.sql_params()}
-  def wrap_in_aggregation(subquery_iodata, subquery_params, format, config) do
+  def wrap_in_aggregation(subquery_iodata, subquery_params, format, _config) do
     case format do
       :json_agg ->
         {["(", subquery_iodata, ")"], subquery_params}
@@ -309,6 +306,10 @@ defmodule Selecto.Builder.Subselect do
             # Direct relationship - build simple correlation
             build_direct_correlation(selecto, target_schema, source_alias)
 
+          {:ok, [single_schema]} when single_schema == target_schema ->
+            # Single-step direct foreign key relationship
+            build_direct_correlation(selecto, target_schema, source_alias)
+
           {:ok, join_path} ->
             # Multi-step relationship - build EXISTS condition
             build_exists_correlation(selecto, target_schema, join_path, source_alias)
@@ -356,15 +357,31 @@ defmodule Selecto.Builder.Subselect do
     {:ok, condition}
   end
 
-  defp build_direct_correlation(_selecto, target_schema, source_alias) do
+  defp build_direct_correlation(selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
 
-    # Simple direct relationship - assume primary key correlation
-    condition = [
-      target_alias, ".id = ", source_alias, ".id"
-    ]
+    # Find the association from source to target
+    association = Map.get(selecto.domain.source.associations, target_schema)
 
-    {:ok, condition}
+    if association do
+      # Use the proper foreign key from the association
+      source_field = to_string(association.owner_key)  # e.g., "category_id"
+      target_field = to_string(association.related_key)  # e.g., "id"
+
+      condition = [
+        target_alias, ".", escape_identifier(target_field), " = ",
+        source_alias, ".", escape_identifier(source_field)
+      ]
+
+      {:ok, condition}
+    else
+      # Fallback - this shouldn't happen if properly configured
+      condition = [
+        target_alias, ".id = ", source_alias, ".", to_string(target_schema) <> "_id"
+      ]
+
+      {:ok, condition}
+    end
   end
 
   defp build_exists_correlation(selecto, target_schema, join_path, source_alias) do
@@ -468,18 +485,6 @@ defmodule Selecto.Builder.Subselect do
     {select_clause, []}
   end
 
-  defp build_correlation_condition(selecto, subselect_config, target_alias) do
-    # Determine the correct source alias based on pivot context
-    source_alias = if Selecto.Pivot.has_pivot?(selecto) do
-      # In pivot context, use "s" for source table
-      "s"
-    else
-      # In standard context, use "selecto_root"
-      "selecto_root"
-    end
-
-    build_correlation_condition(selecto, subselect_config, target_alias, source_alias)
-  end
 
   defp build_correlation_condition(selecto, subselect_config, target_alias, source_alias) do
     case resolve_join_condition_with_path(selecto, subselect_config.target_schema, source_alias) do
@@ -569,16 +574,8 @@ defmodule Selecto.Builder.Subselect do
     "sub_" <> to_string(target_schema)
   end
 
-  defp get_main_query_alias do
-    # This should match the alias used in the main query
-    "selecto_root"  # Main query uses 'selecto_root' as source alias
-  end
 
-  defp get_main_query_alias(source_alias) do
-    source_alias
-  end
-
-  defp get_connection_fields(selecto, target_schema, join_path) do
+  defp get_connection_fields(selecto, _target_schema, join_path) do
     # Determine the fields that connect the main query to the subquery target
     # This is a simplified implementation - needs refinement based on actual join path
     case join_path do

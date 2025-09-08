@@ -106,7 +106,7 @@ defmodule Selecto.Advanced.LateralJoin do
   """
   def create_lateral_join(join_type, subquery_builder_or_function, alias_name, opts \\ [])
   
-  def create_lateral_join(join_type, subquery_builder, alias_name, opts) when is_function(subquery_builder) do
+  def create_lateral_join(join_type, subquery_builder, alias_name, _opts) when is_function(subquery_builder) do
     %Spec{
       id: generate_lateral_id(alias_name),
       join_type: join_type,
@@ -118,7 +118,7 @@ defmodule Selecto.Advanced.LateralJoin do
     }
   end
   
-  def create_lateral_join(join_type, table_function, alias_name, opts) when is_tuple(table_function) do
+  def create_lateral_join(join_type, table_function, alias_name, _opts) when is_tuple(table_function) do
     %Spec{
       id: generate_lateral_id(alias_name),
       join_type: join_type,
@@ -252,10 +252,10 @@ defmodule Selecto.Advanced.LateralJoin do
   end
   
   # Extract correlation references from filter conditions
-  defp extract_refs_from_filter({field, {:ref, ref_field}}) when is_binary(ref_field), do: [ref_field]
-  defp extract_refs_from_filter({field, {op, {:ref, ref_field}}}) when is_binary(ref_field), do: [ref_field]
-  defp extract_refs_from_filter({field, {op, val1, {:ref, ref_field}}}) when is_binary(ref_field), do: [ref_field]
-  defp extract_refs_from_filter({field, {op, {:ref, ref_field}, val2}}) when is_binary(ref_field), do: [ref_field]
+  defp extract_refs_from_filter({_field, {:ref, ref_field}}) when is_binary(ref_field), do: [ref_field]
+  defp extract_refs_from_filter({_field, {_op, {:ref, ref_field}}}) when is_binary(ref_field), do: [ref_field]
+  defp extract_refs_from_filter({_field, {_op, _val1, {:ref, ref_field}}}) when is_binary(ref_field), do: [ref_field]
+  defp extract_refs_from_filter({_field, {_op, {:ref, ref_field}, _val2}}) when is_binary(ref_field), do: [ref_field]
   defp extract_refs_from_filter(_), do: []
   
   # Get available fields from base selecto query

@@ -34,7 +34,7 @@ defmodule Selecto.DB.PostgreSQL do
   # Query Execution
   
   @impl true
-  def execute(conn, query, params, opts) do
+  def execute(_conn, query, params, opts) do
     # Mock implementation for testing
     {:ok, %{
       rows: [],
@@ -57,7 +57,7 @@ defmodule Selecto.DB.PostgreSQL do
   # Transaction Management
   
   @impl true
-  def transaction(conn, fun, opts) do
+  def transaction(_conn, fun, _opts) do
     try do
       {:ok, fun.()}
     rescue
@@ -66,7 +66,7 @@ defmodule Selecto.DB.PostgreSQL do
   end
 
   @impl true
-  def begin(conn, opts) do
+  def begin(conn, _opts) do
     {:ok, Map.put(conn, :in_transaction, true)}
   end
 
@@ -183,7 +183,7 @@ defmodule Selecto.DB.PostgreSQL do
   # Introspection
   
   @impl true
-  def list_tables(conn, opts) do
+  def list_tables(_conn, _opts) do
     {:ok, ["films", "actors", "categories", "customers", "rentals"]}  # Mock data
   end
 
@@ -194,7 +194,7 @@ defmodule Selecto.DB.PostgreSQL do
   end
 
   @impl true
-  def describe_table(conn, table, opts) do
+  def describe_table(_conn, table, _opts) do
     # Mock implementation
     {:ok, %{
       name: table,
@@ -228,7 +228,7 @@ defmodule Selecto.DB.PostgreSQL do
   # Streaming Support
   
   @impl true
-  def stream(conn, query, params, opts) do
+  def stream(_conn, _query, _params, _opts) do
     # Mock implementation
     {:ok, Stream.resource(
       fn -> :ok end,

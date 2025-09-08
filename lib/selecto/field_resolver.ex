@@ -165,6 +165,7 @@ defmodule Selecto.FieldResolver do
 
   # Private Implementation
 
+  # All parse_field_reference/1 clauses grouped together
   defp parse_field_reference(field_ref) when is_binary(field_ref) do
     ParameterizedParser.parse_field_reference(field_ref)
   end
@@ -195,67 +196,7 @@ defmodule Selecto.FieldResolver do
     {:error, "Unsupported field reference format: #{inspect(field_ref)}"}
   end
 
-  defp do_resolve_field(selecto, %{type: :simple, field: field_name}) do
-    available_fields = get_available_fields(selecto)
-
-    # Try direct field name first
-    case Map.get(available_fields, field_name) do
-      nil ->
-        # Check if we're in pivot context and try bracket notation
-        has_pivot = Map.has_key?(selecto.set, :pivot_state)
-        if has_pivot do
-          # In pivot context, try to find field in bracket notation
-          bracket_matches = available_fields
-          |> Enum.filter(fn {key, _info} ->
-            String.ends_with?(key, "[#{field_name}]")
-          end)
-
-          case bracket_matches do
-            [{_bracket_key, field_info}] ->
-              # Found exactly one match
-              {:ok, field_info}
-            [] ->
-              # No bracket notation matches, continue with normal error handling
-              handle_field_not_found(selecto, field_name, available_fields)
-            _multiple ->
-              # Multiple matches, this is ambiguous
-              bracket_keys = Enum.map(bracket_matches, fn {key, _} -> key end)
-              {:error, Error.field_resolution_error(
-                "Ambiguous field reference '#{field_name}' in pivot context. Multiple possible matches: #{Enum.join(bracket_keys, ", ")}",
-                field_name,
-                %{available_options: bracket_keys}
-              )}
-          end
-        else
-          # Not in pivot context, use normal error handling
-          handle_field_not_found(selecto, field_name, available_fields)
-        end
-      field_info ->
-        {:ok, field_info}
-    end
-  end
-
-  # Helper function to handle field not found cases
-  defp handle_field_not_found(selecto, field_name, available_fields) do
-    # Check if it's an ambiguous field
-    if is_ambiguous_field?(selecto, field_name) do
-      options = get_disambiguation_options(selecto, field_name)
-      qualified_names = Enum.map(options, & &1.qualified_name)
-      {:error, Error.field_resolution_error(
-        "Ambiguous field reference '#{field_name}'. Please qualify with table name.",
-        field_name,
-        %{available_options: qualified_names}
-      )}
-    else
-      suggestions = suggest_fields(selecto, field_name)
-      {:error, Error.field_resolution_error(
-        "Field '#{field_name}' not found",
-        field_name,
-        %{suggestions: suggestions, available_fields: Map.keys(available_fields)}
-      )}
-    end
-  end
-
+  # All do_resolve_field/2 clauses grouped together
   defp do_resolve_field(selecto, %{type: :qualified, join: join_name, field: field_name}) do
     available_fields = get_available_fields(selecto)
     qualified_name = "#{join_name}.#{field_name}"
@@ -297,6 +238,46 @@ defmodule Selecto.FieldResolver do
   defp do_resolve_field(selecto, %{type: :disambiguated, field: field_name, from_join: from_join}) do
     _qualified_name = "#{from_join}.#{field_name}"
     do_resolve_field(selecto, %{type: :qualified, join: from_join, field: field_name})
+  end
+
+  defp do_resolve_field(selecto, %{type: :simple, field: field_name}) do
+    available_fields = get_available_fields(selecto)
+
+    # Try direct field name first
+    case Map.get(available_fields, field_name) do
+      nil ->
+        # Check if we're in pivot context and try bracket notation
+        has_pivot = Map.has_key?(selecto.set, :pivot_state)
+        if has_pivot do
+          # In pivot context, try to find field in bracket notation
+          bracket_matches = available_fields
+          |> Enum.filter(fn {key, _info} ->
+            String.ends_with?(key, "[#{field_name}]")
+          end)
+
+          case bracket_matches do
+            [{_bracket_key, field_info}] ->
+              # Found exactly one match
+              {:ok, field_info}
+            [] ->
+              # No bracket notation matches, continue with normal error handling
+              handle_field_not_found(selecto, field_name, available_fields)
+            _multiple ->
+              # Multiple matches, this is ambiguous
+              bracket_keys = Enum.map(bracket_matches, fn {key, _} -> key end)
+              {:error, Error.field_resolution_error(
+                "Ambiguous field reference '#{field_name}' in pivot context. Multiple possible matches: #{Enum.join(bracket_keys, ", ")}",
+                field_name,
+                %{available_options: bracket_keys}
+              )}
+          end
+        else
+          # Not in pivot context, use normal error handling
+          handle_field_not_found(selecto, field_name, available_fields)
+        end
+      field_info ->
+        {:ok, field_info}
+    end
   end
 
   defp do_resolve_field(selecto, %{type: :explicitly_qualified} = parsed_ref) do
@@ -366,6 +347,27 @@ defmodule Selecto.FieldResolver do
         do_resolve_field(selecto, %{type: :qualified, join: join_name, field: field_name, parameters: nil})
       field_info ->
         {:ok, field_info}
+    end
+  end
+
+  # Helper function to handle field not found cases
+  defp handle_field_not_found(selecto, field_name, available_fields) do
+    # Check if it's an ambiguous field
+    if is_ambiguous_field?(selecto, field_name) do
+      options = get_disambiguation_options(selecto, field_name)
+      qualified_names = Enum.map(options, & &1.qualified_name)
+      {:error, Error.field_resolution_error(
+        "Ambiguous field reference '#{field_name}'. Please qualify with table name.",
+        field_name,
+        %{available_options: qualified_names}
+      )}
+    else
+      suggestions = suggest_fields(selecto, field_name)
+      {:error, Error.field_resolution_error(
+        "Field '#{field_name}' not found",
+        field_name,
+        %{suggestions: suggestions, available_fields: Map.keys(available_fields)}
+      )}
     end
   end
 

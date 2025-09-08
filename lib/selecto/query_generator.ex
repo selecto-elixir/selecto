@@ -270,14 +270,6 @@ defmodule Selecto.QueryGenerator do
     []
   end
 
-  defp quote_identifier(identifier) when is_atom(identifier) do
-    quote_identifier(Atom.to_string(identifier))
-  end
-
-  defp quote_identifier(identifier) when is_binary(identifier) do
-    # Default to PostgreSQL style if no adapter context available
-    "\"#{identifier}\""
-  end
   
   # Adapter-aware version
   defp quote_identifier(adapter, identifier) when is_atom(identifier) do

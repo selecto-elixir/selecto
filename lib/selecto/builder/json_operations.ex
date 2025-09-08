@@ -8,7 +8,6 @@ defmodule Selecto.Builder.JsonOperations do
   """
   
   alias Selecto.Advanced.JsonOperations.Spec
-  alias Selecto.SQL.Params
   
   @doc """
   Generate SQL for a JSON operation in SELECT clauses.

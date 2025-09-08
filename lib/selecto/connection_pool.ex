@@ -296,134 +296,34 @@ defmodule Selecto.ConnectionPool do
   
   # Private Functions
   
-  defp execute_with_pool(pool_pid, query, params, cache_key, opts) do
+  defp execute_with_pool(pool_pid, _query, _params, _cache_key, opts) do
     case checkout_connection(pool_pid, opts) do
-      {:ok, conn} ->
-        try do
-          result = if cache_key do
-            execute_with_prepared_cache(conn, query, params, cache_key)
-          else
-            Postgrex.query(conn, query, params)
-          end
-          
-          checkin_connection(pool_pid, conn)
-          result
-        rescue
-          error ->
-            checkin_connection(pool_pid, conn)
-            {:error, error}
-        end
+      # NOTE: This clause will never match as checkout_connection always returns {:error, :not_implemented}
+      # {:ok, conn} ->
+      #   try do
+      #     result = if cache_key do
+      #       execute_with_prepared_cache(conn, query, params, cache_key)
+      #     else
+      #       Postgrex.query(conn, query, params)
+      #     end
+      #     
+      #     checkin_connection(pool_pid, conn)
+      #     result
+      #   rescue
+      #     error ->
+      #       checkin_connection(pool_pid, conn)
+      #       {:error, error}
+      #   end
       {:error, reason} ->
         {:error, reason}
     end
   end
   
-  defp execute_with_prepared_cache(conn, query, params, cache_key) do
-    # Try to get prepared statement from cache
-    case get_prepared_statement(cache_key) do
-      {:ok, prepared_name} ->
-        # Execute with cached prepared statement
-        case Postgrex.execute(conn, prepared_name, params) do
-          {:ok, result} ->
-            update_cache_stats(:hit)
-            {:ok, result}
-          {:error, reason} ->
-            # If prepared statement execution fails, fall back to regular query
-            Logger.debug("Prepared statement execution failed: #{inspect(reason)}. Falling back to regular query.")
-            execute_regular_query_with_cache(conn, query, params, cache_key)
-        end
-      
-      :not_found ->
-        # Prepare statement and cache it
-        execute_regular_query_with_cache(conn, query, params, cache_key)
-    end
-  end
-  
-  defp execute_regular_query_with_cache(conn, query, params, cache_key) do
-    case Postgrex.query(conn, query, params) do
-      {:ok, result} ->
-        # Try to prepare and cache the statement for future use
-        prepare_and_cache_statement(conn, query, cache_key)
-        update_cache_stats(:miss)
-        {:ok, result}
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-  
-  defp get_prepared_statement(cache_key) do
-    # Access the cache from the current process state
-    case Process.get(:prepared_cache) do
-      nil -> :not_found
-      cache_table ->
-        case :ets.lookup(cache_table, cache_key) do
-          [{^cache_key, prepared_name, _timestamp}] -> {:ok, prepared_name}
-          [] -> :not_found
-        end
-    end
-  end
-  
-  defp prepare_and_cache_statement(conn, query, cache_key) do
-    # Generate unique prepared statement name
-    prepared_name = "selecto_prepared_#{cache_key}"
-    
-    case Postgrex.prepare(conn, prepared_name, query) do
-      {:ok, _prepared} ->
-        case Process.get(:prepared_cache) do
-          nil -> :error
-          cache_table ->
-            timestamp = System.system_time(:second)
-            :ets.insert(cache_table, {cache_key, prepared_name, timestamp})
-            
-            # Manage cache size - remove oldest entries if cache is full
-            manage_cache_size(cache_table)
-            :ok
-        end
-      {:error, reason} ->
-        Logger.debug("Failed to prepare statement: #{inspect(reason)}")
-        :error
-    end
-  end
-  
-  defp manage_cache_size(cache_table) do
-    cache_size = :ets.info(cache_table, :size)
-    max_size = 1000  # Default cache size
-    
-    if cache_size > max_size do
-      # Remove oldest 10% of entries
-      entries_to_remove = div(max_size, 10)
-      
-      # Get all entries and sort by timestamp
-      all_entries = :ets.tab2list(cache_table)
-      |> Enum.sort_by(fn {_key, _name, timestamp} -> timestamp end)
-      |> Enum.take(entries_to_remove)
-      
-      # Remove oldest entries
-      Enum.each(all_entries, fn {key, _name, _timestamp} ->
-        :ets.delete(cache_table, key)
-      end)
-    end
-  end
-  
-  defp update_cache_stats(type) do
-    # This would be implemented to update cache statistics
-    # For now, just log the cache activity
-    case type do
-      :hit -> Logger.debug("Prepared statement cache hit")
-      :miss -> Logger.debug("Prepared statement cache miss")
-    end
-  end
   
   defp checkout_connection(_pool_pid, _opts) do
     # TODO: Implement proper connection checkout using the correct DBConnection API
     # The DBConnection.checkout/2 function doesn't exist in the public API
     {:error, :not_implemented}
-  end
-  
-  defp checkin_connection(_pool_pid, _conn) do
-    # TODO: Implement proper connection checkin using the correct DBConnection API
-    # The DBConnection.checkin/2 function doesn't exist in the public API
-    :ok
   end
   
   defp validate_pool_health(pool_pid) do

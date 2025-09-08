@@ -1,33 +1,33 @@
 defmodule Selecto.SetOperations do
   @moduledoc """
   Set operations for combining query results using UNION, INTERSECT, and EXCEPT.
-  
+
   Set operations allow combining results from multiple Selecto queries using
   standard SQL set operations. All participating queries must have compatible
   column counts and types.
-  
+
   ## Examples
-  
+
       # Basic UNION - combine results from two queries
       query1 = Selecto.configure(users_domain, connection)
         |> Selecto.select(["name", "email"])
         |> Selecto.filter([{"active", true}])
-        
-      query2 = Selecto.configure(contacts_domain, connection)  
+
+      query2 = Selecto.configure(contacts_domain, connection)
         |> Selecto.select(["full_name", "email_address"])
         |> Selecto.filter([{"status", "active"}])
-        
+
       combined = Selecto.union(query1, query2, all: true)
-      
+
       # INTERSECT - find common records
       premium_active = Selecto.intersect(premium_users, active_users)
-      
+
       # EXCEPT - find differences
       free_users = Selecto.except(all_users, premium_users)
-      
+
       # Chained set operations
       result = query1
-        |> Selecto.union(query2) 
+        |> Selecto.union(query2)
         |> Selecto.intersect(query3)
         |> Selecto.except(query4)
   """
@@ -42,7 +42,7 @@ defmodule Selecto.SetOperations do
       :id,                    # Unique identifier for the set operation
       :operation,             # :union, :intersect, or :except
       :left_query,            # Left side query (Selecto struct)
-      :right_query,           # Right side query (Selecto struct) 
+      :right_query,           # Right side query (Selecto struct)
       :options,               # Operation options (all: true/false, etc.)
       :column_mapping,        # Optional column mapping for incompatible schemas
       :validated              # Boolean indicating if schemas have been validated
@@ -69,10 +69,10 @@ defmodule Selecto.SetOperations do
     @moduledoc """
     Schema validation for set operations between queries.
     """
-    
+
     defmodule SchemaError do
       defexception [:type, :message, :query1_info, :query2_info]
-      
+
       @type t :: %__MODULE__{
         type: :column_count_mismatch | :type_incompatibility | :mapping_error,
         message: String.t(),
@@ -83,7 +83,7 @@ defmodule Selecto.SetOperations do
 
     @doc """
     Validate that two queries are compatible for set operations.
-    
+
     Returns {:ok, validated_spec} or {:error, validation_error}.
     """
     def validate_compatibility(spec) do
@@ -100,7 +100,7 @@ defmodule Selecto.SetOperations do
     # Extract column information from a Selecto query
     defp extract_query_columns(selecto) do
       selected = Map.get(selecto.set, :selected, [])
-      
+
       if Enum.empty?(selected) do
         {:error, %SchemaError{
           type: :validation_error,
@@ -133,7 +133,7 @@ defmodule Selecto.SetOperations do
                 source: :field
               }
           end
-          
+
         {:as, expression, alias_name} ->
           # Aliased expression - try to infer type
           %{
@@ -141,7 +141,7 @@ defmodule Selecto.SetOperations do
             type: infer_expression_type(expression),
             source: :expression
           }
-          
+
         {:func, func_name, _args} ->
           # Function call - infer return type
           %{
@@ -149,7 +149,7 @@ defmodule Selecto.SetOperations do
             type: infer_function_return_type(func_name),
             source: :function
           }
-          
+
         _ ->
           # Complex expression - treat as unknown type
           %{
@@ -180,7 +180,7 @@ defmodule Selecto.SetOperations do
     defp validate_column_count(left_columns, right_columns) do
       left_count = length(left_columns)
       right_count = length(right_columns)
-      
+
       if left_count == right_count do
         :ok
       else
@@ -196,20 +196,20 @@ defmodule Selecto.SetOperations do
     # Validate column types are compatible
     defp validate_column_types(left_columns, right_columns, column_mapping) do
       paired_columns = apply_column_mapping(left_columns, right_columns, column_mapping)
-      
-      incompatible = 
+
+      incompatible =
         paired_columns
         |> Enum.with_index()
         |> Enum.filter(fn {{left_col, right_col}, _index} ->
           not types_compatible?(left_col.type, right_col.type)
         end)
-      
+
       if Enum.empty?(incompatible) do
         :ok
       else
         [{_columns, index}] = Enum.take(incompatible, 1)  # Show first incompatible pair
         {{left_col, right_col}, _} = Enum.at(paired_columns, index)
-        
+
         {:error, %SchemaError{
           type: :type_incompatibility,
           message: "Column #{index + 1}: '#{left_col.name}' (#{left_col.type}) incompatible with '#{right_col.name}' (#{right_col.type})",
@@ -223,8 +223,8 @@ defmodule Selecto.SetOperations do
     defp apply_column_mapping(left_columns, right_columns, nil) do
       Enum.zip(left_columns, right_columns)
     end
-    
-    defp apply_column_mapping(left_columns, right_columns, mapping) do
+
+    defp apply_column_mapping(left_columns, right_columns, _mapping) do
       # TODO: Implement column mapping logic
       # For now, fall back to position-based pairing
       Enum.zip(left_columns, right_columns)
@@ -234,36 +234,36 @@ defmodule Selecto.SetOperations do
     defp types_compatible?(:unknown, _), do: true
     defp types_compatible?(_, :unknown), do: true
     defp types_compatible?(type, type), do: true
-    
+
     # String-like types
     defp types_compatible?(type1, type2) when type1 in [:string, :text] and type2 in [:string, :text], do: true
-    
+
     # Numeric types
     defp types_compatible?(type1, type2) when type1 in [:integer, :decimal, :float] and type2 in [:integer, :decimal, :float], do: true
-    
-    # Date/time types  
+
+    # Date/time types
     defp types_compatible?(type1, type2) when type1 in [:date, :utc_datetime, :naive_datetime] and type2 in [:date, :utc_datetime, :naive_datetime], do: true
-    
+
     # Default: incompatible
     defp types_compatible?(_, _), do: false
   end
 
   @doc """
   Create a UNION set operation between two queries.
-  
+
   ## Options
-  
-  - `:all` - Use UNION ALL to include duplicates (default: false)  
+
+  - `:all` - Use UNION ALL to include duplicates (default: false)
   - `:column_mapping` - Map columns between incompatible schemas
-  
+
   ## Examples
-  
+
       # Basic UNION (removes duplicates)
       Selecto.union(query1, query2)
-      
+
       # UNION ALL (includes duplicates, faster)
       Selecto.union(query1, query2, all: true)
-      
+
       # UNION with column mapping
       Selecto.union(customers, vendors,
         column_mapping: [
@@ -278,11 +278,11 @@ defmodule Selecto.SetOperations do
 
   @doc """
   Create an INTERSECT set operation between two queries.
-  
+
   Returns only rows that appear in both queries.
-  
+
   ## Options
-  
+
   - `:all` - Use INTERSECT ALL to include duplicate intersections (default: false)
   - `:column_mapping` - Map columns between incompatible schemas
   """
@@ -292,11 +292,11 @@ defmodule Selecto.SetOperations do
 
   @doc """
   Create an EXCEPT set operation between two queries.
-  
+
   Returns rows from the first query that don't appear in the second query.
-  
+
   ## Options
-  
+
   - `:all` - Use EXCEPT ALL to include duplicates in difference (default: false)
   - `:column_mapping` - Map columns between incompatible schemas
   """
@@ -310,7 +310,7 @@ defmodule Selecto.SetOperations do
       all: Keyword.get(opts, :all, false),
       column_mapping: Keyword.get(opts, :column_mapping)
     }
-    
+
     spec = %Spec{
       id: generate_operation_id(operation, left_query, right_query),
       operation: operation,
@@ -320,13 +320,13 @@ defmodule Selecto.SetOperations do
       column_mapping: options.column_mapping,
       validated: false
     }
-    
+
     # Validate schema compatibility
     case Validation.validate_compatibility(spec) do
       {:ok, validated_spec} ->
         # Create a new Selecto struct with the set operation
         create_set_operation_selecto(validated_spec)
-        
+
       {:error, validation_error} ->
         raise validation_error
     end
@@ -335,9 +335,9 @@ defmodule Selecto.SetOperations do
   # Generate unique ID for set operation
   defp generate_operation_id(operation, left_query, right_query) do
     left_id = inspect(left_query.domain) |> String.slice(0, 8)
-    right_id = inspect(right_query.domain) |> String.slice(0, 8) 
+    right_id = inspect(right_query.domain) |> String.slice(0, 8)
     unique = :erlang.unique_integer([:positive])
-    
+
     "#{operation}_#{left_id}_#{right_id}_#{unique}"
   end
 
@@ -346,11 +346,11 @@ defmodule Selecto.SetOperations do
     # Use the left query as the base for the new struct
     # Set operations inherit the connection and basic configuration from the left side
     base_selecto = spec.left_query
-    
+
     # Add set operation to the query set
     current_set_ops = Map.get(base_selecto.set, :set_operations, [])
     updated_set_ops = current_set_ops ++ [spec]
-    
+
     put_in(base_selecto.set[:set_operations], updated_set_ops)
   end
 end

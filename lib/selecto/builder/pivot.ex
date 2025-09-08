@@ -6,8 +6,6 @@ defmodule Selecto.Builder.Pivot do
   to a target table while preserving existing filters through subqueries.
   """
 
-  import Selecto.Builder.Sql.Helpers
-  alias Selecto.SQL.Params
   alias Selecto.Types
 
   @spec build_pivot_query(Types.t(), keyword()) :: Types.builder_result()
@@ -272,7 +270,7 @@ defmodule Selecto.Builder.Pivot do
     {join_clauses, join_params} = build_reverse_joins(selecto, pivot_config.join_path, source_alias, target_alias)
     {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, source_alias)
 
-    correlation_field = get_target_connection_field(selecto, pivot_config)
+    _correlation_field = get_target_connection_field(selecto, pivot_config)
 
     subquery_iodata = [
       "SELECT 1 FROM ", source_table, " ", source_alias,
@@ -372,10 +370,6 @@ defmodule Selecto.Builder.Pivot do
     end
   end
 
-  defp get_applicable_filters(selecto) do
-    # Return filters that should be preserved in the pivot subquery
-    selecto.set.filtered
-  end
 
   defp build_filter_conditions(_selecto, [], _source_alias), do: {[], []}
   defp build_filter_conditions(_selecto, filters, source_alias) do
@@ -400,7 +394,7 @@ defmodule Selecto.Builder.Pivot do
     end
   end
 
-  defp get_connection_field(selecto, target_schema, join_path) do
+  defp get_connection_field(selecto, target_schema, _join_path) do
     # Return the field that connects the final join to the target
     target_config = Map.get(selecto.domain.schemas, target_schema)
     if target_config do
@@ -420,18 +414,8 @@ defmodule Selecto.Builder.Pivot do
     end
   end
 
-  defp get_correlation_field(selecto, pivot_config) do
-    # Return the field used for correlation in EXISTS subqueries
-    # This should be the source table's primary key
-    source_config = selecto.domain.source
-    if source_config do
-      to_string(source_config.primary_key || :id)
-    else
-      "id"
-    end
-  end
 
-  defp build_reverse_joins(selecto, join_path, source_alias, target_alias) do
+  defp build_reverse_joins(selecto, join_path, source_alias, _target_alias) do
     # Build joins from source to target for correlation subquery
     {join_clauses, params, _} =
       Enum.reduce(join_path, {[], [], source_alias}, fn join_name, {acc_clauses, acc_params, current_alias} ->

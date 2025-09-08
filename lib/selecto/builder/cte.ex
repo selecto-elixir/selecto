@@ -178,7 +178,7 @@ defmodule Selecto.Builder.CTE do
     convert_sql_to_iodata_with_offset(sql, params, 0)
   end
   
-  defp convert_sql_to_iodata_with_offset(sql, params, offset) do
+  defp convert_sql_to_iodata_with_offset(sql, params, _offset) do
     params
     |> Enum.with_index(1)
     |> Enum.reduce([sql], fn {value, idx}, acc ->

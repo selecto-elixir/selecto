@@ -80,14 +80,15 @@ defmodule Selecto.Output.Formats do
         Selecto.Output.Transformers.Json.transform(rows, columns, aliases, json_options)
 
       :csv ->
-        Selecto.Output.Transformers.Csv.transform(rows, columns, aliases, [])
+        Selecto.Output.Transformers.CSV.transform(rows, columns, aliases, [])
 
       {:csv, csv_options} ->
-        Selecto.Output.Transformers.Csv.transform(rows, columns, aliases, csv_options)
+        Selecto.Output.Transformers.CSV.transform(rows, columns, aliases, csv_options)
 
-      {:stream, inner_format} ->
-        # For streaming, we'll delegate to the streaming transformer
-        Selecto.Output.Transformers.Stream.transform(rows, columns, aliases, inner_format, options)
+      {:stream, _inner_format} ->
+        # TODO: Implement streaming transformer
+        # Selecto.Output.Transformers.Stream.transform(rows, columns, aliases, inner_format, options)
+        {:error, "Streaming output not yet implemented"}
 
       {:typed_maps, type_options} ->
         # For typed maps with type coercion
@@ -181,7 +182,7 @@ defmodule Selecto.Output.Formats do
 
   # Private validation functions
   defp validate_maps_options(options) do
-    valid_keys = [:keys, :transform, :coerce_types]
+    _valid_keys = [:keys, :transform, :coerce_types]
     valid_key_types = [:strings, :atoms, :existing_atoms]
     valid_transforms = [:none, :camelCase, :snake_case]
 
@@ -206,7 +207,7 @@ defmodule Selecto.Output.Formats do
   defp validate_struct_module(module), do: {:error, {:invalid_struct_module, module}}
 
   defp validate_json_options(options) do
-    valid_keys = [:include_meta, :pretty, :null_handling]
+    _valid_keys = [:include_meta, :pretty, :null_handling]
 
     case Keyword.validate(options, include_meta: false, pretty: false, null_handling: :preserve) do
       {:ok, _} -> :ok
@@ -215,7 +216,7 @@ defmodule Selecto.Output.Formats do
   end
 
   defp validate_csv_options(options) do
-    valid_keys = [:headers, :delimiter, :quote_char, :escape_char]
+    _valid_keys = [:headers, :delimiter, :quote_char, :escape_char]
 
     case Keyword.validate(options, headers: true, delimiter: ",", quote_char: "\"", escape_char: "\\") do
       {:ok, _} -> :ok
@@ -224,7 +225,7 @@ defmodule Selecto.Output.Formats do
   end
 
   defp validate_typed_maps_options(options) do
-    valid_keys = [:coerce, :preserve, :custom_coercions]
+    _valid_keys = [:coerce, :preserve, :custom_coercions]
     valid_coerce_values = [:all, :safe, :none]
 
     case Keyword.validate(options, coerce: :safe, preserve: [], custom_coercions: %{}) do
