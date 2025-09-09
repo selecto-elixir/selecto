@@ -144,16 +144,27 @@ defmodule Selecto.Builder.Sql do
     # Build pivot-specific SELECT with subselects if needed
     # Pass pivot alias information to SELECT builder
     pivot_aliases = get_pivot_aliases(pivot_config)
-    {aliases, _sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto, pivot_aliases)
+    {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto, pivot_aliases)
 
     # Build pivot FROM clause and WHERE conditions
     {from_iodata, pivot_where_iodata, from_params, _join_deps} = Selecto.Builder.Pivot.build_pivot_query(selecto, [])
+
+    # Build any necessary JOINs for the selected columns after pivoting
+    # These are joins from the pivot target to other tables needed for selected columns
+    {join_iodata, join_params} = build_pivot_joins(selecto, sel_joins, pivot_config)
 
     # Assemble final query
     base_iodata = [
       "\n        select ", select_iodata,
       "\n        from ", from_iodata
     ]
+    
+    # Add joins if needed
+    base_iodata = if join_iodata != [] do
+      base_iodata ++ [join_iodata]
+    else
+      base_iodata
+    end
 
     final_iodata = if pivot_where_iodata != [] do
       base_iodata ++ ["\n        where ", pivot_where_iodata]
@@ -161,10 +172,99 @@ defmodule Selecto.Builder.Sql do
       base_iodata
     end
 
-    _all_params = select_params ++ from_params
+    _all_params = select_params ++ from_params ++ join_params
     {sql, final_params} = Params.finalize(final_iodata, adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL))
 
     {sql, aliases, final_params}
+  end
+  
+  defp build_pivot_joins(selecto, sel_joins, pivot_config) do
+    # After pivoting, we need to add joins from the pivot target to any other tables
+    # that are referenced in the selected columns
+    
+    # Filter out joins that are part of the pivot path (already in subquery)
+    needed_joins = Enum.reject(sel_joins, fn join ->
+      # Don't add joins that are part of the path to the pivot target
+      join == :selecto_root || join == pivot_config.target_schema
+    end)
+    
+    if needed_joins == [] do
+      {[], []}
+    else
+      # Build JOIN clauses for the needed tables
+      join_clauses = Enum.map(needed_joins, fn join_name ->
+        build_pivot_join_clause(selecto, pivot_config.target_schema, join_name)
+      end)
+      
+      {Enum.join(join_clauses, "\n        "), []}
+    end
+  end
+  
+  defp build_pivot_join_clause(selecto, from_schema, to_schema) do
+    # Build a JOIN clause from the pivot target to another schema
+    # Look up the association/join configuration
+    
+    # For film -> language, we need: LEFT JOIN language ON t.language_id = language.language_id
+    case find_join_config_between(selecto, from_schema, to_schema) do
+      {:ok, join_config} ->
+        to_table = get_table_name(selecto, to_schema)
+        owner_key = Map.get(join_config, :owner_key, :"#{to_schema}_id")
+        related_key = Map.get(join_config, :related_key, :"#{to_schema}_id")
+        
+        [
+          "\n        LEFT JOIN ", to_table, " ", to_string(to_schema),
+          " ON t.", to_string(owner_key), " = ", to_string(to_schema), ".", to_string(related_key)
+        ]
+      _ ->
+        # Fallback - try standard foreign key pattern
+        to_table = get_table_name(selecto, to_schema)
+        [
+          "\n        LEFT JOIN ", to_table, " ", to_string(to_schema),
+          " ON t.", to_string(to_schema), "_id = ", to_string(to_schema), ".", to_string(to_schema), "_id"
+        ]
+    end
+  end
+  
+  defp find_join_config_between(selecto, from_schema, to_schema) do
+    # Find the join configuration from from_schema to to_schema
+    # First check if from_schema has a direct association to to_schema
+    
+    from_config = case from_schema do
+      :source -> selecto.domain.source
+      schema_name -> Map.get(selecto.domain.schemas, schema_name)
+    end
+    
+    if from_config do
+      associations = Map.get(from_config, :associations, %{})
+      case Map.get(associations, to_schema) do
+        nil -> 
+          # Also check in the joins structure
+          joins = Map.get(selecto.domain, :joins, %{})
+          find_join_in_structure(joins, from_schema, to_schema)
+        config -> 
+          {:ok, config}
+      end
+    else
+      {:error, :not_found}
+    end
+  end
+  
+  defp find_join_in_structure(joins, _from, to) when is_map(joins) do
+    # Look for the target in the joins structure
+    case Map.get(joins, to) do
+      nil -> {:error, :not_found}
+      config -> {:ok, config}
+    end
+  end
+  
+  defp find_join_in_structure(_, _, _), do: {:error, :not_found}
+  
+  defp get_table_name(selecto, schema_name) do
+    # Get the actual table name for a schema
+    case Map.get(selecto.domain.schemas, schema_name) do
+      %{source_table: table} -> table
+      _ -> to_string(schema_name)
+    end
   end
 
   defp build_set_operation_query(selecto, _opts) do

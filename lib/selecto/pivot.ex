@@ -137,23 +137,58 @@ defmodule Selecto.Pivot do
         :not_found
         
       true ->
-        from_schema_config = case from_schema do
-          :source -> domain.source
-          schema_name -> Map.get(domain.schemas, schema_name)
-        end
-        
-        if from_schema_config do
-          find_path_through_associations(
-            domain, 
-            from_schema_config.associations, 
-            to_schema, 
-            [from_schema | visited]
-          )
-        else
-          :not_found
+        # First, try looking in the hierarchical joins structure
+        case find_path_in_joins_hierarchy(domain, to_schema) do
+          {:ok, path} ->
+            {:ok, path}
+          :not_found ->
+            # Fall back to the association-based search
+            from_schema_config = case from_schema do
+              :source -> domain.source
+              schema_name -> Map.get(domain.schemas, schema_name)
+            end
+            
+            if from_schema_config do
+              find_path_through_associations(
+                domain, 
+                from_schema_config.associations, 
+                to_schema, 
+                [from_schema | visited]
+              )
+            else
+              :not_found
+            end
         end
     end
   end
+  
+  defp find_path_in_joins_hierarchy(domain, target) do
+    # Search the joins structure hierarchically
+    joins = Map.get(domain, :joins, %{})
+    find_in_joins_tree(joins, target, [])
+  end
+  
+  defp find_in_joins_tree(joins, target, path) when is_map(joins) do
+    Enum.reduce_while(joins, :not_found, fn {join_name, join_config}, _acc ->
+      if join_name == target do
+        # Found it at this level
+        {:halt, {:ok, path ++ [join_name]}}
+      else
+        # Check nested joins
+        case Map.get(join_config, :joins) do
+          nil -> 
+            {:cont, :not_found}
+          nested_joins ->
+            case find_in_joins_tree(nested_joins, target, path ++ [join_name]) do
+              {:ok, found_path} -> {:halt, {:ok, found_path}}
+              :not_found -> {:cont, :not_found}
+            end
+        end
+      end
+    end)
+  end
+  
+  defp find_in_joins_tree(_, _, _), do: :not_found
 
   defp find_path_through_associations(domain, associations, target, visited) do
     associations
