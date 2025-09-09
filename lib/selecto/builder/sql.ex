@@ -147,17 +147,32 @@ defmodule Selecto.Builder.Sql do
     {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto, pivot_aliases)
 
     # Build pivot FROM clause and WHERE conditions
-    {from_iodata, pivot_where_iodata, from_params, _join_deps} = Selecto.Builder.Pivot.build_pivot_query(selecto, [])
+    {from_iodata, pivot_where_iodata, from_params, join_deps} = Selecto.Builder.Pivot.build_pivot_query(selecto, [])
+
+    # Check if we have a CTE spec
+    {cte_clause, cte_params} = case join_deps do
+      [{:cte, cte_spec}] ->
+        # Build the WITH clause
+        cte_iodata = [
+          "WITH ", cte_spec.name, " AS (\n        ",
+          cte_spec.query,
+          "\n        )\n        "
+        ]
+        {cte_iodata, cte_spec.params}
+      _ ->
+        {[], []}
+    end
 
     # Build any necessary JOINs for the selected columns after pivoting
     # These are joins from the pivot target to other tables needed for selected columns
     {join_iodata, join_params} = build_pivot_joins(selecto, sel_joins, pivot_config)
 
     # Assemble final query
-    base_iodata = [
-      "\n        select ", select_iodata,
-      "\n        from ", from_iodata
-    ]
+    base_iodata = if cte_clause != [] do
+      [cte_clause, "select ", select_iodata, "\n        from ", from_iodata]
+    else
+      ["\n        select ", select_iodata, "\n        from ", from_iodata]
+    end
     
     # Add joins if needed
     base_iodata = if join_iodata != [] do
@@ -172,7 +187,7 @@ defmodule Selecto.Builder.Sql do
       base_iodata
     end
 
-    _all_params = select_params ++ from_params ++ join_params
+    _all_params = select_params ++ cte_params ++ from_params ++ join_params
     {sql, final_params} = Params.finalize(final_iodata, adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL))
 
     {sql, aliases, final_params}

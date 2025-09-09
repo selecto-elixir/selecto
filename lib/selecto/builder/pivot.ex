@@ -18,6 +18,7 @@ defmodule Selecto.Builder.Pivot do
         :in -> build_in_subquery(selecto, pivot_config, opts)
         :exists -> build_exists_subquery(selecto, pivot_config, opts)
         :join -> build_join_strategy(selecto, pivot_config, opts)
+        :cte -> build_cte_strategy(selecto, pivot_config, opts)
       end
     else
       # No pivot configuration, return standard FROM clause
@@ -340,6 +341,83 @@ defmodule Selecto.Builder.Pivot do
 
     # Return FROM clause, WHERE conditions, and params
     {from_iodata, filter_conditions, join_params ++ filter_params, []}
+  end
+  
+  defp build_cte_strategy(selecto, pivot_config, _opts) do
+    # Build a CTE-based pivot query for better performance
+    # This returns special markers that the SQL builder will use to construct the CTE
+    
+    target_table = get_target_table_from_schema(selecto, pivot_config.target_schema)
+    target_alias = get_target_alias()
+    
+    # Build the CTE query that filters the original data
+    {cte_query, cte_params} = build_cte_filter_query(selecto, pivot_config)
+    
+    # Mark this as needing CTE construction
+    cte_spec = %{
+      name: "pivot_source",
+      query: cte_query,
+      params: cte_params,
+      columns: [maybe_quote_identifier(to_string(get_target_primary_key(selecto, pivot_config.target_schema)))]
+    }
+    
+    # Build the main FROM clause that joins with the CTE
+    from_iodata = [
+      target_table, " ", target_alias,
+      " INNER JOIN pivot_source ps ON ",
+      target_alias, ".", maybe_quote_identifier(to_string(get_target_primary_key(selecto, pivot_config.target_schema))),
+      " = ps.", maybe_quote_identifier(to_string(get_target_primary_key(selecto, pivot_config.target_schema)))
+    ]
+    
+    # Return FROM clause, empty WHERE (filtering is in CTE), params, and CTE spec
+    {from_iodata, [], cte_params, [{:cte, cte_spec}]}
+  end
+  
+  defp build_cte_filter_query(selecto, pivot_config) do
+    # Build the query that goes inside the CTE
+    source_table = get_source_table_name(selecto)
+    
+    # Build the join chain if needed
+    case pivot_config.join_path do
+      [] ->
+        # Direct pivot, no joins needed
+        {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, "s")
+        
+        query_iodata = [
+          "SELECT DISTINCT s.", maybe_quote_identifier(to_string(pivot_config.target_schema)), "_id",
+          " FROM ", source_table, " s"
+        ]
+        
+        query_iodata = if where_clause != [] do
+          query_iodata ++ [" WHERE ", where_clause]
+        else
+          query_iodata
+        end
+        
+        {query_iodata, where_params}
+        
+      join_path ->
+        # Need to walk the join path
+        {join_clauses, join_params, final_table_info} = build_hierarchical_join_chain(selecto, join_path)
+        {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, "s")
+        
+        # Extract final table info
+        {final_alias, final_pk} = final_table_info
+        
+        query_iodata = [
+          "SELECT DISTINCT ", final_alias, ".", maybe_quote_identifier(to_string(final_pk)),
+          " FROM ", source_table, " s",
+          join_clauses
+        ]
+        
+        query_iodata = if where_clause != [] do
+          query_iodata ++ [" WHERE ", where_clause]
+        else
+          query_iodata
+        end
+        
+        {query_iodata, join_params ++ where_params}
+    end
   end
 
   defp build_standard_from(selecto, _opts) do

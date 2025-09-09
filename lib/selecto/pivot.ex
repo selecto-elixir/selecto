@@ -59,7 +59,8 @@ defmodule Selecto.Pivot do
         target_schema: target_schema,
         join_path: join_path,
         preserve_filters: Keyword.get(opts, :preserve_filters, true),
-        subquery_strategy: Keyword.get(opts, :subquery_strategy, :in)
+        subquery_strategy: Keyword.get(opts, :subquery_strategy, :in),
+        strategy: Keyword.get(opts, :strategy, :subquery)  # :subquery or :cte
       }
 
       put_in(selecto.set[:pivot_state], pivot_config)
