@@ -674,6 +674,43 @@ defmodule Selecto do
   end
 
   @doc """
+  Execute a query and return results with metadata including SQL, params, and execution time.
+
+  ## Parameters
+
+  - `selecto` - The Selecto struct containing connection and query info
+  - `opts` - Execution options
+
+  ## Returns
+
+  - `{:ok, result, metadata}` - Successful execution with results and metadata
+  - `{:error, error}` - Execution failure with detailed error
+
+  The metadata map includes:
+  - `:sql` - The generated SQL query string
+  - `:params` - The query parameters
+  - `:execution_time` - Query execution time in milliseconds
+
+  ## Examples
+
+      case Selecto.execute_with_metadata(selecto) do
+        {:ok, {rows, columns, aliases}, metadata} ->
+          # Process successful results with metadata
+          IO.puts("Query took \#{metadata.execution_time}ms")
+          handle_results(rows, columns, aliases)
+        {:error, error} ->
+          # Handle database error
+          Logger.error("Query failed: \#{inspect(error)}")
+      end
+  """
+  @spec execute_with_metadata(Selecto.Types.t(), Selecto.Types.execute_options()) :: 
+    {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
+  def execute_with_metadata(selecto, opts \\ []) do
+    # Delegate to the extracted Executor module
+    Selecto.Executor.execute_with_metadata(selecto, opts)
+  end
+
+  @doc """
     Execute a query expecting exactly one row, returning {:ok, row} or {:error, reason}.
 
     Useful for queries that should return a single record (e.g., with LIMIT 1 or aggregate functions).
