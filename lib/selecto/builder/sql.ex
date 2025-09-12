@@ -77,9 +77,39 @@ defmodule Selecto.Builder.Sql do
           {"\n        group by #{group_by_sql}\n      ", group_by_sql_params}
       end
 
+    # Check if this is a rollup query to determine ORDER BY format
+    is_rollup_query = group_by_section != "" and String.contains?(group_by_section, "rollup")
+    
     {order_by_section, order_by_finalized_params} =
       cond do
         order_by_iodata in [[], [""]] -> {"", []}
+        is_rollup_query ->
+          # For rollup queries, check if we're already using literal positions
+          # If so, the order_by_iodata should already be correct
+          # Otherwise convert to use positions
+          case selecto.set.order_by do
+            [{:literal_position, _} | _] ->
+              # Already using literal positions, finalize normally
+              {order_by_sql, order_by_sql_params} = Params.finalize(order_by_iodata, adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL))
+              {"\n        order by #{order_by_sql}\n      ", order_by_sql_params}
+            _ ->
+              # Need to convert to literal positions for rollup
+              # This shouldn't happen if aggregate view is properly configured
+              # But as a fallback, use column positions 1, 2, 3...
+              rollup_order_parts = 
+                selecto.set.order_by
+                |> Enum.with_index(1)
+                |> Enum.map(fn {_order_spec, index} ->
+                  "#{index} asc nulls first"
+                end)
+                |> Enum.join(", ")
+              
+              if rollup_order_parts == "" do
+                {"", []}
+              else
+                {"\n        order by #{rollup_order_parts}\n      ", []}
+              end
+          end
         true ->
           {order_by_sql, order_by_sql_params} = Params.finalize(order_by_iodata, adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL))
           {"\n        order by #{order_by_sql}\n      ", order_by_sql_params}

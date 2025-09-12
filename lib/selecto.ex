@@ -694,9 +694,8 @@ defmodule Selecto do
   ## Examples
 
       case Selecto.execute_with_metadata(selecto) do
-        {:ok, {rows, columns, aliases}, metadata} ->
+        {:ok, {rows, columns, aliases}, _metadata} ->
           # Process successful results with metadata
-          IO.puts("Query took \#{metadata.execution_time}ms")
           handle_results(rows, columns, aliases)
         {:error, error} ->
           # Handle database error

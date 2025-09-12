@@ -110,9 +110,8 @@ defmodule Selecto.Executor do
   ## Examples
 
       case Selecto.Executor.execute_with_metadata(selecto) do
-        {:ok, {rows, columns, aliases}, meta} ->
+        {:ok, {rows, columns, aliases}, _meta} ->
           # Process successful results with metadata
-          IO.puts("Query took \#{meta.execution_time}ms")
           handle_results(rows, columns, aliases)
         {:error, error} ->
           # Handle database error
