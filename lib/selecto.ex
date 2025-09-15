@@ -375,46 +375,68 @@ defmodule Selecto do
 
   #  @spec field(t(), field_name()) :: %{required(:name) => String.t()} | nil
   def field(selecto_struct, field) do
-    # Try enhanced field resolution first
-    case Selecto.FieldResolver.resolve_field(selecto_struct, field) do
-      {:ok, field_info} ->
-        # Convert field_info to legacy format for backward compatibility
-        %{
-          name: field_info.name,
-          # Add for backward compatibility - use the actual database field name
-          field: field_info.field || field_info.name,
-          type: field_info.type,
-          requires_join: field_info.source_join,
-          qualified_name: field_info.qualified_name,
-          alias: field_info.alias
-        }
+    # First check custom columns (preserves ALL properties including group_by_filter)
+    field_str = to_string(field)
 
-      {:error, _} ->
-        # Fallback to legacy field resolution
-        fallback_result = selecto_struct.config.columns[field] || selecto_struct.config.columns[String.to_atom(field)]
+    IO.inspect(field_str, label: "[FIELD DEBUG] Looking for field")
+    IO.inspect(Map.keys(selecto_struct.domain[:custom_columns] || %{}), label: "[FIELD DEBUG] Domain custom columns keys")
 
-        if fallback_result do
-          # Ensure the field property contains the database field name
-          database_field = case Map.get(fallback_result, :field) do
-            atom when is_atom(atom) -> Atom.to_string(atom)
-            string when is_binary(string) -> string
-            nil ->
-              # Extract field name from colid if available, otherwise use the field parameter
-              case Map.get(fallback_result, :colid) do
-                colid when is_binary(colid) ->
-                  case Regex.run(~r/\[([^\]]+)\]$/, colid) do
-                    [_, field_name] -> field_name
-                    nil -> Atom.to_string(field)
-                  end
-                _ -> Atom.to_string(field)
-              end
+    # Check both domain and config for custom columns
+    # Try multiple possible field formats
+    custom_col = get_in(selecto_struct.domain, [:custom_columns, field_str]) ||
+                 get_in(selecto_struct.domain, [:custom_columns, to_string(field)]) ||
+                 # Also try with underscores if field contains them
+                 (if String.contains?(field_str, "_") do
+                   # Try camelCase version
+                   camel = field_str |> String.split("_") |> Enum.map(&String.capitalize/1) |> Enum.join("")
+                   snake_case = String.downcase(camel, :ascii) |> String.replace(~r/([A-Z])/, "_\\1") |> String.trim_leading("_")
+                   get_in(selecto_struct.domain, [:custom_columns, camel]) ||
+                   get_in(selecto_struct.domain, [:custom_columns, snake_case])
+                 end) ||
+                 get_in(selecto_struct.config, [:domain_data, :custom_columns, field_str]) ||
+                 get_in(selecto_struct.config, [:custom_columns, field_str])
+
+    IO.inspect(custom_col, label: "[FIELD DEBUG] Found custom column")
+
+    if custom_col do
+      # Return the full custom column definition with all properties intact
+      custom_col
+    else
+      # Try enhanced field resolution for regular fields
+      case Selecto.FieldResolver.resolve_field(selecto_struct, field) do
+        {:ok, field_info} ->
+          # Return complete field info with compatibility mappings
+          field_info
+          |> Map.put(:requires_join, field_info[:source_join])
+          |> Map.put(:field, field_info[:field] || field_info[:name])
+
+        {:error, _} ->
+          # Fallback to config columns
+          fallback_result = selecto_struct.config.columns[field] || selecto_struct.config.columns[String.to_atom(field)]
+
+          if fallback_result do
+            # Ensure the field property contains the database field name
+            database_field = case Map.get(fallback_result, :field) do
+              atom when is_atom(atom) -> Atom.to_string(atom)
+              string when is_binary(string) -> string
+              nil ->
+                # Extract field name from colid if available, otherwise use the field parameter
+                case Map.get(fallback_result, :colid) do
+                  colid when is_binary(colid) ->
+                    case Regex.run(~r/\[([^\]]+)\]$/, colid) do
+                      [_, field_name] -> field_name
+                      nil -> Atom.to_string(field)
+                    end
+                  _ -> Atom.to_string(field)
+                end
+            end
+            Map.put(fallback_result, :field, database_field)
+          else
+            fallback_result
           end
-          Map.put(fallback_result, :field, database_field)
-        else
-          fallback_result
         end
+      end
     end
-  end
 
   @doc """
   Enhanced field resolution with disambiguation and error handling.
