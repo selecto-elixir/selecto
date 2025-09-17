@@ -35,16 +35,24 @@ defmodule Selecto.Executor do
   @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
     start_time = System.monotonic_time(:millisecond)
+    query_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 
     try do
       {query, aliases, params} = Selecto.gen_sql(selecto, opts)
+
+      # Emit telemetry event for query start
+      :telemetry.execute(
+        [:selecto, :query, :start],
+        %{system_time: System.system_time()},
+        %{query_id: query_id, query: query}
+      )
 
       # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
       result = cond do
         # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
         selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
           execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
-        
+
         # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
         is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
           execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
@@ -56,6 +64,24 @@ defmodule Selecto.Executor do
 
       # Track query execution for monitoring (if SelectoDev.QueryMonitor is available)
       duration = System.monotonic_time(:millisecond) - start_time
+
+      # Emit telemetry event for successful query completion
+      :telemetry.execute(
+        [:selecto, :query, :complete],
+        %{
+          duration: duration,
+          execution_time: duration
+        },
+        %{
+          query_id: query_id,
+          query: query,
+          row_count: case result do
+            {:ok, {rows, _, _}} -> length(rows)
+            _ -> 0
+          end
+        }
+      )
+
       track_query_execution(query, duration, result)
 
       # Apply output format transformation if specified
@@ -78,12 +104,36 @@ defmodule Selecto.Executor do
       error ->
         duration = System.monotonic_time(:millisecond) - start_time
         error_result = {:error, Selecto.Error.from_reason(error)}
+
+        # Emit telemetry event for query error
+        :telemetry.execute(
+          [:selecto, :query, :error],
+          %{count: 1},
+          %{
+            query_id: query_id,
+            error: error,
+            duration: duration
+          }
+        )
+
         track_query_execution("Query compilation failed", duration, error_result)
         error_result
     catch
       :exit, reason ->
         duration = System.monotonic_time(:millisecond) - start_time
         error_result = {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
+
+        # Emit telemetry event for connection error
+        :telemetry.execute(
+          [:selecto, :query, :error],
+          %{count: 1},
+          %{
+            query_id: query_id,
+            error: reason,
+            duration: duration
+          }
+        )
+
         track_query_execution("Database connection failed", duration, error_result)
         error_result
     end
