@@ -289,73 +289,29 @@ defmodule Selecto.Builder.Subselect do
 
   @spec resolve_join_condition_with_path(Types.t(), atom(), String.t()) :: {:ok, Types.iodata_with_markers()} | {:error, String.t()}
   def resolve_join_condition_with_path(selecto, target_schema, source_alias) do
-    # Special handling for known Pagila relationships
-    case {selecto.domain.source.source_table, target_schema} do
-      {"actor", :film} ->
-        # Use the known actor -> film_actor -> film relationship
-        build_pagila_actor_film_correlation(selecto, target_schema, source_alias)
+    # Use join path resolution for all cases
+    case Selecto.Subselect.resolve_join_path(selecto, target_schema) do
+      {:ok, []} ->
+        # Direct relationship - build simple correlation
+        build_direct_correlation(selecto, target_schema, source_alias)
 
-      {"film", :film_actors} ->
-        # Use the known film -> film_actor relationship (direct)
-        build_pagila_film_actors_correlation(selecto, target_schema, source_alias)
+      {:ok, [single_schema]} when single_schema == target_schema ->
+        # Single-step direct foreign key relationship
+        build_direct_correlation(selecto, target_schema, source_alias)
 
-      _ ->
-        # General case - use join path resolution
-        case Selecto.Subselect.resolve_join_path(selecto, target_schema) do
-          {:ok, []} ->
-            # Direct relationship - build simple correlation
-            build_direct_correlation(selecto, target_schema, source_alias)
+      {:ok, join_path} ->
+        # Multi-step relationship - build EXISTS condition
+        build_exists_correlation(selecto, target_schema, join_path, source_alias)
 
-          {:ok, [single_schema]} when single_schema == target_schema ->
-            # Single-step direct foreign key relationship
-            build_direct_correlation(selecto, target_schema, source_alias)
-
-          {:ok, join_path} ->
-            # Multi-step relationship - build EXISTS condition
-            build_exists_correlation(selecto, target_schema, join_path, source_alias)
-
-          {:error, reason} ->
-            {:error, "Cannot resolve join condition: #{reason}"}
-        end
+      {:error, reason} ->
+        {:error, "Cannot resolve join condition: #{reason}"}
     end
   end
 
   # Private helper functions
 
-  defp build_pagila_actor_film_correlation(_selecto, target_schema, source_alias) do
-    target_alias = generate_subquery_alias(target_schema)
-
-    # Check if we're in pivot context (source_alias is "t" for target table)
-    if source_alias == "t" do
-      # In pivot context, correlate directly with the main query's target table
-      # Use film_id as the primary key for film table
-      condition = [
-        target_alias, ".film_id = ", source_alias, ".film_id"
-      ]
-
-      {:ok, condition}
-    else
-      # Standard actor-to-film correlation
-      exists_condition = [
-        "EXISTS (SELECT 1 FROM film_actor fa",
-        " WHERE fa.actor_id = ", escape_identifier(source_alias), ".actor_id",
-        " AND fa.film_id = ", escape_identifier(target_alias), ".film_id)"
-      ]
-
-      {:ok, exists_condition}
-    end
-  end
-
-  defp build_pagila_film_actors_correlation(_selecto, target_schema, source_alias) do
-    target_alias = generate_subquery_alias(target_schema)
-
-    # Direct relationship: film -> film_actors via film_id
-    condition = [
-      target_alias, ".", escape_identifier("film_id"), " = ", source_alias, ".", escape_identifier("film_id")
-    ]
-
-    {:ok, condition}
-  end
+  # Removed application-specific correlation functions.
+  # These should be handled by the general join path resolution above.
 
   defp build_direct_correlation(selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
