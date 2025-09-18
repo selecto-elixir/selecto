@@ -66,10 +66,22 @@ defmodule Selecto.Schema.Column do
 
     name = Map.get(config, :name, humanize(field))
 
+    # Add appropriate prefix based on join type
+    display_name = case join do
+      :selecto_root ->
+        # For root table, use the domain name from the configuration
+        "#{Map.get(domain, :name, "Domain")}: #{name}"
+      _ ->
+        # For joined tables, use the join name
+        join_info = Map.get(Map.get(domain, :joins, %{}), join, %{})
+        join_name = Map.get(join_info, :name, humanize(join))
+        "#{join_name}: #{name}"
+    end
+
     base_col = %{
       colid: colid,
       field: field,
-      name: "#{Map.get(domain, :name, "Domain")}: #{name}",
+      name: display_name,
       type: source.columns[field].type,
       requires_join: join,
       format: Map.get(config, :format)
