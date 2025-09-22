@@ -19,6 +19,29 @@ defmodule Selecto.Builder.Sql.Where do
       {:exists, SUBQUERY}
   """
 
+  # Extract the actual database field name from the field reference or configuration
+  defp extract_database_field(field, conf) do
+    case field do
+      # For joined fields like "category.updated_at"
+      field_str when is_binary(field_str) ->
+        if String.contains?(field_str, ".") do
+          # Extract just the field name from "table.field" format
+          String.split(field_str, ".") |> List.last()
+        else
+          # Use field from conf or fallback to the field string itself
+          Map.get(conf, :field, field_str)
+        end
+
+      # For atom fields
+      field_atom when is_atom(field_atom) ->
+        Map.get(conf, :field, Atom.to_string(field_atom))
+
+      # Default case
+      _ ->
+        Map.get(conf, :field, to_string(field))
+    end
+  end
+
   # Handle CASE expressions in WHERE clause
   def build(selecto, {:case, when_clauses, else_clause}) when is_list(when_clauses) do
     {case_iodata, joins, params} = build_case_expression(selecto, when_clauses, else_clause)
@@ -31,11 +54,13 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(selecto, {field, {:text_search, value}}) do
     conf = Selecto.field(selecto, field)
-    ### Don't think we ever have to cook the field because it has to be the tsvector...
+    # Extract actual field name, not display name
+    field_name = extract_database_field(field, conf)
+
     {conf.requires_join,
      [
        " ",
-       build_selector_string(selecto, conf.requires_join, conf.name),
+       build_selector_string(selecto, conf.requires_join, field_name),
        " @@ websearch_to_tsquery(",
        {:param, value},
        ") "
@@ -113,11 +138,13 @@ defmodule Selecto.Builder.Sql.Where do
   # Handle :between with list format [{min, max}]
   def build(selecto, {field, {:between, [min, max]}}) do
     conf = Selecto.field(selecto, field)
+    # Extract actual field name, not display name
+    field_name = extract_database_field(field, conf)
 
     {conf.requires_join,
      [
        " ",
-       build_selector_string(selecto, conf.requires_join, conf.name),
+       build_selector_string(selecto, conf.requires_join, field_name),
        " between ",
        {:param, to_type(conf.type, min)},
        " and ",
@@ -129,11 +156,13 @@ defmodule Selecto.Builder.Sql.Where do
   # Handle :between with separate min, max parameters
   def build(selecto, {field, {:between, min, max}}) do
     conf = Selecto.field(selecto, field)
+    # Extract actual field name, not display name
+    field_name = extract_database_field(field, conf)
 
     {conf.requires_join,
      [
        " ",
-       build_selector_string(selecto, conf.requires_join, conf.name),
+       build_selector_string(selecto, conf.requires_join, field_name),
        " between ",
        {:param, to_type(conf.type, min)},
        " and ",
