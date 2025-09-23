@@ -136,39 +136,75 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   # Handle :between with list format [{min, max}]
+  # For datetime types, use >= start AND < end for better boundary handling
   def build(selecto, {field, {:between, [min, max]}}) do
     conf = Selecto.field(selecto, field)
     # Extract actual field name, not display name
     field_name = extract_database_field(field, conf)
 
-    {conf.requires_join,
-     [
-       " ",
-       build_selector_string(selecto, conf.requires_join, field_name),
-       " between ",
-       {:param, to_type(conf.type, min)},
-       " and ",
-       {:param, to_type(conf.type, max)},
-       " "
-     ], []}
+    # Use half-open interval for datetime types to avoid precision issues
+    if conf.type in [:date, :naive_datetime, :utc_datetime, :datetime] do
+      {conf.requires_join,
+       [
+         " (",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " >= ",
+         {:param, to_type(conf.type, min)},
+         " and ",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " < ",
+         {:param, to_type(conf.type, max)},
+         ") "
+       ], []}
+    else
+      # Use standard BETWEEN for non-datetime types
+      {conf.requires_join,
+       [
+         " ",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " between ",
+         {:param, to_type(conf.type, min)},
+         " and ",
+         {:param, to_type(conf.type, max)},
+         " "
+       ], []}
+    end
   end
   
   # Handle :between with separate min, max parameters
+  # For datetime types, use >= start AND < end for better boundary handling
   def build(selecto, {field, {:between, min, max}}) do
     conf = Selecto.field(selecto, field)
     # Extract actual field name, not display name
     field_name = extract_database_field(field, conf)
 
-    {conf.requires_join,
-     [
-       " ",
-       build_selector_string(selecto, conf.requires_join, field_name),
-       " between ",
-       {:param, to_type(conf.type, min)},
-       " and ",
-       {:param, to_type(conf.type, max)},
-       " "
-     ], []}
+    # Use half-open interval for datetime types to avoid precision issues
+    if conf.type in [:date, :naive_datetime, :utc_datetime, :datetime] do
+      {conf.requires_join,
+       [
+         " (",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " >= ",
+         {:param, to_type(conf.type, min)},
+         " and ",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " < ",
+         {:param, to_type(conf.type, max)},
+         ") "
+       ], []}
+    else
+      # Use standard BETWEEN for non-datetime types
+      {conf.requires_join,
+       [
+         " ",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " between ",
+         {:param, to_type(conf.type, min)},
+         " and ",
+         {:param, to_type(conf.type, max)},
+         " "
+       ], []}
+    end
   end
 
   def build(selecto, {field, {comp, value}}) when comp in [:like, :ilike] do
