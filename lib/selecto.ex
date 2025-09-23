@@ -505,6 +505,40 @@ defmodule Selecto do
   """
   #  @spec filter(t(), [filter()]) :: t()
   def filter(selecto, filters) when is_list(filters) do
+    # Check for bucket_ranges in filters and log stack trace if found
+    Enum.each(filters, fn filter ->
+      if is_binary(filter) && String.match?(filter, ~r/^\d+(,\d+)*(-\d+)*(,\d+\+)?$|^\d+\+$/) do
+        require Logger
+
+        # Get stack trace
+        stack = Process.info(self(), :current_stacktrace) |> elem(1)
+
+        # Format first few stack frames
+        stack_info = stack
+        |> Enum.take(10)
+        |> Enum.map(fn
+          {module, function, arity, location} when is_list(location) ->
+            file = Keyword.get(location, :file, "unknown")
+            line = Keyword.get(location, :line, 0)
+            "  #{inspect(module)}.#{function}/#{arity} at #{file}:#{line}"
+          {module, function, arity, _} ->
+            "  #{inspect(module)}.#{function}/#{arity}"
+        end)
+        |> Enum.join("\n")
+
+        Logger.error("""
+        BUCKET_RANGES DETECTED IN FILTER!
+        Filter value: #{inspect(filter)}
+        All filters: #{inspect(filters)}
+
+        Stack trace:
+        #{stack_info}
+
+        This should not happen - bucket_ranges should be handled by aggregate processing.
+        """)
+      end
+    end)
+
     # Track whether this filter is applied before or after pivot
     has_pivot = Selecto.Pivot.has_pivot?(selecto)
     pivot_config = Selecto.Pivot.get_pivot_config(selecto)

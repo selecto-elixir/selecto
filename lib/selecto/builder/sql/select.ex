@@ -512,6 +512,70 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
+  # Handle count_age_bucket_other BEFORE the generic 3-element tuple handler
+  # The third element is bucket_ranges configuration, not a filter
+  def prep_selector(selecto, {:count_age_bucket_other, field, bucket_ranges}, pivot_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+
+    # Parse ranges to build the "Other" condition
+    ranges = parse_bucket_ranges_simple(bucket_ranges)
+
+    conditions = Enum.map(ranges, fn
+      {min, max, _} when is_integer(min) and is_integer(max) ->
+        if min == max do
+          ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) != ", Integer.to_string(min)]
+        else
+          ["NOT (EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) >= ", Integer.to_string(min),
+           " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) <= ", Integer.to_string(max), ")"]
+        end
+      {min, :infinity, _} ->
+        ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) < ", Integer.to_string(min)]
+      {:negative_infinity, max, _} ->
+        ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) > ", Integer.to_string(max)]
+      _ -> nil
+    end) |> Enum.reject(&is_nil/1)
+
+    case_sql = if Enum.empty?(conditions) do
+      ["COUNT(*)"]
+    else
+      ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
+    end
+
+    {case_sql, join, param}
+  end
+
+  # Handle count_bucket_other BEFORE the generic 3-element tuple handler
+  # The third element is bucket_ranges configuration, not a filter
+  def prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}, pivot_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+
+    # Parse ranges to build the "Other" condition
+    ranges = parse_bucket_ranges_simple(bucket_ranges)
+
+    conditions = Enum.map(ranges, fn
+      {min, max, _} when is_integer(min) and is_integer(max) ->
+        if min == max do
+          [field_iodata, " != ", Integer.to_string(min)]
+        else
+          ["NOT (", field_iodata, " >= ", Integer.to_string(min),
+           " AND ", field_iodata, " <= ", Integer.to_string(max), ")"]
+        end
+      {min, :infinity, _} ->
+        [field_iodata, " < ", Integer.to_string(min)]
+      {:negative_infinity, max, _} ->
+        [field_iodata, " > ", Integer.to_string(max)]
+      _ -> nil
+    end) |> Enum.reject(&is_nil/1)
+
+    case_sql = if Enum.empty?(conditions) do
+      ["COUNT(*)"]
+    else
+      ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
+    end
+
+    {case_sql, join, param}
+  end
+
   def prep_selector(selecto, {func, field, filter}, pivot_aliases) when is_atom(func) do
     {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
 
@@ -582,36 +646,8 @@ defmodule Selecto.Builder.Sql.Select do
     {case_sql, join, param}
   end
 
-  # Handle count_age_bucket_other for the "Other" bucket
-  def prep_selector(selecto, {:count_age_bucket_other, field, bucket_ranges}, pivot_aliases) do
-    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
-
-    # Parse ranges to build the "Other" condition
-    ranges = parse_bucket_ranges_simple(bucket_ranges)
-
-    conditions = Enum.map(ranges, fn
-      {min, max, _} when is_integer(min) and is_integer(max) ->
-        if min == max do
-          ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) != ", Integer.to_string(min)]
-        else
-          ["NOT (EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) >= ", Integer.to_string(min),
-           " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) <= ", Integer.to_string(max), ")"]
-        end
-      {min, :infinity, _} ->
-        ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) < ", Integer.to_string(min)]
-      {:negative_infinity, max, _} ->
-        ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) > ", Integer.to_string(max)]
-      _ -> nil
-    end) |> Enum.reject(&is_nil/1)
-
-    case_sql = if Enum.empty?(conditions) do
-      ["COUNT(*)"]
-    else
-      ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
-    end
-
-    {case_sql, join, param}
-  end
+  # DUPLICATE REMOVED - This handler is now placed BEFORE the generic 3-element tuple handler
+  # to ensure it matches before the generic handler tries to treat bucket_ranges as a filter
 
   # Handle count_bucket for numeric buckets
   def prep_selector(selecto, {:count_bucket, field, min, max}, pivot_aliases) do
@@ -635,36 +671,8 @@ defmodule Selecto.Builder.Sql.Select do
     {case_sql, join, param}
   end
 
-  # Handle count_bucket_other for the "Other" numeric bucket
-  def prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}, pivot_aliases) do
-    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
-
-    # Parse ranges to build the "Other" condition
-    ranges = parse_bucket_ranges_simple(bucket_ranges)
-
-    conditions = Enum.map(ranges, fn
-      {min, max, _} when is_integer(min) and is_integer(max) ->
-        if min == max do
-          [field_iodata, " != ", Integer.to_string(min)]
-        else
-          ["NOT (", field_iodata, " >= ", Integer.to_string(min),
-           " AND ", field_iodata, " <= ", Integer.to_string(max), ")"]
-        end
-      {min, :infinity, _} ->
-        [field_iodata, " < ", Integer.to_string(min)]
-      {:negative_infinity, max, _} ->
-        [field_iodata, " > ", Integer.to_string(max)]
-      _ -> nil
-    end) |> Enum.reject(&is_nil/1)
-
-    case_sql = if Enum.empty?(conditions) do
-      ["COUNT(*)"]
-    else
-      ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
-    end
-
-    {case_sql, join, param}
-  end
+  # DUPLICATE REMOVED - This handler is now placed BEFORE the generic 3-element tuple handler
+  # to ensure it matches before the generic handler tries to treat bucket_ranges as a filter
 
   def prep_selector(selecto, {func, selector}, pivot_aliases) when is_atom(func) do
     {sel_iodata, join, param} = prep_selector(selecto, selector, pivot_aliases)
