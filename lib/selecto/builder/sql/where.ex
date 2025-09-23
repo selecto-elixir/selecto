@@ -324,8 +324,10 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
   end
 
-  def build(_sel, _other) do
-    raise "Not Found"
+  def build(_sel, other) do
+    require Logger
+    Logger.error("WHERE builder received unrecognized filter structure: #{inspect(other, pretty: true)}")
+    raise "WHERE clause builder error: Unrecognized filter structure #{inspect(other)}. This usually means an aggregate or filter configuration is generating an invalid filter format."
   end
   
   # Build CASE expression for WHERE clause

@@ -204,6 +204,27 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, {:to_char, {field, format}}, %{})
   end
 
+  def prep_selector(_selecto, {:raw_sql, sql}) when is_binary(sql) do
+    prep_selector(_selecto, {:raw_sql, sql}, %{})
+  end
+
+  # Add 2-argument versions for bucket aggregate types
+  def prep_selector(selecto, {:count_age_bucket, field, min, max}) do
+    prep_selector(selecto, {:count_age_bucket, field, min, max}, %{})
+  end
+
+  def prep_selector(selecto, {:count_age_bucket_other, field, bucket_ranges}) do
+    prep_selector(selecto, {:count_age_bucket_other, field, bucket_ranges}, %{})
+  end
+
+  def prep_selector(selecto, {:count_bucket, field, min, max}) do
+    prep_selector(selecto, {:count_bucket, field, min, max}, %{})
+  end
+
+  def prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}) do
+    prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}, %{})
+  end
+
   def prep_selector(selecto, {:field, selector}) do
     prep_selector(selecto, {:field, selector}, %{})
   end
@@ -533,6 +554,118 @@ defmodule Selecto.Builder.Sql.Select do
     {[func_name, "()"], :selecto_root, []}
   end
 
+  def prep_selector(_selecto, {:raw_sql, sql}, _pivot_aliases) when is_binary(sql) do
+    # For raw SQL, just return it as-is
+    # This is used for bucket CASE expressions
+    {[sql], :selecto_root, []}
+  end
+
+  # Handle count_age_bucket for age-based buckets
+  def prep_selector(selecto, {:count_age_bucket, field, min, max}, pivot_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+
+    case_sql = cond do
+      min == max ->
+        ["COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) = ", Integer.to_string(min), " THEN 1 END)"]
+
+      max == :infinity ->
+        ["COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) >= ", Integer.to_string(min), " THEN 1 END)"]
+
+      min == :negative_infinity ->
+        ["COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) <= ", Integer.to_string(max), " THEN 1 END)"]
+
+      true ->
+        ["COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) >= ", Integer.to_string(min),
+         " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) <= ", Integer.to_string(max), " THEN 1 END)"]
+    end
+
+    {case_sql, join, param}
+  end
+
+  # Handle count_age_bucket_other for the "Other" bucket
+  def prep_selector(selecto, {:count_age_bucket_other, field, bucket_ranges}, pivot_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+
+    # Parse ranges to build the "Other" condition
+    ranges = parse_bucket_ranges_simple(bucket_ranges)
+
+    conditions = Enum.map(ranges, fn
+      {min, max, _} when is_integer(min) and is_integer(max) ->
+        if min == max do
+          ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) != ", Integer.to_string(min)]
+        else
+          ["NOT (EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) >= ", Integer.to_string(min),
+           " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) <= ", Integer.to_string(max), ")"]
+        end
+      {min, :infinity, _} ->
+        ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) < ", Integer.to_string(min)]
+      {:negative_infinity, max, _} ->
+        ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) > ", Integer.to_string(max)]
+      _ -> nil
+    end) |> Enum.reject(&is_nil/1)
+
+    case_sql = if Enum.empty?(conditions) do
+      ["COUNT(*)"]
+    else
+      ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
+    end
+
+    {case_sql, join, param}
+  end
+
+  # Handle count_bucket for numeric buckets
+  def prep_selector(selecto, {:count_bucket, field, min, max}, pivot_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+
+    case_sql = cond do
+      min == max ->
+        ["COUNT(CASE WHEN ", field_iodata, " = ", Integer.to_string(min), " THEN 1 END)"]
+
+      max == :infinity ->
+        ["COUNT(CASE WHEN ", field_iodata, " >= ", Integer.to_string(min), " THEN 1 END)"]
+
+      min == :negative_infinity ->
+        ["COUNT(CASE WHEN ", field_iodata, " <= ", Integer.to_string(max), " THEN 1 END)"]
+
+      true ->
+        ["COUNT(CASE WHEN ", field_iodata, " >= ", Integer.to_string(min),
+         " AND ", field_iodata, " <= ", Integer.to_string(max), " THEN 1 END)"]
+    end
+
+    {case_sql, join, param}
+  end
+
+  # Handle count_bucket_other for the "Other" numeric bucket
+  def prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}, pivot_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+
+    # Parse ranges to build the "Other" condition
+    ranges = parse_bucket_ranges_simple(bucket_ranges)
+
+    conditions = Enum.map(ranges, fn
+      {min, max, _} when is_integer(min) and is_integer(max) ->
+        if min == max do
+          [field_iodata, " != ", Integer.to_string(min)]
+        else
+          ["NOT (", field_iodata, " >= ", Integer.to_string(min),
+           " AND ", field_iodata, " <= ", Integer.to_string(max), ")"]
+        end
+      {min, :infinity, _} ->
+        [field_iodata, " < ", Integer.to_string(min)]
+      {:negative_infinity, max, _} ->
+        [field_iodata, " > ", Integer.to_string(max)]
+      _ -> nil
+    end) |> Enum.reject(&is_nil/1)
+
+    case_sql = if Enum.empty?(conditions) do
+      ["COUNT(*)"]
+    else
+      ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
+    end
+
+    {case_sql, join, param}
+  end
+
   def prep_selector(selecto, {func, selector}, pivot_aliases) when is_atom(func) do
     {sel_iodata, join, param} = prep_selector(selecto, selector, pivot_aliases)
     func_name = Atom.to_string(func) |> check_string()
@@ -739,6 +872,46 @@ defmodule Selecto.Builder.Sql.Select do
     cond do
       String.contains?(field_ref, ".") -> field_ref
       true -> "selecto_root.#{field_ref}"
+    end
+  end
+
+  # Simple bucket range parser for use in SQL generation
+  defp parse_bucket_ranges_simple(ranges_string) when is_binary(ranges_string) do
+    ranges_string
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&parse_single_range_simple/1)
+    |> Enum.reject(&is_nil/1)
+  end
+  defp parse_bucket_ranges_simple(_), do: []
+
+  defp parse_single_range_simple(range) do
+    cond do
+      # Single value like "1"
+      String.match?(range, ~r/^\d+$/) ->
+        val = String.to_integer(range)
+        {val, val, "#{val}"}
+
+      # Range like "2-5"
+      String.match?(range, ~r/^\d+-\d+$/) ->
+        [min_str, max_str] = String.split(range, "-")
+        min = String.to_integer(min_str)
+        max = String.to_integer(max_str)
+        {min, max, "#{min}-#{max}"}
+
+      # Open-ended range like "15+"
+      String.match?(range, ~r/^\d+\+$/) ->
+        min = range |> String.replace("+", "") |> String.to_integer()
+        {min, :infinity, "#{min}+"}
+
+      # Open-ended range like "-5" (up to 5)
+      String.match?(range, ~r/^-\d+$/) ->
+        max = range |> String.replace("-", "") |> String.to_integer()
+        {:negative_infinity, max, "≤#{max}"}
+
+      true ->
+        nil
     end
   end
 end
