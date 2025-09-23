@@ -72,6 +72,22 @@ defmodule Selecto.Helpers.Date do
     start = Timex.now() |> Timex.shift(months: -1) |> Timex.beginning_of_month()
     {start, Timex.end_of_month(start)}
   end
+  def val_to_dates(%{"value" => "this_year", "value2" => ""}) do
+    start = Timex.now() |> Timex.beginning_of_year()
+    {start, Timex.end_of_year(start)}
+  end
+  def val_to_dates(%{"value" => "last_year", "value2" => ""}) do
+    start = Timex.now() |> Timex.shift(years: -1) |> Timex.beginning_of_year()
+    {start, Timex.end_of_year(start)}
+  end
+  def val_to_dates(%{"value" => "this_quarter", "value2" => ""}) do
+    start = Timex.now() |> Timex.beginning_of_quarter()
+    {start, Timex.end_of_quarter(start)}
+  end
+  def val_to_dates(%{"value" => "last_quarter", "value2" => ""}) do
+    start = Timex.now() |> Timex.shift(months: -3) |> Timex.beginning_of_quarter()
+    {start, Timex.end_of_quarter(start)}
+  end
 
   def val_to_dates(%{"value" => v1, "value2" => ""}) do
     Regex.named_captures(~r/(?<year>\d{4})-?(?<month>\d{2})?-?(?<day>\d{2})?/, v1) |> expand_date()
