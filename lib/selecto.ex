@@ -375,46 +375,64 @@ defmodule Selecto do
 
   #  @spec field(t(), field_name()) :: %{required(:name) => String.t()} | nil
   def field(selecto_struct, field) do
-    # Try enhanced field resolution first
-    case Selecto.FieldResolver.resolve_field(selecto_struct, field) do
-      {:ok, field_info} ->
-        # Convert field_info to legacy format for backward compatibility
-        %{
-          name: field_info.name,
-          # Add for backward compatibility - use the actual database field name
-          field: field_info.field || field_info.name,
-          type: field_info.type,
-          requires_join: field_info.source_join,
-          qualified_name: field_info.qualified_name,
-          alias: field_info.alias
-        }
+    # First check custom columns (preserves ALL properties including group_by_filter)
+    field_str = to_string(field)
 
-      {:error, _} ->
-        # Fallback to legacy field resolution
-        fallback_result = selecto_struct.config.columns[field] || selecto_struct.config.columns[String.to_atom(field)]
 
-        if fallback_result do
-          # Ensure the field property contains the database field name
-          database_field = case Map.get(fallback_result, :field) do
-            atom when is_atom(atom) -> Atom.to_string(atom)
-            string when is_binary(string) -> string
-            nil ->
-              # Extract field name from colid if available, otherwise use the field parameter
-              case Map.get(fallback_result, :colid) do
-                colid when is_binary(colid) ->
-                  case Regex.run(~r/\[([^\]]+)\]$/, colid) do
-                    [_, field_name] -> field_name
-                    nil -> Atom.to_string(field)
-                  end
-                _ -> Atom.to_string(field)
-              end
+    # Check both domain and config for custom columns
+    # Try multiple possible field formats
+    custom_col = get_in(selecto_struct.domain, [:custom_columns, field_str]) ||
+                 get_in(selecto_struct.domain, [:custom_columns, to_string(field)]) ||
+                 # Also try with underscores if field contains them
+                 (if String.contains?(field_str, "_") do
+                   # Try camelCase version
+                   camel = field_str |> String.split("_") |> Enum.map(&String.capitalize/1) |> Enum.join("")
+                   snake_case = String.downcase(camel, :ascii) |> String.replace(~r/([A-Z])/, "_\\1") |> String.trim_leading("_")
+                   get_in(selecto_struct.domain, [:custom_columns, camel]) ||
+                   get_in(selecto_struct.domain, [:custom_columns, snake_case])
+                 end) ||
+                 get_in(selecto_struct.config, [:domain_data, :custom_columns, field_str]) ||
+                 get_in(selecto_struct.config, [:custom_columns, field_str])
+
+    if custom_col do
+      # Return the full custom column definition with all properties intact
+      custom_col
+    else
+      # Try enhanced field resolution for regular fields
+      case Selecto.FieldResolver.resolve_field(selecto_struct, field) do
+        {:ok, field_info} ->
+          # Return complete field info with compatibility mappings
+          field_info
+          |> Map.put(:requires_join, field_info[:source_join])
+          |> Map.put(:field, field_info[:field] || field_info[:name])
+
+        {:error, _} ->
+          # Fallback to config columns
+          fallback_result = selecto_struct.config.columns[field] || selecto_struct.config.columns[String.to_atom(field)]
+
+          if fallback_result do
+            # Ensure the field property contains the database field name
+            database_field = case Map.get(fallback_result, :field) do
+              atom when is_atom(atom) -> Atom.to_string(atom)
+              string when is_binary(string) -> string
+              nil ->
+                # Extract field name from colid if available, otherwise use the field parameter
+                case Map.get(fallback_result, :colid) do
+                  colid when is_binary(colid) ->
+                    case Regex.run(~r/\[([^\]]+)\]$/, colid) do
+                      [_, field_name] -> field_name
+                      nil -> Atom.to_string(field)
+                    end
+                  _ -> Atom.to_string(field)
+                end
+            end
+            Map.put(fallback_result, :field, database_field)
+          else
+            fallback_result
           end
-          Map.put(fallback_result, :field, database_field)
-        else
-          fallback_result
         end
+      end
     end
-  end
 
   @doc """
   Enhanced field resolution with disambiguation and error handling.
@@ -487,6 +505,40 @@ defmodule Selecto do
   """
   #  @spec filter(t(), [filter()]) :: t()
   def filter(selecto, filters) when is_list(filters) do
+    # Check for bucket_ranges in filters and log stack trace if found
+    Enum.each(filters, fn filter ->
+      if is_binary(filter) && String.match?(filter, ~r/^\d+(,\d+)*(-\d+)*(,\d+\+)?$|^\d+\+$/) do
+        require Logger
+
+        # Get stack trace
+        stack = Process.info(self(), :current_stacktrace) |> elem(1)
+
+        # Format first few stack frames
+        stack_info = stack
+        |> Enum.take(10)
+        |> Enum.map(fn
+          {module, function, arity, location} when is_list(location) ->
+            file = Keyword.get(location, :file, "unknown")
+            line = Keyword.get(location, :line, 0)
+            "  #{inspect(module)}.#{function}/#{arity} at #{file}:#{line}"
+          {module, function, arity, _} ->
+            "  #{inspect(module)}.#{function}/#{arity}"
+        end)
+        |> Enum.join("\n")
+
+        Logger.error("""
+        BUCKET_RANGES DETECTED IN FILTER!
+        Filter value: #{inspect(filter)}
+        All filters: #{inspect(filters)}
+
+        Stack trace:
+        #{stack_info}
+
+        This should not happen - bucket_ranges should be handled by aggregate processing.
+        """)
+      end
+    end)
+
     # Track whether this filter is applied before or after pivot
     has_pivot = Selecto.Pivot.has_pivot?(selecto)
     pivot_config = Selecto.Pivot.get_pivot_config(selecto)
@@ -542,12 +594,12 @@ defmodule Selecto do
 
   @doc """
   Limit the number of rows returned by the query.
-  
+
   ## Examples
-  
+
       # Limit to 10 rows
       selecto |> Selecto.limit(10)
-      
+
       # Limit with offset for pagination
       selecto |> Selecto.limit(10) |> Selecto.offset(20)
   """
@@ -557,12 +609,12 @@ defmodule Selecto do
 
   @doc """
   Set the offset for the query results.
-  
+
   ## Examples
-  
+
       # Skip first 20 rows
       selecto |> Selecto.offset(20)
-      
+
       # Pagination: page 3 with 10 items per page
       selecto |> Selecto.limit(10) |> Selecto.offset(20)
   """
@@ -635,12 +687,12 @@ defmodule Selecto do
     # Support both old and new query generation approaches
     # Default to PostgreSQL if adapter is not specified
     _adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
-    
+
     # For now, always use the existing SQL builder for all adapters
     # The QueryGenerator is incomplete and shouldn't be used yet
     # use_new = Keyword.get(opts, :use_new_generator, false)
     use_new = Keyword.get(opts, :use_new_generator, false)
-    
+
     if use_new do
       Selecto.QueryGenerator.generate_sql(selecto, opts)
     else
@@ -671,6 +723,42 @@ defmodule Selecto do
   def execute(selecto, opts \\ []) do
     # Delegate to the extracted Executor module
     Selecto.Executor.execute(selecto, opts)
+  end
+
+  @doc """
+  Execute a query and return results with metadata including SQL, params, and execution time.
+
+  ## Parameters
+
+  - `selecto` - The Selecto struct containing connection and query info
+  - `opts` - Execution options
+
+  ## Returns
+
+  - `{:ok, result, metadata}` - Successful execution with results and metadata
+  - `{:error, error}` - Execution failure with detailed error
+
+  The metadata map includes:
+  - `:sql` - The generated SQL query string
+  - `:params` - The query parameters
+  - `:execution_time` - Query execution time in milliseconds
+
+  ## Examples
+
+      case Selecto.execute_with_metadata(selecto) do
+        {:ok, {rows, columns, aliases}, _metadata} ->
+          # Process successful results with metadata
+          handle_results(rows, columns, aliases)
+        {:error, error} ->
+          # Handle database error
+          Logger.error("Query failed: \#{inspect(error)}")
+      end
+  """
+  @spec execute_with_metadata(Selecto.Types.t(), Selecto.Types.execute_options()) ::
+    {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
+  def execute_with_metadata(selecto, opts \\ []) do
+    # Delegate to the extracted Executor module
+    Selecto.Executor.execute_with_metadata(selecto, opts)
   end
 
   @doc """
@@ -718,17 +806,17 @@ defmodule Selecto do
   ## Examples
 
       # Add row numbers within each category
-      selecto |> Selecto.window_function(:row_number, 
+      selecto |> Selecto.window_function(:row_number,
         over: [partition_by: ["category"], order_by: ["created_at"]])
 
       # Calculate running total
-      selecto |> Selecto.window_function(:sum, ["amount"], 
-        over: [partition_by: ["user_id"], order_by: ["date"]], 
+      selecto |> Selecto.window_function(:sum, ["amount"],
+        over: [partition_by: ["user_id"], order_by: ["date"]],
         as: "running_total")
 
       # Get previous value for comparison
-      selecto |> Selecto.window_function(:lag, ["amount", 1], 
-        over: [partition_by: ["user_id"], order_by: ["date"]], 
+      selecto |> Selecto.window_function(:lag, ["amount", 1],
+        over: [partition_by: ["user_id"], order_by: ["date"]],
         as: "prev_amount")
   """
   def window_function(selecto, function, arguments \\ [], options) do
@@ -737,40 +825,40 @@ defmodule Selecto do
 
   @doc """
   Add an UNNEST operation to expand array columns into rows.
-  
+
   UNNEST transforms array values into a set of rows, one for each array element.
   Can optionally include ordinality to track position in the array.
-  
+
   ## Examples
-  
+
       # Basic unnest
       selecto |> Selecto.unnest("tags", as: "tag")
-      
+
       # Unnest with ordinality (includes position)
       selecto |> Selecto.unnest("tags", as: "tag", ordinality: "tag_position")
-      
+
       # Multiple unnests (will be cross-joined)
-      selecto 
+      selecto
       |> Selecto.unnest("tags", as: "tag")
       |> Selecto.unnest("categories", as: "category")
   """
   def unnest(selecto, array_field, opts \\ []) do
     alias_name = Keyword.get(opts, :as, "unnested_#{array_field}")
     ordinality = Keyword.get(opts, :ordinality)
-    
+
     unnest_spec = %{
       field: array_field,
       alias: alias_name,
       ordinality: ordinality
     }
-    
+
     current_unnests = Map.get(selecto.set, :unnest, [])
     updated_selecto = put_in(selecto.set[:unnest], current_unnests ++ [unnest_spec])
-    
+
     # Register the unnested field in the configuration
     # This allows it to be selected and used in GROUP BY
     current_columns = Map.get(updated_selecto.config, :columns, %{})
-    
+
     # Add the unnested field as a column
     unnested_column = %{
       name: alias_name,
@@ -778,7 +866,7 @@ defmodule Selecto do
       requires_join: nil,
       type: :text  # Default type for unnested array elements
     }
-    
+
     # Also add ordinality column if requested
     columns_to_add = if ordinality do
       %{
@@ -793,7 +881,7 @@ defmodule Selecto do
     else
       %{alias_name => unnested_column}
     end
-    
+
     put_in(updated_selecto.config[:columns], Map.merge(current_columns, columns_to_add))
   end
 
@@ -802,28 +890,28 @@ defmodule Selecto do
   # The consolidated version below now handles both parameter formats
 
   # DUPLICATE REMOVED - Consolidated with the version below that uses Advanced.LateralJoin
-  # This version accepted (selecto, lateral_source, opts) 
+  # This version accepted (selecto, lateral_source, opts)
   # The consolidated version below now handles both parameter formats
 
   @doc """
   Create a UNION set operation between two queries.
-  
+
   Combines results from multiple queries using UNION or UNION ALL.
   All queries must have compatible column counts and types.
-  
+
   ## Options
-  
-  - `:all` - Use UNION ALL to include duplicates (default: false)  
+
+  - `:all` - Use UNION ALL to include duplicates (default: false)
   - `:column_mapping` - Map columns between incompatible schemas
-  
+
   ## Examples
-  
+
       # Basic UNION (removes duplicates)
       query1 |> Selecto.union(query2)
-      
+
       # UNION ALL (includes duplicates, faster)
       query1 |> Selecto.union(query2, all: true)
-      
+
       # UNION with column mapping
       customers |> Selecto.union(vendors,
         column_mapping: [
@@ -838,19 +926,19 @@ defmodule Selecto do
 
   @doc """
   Create an INTERSECT set operation between two queries.
-  
+
   Returns only rows that appear in both queries.
-  
+
   ## Options
-  
+
   - `:all` - Use INTERSECT ALL to include duplicate intersections (default: false)
   - `:column_mapping` - Map columns between incompatible schemas
-  
+
   ## Examples
-  
+
       # Find users who are both active and premium
       active_users |> Selecto.intersect(premium_users)
-      
+
       # Include duplicate intersections
       query1 |> Selecto.intersect(query2, all: true)
   """
@@ -860,41 +948,41 @@ defmodule Selecto do
 
   @doc """
   Create an EXCEPT set operation between two queries.
-  
+
   Returns rows from the first query that don't appear in the second query.
-  
+
   ## Options
-  
+
   - `:all` - Use EXCEPT ALL to include duplicates in difference (default: false)
   - `:column_mapping` - Map columns between incompatible schemas
-  
+
   ## Examples
-  
+
       # Find free users (all users except premium)
       all_users |> Selecto.except(premium_users)
-      
+
       # Include duplicates in difference
       query1 |> Selecto.except(query2, all: true)
-  """  
+  """
   def except(left_query, right_query, opts \\ []) do
     Selecto.SetOperations.except(left_query, right_query, opts)
   end
-  
+
   @doc """
   Add a LATERAL join to the query.
-  
+
   LATERAL joins allow the right side of the join to reference columns from the
   left side, enabling powerful correlated subquery patterns.
-  
+
   ## Parameters
-  
+
   - `join_type` - Type of join (:left, :inner, :right, :full)
   - `subquery_builder_or_function` - Function that builds correlated subquery or table function tuple
   - `alias_name` - Alias for the LATERAL join results
   - `opts` - Additional options
-  
+
   ## Examples
-  
+
       # LATERAL join with correlated subquery
       selecto
       |> Selecto.lateral_join(
@@ -907,7 +995,7 @@ defmodule Selecto do
         end,
         "recent_rentals"
       )
-      
+
       # LATERAL join with table function
       selecto
       |> Selecto.lateral_join(
@@ -915,7 +1003,7 @@ defmodule Selecto do
         {:unnest, "film.special_features"},
         "features"
       )
-      
+
       # LATERAL join with generate_series
       selecto
       |> Selecto.lateral_join(
@@ -929,20 +1017,20 @@ defmodule Selecto do
   # 2. (selecto, join_type, subquery_builder_or_function, alias_name, opts)
   def lateral_join(selecto, arg2, arg3 \\ [], arg4 \\ nil, arg5 \\ []) do
     # Determine which parameter format is being used
-    {join_type, subquery_builder_or_function, alias_name, opts} = 
+    {join_type, subquery_builder_or_function, alias_name, opts} =
       case {arg2, arg3, arg4, arg5} do
         # Format 1: (selecto, lateral_source, opts)
         {lateral_source, opts, nil, []} when is_list(opts) ->
           alias_name = Keyword.fetch!(opts, :as)
           join_type = Keyword.get(opts, :type, :left)
           {join_type, lateral_source, alias_name, opts}
-          
+
         # Format 2: (selecto, join_type, subquery_builder_or_function, alias_name, opts)
         {join_type, subquery_builder_or_function, alias_name, opts} ->
           {join_type, subquery_builder_or_function, alias_name, opts}
       end
     # Handle different lateral source types
-    lateral_spec = 
+    lateral_spec =
       case subquery_builder_or_function do
         # Handle inline spec format from old version
         {:function, func_name, args, returns: returns} ->
@@ -954,26 +1042,26 @@ defmodule Selecto do
             alias: alias_name,
             join_type: join_type
           }
-          
+
         # For other cases, use Advanced.LateralJoin
         _ ->
           Selecto.Advanced.LateralJoin.create_lateral_join(
-            join_type, 
-            subquery_builder_or_function, 
-            alias_name, 
+            join_type,
+            subquery_builder_or_function,
+            alias_name,
             opts
           )
       end
-    
+
     # Validate correlations
     case Selecto.Advanced.LateralJoin.validate_correlations(lateral_spec, selecto) do
       {:ok, validated_spec} ->
         # Add to selecto set
         current_lateral_joins = Map.get(selecto.set, :lateral_joins, [])
         updated_lateral_joins = current_lateral_joins ++ [validated_spec]
-        
+
         put_in(selecto.set[:lateral_joins], updated_lateral_joins)
-        
+
       {:error, correlation_error} ->
         raise correlation_error
     end
@@ -981,29 +1069,29 @@ defmodule Selecto do
 
   @doc """
   Add a VALUES clause to create an inline table from literal data.
-  
+
   VALUES clauses allow creating inline tables from literal values, useful for
   data transformations, lookup tables, and testing scenarios.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto struct
   - `data` - List of data rows (lists or maps)
   - `opts` - Options including `:columns` (explicit column names) and `:as` (table alias)
-  
+
   ## Examples
-  
+
       # Basic VALUES table with explicit columns
       selecto
       |> Selecto.with_values([
           ["PG", "Family Friendly", 1],
           ["PG-13", "Teen", 2],
           ["R", "Adult", 3]
-        ], 
+        ],
         columns: ["rating_code", "description", "sort_order"],
         as: "rating_lookup"
       )
-      
+
       # Map-based VALUES (columns inferred from keys)
       selecto
       |> Selecto.with_values([
@@ -1011,7 +1099,7 @@ defmodule Selecto do
           %{month: 2, name: "February", days: 28},
           %{month: 3, name: "March", days: 31}
         ], as: "months")
-      
+
       # Generated SQL:
       # WITH rating_lookup (rating_code, description, sort_order) AS (
       #   VALUES ('PG', 'Family Friendly', 1),
@@ -1022,34 +1110,34 @@ defmodule Selecto do
   def with_values(selecto, data, opts \\ []) do
     # Create VALUES clause specification
     values_spec = Selecto.Advanced.ValuesClause.create_values_clause(data, opts)
-    
+
     # Add to selecto set
     current_values_clauses = Map.get(selecto.set, :values_clauses, [])
     updated_values_clauses = current_values_clauses ++ [values_spec]
-    
+
     put_in(selecto.set[:values_clauses], updated_values_clauses)
   end
 
   @doc """
   Add JSON operations to SELECT clauses for PostgreSQL JSON/JSONB functionality.
-  
+
   Supports JSON path extraction, aggregation, construction, and manipulation operations.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `json_operations` - List of JSON operation tuples or single operation
   - `opts` - Options (reserved for future use)
-  
+
   ## Examples
-  
+
       # JSON path extraction
       selecto
       |> Selecto.json_select([
           {:json_extract, "metadata", "$.category", as: "category"},
           {:json_extract, "metadata", "$.specs.weight", as: "weight"}
         ])
-      
+
       # JSON aggregation
       selecto
       |> Selecto.json_select([
@@ -1057,175 +1145,175 @@ defmodule Selecto do
           {:json_object_agg, "product_id", "price", as: "price_map"}
         ])
       |> Selecto.group_by(["category"])
-      
+
       # Single JSON operation
       selecto
       |> Selecto.json_select({:json_extract, "data", "$.status", as: "status"})
   """
   def json_select(selecto, json_operations, opts \\ [])
-  
+
   def json_select(selecto, json_operations, _opts) when is_list(json_operations) do
     # Create JSON operation specifications
-    json_specs = 
+    json_specs =
       json_operations
       |> Enum.map(fn
         {operation, column, path_or_opts} when is_binary(path_or_opts) ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path_or_opts)
-        
+
         {operation, column, path, opts} when is_binary(path) ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column, [path: path] ++ opts)
-        
+
         {operation, column, opts} when is_list(opts) ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column, opts)
-          
+
         {operation, column} ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
       end)
-    
+
     # Add to selecto set
     current_json_selects = Map.get(selecto.set, :json_selects, [])
     updated_json_selects = current_json_selects ++ json_specs
-    
+
     put_in(selecto.set[:json_selects], updated_json_selects)
   end
-  
+
   def json_select(selecto, json_operation, opts) do
     json_select(selecto, [json_operation], opts)
   end
 
   @doc """
   Add JSON operations to WHERE clauses for filtering with PostgreSQL JSON/JSONB functionality.
-  
+
   Supports JSON containment, existence, and comparison operations.
-  
+
   ## Parameters
-  
-  - `selecto` - The Selecto instance  
+
+  - `selecto` - The Selecto instance
   - `json_filters` - List of JSON filter tuples or single filter
   - `opts` - Options (reserved for future use)
-  
+
   ## Examples
-  
+
       # JSON containment and existence
       selecto
       |> Selecto.json_filter([
           {:json_contains, "metadata", %{"category" => "electronics"}},
           {:json_path_exists, "metadata", "$.specs.warranty"}
         ])
-      
+
       # JSON path comparison
       selecto
       |> Selecto.json_filter([
           {:json_extract_text, "settings", "$.theme", {:=, "dark"}},
           {:json_extract, "data", "$.priority", {:>, 5}}
         ])
-      
+
       # Single JSON filter
       selecto
       |> Selecto.json_filter({:json_exists, "tags", "electronics"})
   """
   def json_filter(selecto, json_filters, opts \\ [])
-  
+
   def json_filter(selecto, json_filters, _opts) when is_list(json_filters) do
     # Create JSON filter specifications
-    json_specs = 
+    json_specs =
       json_filters
       |> Enum.map(fn
         {operation, column, path_or_value, comparison} when is_binary(path_or_value) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, 
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
             path: path_or_value, comparison: comparison)
-        
+
         {operation, column, value} ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, 
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
             value: value)
-        
+
         {operation, column} ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
       end)
-    
-    # Add to selecto set  
+
+    # Add to selecto set
     current_json_filters = Map.get(selecto.set, :json_filters, [])
     updated_json_filters = current_json_filters ++ json_specs
-    
+
     put_in(selecto.set[:json_filters], updated_json_filters)
   end
-  
+
   def json_filter(selecto, json_filter, opts) do
     json_filter(selecto, [json_filter], opts)
   end
 
   @doc """
   Add JSON operations to ORDER BY clauses for sorting with PostgreSQL JSON/JSONB functionality.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
-  - `json_sorts` - List of JSON sort tuples or single sort  
+  - `json_sorts` - List of JSON sort tuples or single sort
   - `opts` - Options (reserved for future use)
-  
+
   ## Examples
-  
+
       # Sort by JSON path values
       selecto
       |> Selecto.json_order_by([
           {:json_extract, "metadata", "$.priority", :desc},
           {:json_extract_text, "data", "$.created_at", :asc}
         ])
-      
+
       # Single JSON sort
       selecto
       |> Selecto.json_order_by({:json_extract, "settings", "$.sort_order"})
   """
   def json_order_by(selecto, json_sorts, opts \\ [])
-  
+
   def json_order_by(selecto, json_sorts, _opts) when is_list(json_sorts) do
     # Create JSON sort specifications
-    json_specs = 
+    json_specs =
       json_sorts
       |> Enum.map(fn
         {operation, column, path, direction} when is_binary(path) ->
           spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
           {spec, direction || :asc}
-          
+
         {operation, column, direction} when direction in [:asc, :desc] ->
           spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
           {spec, direction}
-        
+
         {operation, column, path} when is_binary(path) ->
           spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
           {spec, :asc}
-          
+
         {operation, column} ->
           spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
           {spec, :asc}
       end)
-    
+
     # Add to selecto set
-    current_json_sorts = Map.get(selecto.set, :json_order_by, [])  
+    current_json_sorts = Map.get(selecto.set, :json_order_by, [])
     updated_json_sorts = current_json_sorts ++ json_specs
-    
+
     put_in(selecto.set[:json_order_by], updated_json_sorts)
   end
-  
+
   def json_order_by(selecto, json_sort, opts) do
     json_order_by(selecto, [json_sort], opts)
   end
 
   @doc """
   Add a Common Table Expression (CTE) to the query using WITH clause.
-  
+
   CTEs provide a way to create temporary named result sets that can be
   referenced within the main query, enabling query modularity and readability.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `name` - CTE name (must be valid SQL identifier)
   - `query_builder` - Function that returns a Selecto query for the CTE
   - `opts` - Options including :columns, :dependencies
-  
+
   ## Examples
-  
+
       # Simple CTE for filtering
       selecto
       |> Selecto.with_cte("active_customers", fn ->
@@ -1233,12 +1321,12 @@ defmodule Selecto do
           |> Selecto.filter([{"active", true}])
         end)
       |> Selecto.select(["film.title", "active_customers.first_name"])
-      |> Selecto.join(:inner, "active_customers", 
+      |> Selecto.join(:inner, "active_customers",
           on: "rental.customer_id = active_customers.customer_id")
-      
+
       # CTE with explicit columns
       selecto
-      |> Selecto.with_cte("customer_stats", 
+      |> Selecto.with_cte("customer_stats",
           fn ->
             Selecto.configure(customer_domain, connection)
             |> Selecto.select(["customer_id", {:func, "COUNT", ["rental_id"], as: "rental_count"}])
@@ -1247,7 +1335,7 @@ defmodule Selecto do
           end,
           columns: ["customer_id", "rental_count"]
         )
-      
+
       # Generated SQL:
       # WITH active_customers AS (
       #   SELECT * FROM customer WHERE active = true
@@ -1259,28 +1347,28 @@ defmodule Selecto do
   def with_cte(selecto, name, query_builder, opts \\ []) do
     # Create CTE specification
     cte_spec = Selecto.Advanced.CTE.create_cte(name, query_builder, opts)
-    
+
     # Add to selecto set
     current_ctes = Map.get(selecto.set, :ctes, [])
     updated_ctes = current_ctes ++ [cte_spec]
-    
+
     put_in(selecto.set[:ctes], updated_ctes)
   end
 
   @doc """
   Add a recursive Common Table Expression (CTE) to the query.
-  
+
   Recursive CTEs enable hierarchical queries by combining an anchor query
   with a recursive query that references the CTE itself.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `name` - CTE name (must be valid SQL identifier)
   - `opts` - Options with :base_query and :recursive_query functions
-  
+
   ## Examples
-  
+
       # Hierarchical employee structure
       selecto
       |> Selecto.with_recursive_cte("employee_hierarchy",
@@ -1301,11 +1389,11 @@ defmodule Selecto do
       |> Selecto.select(["employee_id", "name", "level"])
       |> Selecto.from("employee_hierarchy")
       |> Selecto.order_by([{"level", :asc}, {"name", :asc}])
-      
+
       # Generated SQL:
       # WITH RECURSIVE employee_hierarchy AS (
       #   SELECT employee_id, name, manager_id, 0 as level
-      #   FROM employee 
+      #   FROM employee
       #   WHERE manager_id IS NULL
       #   UNION ALL
       #   SELECT employee.employee_id, employee.name, employee.manager_id, employee_hierarchy.level + 1
@@ -1320,7 +1408,7 @@ defmodule Selecto do
   # 1. (selecto, cte_name, base_fn, recursive_fn, opts) - original inline format
   # 2. (selecto, name, opts) - newer format using Advanced.CTE
   def with_recursive_cte(selecto, arg2, arg3, arg4 \\ nil, arg5 \\ []) do
-    cte_spec = 
+    cte_spec =
       case {arg2, arg3, arg4, arg5} do
         # Format 1: (selecto, cte_name, base_fn, recursive_fn, opts)
         {cte_name, base_fn, recursive_fn, opts} when is_function(base_fn) and is_function(recursive_fn) ->
@@ -1333,47 +1421,47 @@ defmodule Selecto do
             max_depth: Keyword.get(opts, :max_depth),
             cycle_detection: Keyword.get(opts, :cycle_detection, false)
           }
-          
-        # Format 2: (selecto, name, opts) 
+
+        # Format 2: (selecto, name, opts)
         {name, opts, nil, []} when is_list(opts) or is_map(opts) ->
           # Use Advanced.CTE module
           Selecto.Advanced.CTE.create_recursive_cte(name, opts)
       end
-    
+
     # Add to selecto set
     current_ctes = Map.get(selecto.set, :ctes, [])
     updated_ctes = current_ctes ++ [cte_spec]
-    
+
     put_in(selecto.set[:ctes], updated_ctes)
   end
 
   @doc """
   Add multiple CTEs to the query in a single operation.
-  
+
   Useful for complex queries that require multiple temporary result sets.
   CTEs will be automatically ordered based on their dependencies.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `cte_specs` - List of CTE specifications created with create_cte/3
-  
+
   ## Examples
-  
+
       # Multiple related CTEs
       active_customers_cte = Selecto.Advanced.CTE.create_cte("active_customers", fn ->
         Selecto.configure(customer_domain, connection)
         |> Selecto.filter([{"active", true}])
       end)
-      
+
       high_value_cte = Selecto.Advanced.CTE.create_cte("high_value_customers", fn ->
-        Selecto.configure(customer_domain, connection)  
+        Selecto.configure(customer_domain, connection)
         |> Selecto.aggregate([{"payment.amount", :sum, as: "total_spent"}])
         |> Selecto.join(:inner, "payment", on: "customer.customer_id = payment.customer_id")
         |> Selecto.group_by(["customer.customer_id"])
         |> Selecto.having([{"total_spent", {:>, 100}}])
       end, dependencies: ["active_customers"])
-      
+
       selecto
       |> Selecto.with_ctes([active_customers_cte, high_value_cte])
       |> Selecto.select(["film.title", "high_value_customers.total_spent"])
@@ -1382,25 +1470,25 @@ defmodule Selecto do
     # Add all CTEs to selecto set
     current_ctes = Map.get(selecto.set, :ctes, [])
     updated_ctes = current_ctes ++ cte_specs
-    
+
     put_in(selecto.set[:ctes], updated_ctes)
   end
 
   @doc """
   Add a simple CASE expression to the select fields.
-  
+
   Simple CASE expressions test a column against specific values and return
   corresponding results. This is useful for data transformation and categorization.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `column` - Column to test against
   - `when_clauses` - List of {value, result} tuples for WHEN conditions
   - `opts` - Options including :else and :as
-  
+
   ## Examples
-  
+
       # Simple CASE for film ratings
       selecto
       |> Selecto.case_select("film.rating", [
@@ -1410,7 +1498,7 @@ defmodule Selecto do
           {"R", "Restricted"}
         ], else: "Not Rated", as: "rating_description")
       |> Selecto.select(["film.title", "rating_description"])
-      
+
       # Generated SQL:
       # SELECT film.title,
       #        CASE film.rating
@@ -1424,7 +1512,7 @@ defmodule Selecto do
   def case_select(selecto, column, when_clauses, opts \\ []) do
     # Create CASE specification
     case_spec = Selecto.Advanced.CaseExpression.create_simple_case(column, when_clauses, opts)
-    
+
     # Add to select fields
     case_field = {:case, case_spec}
     select(selecto, case_field)
@@ -1432,18 +1520,18 @@ defmodule Selecto do
 
   @doc """
   Add a searched CASE expression to the select fields.
-  
+
   Searched CASE expressions evaluate multiple conditions and return results
   based on the first true condition. This enables complex conditional logic.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `when_clauses` - List of {conditions, result} tuples
   - `opts` - Options including :else and :as
-  
+
   ## Examples
-  
+
       # Customer tier based on payment totals
       selecto
       |> Selecto.case_when_select([
@@ -1452,17 +1540,17 @@ defmodule Selecto do
           {[{"payment_total", {:>, 0}}], "Basic"}
         ], else: "No Purchases", as: "customer_tier")
       |> Selecto.select(["customer.first_name", "customer_tier"])
-      
+
       # Multiple conditions per WHEN clause
       selecto
       |> Selecto.case_when_select([
           {[{"film.rating", "R"}, {"film.length", {:>, 120}}], "Long Adult Film"},
           {[{"film.rating", "G"}, {"film.special_features", {:like, "%Family%"}}], "Family Film"}
         ], else: "Regular Film", as: "film_category")
-      
+
       # Generated SQL:
       # SELECT customer.first_name,
-      #        CASE 
+      #        CASE
       #          WHEN payment_total > $1 THEN $2
       #          WHEN payment_total BETWEEN $3 AND $4 THEN $5
       #          WHEN payment_total > $6 THEN $7
@@ -1470,9 +1558,9 @@ defmodule Selecto do
       #        END AS customer_tier
   """
   def case_when_select(selecto, when_clauses, opts \\ []) do
-    # Create CASE specification  
+    # Create CASE specification
     case_spec = Selecto.Advanced.CaseExpression.create_searched_case(when_clauses, opts)
-    
+
     # Add to select fields
     case_field = {:case_when, case_spec}
     select(selecto, case_field)
@@ -1480,157 +1568,157 @@ defmodule Selecto do
 
   @doc """
   Add array aggregation operations to select fields.
-  
+
   Supports ARRAY_AGG, STRING_AGG, and other array aggregation functions
   with optional DISTINCT, ORDER BY, and filtering.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `array_operations` - List of array operation tuples or single operation
   - `opts` - Additional options
-  
+
   ## Examples
-  
+
       # Simple array aggregation
       selecto
       |> Selecto.array_select({:array_agg, "film.title", as: "film_titles"})
-      
+
       # Array aggregation with DISTINCT and ORDER BY
       selecto
-      |> Selecto.array_select({:array_agg, "actor.name", 
-          distinct: true, 
+      |> Selecto.array_select({:array_agg, "actor.name",
+          distinct: true,
           order_by: [{"actor.last_name", :asc}],
           as: "unique_actors"})
-      
+
       # String aggregation with custom delimiter
       selecto
-      |> Selecto.array_select({:string_agg, "tag.name", 
+      |> Selecto.array_select({:string_agg, "tag.name",
           delimiter: ", ",
           as: "tag_list"})
-      
+
       # Array length operation
       selecto
       |> Selecto.array_select({:array_length, "tags", 1, as: "tag_count"})
   """
   def array_select(selecto, array_operations, opts \\ [])
-  
+
   def array_select(selecto, array_operations, _opts) when is_list(array_operations) do
     # Create array operation specifications
-    array_specs = 
+    array_specs =
       array_operations
       |> Enum.map(fn
         # Aggregation operations
         {:array_agg, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg, column, opts)
-        
+
         {:array_agg_distinct, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg_distinct, column, opts)
-        
+
         {:string_agg, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:string_agg, column, opts)
-          
+
         # Size operations with dimension
         {:array_length, column, dimension, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_size(:array_length, column, dimension, opts)
-          
+
         # Size operations without dimension
         {:cardinality, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_size(:cardinality, column, nil, opts)
-          
+
         {:array_ndims, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_size(:array_ndims, column, nil, opts)
-          
+
         {:array_dims, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_size(:array_dims, column, nil, opts)
-          
+
         # Array construction/manipulation with value
         {:array_append, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_append, column, spec_opts)
-          
+
         {:array_prepend, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_prepend, column, spec_opts)
-          
+
         {:array_remove, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_remove, column, spec_opts)
-          
+
         {:array_replace, column, old_value, new_value, opts} ->
           spec_opts = opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_replace, column, spec_opts)
-          
+
         {:array_cat, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_cat, column, spec_opts)
-          
+
         {:array_position, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_position, column, spec_opts)
-          
+
         {:array_positions, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_positions, column, spec_opts)
-          
+
         # Array transformation operations
         {:array_to_string, column, delimiter, opts} ->
           spec_opts = Keyword.put(opts, :value, delimiter)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_to_string, column, spec_opts)
-          
+
         {:string_to_array, column, delimiter, opts} ->
           spec_opts = Keyword.put(opts, :value, delimiter)
           Selecto.Advanced.ArrayOperations.create_array_operation(:string_to_array, column, spec_opts)
-          
+
         # Array constructor (no column)
         {:array, elements, opts} ->
           spec_opts = Keyword.put(opts, :value, elements)
           Selecto.Advanced.ArrayOperations.create_array_operation(:array, nil, spec_opts)
-          
+
         # Generic pattern for operations with column and options
         {operation, column, opts} when is_atom(operation) and is_list(opts) ->
           Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
-          
+
         _ = spec ->
           spec
       end)
-    
+
     # Add to selecto set
     current_array_ops = Map.get(selecto.set, :array_operations, [])
     updated_array_ops = current_array_ops ++ array_specs
-    
+
     put_in(selecto.set[:array_operations], updated_array_ops)
   end
-  
+
   def array_select(selecto, array_operation, opts) do
     array_select(selecto, [array_operation], opts)
   end
 
   @doc """
   Add array filtering operations to WHERE clauses.
-  
+
   Supports array containment, overlap, and equality operations.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `array_filters` - List of array filter tuples or single filter
   - `opts` - Additional options
-  
+
   ## Examples
-  
+
       # Array contains
       selecto
       |> Selecto.array_filter({:array_contains, "tags", ["featured", "new"]})
-      
+
       # Array overlap (has any of the elements)
       selecto
       |> Selecto.array_filter({:array_overlap, "categories", ["electronics", "computers"]})
-      
+
       # Array contained by
       selecto
       |> Selecto.array_filter({:array_contained, "permissions", ["read", "write", "admin"]})
-      
+
       # Multiple filters
       selecto
       |> Selecto.array_filter([
@@ -1639,105 +1727,105 @@ defmodule Selecto do
         ])
   """
   def array_filter(selecto, array_filters, opts \\ [])
-  
+
   def array_filter(selecto, array_filters, _opts) when is_list(array_filters) do
     # Create array filter specifications
-    array_specs = 
+    array_specs =
       array_filters
       |> Enum.map(fn
         {operation, column, value} ->
           Selecto.Advanced.ArrayOperations.create_array_filter(operation, column, value)
-          
+
         _ = spec ->
           spec
       end)
-    
+
     # Add to selecto set filters
     current_filters = Map.get(selecto.set, :array_filters, [])
     updated_filters = current_filters ++ array_specs
-    
+
     put_in(selecto.set[:array_filters], updated_filters)
   end
-  
+
   def array_filter(selecto, array_filter, opts) do
     array_filter(selecto, [array_filter], opts)
   end
 
   @doc """
   Add UNNEST operation to expand array columns into rows.
-  
+
   The UNNEST operation transforms an array column into multiple rows,
 
   @doc """
   Add array manipulation operations to select fields.
-  
+
   Supports array construction, modification, and transformation operations.
-  
+
   ## Parameters
-  
+
   - `selecto` - The Selecto instance
   - `array_operations` - List of array manipulation operations
   - `opts` - Additional options
-  
+
   ## Examples
-  
+
       # Array append
       selecto
       |> Selecto.array_manipulate({:array_append, "tags", "new-tag", as: "updated_tags"})
-      
+
       # Array remove
       selecto
       |> Selecto.array_manipulate({:array_remove, "tags", "deprecated", as: "cleaned_tags"})
-      
+
       # Array to string
       selecto
       |> Selecto.array_manipulate({:array_to_string, "tags", ", ", as: "tag_string"})
   """
   def array_manipulate(selecto, array_operations, opts \\ [])
-  
+
   def array_manipulate(selecto, array_operations, _opts) when is_list(array_operations) do
     # Create array operation specifications
-    array_specs = 
+    array_specs =
       array_operations
       |> Enum.map(fn
         {:array_append, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_append, column, 
+          Selecto.Advanced.ArrayOperations.create_array_operation(:array_append, column,
             Keyword.put(opts, :value, value))
-        
+
         {:array_prepend, column, value, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_prepend, column,
             Keyword.put(opts, :value, value))
-            
+
         {:array_remove, column, value, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_remove, column,
             Keyword.put(opts, :value, value))
-            
+
         {:array_replace, column, old_value, new_value, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_replace, column,
             opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value))
-            
+
         {:array_to_string, column, delimiter, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_to_string, column,
             Keyword.put(opts, :value, delimiter))
-            
+
         {:string_to_array, column, delimiter, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:string_to_array, column,
             Keyword.put(opts, :value, delimiter))
-            
+
         {operation, column, opts} when is_atom(operation) ->
           Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
-          
+
         _ = spec ->
           spec
       end)
-    
+
     # Add to selecto set
     current_array_ops = Map.get(selecto.set, :array_operations, [])
     updated_array_ops = current_array_ops ++ array_specs
-    
+
     put_in(selecto.set[:array_operations], updated_array_ops)
   end
-  
+
   def array_manipulate(selecto, array_operation, opts) do
     array_manipulate(selecto, [array_operation], opts)
   end

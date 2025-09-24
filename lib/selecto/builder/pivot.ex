@@ -510,8 +510,8 @@ defmodule Selecto.Builder.Pivot do
   defp get_target_table_safe(selecto, target_schema) do
     # Try to get the target table, falling back to using the schema name as table name
     case Map.get(selecto.domain.schemas, target_schema) do
-      nil -> 
-        # For PagilaDomain, the target_schema might be the table name itself
+      nil ->
+        # The target_schema might be the table name itself
         to_string(target_schema)
       schema_config -> 
         Map.get(schema_config, :source_table) || to_string(target_schema)
@@ -526,7 +526,7 @@ defmodule Selecto.Builder.Pivot do
     # Support both 'associations' and 'joins' structures
     associations = Map.get(selecto.domain.source, :associations) || Map.get(selecto.domain, :joins, %{})
     
-    # For nested joins (PagilaDomain structure), we need to search recursively
+    # For nested joins, we need to search recursively
     find_join_config_recursive(associations, assoc_name)
   end
   
@@ -538,7 +538,7 @@ defmodule Selecto.Builder.Pivot do
       
       if join_name_str == target_str do
         # Found it - return the config
-        # Add a fake queryable field if it doesn't exist (for PagilaDomain compatibility)
+        # Add a fake queryable field if it doesn't exist (for compatibility)
         config = if Map.has_key?(join_config, :queryable) do
           join_config
         else
@@ -616,7 +616,7 @@ defmodule Selecto.Builder.Pivot do
     # Get association configuration to build ON clause
     association = get_association_for_join(selecto, join_name)
 
-    # For PagilaDomain, infer the join keys based on naming conventions
+    # Infer the join keys based on naming conventions
     owner_key = Map.get(association, :owner_key) || infer_owner_key(join_name, current_alias)
     related_key = Map.get(association, :related_key) || infer_related_key(join_name, next_alias)
 

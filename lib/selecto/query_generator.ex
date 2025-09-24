@@ -27,7 +27,7 @@ defmodule Selecto.QueryGenerator do
   ## Examples
 
       {sql, aliases, params} = Selecto.QueryGenerator.generate_sql(selecto)
-      IO.puts("Generated SQL: \#{sql}")
+      # Generated SQL is in the sql variable
   """
   @spec generate_sql(Selecto.Types.t(), keyword()) :: {String.t(), map(), list()}
   def generate_sql(selecto, opts \\ []) do

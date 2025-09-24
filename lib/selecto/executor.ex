@@ -35,16 +35,24 @@ defmodule Selecto.Executor do
   @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
     start_time = System.monotonic_time(:millisecond)
+    query_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 
     try do
       {query, aliases, params} = Selecto.gen_sql(selecto, opts)
+
+      # Emit telemetry event for query start
+      :telemetry.execute(
+        [:selecto, :query, :start],
+        %{system_time: System.system_time()},
+        %{query_id: query_id, query: query}
+      )
 
       # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
       result = cond do
         # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
         selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
           execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
-        
+
         # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
         is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
           execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
@@ -56,6 +64,24 @@ defmodule Selecto.Executor do
 
       # Track query execution for monitoring (if SelectoDev.QueryMonitor is available)
       duration = System.monotonic_time(:millisecond) - start_time
+
+      # Emit telemetry event for successful query completion
+      :telemetry.execute(
+        [:selecto, :query, :complete],
+        %{
+          duration: duration,
+          execution_time: duration
+        },
+        %{
+          query_id: query_id,
+          query: query,
+          row_count: case result do
+            {:ok, {rows, _, _}} -> length(rows)
+            _ -> 0
+          end
+        }
+      )
+
       track_query_execution(query, duration, result)
 
       # Apply output format transformation if specified
@@ -73,6 +99,126 @@ defmodule Selecto.Executor do
             })}
           end
         error_result -> error_result
+      end
+    rescue
+      error ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        error_result = {:error, Selecto.Error.from_reason(error)}
+
+        # Emit telemetry event for query error
+        :telemetry.execute(
+          [:selecto, :query, :error],
+          %{count: 1},
+          %{
+            query_id: query_id,
+            error: error,
+            duration: duration
+          }
+        )
+
+        track_query_execution("Query compilation failed", duration, error_result)
+        error_result
+    catch
+      :exit, reason ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        error_result = {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
+
+        # Emit telemetry event for connection error
+        :telemetry.execute(
+          [:selecto, :query, :error],
+          %{count: 1},
+          %{
+            query_id: query_id,
+            error: reason,
+            duration: duration
+          }
+        )
+
+        track_query_execution("Database connection failed", duration, error_result)
+        error_result
+    end
+  end
+
+  @doc """
+  Execute a query and return results with metadata including SQL, params, and execution time.
+
+  ## Parameters
+
+  - `selecto` - The Selecto struct containing connection and query info
+  - `opts` - Execution options
+
+  ## Returns
+
+  - `{:ok, result, metadata}` - Successful execution with results and metadata
+  - `{:error, error}` - Execution failure with detailed error
+
+  The metadata map includes:
+  - `:sql` - The generated SQL query string
+  - `:params` - The query parameters
+  - `:execution_time` - Query execution time in milliseconds
+
+  ## Examples
+
+      case Selecto.Executor.execute_with_metadata(selecto) do
+        {:ok, {rows, columns, aliases}, _meta} ->
+          # Process successful results with metadata
+          handle_results(rows, columns, aliases)
+        {:error, error} ->
+          # Handle database error
+          Logger.error("Query failed: \#{inspect(error)}")
+      end
+  """
+  @spec execute_with_metadata(Selecto.Types.t(), Selecto.Types.execute_options()) :: 
+    {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
+  def execute_with_metadata(selecto, opts \\ []) do
+    start_time = System.monotonic_time(:millisecond)
+
+    try do
+      {query, aliases, params} = Selecto.gen_sql(selecto, opts)
+      
+      # Track the SQL and params for metadata
+      sql_metadata = %{
+        sql: query,
+        params: params
+      }
+
+      # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
+      result = cond do
+        # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
+        selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+          execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
+        
+        # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
+        is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
+          execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
+
+        # If it's a Postgrex connection, use Postgrex.query directly (PostgreSQL backward compatibility)
+        true ->
+          execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
+      end
+
+      # Calculate execution time
+      duration = System.monotonic_time(:millisecond) - start_time
+      
+      # Track query execution for monitoring (if SelectoDev.QueryMonitor is available)
+      track_query_execution(query, duration, result)
+
+      # Apply output format transformation if specified and add metadata
+      case result do
+        {:ok, {rows, columns, aliases}} ->
+          format = Keyword.get(opts, :format, :raw)
+          format_options = Keyword.get(opts, :format_options, [])
+
+          transformed_result = case Selecto.Output.Formats.transform({rows, columns, aliases}, format, format_options) do
+            {:ok, transformed} -> transformed
+            {:error, _transform_error} -> {rows, columns, aliases}
+          end
+          
+          metadata = Map.put(sql_metadata, :execution_time, duration)
+          {:ok, transformed_result, metadata}
+          
+        error_result -> 
+          error_result
       end
     rescue
       error ->
