@@ -485,7 +485,7 @@ defmodule Selecto.Builder.Sql do
         # Check if this looks like a bucket range string
         is_bucket_range = String.match?(filter, ~r/^\d+-\d+,\d+\+$|^\d+,\d+-\d+|\d+\+/)
         if is_bucket_range do
-          Logger.warn("Rejecting bucket_ranges string from filters: #{inspect(filter)}")
+          Logger.warning("Rejecting bucket_ranges string from filters: #{inspect(filter)}")
         end
         is_bucket_range
       _ ->

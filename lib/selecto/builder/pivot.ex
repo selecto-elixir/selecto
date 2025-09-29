@@ -185,7 +185,7 @@ defmodule Selecto.Builder.Pivot do
       end)
     
     # Get the final table's primary key
-    last_schema = List.last(join_path)
+    _last_schema = List.last(join_path)
     last_position = current_position
     
     # Look up the final schema to get its primary key
@@ -429,7 +429,8 @@ defmodule Selecto.Builder.Pivot do
     {from_iodata, [], [], []}
   end
 
-  defp build_join_sequence(selecto, join_path) do
+  # Keep for potential future use
+  defp _build_join_sequence(selecto, join_path) do
     source_alias = get_source_alias()
 
     {join_clauses, params, _current_alias} =
@@ -507,7 +508,8 @@ defmodule Selecto.Builder.Pivot do
     end
   end
   
-  defp get_target_table_safe(selecto, target_schema) do
+  # Keep for potential future use
+  defp _get_target_table_safe(selecto, target_schema) do
     # Try to get the target table, falling back to using the schema name as table name
     case Map.get(selecto.domain.schemas, target_schema) do
       nil ->
@@ -521,7 +523,8 @@ defmodule Selecto.Builder.Pivot do
   defp get_source_alias, do: "s"
   defp get_target_alias, do: "t"
   
-  defp get_association_config(selecto, assoc_name) do
+  # Keep for potential future use
+  defp _get_association_config(selecto, assoc_name) do
     # Get association config from the source schema
     # Support both 'associations' and 'joins' structures
     associations = Map.get(selecto.domain.source, :associations) || Map.get(selecto.domain, :joins, %{})
@@ -549,7 +552,7 @@ defmodule Selecto.Builder.Pivot do
         # Also ensure we have join_keys for compatibility
         if not Map.has_key?(config, :owner_key) and not Map.has_key?(config, :join_keys) do
           # Infer join keys based on table names
-          config = Map.put(config, :join_keys, infer_join_keys(join_name))
+          _config = Map.put(config, :join_keys, _infer_join_keys(join_name))
         end
         
         config
@@ -567,7 +570,8 @@ defmodule Selecto.Builder.Pivot do
   
   defp find_join_config_recursive(_, _), do: nil
   
-  defp infer_join_keys(join_name) do
+  # Keep for potential future use
+  defp _infer_join_keys(join_name) do
     # Infer join keys based on common patterns
     join_str = to_string(join_name)
     
@@ -583,8 +587,9 @@ defmodule Selecto.Builder.Pivot do
         [{key, key}]
     end
   end
-  defp get_final_join_alias([]), do: get_source_alias()
-  defp get_final_join_alias(join_path) do
+  # Keep for potential future use
+  defp _get_final_join_alias([]), do: get_source_alias()
+  defp _get_final_join_alias(join_path) do
     # The final alias is the alias of the last join in the path
     join_name = List.last(join_path)
     generate_join_alias(join_name)
@@ -642,7 +647,7 @@ defmodule Selecto.Builder.Pivot do
     end
   end
   
-  defp infer_related_key(join_name, next_alias) do
+  defp infer_related_key(join_name, _next_alias) do
     # Infer the related key based on the join name
     join_str = to_string(join_name)
     
@@ -743,7 +748,8 @@ defmodule Selecto.Builder.Pivot do
     end
   end
 
-  defp get_connection_field(selecto, target_schema, _join_path) do
+  # Keep for potential future use
+  defp _get_connection_field(selecto, target_schema, _join_path) do
     # Return the field that connects the final join to the target
     target_config = Map.get(selecto.domain.schemas, target_schema)
     if target_config do
