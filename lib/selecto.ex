@@ -207,7 +207,7 @@ defmodule Selecto do
         :ok = Selecto.DomainValidator.validate_domain!(domain)
         selecto = Selecto.configure(domain, postgrex_opts)
   """
-  #  @spec configure(Selecto.Types.domain(), Postgrex.conn(), Selecto.Types.configure_options()) :: t()
+  @spec configure(Selecto.Types.domain(), Postgrex.conn(), keyword()) :: t()
   def configure(domain, postgrex_opts, opts \\ []) do
     validate? = Keyword.get(opts, :validate, true)
     use_pool? = Keyword.get(opts, :pool, false)
@@ -299,7 +299,7 @@ defmodule Selecto do
   end
 
   # generate the selecto configuration
-  #  @spec configure_domain(Selecto.Types.domain()) :: Selecto.Types.processed_config()
+  @spec configure_domain(Selecto.Types.domain()) :: Selecto.Types.processed_config()
   defp configure_domain(%{source: source} = domain) do
     primary_key = source.primary_key
 
@@ -343,37 +343,37 @@ defmodule Selecto do
   end
 
   ### These use 'selecto_struct' to prevent global replace from hitting them, will switch back later!
-  #  @spec filters(t()) :: %{String.t() => term()}
+  @spec filters(t()) :: %{String.t() => term()}
   def filters(selecto_struct) do
     selecto_struct.config.filters
   end
 
-  #  @spec columns(t()) :: %{String.t() => %{required(:name) => String.t()}}
+  @spec columns(t()) :: map()
   def columns(selecto_struct) do
     Map.get(selecto_struct.config, :columns, %{})
   end
 
-  #  @spec joins(t()) :: %{atom() => processed_join()}
+  @spec joins(t()) :: map()
   def joins(selecto_struct) do
     Map.get(selecto_struct.config, :joins, %{})
   end
 
-  #  @spec source_table(t()) :: table_name()
+  @spec source_table(t()) :: Selecto.Types.table_name() | nil
   def source_table(selecto_struct) do
     Map.get(selecto_struct.config, :source_table, nil)
   end
 
-  #  @spec domain(t()) :: domain()
+  @spec domain(t()) :: Selecto.Types.domain()
   def domain(selecto_struct) do
     selecto_struct.domain
   end
 
-  #  @spec domain_data(t()) :: term()
+  @spec domain_data(t()) :: term()
   def domain_data(selecto_struct) do
     selecto_struct.config.domain_data
   end
 
-  #  @spec field(t(), field_name()) :: %{required(:name) => String.t()} | nil
+  @spec field(t(), Selecto.Types.field_name()) :: map() | nil
   def field(selecto_struct, field) do
     # First check custom columns (preserves ALL properties including group_by_filter)
     field_str = to_string(field)
@@ -457,7 +457,7 @@ defmodule Selecto do
     Selecto.FieldResolver.suggest_fields(selecto_struct, partial_name)
   end
 
-  #  @spec set(t()) :: query_set()
+  @spec set(t()) :: Selecto.Types.query_set()
   def set(selecto_struct) do
     selecto_struct.set
   end
@@ -490,12 +490,12 @@ defmodule Selecto do
   @doc """
     add a field to the Select list. Send in one or a list of field names or selectable tuples
   """
-  #  @spec select(t(), [selector()]) :: t()
+  @spec select(t(), [Selecto.Types.selector()]) :: t()
   def select(selecto, fields) when is_list(fields) do
     put_in(selecto.set.selected, Enum.uniq(selecto.set.selected ++ fields))
   end
 
-  #  @spec select(t(), selector()) :: t()
+  @spec select(t(), Selecto.Types.selector()) :: t()
   def select(selecto, field) do
     Selecto.select(selecto, [field])
   end
@@ -503,42 +503,8 @@ defmodule Selecto do
   @doc """
     add a filter to selecto. Send in a tuple with field name and filter value
   """
-  #  @spec filter(t(), [filter()]) :: t()
+  @spec filter(t(), [Selecto.Types.filter()]) :: t()
   def filter(selecto, filters) when is_list(filters) do
-    # Check for bucket_ranges in filters and log stack trace if found
-    Enum.each(filters, fn filter ->
-      if is_binary(filter) && String.match?(filter, ~r/^\d+(,\d+)*(-\d+)*(,\d+\+)?$|^\d+\+$/) do
-        require Logger
-
-        # Get stack trace
-        stack = Process.info(self(), :current_stacktrace) |> elem(1)
-
-        # Format first few stack frames
-        stack_info = stack
-        |> Enum.take(10)
-        |> Enum.map(fn
-          {module, function, arity, location} when is_list(location) ->
-            file = Keyword.get(location, :file, "unknown")
-            line = Keyword.get(location, :line, 0)
-            "  #{inspect(module)}.#{function}/#{arity} at #{file}:#{line}"
-          {module, function, arity, _} ->
-            "  #{inspect(module)}.#{function}/#{arity}"
-        end)
-        |> Enum.join("\n")
-
-        Logger.error("""
-        BUCKET_RANGES DETECTED IN FILTER!
-        Filter value: #{inspect(filter)}
-        All filters: #{inspect(filters)}
-
-        Stack trace:
-        #{stack_info}
-
-        This should not happen - bucket_ranges should be handled by aggregate processing.
-        """)
-      end
-    end)
-
     # Track whether this filter is applied before or after pivot
     has_pivot = Selecto.Pivot.has_pivot?(selecto)
     pivot_config = Selecto.Pivot.get_pivot_config(selecto)
@@ -561,7 +527,7 @@ defmodule Selecto do
     %{selecto | set: updated_set}
   end
 
-  #  @spec filter(t(), filter()) :: t()
+  @spec filter(t(), Selecto.Types.filter()) :: t()
   def filter(selecto, filter) do
     Selecto.filter(selecto, [filter])
   end
@@ -569,12 +535,12 @@ defmodule Selecto do
   @doc """
     Add to the Order By
   """
-  #  @spec order_by(t(), [order_spec()]) :: t()
+  @spec order_by(t(), [Selecto.Types.order_spec()]) :: t()
   def order_by(selecto, orders) when is_list(orders) do
     put_in(selecto.set.order_by, selecto.set.order_by ++ orders)
   end
 
-  #  @spec order_by(t(), order_spec()) :: t()
+  @spec order_by(t(), Selecto.Types.order_spec()) :: t()
   def order_by(selecto, orders) do
     put_in(selecto.set.order_by, selecto.set.order_by ++ [orders])
   end
@@ -582,12 +548,12 @@ defmodule Selecto do
   @doc """
     Add to the Group By
   """
-  #  @spec group_by(t(), [field_name()]) :: t()
+  @spec group_by(t(), [Selecto.Types.field_name()]) :: t()
   def group_by(selecto, groups) when is_list(groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
 
-  #  @spec group_by(t(), field_name()) :: t()
+  @spec group_by(t(), Selecto.Types.field_name()) :: t()
   def group_by(selecto, groups) do
     put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
   end
@@ -682,23 +648,9 @@ defmodule Selecto do
     Selecto.Subselect.subselect(selecto, field_specs, opts)
   end
 
-  #  @spec gen_sql(t(), sql_generation_options()) :: {String.t(), %{String.t() => String.t()}, sql_params()}
+  @spec gen_sql(t(), keyword()) :: {String.t(), map(), list()}
   def gen_sql(selecto, opts) do
-    # Support both old and new query generation approaches
-    # Default to PostgreSQL if adapter is not specified
-    _adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
-
-    # For now, always use the existing SQL builder for all adapters
-    # The QueryGenerator is incomplete and shouldn't be used yet
-    # use_new = Keyword.get(opts, :use_new_generator, false)
-    use_new = Keyword.get(opts, :use_new_generator, false)
-
-    if use_new do
-      Selecto.QueryGenerator.generate_sql(selecto, opts)
-    else
-      # Use existing implementation for all adapters
-      Selecto.Builder.Sql.build(selecto, opts)
-    end
+    Selecto.Builder.Sql.build(selecto, opts)
   end
 
   @doc """
@@ -791,7 +743,7 @@ defmodule Selecto do
   @doc """
     Generate SQL without executing - useful for debugging and caching
   """
-  #  @spec to_sql(t(), sql_generation_options()) :: sql_result()
+  @spec to_sql(t(), keyword()) :: {String.t(), list()}
   def to_sql(selecto, opts \\ []) do
     {query, _aliases, params} = gen_sql(selecto, opts)
     {query, params}
@@ -1750,11 +1702,6 @@ defmodule Selecto do
   def array_filter(selecto, array_filter, opts) do
     array_filter(selecto, [array_filter], opts)
   end
-
-  @doc """
-  Add UNNEST operation to expand array columns into rows.
-
-  The UNNEST operation transforms an array column into multiple rows,
 
   @doc """
   Add array manipulation operations to select fields.

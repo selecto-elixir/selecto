@@ -43,15 +43,16 @@ defmodule Selecto.Helpers.Date do
   end
 
 
-  defp proc_date(%NaiveDateTime{} = date) do ### do this better TODO
+  # Convert various date formats to DateTime
+  defp proc_date(%NaiveDateTime{} = date) do
+    DateTime.from_naive!(date, "Etc/UTC")
+  end
+
+  defp proc_date(%DateTime{} = date) do
     date
   end
 
-  defp proc_date(%DateTime{} = date) do ### do this better TODO
-    date
-  end
-
-  defp proc_date(date) when is_binary(date) do ### do this better TODO
+  defp proc_date(date) when is_binary(date) do
     date = cond do
       Regex.match?(~r/Z$/, date) -> date
       Regex.match?(~r/\d\d:\d\d:\d\d/, date) -> date <> "Z"   #Weird...
