@@ -204,8 +204,8 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, {:to_char, {field, format}}, %{})
   end
 
-  def prep_selector(_selecto, {:raw_sql, sql}) when is_binary(sql) do
-    prep_selector(_selecto, {:raw_sql, sql}, %{})
+  def prep_selector(selecto, {:raw_sql, sql}) when is_binary(sql) do
+    prep_selector(selecto, {:raw_sql, sql}, %{})
   end
 
   # Add 2-argument versions for bucket aggregate types

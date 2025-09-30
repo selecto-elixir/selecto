@@ -1,24 +1,22 @@
 defmodule Selecto.Builder.Sql.Where do
   import Selecto.Builder.Sql.Helpers
 
-  alias ElixirSense.Log
   alias Selecto.Builder.Sql.Select
 
-  @doc """
-      {SELECTOR} # for boolean fields
-      {SELECTOR, nil} #is null
-      {SELECTOR, :not_nil} #is not null
-      {SELECTOR, SELECTOR} #=
-      {SELECTOR, [SELECTOR2, ...]}# in ()
-      {SELECTOR, {comp, SELECTOR2}} #<= etc
-      {SELECTOR, {:between, SELECTOR2, SELECTOR2}
-      {:not, PREDICATE}
-      {:and, [PREDICATES]}
-      {:or, [PREDICATES]}
-      {SELECTOR, :in, SUBQUERY}
-      {SELECTOR, comp, {:subquery, :any, SUBQUERY}}  ## Or :all
-      {:exists, SUBQUERY}
-  """
+  # Predicate formats supported:
+  #   {SELECTOR} # for boolean fields
+  #   {SELECTOR, nil} #is null
+  #   {SELECTOR, :not_nil} #is not null
+  #   {SELECTOR, SELECTOR} #=
+  #   {SELECTOR, [SELECTOR2, ...]}# in ()
+  #   {SELECTOR, {comp, SELECTOR2}} #<= etc
+  #   {SELECTOR, {:between, SELECTOR2, SELECTOR2}
+  #   {:not, PREDICATE}
+  #   {:and, [PREDICATES]}
+  #   {:or, [PREDICATES]}
+  #   {SELECTOR, :in, SUBQUERY}
+  #   {SELECTOR, comp, {:subquery, :any, SUBQUERY}}  ## Or :all
+  #   {:exists, SUBQUERY}
 
   # Extract the actual database field name from the field reference or configuration
   defp extract_database_field(field, conf) do

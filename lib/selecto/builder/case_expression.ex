@@ -6,6 +6,7 @@ defmodule Selecto.Builder.CaseExpression do
   condition handling, value escaping, and PostgreSQL-specific syntax.
   """
 
+  require Logger
   alias Selecto.Advanced.CaseExpression.Spec
   alias Selecto.Builder.Sql.Where
 

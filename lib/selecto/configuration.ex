@@ -1,0 +1,174 @@
+defmodule Selecto.Configuration do
+  @moduledoc """
+  Domain configuration and initialization for Selecto.
+
+  This module handles the setup and configuration of Selecto instances,
+  including domain validation, connection pooling, and adapter initialization.
+  """
+
+  require Logger
+
+  @doc """
+  Generate a selecto structure from a domain configuration and database connection.
+
+  ## Parameters
+
+  - `domain` - Domain configuration map (see domain configuration docs)
+  - `postgrex_opts` - Postgrex connection options, PID, or pooled connection
+  - `opts` - Configuration options
+
+  ## Options
+
+  - `:validate` - (boolean, default: true) Whether to validate the domain configuration
+  - `:pool` - (boolean, default: false) Whether to enable connection pooling
+  - `:pool_options` - Connection pool configuration options
+  - `:adapter` - (module, default: Selecto.DB.PostgreSQL) Database adapter module
+
+  ## Examples
+
+      # Basic usage (validation enabled by default)
+      selecto = Selecto.Configuration.configure(domain, postgrex_opts)
+
+      # With connection pooling
+      selecto = Selecto.Configuration.configure(domain, postgrex_opts, pool: true)
+
+      # Disable validation for performance
+      selecto = Selecto.Configuration.configure(domain, postgrex_opts, validate: false)
+  """
+  @spec configure(Selecto.Types.domain(), Postgrex.conn(), keyword()) :: Selecto.Types.t()
+  def configure(domain, postgrex_opts, opts \\ []) do
+    validate? = Keyword.get(opts, :validate, true)
+    use_pool? = Keyword.get(opts, :pool, false)
+    pool_options = Keyword.get(opts, :pool_options, [])
+    adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
+
+    if validate? do
+      Selecto.DomainValidator.validate_domain!(domain)
+    end
+
+    # Handle connection pooling
+    final_postgrex_opts =
+      if use_pool? and not match?({:pool, _}, postgrex_opts) do
+        case Selecto.ConnectionPool.start_pool(postgrex_opts, pool_options) do
+          {:ok, pool_ref} ->
+            {:pool, pool_ref}
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to start connection pool: #{inspect(reason)}. Falling back to direct connection."
+            )
+
+            postgrex_opts
+        end
+      else
+        postgrex_opts
+      end
+
+    # Initialize connection based on adapter
+    connection = if adapter == Selecto.DB.PostgreSQL do
+      # Backward compatibility: use postgrex_opts directly for PostgreSQL
+      final_postgrex_opts
+    else
+      # For other adapters, let them handle their own connection
+      case adapter.connect(postgrex_opts) do
+        {:ok, conn} -> conn
+        {:error, reason} ->
+          raise "Failed to connect with adapter #{inspect(adapter)}: #{inspect(reason)}"
+      end
+    end
+
+    %Selecto{
+      postgrex_opts: final_postgrex_opts,  # Keep for backward compatibility
+      adapter: adapter,
+      connection: connection,
+      domain: domain,
+      config: configure_domain(domain),
+      set: %{
+        selected: Map.get(domain, :required_selected, []),
+        filtered: [],
+        post_pivot_filters: [],
+        order_by: Map.get(domain, :required_order_by, []),
+        group_by: Map.get(domain, :required_group_by, [])
+      }
+    }
+  end
+
+  @doc """
+  Configure Selecto from an Ecto repository and schema.
+
+  This convenience function automatically introspects the Ecto schema
+  and configures Selecto with the appropriate domain and database connection.
+
+  ## Parameters
+
+  - `repo` - The Ecto repository module (e.g., MyApp.Repo)
+  - `schema` - The Ecto schema module to use as the source table
+  - `opts` - Configuration options (passed to EctoAdapter.configure/3)
+
+  ## Examples
+
+      # Basic usage
+      selecto = Selecto.Configuration.from_ecto(MyApp.Repo, MyApp.User)
+
+      # With joins and options
+      selecto = Selecto.Configuration.from_ecto(MyApp.Repo, MyApp.User,
+        joins: [:posts, :profile],
+        redact_fields: [:password_hash]
+      )
+  """
+  @spec from_ecto(module(), module(), keyword()) :: Selecto.Types.t()
+  def from_ecto(repo, schema, opts \\ []) do
+    Selecto.EctoAdapter.configure(repo, schema, opts)
+  end
+
+  @doc """
+  Generate the selecto configuration from a domain map.
+
+  Processes domain configuration to extract fields, joins, and filters.
+  This is called internally during configure/3.
+  """
+  @spec configure_domain(Selecto.Types.domain()) :: Selecto.Types.processed_config()
+  def configure_domain(%{source: source} = domain) do
+    primary_key = source.primary_key
+
+    fields =
+      Selecto.Schema.Column.configure_columns(
+        :selecto_root,
+        source.fields -- Map.get(source, :redact_fields, []),
+        source,
+        domain
+      )
+
+    joins = Selecto.Schema.Join.recurse_joins(source, domain)
+
+    # Combine fields from Joins into fields list
+    fields =
+      List.flatten([fields | Enum.map(Map.values(joins), fn e -> e.fields end)])
+      |> Enum.reduce(%{}, fn m, acc -> Map.merge(m, acc) end)
+
+    # Extra filters (all normal fields can be a filter)
+    # These are custom filters passed to Selecto Components
+    filters = Map.get(domain, :filters, %{})
+
+    filters =
+      Enum.reduce(
+        Map.values(joins),
+        filters,
+        fn e, acc ->
+          Map.merge(Map.get(e, :filters, %{}), acc)
+        end
+      )
+      |> Enum.map(fn {f, v} -> {f, Map.put(v, :id, f)} end)
+      |> Enum.into(%{})
+
+    %{
+      source: source,
+      source_table: source.source_table,
+      primary_key: primary_key,
+      columns: fields,
+      joins: joins,
+      filters: filters,
+      domain_data: Map.get(domain, :domain_data)
+    }
+  end
+end

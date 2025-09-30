@@ -38,17 +38,135 @@ defmodule Selecto.Executor do
     query_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
 
     try do
-      {query, aliases, params} = Selecto.gen_sql(selecto, opts)
+      # Check query complexity before execution (unless disabled)
+      if opts[:analyze_complexity] != false do
+        case Selecto.Performance.ComplexityAnalyzer.analyze(selecto, opts) do
+          {:ok, analysis} ->
+            # Log warnings but proceed
+            Enum.each(analysis.warnings, fn warning ->
+              Logger.warning("[Selecto] Query complexity: #{warning}")
+            end)
 
-      # Emit telemetry event for query start
-      :telemetry.execute(
-        [:selecto, :query, :start],
-        %{system_time: System.system_time()},
-        %{query_id: query_id, query: query}
-      )
+            # Emit telemetry for complexity analysis
+            :telemetry.execute(
+              [:selecto, :query, :complexity_analyzed],
+              %{complexity_score: analysis.score},
+              %{
+                query_id: query_id,
+                warnings: analysis.warnings,
+                details: analysis.details
+              }
+            )
 
-      # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
-      result = cond do
+          {:error, :too_complex, analysis} ->
+            Logger.error("[Selecto] Query rejected due to high complexity",
+              score: analysis.score,
+              issues: analysis.blocking_issues
+            )
+
+            # Emit telemetry for rejected query
+            :telemetry.execute(
+              [:selecto, :query, :complexity_rejected],
+              %{complexity_score: analysis.score},
+              %{
+                query_id: query_id,
+                blocking_issues: analysis.blocking_issues,
+                recommendations: analysis.recommendations
+              }
+            )
+
+            {:error, Selecto.Error.validation_error(
+              "Query too complex to execute safely",
+              %{
+                complexity_score: analysis.score,
+                max_score: analysis.details.max_score,
+                issues: analysis.blocking_issues,
+                recommendations: analysis.recommendations,
+                details: analysis.details
+              }
+            )}
+        end
+      end
+
+      # Execute with timeout protection
+      result = execute_with_timeout_protection(selecto, opts, query_id, start_time)
+
+      # Apply output format transformation if specified
+      case result do
+        {:ok, {rows, columns, aliases}} ->
+          format = Keyword.get(opts, :format, :raw)
+          format_options = Keyword.get(opts, :format_options, [])
+
+          case Selecto.Output.Formats.transform({rows, columns, aliases}, format, format_options) do
+            {:ok, transformed_result} -> {:ok, transformed_result}
+            {:error, transform_error} -> {:error, Selecto.Error.transformation_error("Output format transformation failed", %{
+              format: format,
+              options: format_options,
+              error: transform_error
+            })}
+          end
+        error_result -> error_result
+      end
+    rescue
+      error ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        error_result = {:error, Selecto.Error.from_reason(error)}
+
+        # Emit telemetry event for query error
+        :telemetry.execute(
+          [:selecto, :query, :error],
+          %{count: 1},
+          %{
+            query_id: query_id,
+            error: error,
+            duration: duration
+          }
+        )
+
+        track_query_execution("Query compilation failed", duration, error_result)
+        error_result
+    catch
+      :exit, reason ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        error_result = {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
+
+        # Emit telemetry event for connection error
+        :telemetry.execute(
+          [:selecto, :query, :error],
+          %{count: 1},
+          %{
+            query_id: query_id,
+            error: reason,
+            duration: duration
+          }
+        )
+
+        track_query_execution("Database connection failed", duration, error_result)
+        error_result
+    end
+  end
+
+  # Execute query with timeout protection
+  defp execute_with_timeout_protection(selecto, opts, query_id, start_time) do
+    # Get timeout from options or default
+    timeout = opts[:timeout] || 30_000  # Default 30 seconds
+    max_timeout = 300_000  # 5 minutes absolute maximum
+    timeout = min(timeout, max_timeout)
+
+    # Wrap execution in Task.async for timeout enforcement
+    task = Task.async(fn ->
+      try do
+        {query, aliases, params} = Selecto.gen_sql(selecto, opts)
+
+        # Emit telemetry event for query start
+        :telemetry.execute(
+          [:selecto, :query, :start],
+          %{system_time: System.system_time()},
+          %{query_id: query_id, query: query}
+        )
+
+        # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
+        result = cond do
         # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
         selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
           execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
@@ -136,6 +254,31 @@ defmodule Selecto.Executor do
 
         track_query_execution("Database connection failed", duration, error_result)
         error_result
+      end
+    end)
+
+    # Wait for task with timeout
+    case Task.yield(task, timeout) || Task.shutdown(task) do
+      {:ok, result} ->
+        result
+
+      nil ->
+        # Task was killed due to timeout
+        duration = System.monotonic_time(:millisecond) - start_time
+
+        Logger.error("[Selecto] Query timeout after #{timeout}ms")
+
+        # Emit timeout telemetry
+        :telemetry.execute(
+          [:selecto, :query, :timeout],
+          %{duration: duration, timeout: timeout},
+          %{query_id: query_id}
+        )
+
+        {:error, Selecto.Error.timeout_error(
+          "Query exceeded timeout of #{timeout}ms",
+          %{timeout: timeout, duration: duration}
+        )}
     end
   end
 
