@@ -318,25 +318,34 @@ defmodule Selecto.Executor do
 
     try do
       {query, aliases, params} = Selecto.gen_sql(selecto, opts)
-      
+
       # Track the SQL and params for metadata
       sql_metadata = %{
         sql: query,
         params: params
       }
 
+      require Logger
+      Logger.debug("=== EXECUTE_WITH_METADATA ROUTING ===")
+      Logger.debug("selecto.postgrex_opts: #{inspect(selecto.postgrex_opts)}")
+      Logger.debug("is_atom: #{is_atom(selecto.postgrex_opts)}")
+      Logger.debug("selecto.adapter: #{inspect(selecto.adapter)}")
+
       # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
       result = cond do
         # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
         selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+          Logger.debug("Routing to: execute_with_adapter")
           execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
-        
-        # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
-        is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
+
+        # If it's an Ecto repo (module that has __adapter__ function), try to use Ecto.Adapters.SQL.query
+        is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) && is_ecto_repo?(selecto.postgrex_opts) ->
+          Logger.debug("Routing to: execute_with_ecto_repo")
           execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
 
-        # If it's a Postgrex connection, use Postgrex.query directly (PostgreSQL backward compatibility)
+        # If it's a Postgrex connection or registered name, use Postgrex.query directly (PostgreSQL backward compatibility)
         true ->
+          Logger.debug("Routing to: execute_with_postgrex")
           execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
       end
 
@@ -471,16 +480,37 @@ defmodule Selecto.Executor do
   Execute query using direct Postgrex connection or connection pool.
   """
   def execute_with_postgrex(conn, query, params, aliases) do
+    require Logger
+    Logger.debug("=== EXECUTE_WITH_POSTGREX CALLED ===")
+    Logger.debug("Connection type: #{inspect(conn)}")
+    Logger.debug("Is PID?: #{inspect(is_pid(conn))}")
+    Logger.debug("Is atom (registered name)?: #{inspect(is_atom(conn))}")
+    Logger.debug("Query: #{inspect(query)}")
+
     case conn do
       # Handle pooled connections
       {:pool, pool_ref} ->
         execute_with_connection_pool(pool_ref, query, params, aliases)
 
-      # Handle direct Postgrex connections
-      conn when is_pid(conn) ->
+      # Handle direct Postgrex connections (PID or registered name)
+      conn when is_pid(conn) or is_atom(conn) ->
+        require Logger
+        Logger.debug("=== POSTGREX QUERY DEBUG ===")
+        Logger.debug("Query: #{inspect(query)}")
+        Logger.debug("Params: #{inspect(params)}")
+        Logger.debug("Aliases: #{inspect(aliases)}")
+
         case Postgrex.query(conn, query, params) do
-          {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-          {:error, reason} -> {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
+          {:ok, result} ->
+            Logger.debug("Postgrex result columns: #{inspect(result.columns)}")
+            Logger.debug("Postgrex result row count: #{length(result.rows)}")
+            {:ok, {result.rows, result.columns, aliases}}
+          {:error, reason} ->
+            Logger.error("=== POSTGREX QUERY ERROR ===")
+            Logger.error("Error reason: #{inspect(reason)}")
+            Logger.error("Query: #{query}")
+            Logger.error("Params: #{inspect(params)}")
+            {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
         end
 
       # Handle invalid connection types
@@ -628,4 +658,15 @@ defmodule Selecto.Executor do
       :exit, _ -> :ok
     end
   end
+
+  # Helper function to check if a module is an Ecto repo
+  defp is_ecto_repo?(module) when is_atom(module) do
+    # Check if the module has the __adapter__ function, which all Ecto repos have
+    try do
+      function_exported?(module, :__adapter__, 0)
+    rescue
+      _ -> false
+    end
+  end
+  defp is_ecto_repo?(_), do: false
 end
