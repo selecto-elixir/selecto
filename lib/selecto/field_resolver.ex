@@ -400,7 +400,8 @@ defmodule Selecto.FieldResolver do
     fields
     |> Enum.filter(fn field -> field not in redact_fields end)
     |> Enum.into(%{}, fn field ->
-      field_str = Atom.to_string(field)
+      # Handle both atom and string fields for Postgrex compatibility
+      field_str = if is_atom(field), do: Atom.to_string(field), else: field
       field_info = %{
         name: field_str,
         qualified_name: field_str,

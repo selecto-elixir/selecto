@@ -53,14 +53,34 @@ defmodule Selecto.Schema.Column do
   end
 
   def configure(field, join, source, domain) do
-    config = Map.get(Map.get(domain, :columns, %{}), field, %{})
+    # Convert field to string - handle both atoms and strings for Postgrex compatibility
+    field_str = if is_atom(field), do: Atom.to_string(field), else: field
+    # Try to get atom version if field is string (for map lookup)
+    field_atom = if is_atom(field) do
+      field
+    else
+      try do
+        String.to_existing_atom(field)
+      rescue
+        ArgumentError -> nil
+      end
+    end
+
+    # Try both string and atom keys for column config lookup
+    columns_map = Map.get(domain, :columns, %{})
+    config = if field_atom do
+      Map.get(columns_map, field_atom, Map.get(columns_map, field_str, %{}))
+    else
+      Map.get(columns_map, field_str, %{})
+    end
+
     colid =
       Map.get(
         config,
         :id,
         case join do
-          :selecto_root -> Atom.to_string(field)
-          _ -> "#{Atom.to_string(join)}.#{Atom.to_string(field)}"
+          :selecto_root -> field_str
+          _ -> "#{Atom.to_string(join)}.#{field_str}"
         end
       )
 
@@ -78,11 +98,18 @@ defmodule Selecto.Schema.Column do
         "#{join_name}: #{name}"
     end
 
+    # Get column type from source, handling both atom and string field keys
+    source_col = if field_atom do
+      Map.get(source.columns, field_atom, Map.get(source.columns, field_str))
+    else
+      Map.get(source.columns, field_str)
+    end
+
     base_col = %{
       colid: colid,
       field: field,
       name: display_name,
-      type: source.columns[field].type,
+      type: source_col.type,
       requires_join: join,
       format: Map.get(config, :format)
     }
