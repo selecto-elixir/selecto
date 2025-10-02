@@ -587,25 +587,50 @@ defmodule Selecto.Builder.Sql.Select do
     {filter_iodata, List.wrap(join) ++ List.wrap(join_w), param ++ param_w}
   end
 
-  def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_integer(value) do
-    {[{:param, value}], :selecto_root, [value]}
-  end
-
-  def prep_selector(_selecto, {:literal_position, value}, _pivot_aliases) when is_integer(value) do
-    {[Integer.to_string(value)], :selecto_root, []}
-  end
-
-  def prep_selector(_selecto, {:literal_string, value}, _pivot_aliases) when is_bitstring(value) do
-    {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
-  end
-
-  # Special case: {:literal, "*"} should NOT be parameterized in SQL functions like COUNT(*)
+  # {:literal, value} should NOT be parameterized - render as SQL literal
+  # Special case for "*" used in COUNT(*) and similar functions
   def prep_selector(_selecto, {:literal, "*"}, _pivot_aliases) do
     {["*"], :selecto_root, []}
   end
 
+  # Integer literals - render as raw numbers in SQL
+  def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_integer(value) do
+    {[Integer.to_string(value)], :selecto_root, []}
+  end
+
+  # String literals - render as SQL-escaped string literals with quotes
   def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_bitstring(value) do
-    {[{:param, value}], :selecto_root, [value]}
+    {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
+  end
+
+  # Float literals - render as raw floats in SQL
+  def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_float(value) do
+    {[Float.to_string(value)], :selecto_root, []}
+  end
+
+  # Boolean literals - render as SQL boolean literals
+  def prep_selector(_selecto, {:literal, true}, _pivot_aliases) do
+    {["TRUE"], :selecto_root, []}
+  end
+
+  def prep_selector(_selecto, {:literal, false}, _pivot_aliases) do
+    {["FALSE"], :selecto_root, []}
+  end
+
+  # NULL literal
+  def prep_selector(_selecto, {:literal, nil}, _pivot_aliases) do
+    {["NULL"], :selecto_root, []}
+  end
+
+  # {:literal_position, value} is for positional numbers (e.g., ORDER BY 1)
+  def prep_selector(_selecto, {:literal_position, value}, _pivot_aliases) when is_integer(value) do
+    {[Integer.to_string(value)], :selecto_root, []}
+  end
+
+  # {:literal_string, value} is an alias for {:literal, value} when it's a string
+  # Keeping for backwards compatibility
+  def prep_selector(_selecto, {:literal_string, value}, _pivot_aliases) when is_bitstring(value) do
+    {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
   end
 
   def prep_selector(selecto, {:to_char, {field, format}}, pivot_aliases) do
