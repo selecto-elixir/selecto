@@ -105,7 +105,7 @@ defmodule Selecto.Schema.Join do
         acc = acc ++ [configure(id, association, config, parent, source, queryable)]
         case Map.get(config, :joins) do
           nil -> acc
-          _ -> acc ++ normalize_joins(queryable, config.joins, id, domain)
+          nested_joins -> acc ++ normalize_joins(queryable, nested_joins, id, domain)
         end
     end)
   end
