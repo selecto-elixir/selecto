@@ -80,7 +80,11 @@ defmodule Selecto.Schema.Column do
         :id,
         case join do
           :selecto_root -> field_str
-          _ -> "#{Atom.to_string(join)}.#{field_str}"
+
+          _ ->
+            # Handle both atom and string join names for Postgrex compatibility
+            join_str = if is_atom(join), do: Atom.to_string(join), else: join
+            "#{join_str}.#{field_str}"
         end
       )
 

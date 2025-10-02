@@ -24,16 +24,10 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_standard_query(selecto, _opts) do
-    require Logger
-    Logger.debug("=== BUILD_STANDARD_QUERY START ===")
-    Logger.debug("selecto.set.filtered at start: #{inspect(selecto.set.filtered, pretty: true)}")
-
     # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
     {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
-    Logger.debug("selecto.set.filtered after build_select: #{inspect(selecto.set.filtered, pretty: true)}")
 
     {window_joins, window_iodata, window_params} = Selecto.Builder.Window.build_window_functions(selecto)
-    Logger.debug("selecto.set.filtered after window functions: #{inspect(selecto.set.filtered, pretty: true)}")
 
     {filter_joins, where_iolist, _where_params} = build_where(selecto)
     {group_by_joins, group_by_iodata, _group_by_params} = build_group_by(selecto)
