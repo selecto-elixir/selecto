@@ -401,10 +401,10 @@ defmodule Selecto.Builder.Sql.Select do
       result -> result
     end
   end
-  
+
   def prep_selector(selecto, {:array, values}, _pivot_aliases) when is_list(values) do
     # Build ARRAY[val1, val2, ...] expression
-    {values_iodata, values_params} = 
+    {values_iodata, values_params} =
       values
       |> Enum.map(fn value ->
         case value do
@@ -425,10 +425,10 @@ defmodule Selecto.Builder.Sql.Select do
       |> Enum.reduce({[], []}, fn {io, p}, {acc_io, acc_p} ->
         {acc_io ++ [io], acc_p ++ p}
       end)
-    
+
     array_elements = Enum.intersperse(values_iodata, ", ")
     iodata = ["ARRAY[", array_elements, "]"]
-    
+
     {iodata, [], values_params}
   end
 
@@ -633,6 +633,15 @@ defmodule Selecto.Builder.Sql.Select do
     {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
   end
 
+  # Special case: {:literal, "*"} should NOT be parameterized in SQL functions like COUNT(*)
+  def prep_selector(_selecto, {:literal, "*"}, _pivot_aliases) do
+    {["*"], :selecto_root, []}
+  end
+
+  def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_bitstring(value) do
+    {[{:param, value}], :selecto_root, [value]}
+  end
+
   def prep_selector(selecto, {:to_char, {field, format}}, pivot_aliases) do
     {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
     to_char_iodata = ["to_char(", sel_iodata, ", ", single_wrap(format), ")"]
@@ -714,7 +723,7 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(selecto, selector, pivot_aliases) when is_binary(selector) do
     # First check if it's a dynamic column (from UNNEST, CTE, etc.)
     dynamic_columns = Map.get(selecto.set, :dynamic_columns, %{})
-    
+
     conf = if Map.has_key?(dynamic_columns, selector) do
       # Create a minimal field config for dynamic columns
       %{
@@ -737,7 +746,7 @@ defmodule Selecto.Builder.Sql.Select do
       nil ->
         # Use the database field name (field property) instead of display name (name property)
         field_name = Map.get(conf, :field, conf.name)
-        
+
         # For dynamic columns, use them directly without table qualification
         if Map.has_key?(dynamic_columns, selector) do
           # Dynamic columns from UNNEST don't need table qualification
@@ -795,7 +804,7 @@ defmodule Selecto.Builder.Sql.Select do
   ## ^^ and mixed lit/field args - field as list?
 
   # Phase 4: iodata-based build functions (now main functions)
-  
+
   # build/2 functions
   def build(selecto, {:row, fields, as}) do
     build(selecto, {:row, fields, as}, %{})
@@ -809,7 +818,7 @@ defmodule Selecto.Builder.Sql.Select do
     build(selecto, field, %{})
   end
 
-  # build/3 functions  
+  # build/3 functions
   def build(selecto, {:row, fields, as}, pivot_aliases) do
     {select_parts, join, param} =
       Enum.reduce(List.wrap(fields), {[], [], []}, fn f, {select, join, param} ->
