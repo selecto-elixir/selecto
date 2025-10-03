@@ -163,9 +163,10 @@ defmodule Selecto.Subselect do
   # Find a join path starting from a specific schema (not just source)
   defp find_join_path_from_schema(domain, from_schema, to_schema, visited) do
     cond do
-      from_schema == to_schema && from_schema not in visited ->
-        # Self-referential case - look for path through junction tables
-        # For example: film → film_actors → film
+      from_schema == to_schema && from_schema not in visited && length(visited) == 0 ->
+        # Self-referential case ONLY when this is the initial call (visited is empty)
+        # For example: film → film_actors → film (when asking for film from film)
+        # NOT when we've traversed from another schema and arrived at the target
         from_schema_config = Map.get(domain.schemas, from_schema)
 
         if from_schema_config && from_schema_config.associations do
@@ -184,9 +185,11 @@ defmodule Selecto.Subselect do
         end
 
       from_schema == to_schema ->
+        # Reached target - return empty path (we're already there)
         {:ok, []}
 
       from_schema in visited ->
+        # Cycle detected
         :not_found
 
       true ->
