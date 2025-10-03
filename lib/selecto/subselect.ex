@@ -223,23 +223,30 @@ defmodule Selecto.Subselect do
   defp find_through_direct_associations(domain, associations, target_schema) do
     associations
     |> Enum.reduce_while(:not_found, fn {assoc_name, assoc_config}, _acc ->
-      junction_schema = assoc_config.queryable
-      junction_config = Map.get(domain.schemas, junction_schema)
+      queryable_schema = assoc_config.queryable
 
-      # Check if this junction has an association back to our target
-      if junction_config && junction_config.associations do
-        back_assoc = Enum.find(junction_config.associations, fn {_name, assoc} ->
-          assoc.queryable == target_schema
-        end)
+      # Check if this is a direct self-reference (e.g., categories.parent_category → categories)
+      if queryable_schema == target_schema do
+        # Direct self-join, return just the association name
+        {:halt, {:ok, [assoc_name]}}
+      else
+        # Check if this could be a junction table
+        junction_config = Map.get(domain.schemas, queryable_schema)
 
-        if back_assoc do
-          # Found a path: target → junction → target
-          {:halt, {:ok, [assoc_name, target_schema]}}
+        if junction_config && junction_config.associations do
+          back_assoc = Enum.find(junction_config.associations, fn {_name, assoc} ->
+            assoc.queryable == target_schema
+          end)
+
+          if back_assoc do
+            # Found a path: target → junction → target (many-to-many)
+            {:halt, {:ok, [assoc_name, target_schema]}}
+          else
+            {:cont, :not_found}
+          end
         else
           {:cont, :not_found}
         end
-      else
-        {:cont, :not_found}
       end
     end)
   end

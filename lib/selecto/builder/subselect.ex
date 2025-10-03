@@ -349,6 +349,43 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
+  # Build direct correlation when we already know the association name
+  defp build_direct_correlation_with_assoc(selecto, target_schema, assoc_name, source_alias) do
+    target_alias = generate_subquery_alias(target_schema)
+
+    # Determine the current context - if pivoted, use pivot target schema
+    {current_schema_config, association} = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context - the source is the pivot target table
+      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      pivot_target = pivot_config.target_schema
+      pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+
+      # Get the association by name
+      assoc = Map.get(pivot_schema_config.associations, assoc_name)
+      {pivot_schema_config, assoc}
+    else
+      # Normal context - use source
+      assoc = Map.get(selecto.domain.source.associations, assoc_name)
+      {selecto.domain.source, assoc}
+    end
+
+    if association do
+      # Use the proper foreign key from the association
+      source_field = to_string(association.owner_key)
+      target_field = to_string(association.related_key)
+
+      condition = [
+        target_alias, ".", escape_identifier(target_field), " = ",
+        source_alias, ".", escape_identifier(source_field)
+      ]
+
+      {:ok, condition}
+    else
+      # No association found
+      {:error, "Cannot find association #{assoc_name} from #{inspect(current_schema_config.source_table)}"}
+    end
+  end
+
   defp build_exists_correlation(selecto, target_schema, join_path, source_alias) do
     # For actor → film_actors → film, we need:
     # EXISTS (SELECT 1 FROM film_actor fa WHERE fa.actor_id = selecto_root.actor_id AND fa.film_id = sub_film.film_id)
@@ -358,13 +395,15 @@ defmodule Selecto.Builder.Subselect do
         # Path includes both junction and target
         build_single_junction_exists(selecto, target_schema, junction_schema, source_alias)
 
-      [junction_schema] when junction_schema == target_schema ->
-        # Direct one-to-many (actor → films where actor is joined directly)
-        # This shouldn't happen for subselects - should use direct correlation
-        build_single_junction_exists(selecto, target_schema, junction_schema, source_alias)
+      [assoc_name] ->
+        # Single-element path - could be:
+        # 1. Direct self-join (categories.parent_category → categories)
+        # 2. Direct one-to-many (user → orders)
+        # Use direct correlation, passing the association name
+        build_direct_correlation_with_assoc(selecto, target_schema, assoc_name, source_alias)
 
       multi_path ->
-        # Multi-step path (more complex) - currently not supported
+        # Multi-step path (3+ elements) - build chained joins
         build_multi_step_exists(selecto, target_schema, multi_path, source_alias)
     end
   end
