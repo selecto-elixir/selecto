@@ -8,7 +8,35 @@ defmodule Selecto.Builder.ArrayOperations do
   
   alias Selecto.Advanced.ArrayOperations.Spec
   import Selecto.Builder.Sql.Helpers
-  
+
+  # Helper to build properly quoted column references
+  defp build_column_reference(column, selecto) when is_binary(column) do
+    quote_char = get_quote_char(selecto)
+
+    # Parse qualified column name (e.g., "selecto_root.field" or "field")
+    case String.split(column, ".", parts: 2) do
+      [table, field] ->
+        # Always quote for consistency in array operations
+        "#{quote_char}#{table}#{quote_char}.#{quote_char}#{field}#{quote_char}"
+      [field] ->
+        # Unqualified field - add source table alias with quotes
+        "#{quote_char}selecto_root#{quote_char}.#{quote_char}#{field}#{quote_char}"
+    end
+  end
+
+  defp build_column_reference(column, selecto) when is_atom(column) do
+    build_column_reference(Atom.to_string(column), selecto)
+  end
+
+  defp build_column_reference({:field, field}, selecto) do
+    build_column_reference(field, selecto)
+  end
+
+  defp build_column_reference(column, _selecto) do
+    # Fallback for other types
+    to_string(column)
+  end
+
   @doc """
   Build SQL for an array operation.
   Returns iodata with parameter markers instead of SQL strings.
@@ -318,44 +346,5 @@ defmodule Selecto.Builder.ArrayOperations do
     iodata = if spec.alias, do: iodata ++ [" AS ", spec.alias], else: iodata
     
     {iodata, params_list ++ [spec.value]}
-  end
-  
-  # Helper functions
-  
-  defp build_column_reference(column, selecto) when is_binary(column) do
-    # Try to get field config to determine if we need a join
-    if selecto do
-      # Check if it's a dynamic column first
-      dynamic_columns = Map.get(selecto.set || %{}, :dynamic_columns, %{})
-      
-      if Map.has_key?(dynamic_columns, column) do
-        # Dynamic columns don't need table qualification
-        column
-      else
-        # Try to get field configuration
-        case Selecto.field(selecto, column) do
-          nil -> 
-            # No field config, use column as-is
-            column
-          conf ->
-            # Use proper table qualification
-            table_alias = conf.requires_join || :selecto_root
-            field_name = conf.field || conf.name
-            build_selector_string(selecto, table_alias, field_name)
-        end
-      end
-    else
-      column
-    end
-  end
-  
-  defp build_column_reference({:array_agg, column}, selecto) do
-    column_ref = build_column_reference(column, selecto)
-    ["ARRAY_AGG(", column_ref, ")"]
-  end
-  
-  defp build_column_reference(column, _selecto) when is_tuple(column) do
-    # Handle nested operations
-    Tuple.to_list(column) |> Enum.join(".")
   end
 end

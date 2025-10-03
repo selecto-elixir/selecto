@@ -633,15 +633,6 @@ defmodule Selecto.Builder.Sql.Select do
     {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
   end
 
-  # Special case: {:literal, "*"} should NOT be parameterized in SQL functions like COUNT(*)
-  def prep_selector(_selecto, {:literal, "*"}, _pivot_aliases) do
-    {["*"], :selecto_root, []}
-  end
-
-  def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_bitstring(value) do
-    {[{:param, value}], :selecto_root, [value]}
-  end
-
   def prep_selector(selecto, {:to_char, {field, format}}, pivot_aliases) do
     {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
     to_char_iodata = ["to_char(", sel_iodata, ", ", single_wrap(format), ")"]
