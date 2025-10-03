@@ -316,13 +316,26 @@ defmodule Selecto.Builder.Subselect do
   defp build_direct_correlation(selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
 
-    # Find the association from source to target
-    association = Map.get(selecto.domain.source.associations, target_schema)
+    # Determine the current context - if pivoted, use pivot target schema
+    {current_schema_config, association} = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context - the source is the pivot target table
+      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      pivot_target = pivot_config.target_schema
+      pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+
+      # Find the association from pivot target to the subselect target
+      assoc = Map.get(pivot_schema_config.associations, target_schema)
+      {pivot_schema_config, assoc}
+    else
+      # Normal context - use source
+      assoc = Map.get(selecto.domain.source.associations, target_schema)
+      {selecto.domain.source, assoc}
+    end
 
     if association do
       # Use the proper foreign key from the association
-      source_field = to_string(association.owner_key)  # e.g., "category_id"
-      target_field = to_string(association.related_key)  # e.g., "id"
+      source_field = to_string(association.owner_key)  # e.g., "user_id"
+      target_field = to_string(association.related_key)  # e.g., "user_id"
 
       condition = [
         target_alias, ".", escape_identifier(target_field), " = ",
@@ -331,12 +344,8 @@ defmodule Selecto.Builder.Subselect do
 
       {:ok, condition}
     else
-      # Fallback - this shouldn't happen if properly configured
-      condition = [
-        target_alias, ".id = ", source_alias, ".", to_string(target_schema) <> "_id"
-      ]
-
-      {:ok, condition}
+      # No association found - raise error instead of using incorrect fallback
+      {:error, "Cannot find association from #{inspect(current_schema_config.source_table)} to #{target_schema}"}
     end
   end
 
@@ -344,12 +353,18 @@ defmodule Selecto.Builder.Subselect do
     # For actor → film_actors → film, we need:
     # EXISTS (SELECT 1 FROM film_actor fa WHERE fa.actor_id = selecto_root.actor_id AND fa.film_id = sub_film.film_id)
     case join_path do
-      [junction_schema] ->
-        # Simple one-step junction (actor → film_actors → film)
+      [junction_schema, ^target_schema] ->
+        # Simple many-to-many junction (actor → film_actors → film)
+        # Path includes both junction and target
+        build_single_junction_exists(selecto, target_schema, junction_schema, source_alias)
+
+      [junction_schema] when junction_schema == target_schema ->
+        # Direct one-to-many (actor → films where actor is joined directly)
+        # This shouldn't happen for subselects - should use direct correlation
         build_single_junction_exists(selecto, target_schema, junction_schema, source_alias)
 
       multi_path ->
-        # Multi-step path (more complex)
+        # Multi-step path (more complex) - currently not supported
         build_multi_step_exists(selecto, target_schema, multi_path, source_alias)
     end
   end
@@ -361,17 +376,32 @@ defmodule Selecto.Builder.Subselect do
     # Get junction table name
     junction_table = get_target_table(selecto, junction_schema)
 
-    # Get source association (actor → film_actors)
-    source_assoc = Map.get(selecto.domain.source.associations, junction_schema)
+    # Determine the current context - if pivoted, use pivot target as source
+    {source_schema_config, source_to_junction_assoc} = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context - the source is the pivot target table
+      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      pivot_target = pivot_config.target_schema
+      pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+
+      # Find the association from pivot target to junction
+      # For film → film_actors, we need to reverse lookup
+      assoc = find_association_to_junction(pivot_schema_config, selecto.domain, junction_schema)
+      {pivot_schema_config, assoc}
+    else
+      # Normal context - use source
+      source_assoc = Map.get(selecto.domain.source.associations, junction_schema)
+      {selecto.domain.source, source_assoc}
+    end
+
     # Get junction association (film_actors → film)
     junction_schema_config = Map.get(selecto.domain.schemas, junction_schema)
     target_assoc = Map.get(junction_schema_config.associations, target_schema)
 
-    if source_assoc && target_assoc do
+    if source_to_junction_assoc && target_assoc do
       exists_condition = [
         "EXISTS (SELECT 1 FROM ", junction_table, " ", junction_alias,
-        " WHERE ", junction_alias, ".", escape_identifier(to_string(source_assoc.related_key)),
-        " = ", source_alias, ".", escape_identifier(to_string(source_assoc.owner_key)),
+        " WHERE ", junction_alias, ".", escape_identifier(to_string(source_to_junction_assoc.related_key)),
+        " = ", source_alias, ".", escape_identifier(to_string(source_to_junction_assoc.owner_key)),
         " AND ", junction_alias, ".", escape_identifier(to_string(target_assoc.owner_key)),
         " = ", target_alias, ".", escape_identifier(to_string(target_assoc.related_key)),
         ")"
@@ -379,6 +409,55 @@ defmodule Selecto.Builder.Subselect do
       {:ok, exists_condition}
     else
       {:error, "Cannot build EXISTS correlation - missing association configuration"}
+    end
+  end
+
+  # Find the association from a schema back to a junction table
+  # This is needed for pivot scenarios where we need to reverse-correlate
+  defp find_association_to_junction(schema_config, domain, junction_schema) do
+    # Look for an association where the queryable matches junction_schema
+    # For film → film_actors, this would be the film_actors association
+    case Map.get(schema_config.associations, junction_schema) do
+      nil ->
+        # Try looking through all associations to find one pointing to the junction
+        case Enum.find_value(schema_config.associations, fn {_name, assoc} ->
+          if assoc.queryable == junction_schema, do: assoc
+        end) do
+          nil ->
+            # No direct association found - infer it from junction table's associations
+            # The junction table should have an association back to this schema
+            infer_reverse_association(schema_config, domain, junction_schema)
+          assoc ->
+            assoc
+        end
+      assoc ->
+        assoc
+    end
+  end
+
+  # Infer the reverse association by looking at the junction table's associations
+  defp infer_reverse_association(schema_config, domain, junction_schema) do
+    junction_config = Map.get(domain.schemas, junction_schema)
+
+    if junction_config do
+      # Find an association in the junction that points back to our schema
+      # We need to match on the source_table since we don't have the schema name
+      schema_table = schema_config.source_table
+
+      # Look for an association where the related table matches our table
+      # and create a reverse association
+      Enum.find_value(junction_config.associations, fn {_name, assoc} ->
+        # Check if this association points to a schema with our table
+        target_schema = Map.get(domain.schemas, assoc.queryable)
+        if target_schema && target_schema.source_table == schema_table do
+          # Create reverse association - swap owner_key and related_key
+          %{
+            queryable: junction_schema,
+            owner_key: assoc.related_key,
+            related_key: assoc.owner_key
+          }
+        end
+      end)
     end
   end
 
@@ -447,13 +526,10 @@ defmodule Selecto.Builder.Subselect do
       {:ok, condition_sql} ->
         {condition_sql, []}
 
-      {:error, _reason} ->
-        # Fallback to simple ID correlation
-        condition = [
-          target_alias, ".id = ", source_alias, ".id"
-        ]
-
-        {condition, []}
+      {:error, reason} ->
+        # This should not happen if domain is properly configured
+        # Raise an error instead of using an incorrect fallback
+        raise ArgumentError, "Cannot build correlation condition for subselect: #{reason}"
     end
   end
 
