@@ -41,6 +41,20 @@ defmodule Selecto.Builder.ArrayOperations do
     build_column_reference(field, selecto)
   end
 
+  # Handle nested array operations (e.g., {:array_agg, "film_id"})
+  defp build_column_reference({op, column}, selecto) when is_atom(op) do
+    # This is a nested array operation - build it recursively
+    spec = %Spec{
+      id: "nested_#{op}",
+      operation: op,
+      column: column,
+      validated: true
+    }
+    {iodata, _params} = build_array_sql(spec, [], selecto)
+    # Convert iodata to string for embedding
+    IO.iodata_to_binary(iodata)
+  end
+
   defp build_column_reference(column, _selecto) do
     # Fallback for other types
     to_string(column)
