@@ -416,7 +416,7 @@ defmodule Selecto.Builder.Subselect do
     junction_table = get_target_table(selecto, junction_schema)
 
     # Determine the current context - if pivoted, use pivot target as source
-    {source_schema_config, source_to_junction_assoc} = if Selecto.Pivot.has_pivot?(selecto) do
+    {_source_schema_config, source_to_junction_assoc} = if Selecto.Pivot.has_pivot?(selecto) do
       # In pivot context - the source is the pivot target table
       pivot_config = Selecto.Pivot.get_pivot_config(selecto)
       pivot_target = pivot_config.target_schema
@@ -506,7 +506,7 @@ defmodule Selecto.Builder.Subselect do
     target_alias = generate_subquery_alias(target_schema)
 
     # Get the starting point (either source or pivot target)
-    {source_schema_config, source_key_field} = if Selecto.Pivot.has_pivot?(selecto) do
+    {source_schema_config, _source_key_field} = if Selecto.Pivot.has_pivot?(selecto) do
       pivot_config = Selecto.Pivot.get_pivot_config(selecto)
       pivot_target = pivot_config.target_schema
       pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
@@ -689,7 +689,7 @@ defmodule Selecto.Builder.Subselect do
   end
 
 
-  defp build_correlation_condition(selecto, subselect_config, target_alias, source_alias) do
+  defp build_correlation_condition(selecto, subselect_config, _target_alias, source_alias) do
     case resolve_join_condition_with_path(selecto, subselect_config.target_schema, source_alias) do
       {:ok, condition_sql} ->
         {condition_sql, []}
