@@ -164,7 +164,7 @@ defmodule Selecto.Performance.QueryAnalyzer do
       
       {:pool, pool_ref} ->
         case Selecto.ConnectionPool.execute(pool_ref, query, params) do
-          {:ok, result} -> {:ok, result}
+          # {:ok, result} -> {:ok, result}
           {:error, reason} -> {:error, {:explain_failed, reason}}
         end
       
