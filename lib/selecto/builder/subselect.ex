@@ -316,13 +316,26 @@ defmodule Selecto.Builder.Subselect do
   defp build_direct_correlation(selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
 
-    # Find the association from source to target
-    association = Map.get(selecto.domain.source.associations, target_schema)
+    # Determine the current context - if pivoted, use pivot target schema
+    {current_schema_config, association} = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context - the source is the pivot target table
+      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      pivot_target = pivot_config.target_schema
+      pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+
+      # Find the association from pivot target to the subselect target
+      assoc = Map.get(pivot_schema_config.associations, target_schema)
+      {pivot_schema_config, assoc}
+    else
+      # Normal context - use source
+      assoc = Map.get(selecto.domain.source.associations, target_schema)
+      {selecto.domain.source, assoc}
+    end
 
     if association do
       # Use the proper foreign key from the association
-      source_field = to_string(association.owner_key)  # e.g., "category_id"
-      target_field = to_string(association.related_key)  # e.g., "id"
+      source_field = to_string(association.owner_key)  # e.g., "user_id"
+      target_field = to_string(association.related_key)  # e.g., "user_id"
 
       condition = [
         target_alias, ".", escape_identifier(target_field), " = ",
@@ -331,12 +344,45 @@ defmodule Selecto.Builder.Subselect do
 
       {:ok, condition}
     else
-      # Fallback - this shouldn't happen if properly configured
+      # No association found - raise error instead of using incorrect fallback
+      {:error, "Cannot find association from #{inspect(current_schema_config.source_table)} to #{target_schema}"}
+    end
+  end
+
+  # Build direct correlation when we already know the association name
+  defp build_direct_correlation_with_assoc(selecto, target_schema, assoc_name, source_alias) do
+    target_alias = generate_subquery_alias(target_schema)
+
+    # Determine the current context - if pivoted, use pivot target schema
+    {current_schema_config, association} = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context - the source is the pivot target table
+      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      pivot_target = pivot_config.target_schema
+      pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+
+      # Get the association by name
+      assoc = Map.get(pivot_schema_config.associations, assoc_name)
+      {pivot_schema_config, assoc}
+    else
+      # Normal context - use source
+      assoc = Map.get(selecto.domain.source.associations, assoc_name)
+      {selecto.domain.source, assoc}
+    end
+
+    if association do
+      # Use the proper foreign key from the association
+      source_field = to_string(association.owner_key)
+      target_field = to_string(association.related_key)
+
       condition = [
-        target_alias, ".id = ", source_alias, ".", to_string(target_schema) <> "_id"
+        target_alias, ".", escape_identifier(target_field), " = ",
+        source_alias, ".", escape_identifier(source_field)
       ]
 
       {:ok, condition}
+    else
+      # No association found
+      {:error, "Cannot find association #{assoc_name} from #{inspect(current_schema_config.source_table)}"}
     end
   end
 
@@ -344,12 +390,20 @@ defmodule Selecto.Builder.Subselect do
     # For actor → film_actors → film, we need:
     # EXISTS (SELECT 1 FROM film_actor fa WHERE fa.actor_id = selecto_root.actor_id AND fa.film_id = sub_film.film_id)
     case join_path do
-      [junction_schema] ->
-        # Simple one-step junction (actor → film_actors → film)
+      [junction_schema, ^target_schema] ->
+        # Simple many-to-many junction (actor → film_actors → film)
+        # Path includes both junction and target
         build_single_junction_exists(selecto, target_schema, junction_schema, source_alias)
 
+      [assoc_name] ->
+        # Single-element path - could be:
+        # 1. Direct self-join (categories.parent_category → categories)
+        # 2. Direct one-to-many (user → orders)
+        # Use direct correlation, passing the association name
+        build_direct_correlation_with_assoc(selecto, target_schema, assoc_name, source_alias)
+
       multi_path ->
-        # Multi-step path (more complex)
+        # Multi-step path (3+ elements) - build chained joins
         build_multi_step_exists(selecto, target_schema, multi_path, source_alias)
     end
   end
@@ -361,17 +415,32 @@ defmodule Selecto.Builder.Subselect do
     # Get junction table name
     junction_table = get_target_table(selecto, junction_schema)
 
-    # Get source association (actor → film_actors)
-    source_assoc = Map.get(selecto.domain.source.associations, junction_schema)
+    # Determine the current context - if pivoted, use pivot target as source
+    {_source_schema_config, source_to_junction_assoc} = if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context - the source is the pivot target table
+      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      pivot_target = pivot_config.target_schema
+      pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+
+      # Find the association from pivot target to junction
+      # For film → film_actors, we need to reverse lookup
+      assoc = find_association_to_junction(pivot_schema_config, selecto.domain, junction_schema)
+      {pivot_schema_config, assoc}
+    else
+      # Normal context - use source
+      source_assoc = Map.get(selecto.domain.source.associations, junction_schema)
+      {selecto.domain.source, source_assoc}
+    end
+
     # Get junction association (film_actors → film)
     junction_schema_config = Map.get(selecto.domain.schemas, junction_schema)
     target_assoc = Map.get(junction_schema_config.associations, target_schema)
 
-    if source_assoc && target_assoc do
+    if source_to_junction_assoc && target_assoc do
       exists_condition = [
         "EXISTS (SELECT 1 FROM ", junction_table, " ", junction_alias,
-        " WHERE ", junction_alias, ".", escape_identifier(to_string(source_assoc.related_key)),
-        " = ", source_alias, ".", escape_identifier(to_string(source_assoc.owner_key)),
+        " WHERE ", junction_alias, ".", escape_identifier(to_string(source_to_junction_assoc.related_key)),
+        " = ", source_alias, ".", escape_identifier(to_string(source_to_junction_assoc.owner_key)),
         " AND ", junction_alias, ".", escape_identifier(to_string(target_assoc.owner_key)),
         " = ", target_alias, ".", escape_identifier(to_string(target_assoc.related_key)),
         ")"
@@ -382,9 +451,187 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_multi_step_exists(_selecto, _target_schema, _multi_path, _source_alias) do
-    # For now, return an error - can be implemented later for more complex paths
-    {:error, "Multi-step join paths not yet implemented for subselects"}
+  # Find the association from a schema back to a junction table
+  # This is needed for pivot scenarios where we need to reverse-correlate
+  defp find_association_to_junction(schema_config, domain, junction_schema) do
+    # Look for an association where the queryable matches junction_schema
+    # For film → film_actors, this would be the film_actors association
+    case Map.get(schema_config.associations, junction_schema) do
+      nil ->
+        # Try looking through all associations to find one pointing to the junction
+        case Enum.find_value(schema_config.associations, fn {_name, assoc} ->
+          if assoc.queryable == junction_schema, do: assoc
+        end) do
+          nil ->
+            # No direct association found - infer it from junction table's associations
+            # The junction table should have an association back to this schema
+            infer_reverse_association(schema_config, domain, junction_schema)
+          assoc ->
+            assoc
+        end
+      assoc ->
+        assoc
+    end
+  end
+
+  # Infer the reverse association by looking at the junction table's associations
+  defp infer_reverse_association(schema_config, domain, junction_schema) do
+    junction_config = Map.get(domain.schemas, junction_schema)
+
+    if junction_config do
+      # Find an association in the junction that points back to our schema
+      # We need to match on the source_table since we don't have the schema name
+      schema_table = schema_config.source_table
+
+      # Look for an association where the related table matches our table
+      # and create a reverse association
+      Enum.find_value(junction_config.associations, fn {_name, assoc} ->
+        # Check if this association points to a schema with our table
+        target_schema = Map.get(domain.schemas, assoc.queryable)
+        if target_schema && target_schema.source_table == schema_table do
+          # Create reverse association - swap owner_key and related_key
+          %{
+            queryable: junction_schema,
+            owner_key: assoc.related_key,
+            related_key: assoc.owner_key
+          }
+        end
+      end)
+    end
+  end
+
+  defp build_multi_step_exists(selecto, target_schema, multi_path, source_alias) do
+    # For paths like [:orders, :order_items, :products]
+    # Build: EXISTS (SELECT 1 FROM orders j1 INNER JOIN order_items j2 ON ... INNER JOIN products j3 ON ...)
+    target_alias = generate_subquery_alias(target_schema)
+
+    # Get the starting point (either source or pivot target)
+    {source_schema_config, _source_key_field} = if Selecto.Pivot.has_pivot?(selecto) do
+      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      pivot_target = pivot_config.target_schema
+      pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+
+      # Get the primary key of the pivot target to use as correlation point
+      pk = pivot_schema_config.primary_key || :id
+      {pivot_schema_config, to_string(pk)}
+    else
+      # Use source
+      pk = selecto.domain.source.primary_key || :id
+      {selecto.domain.source, to_string(pk)}
+    end
+
+    # Build the chain of JOINs
+    case build_join_chain(selecto, source_schema_config, multi_path, source_alias, target_alias) do
+      {:ok, {join_clauses, start_correlation, end_correlation}} ->
+        exists_sql = [
+          "EXISTS (SELECT 1 FROM ",
+          join_clauses,
+          " WHERE ",
+          start_correlation,
+          " AND ",
+          end_correlation,
+          ")"
+        ]
+        {:ok, exists_sql}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Build a chain of INNER JOINs for multi-step paths
+  # Returns: {:ok, {join_clauses_iodata, start_correlation, end_correlation}}
+  defp build_join_chain(selecto, source_config, join_path, source_alias, target_alias) do
+    # Validate we have a path
+    if length(join_path) < 2 do
+      {:error, "Multi-step path must have at least 2 schemas"}
+    else
+      case build_join_chain_recursive(selecto, source_config, join_path, source_alias, target_alias, [], nil) do
+        {:ok, result} -> {:ok, result}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # Recursively build the JOIN chain
+  # prev_join_info format: {prev_alias, prev_association, start_correlation}
+  defp build_join_chain_recursive(selecto, current_schema_config, [assoc_name | remaining_path], source_alias, target_alias, acc_joins, prev_join_info) do
+    # Get association from current schema using the association name
+    association = Map.get(current_schema_config.associations, assoc_name)
+
+    unless association do
+      {:error, "No association found from #{current_schema_config.source_table} to #{assoc_name}"}
+    else
+      # Get the target schema using the queryable field from the association
+      target_schema_name = association.queryable
+      next_schema_config = Map.get(selecto.domain.schemas, target_schema_name)
+
+      unless next_schema_config do
+        {:error, "Schema #{target_schema_name} not found in domain (from association #{assoc_name})"}
+      else
+        # Generate alias for this join (use association name for clarity)
+        join_alias = "j_#{assoc_name}"
+        table_name = next_schema_config.source_table
+
+        # Build the JOIN clause and track start_correlation
+        {join_clause, accumulated_start_corr} = if prev_join_info == nil do
+          # First table in chain - no INNER JOIN yet, just table reference
+          # Build start correlation (links to source)
+          start_corr = [
+            join_alias, ".", escape_identifier(to_string(association.related_key)),
+            " = ",
+            source_alias, ".", escape_identifier(to_string(association.owner_key))
+          ]
+
+          {[table_name, " ", join_alias], start_corr}
+        else
+          # Subsequent joins
+          {prev_alias, prev_association, inherited_start_corr} = prev_join_info
+
+          join_sql = [
+            " INNER JOIN ", table_name, " ", join_alias,
+            " ON ", prev_alias, ".", escape_identifier(to_string(prev_association.owner_key)),
+            " = ", join_alias, ".", escape_identifier(to_string(prev_association.related_key))
+          ]
+
+          {join_sql, inherited_start_corr}  # Pass through the start correlation from first join
+        end
+
+        # Add to accumulator
+        new_acc_joins = acc_joins ++ [join_clause]
+
+        # Check if we've reached the target
+        if remaining_path == [] do
+          # This is the last step - build end correlation to target
+          end_correlation = [
+            join_alias, ".", escape_identifier(to_string(next_schema_config.primary_key || :id)),
+            " = ",
+            target_alias, ".", escape_identifier(to_string(next_schema_config.primary_key || :id))
+          ]
+
+          # Return complete chain
+          join_clauses = Enum.intersperse(new_acc_joins, [])
+
+          {:ok, {join_clauses, accumulated_start_corr, end_correlation}}
+        else
+          # More joins to process
+          # Get the association from next_schema to the following schema for the next iteration
+          [peek_schema | _] = remaining_path
+          next_association = Map.get(next_schema_config.associations, peek_schema)
+
+          # Recurse with updated context, passing through start_correlation
+          build_join_chain_recursive(
+            selecto,
+            next_schema_config,
+            remaining_path,
+            source_alias,
+            target_alias,
+            new_acc_joins,
+            {join_alias, next_association, accumulated_start_corr}
+          )
+        end
+      end
+    end
   end
 
   defp build_subquery_select_fields(subselect_config, target_alias) do
@@ -442,18 +689,15 @@ defmodule Selecto.Builder.Subselect do
   end
 
 
-  defp build_correlation_condition(selecto, subselect_config, target_alias, source_alias) do
+  defp build_correlation_condition(selecto, subselect_config, _target_alias, source_alias) do
     case resolve_join_condition_with_path(selecto, subselect_config.target_schema, source_alias) do
       {:ok, condition_sql} ->
         {condition_sql, []}
 
-      {:error, _reason} ->
-        # Fallback to simple ID correlation
-        condition = [
-          target_alias, ".id = ", source_alias, ".id"
-        ]
-
-        {condition, []}
+      {:error, reason} ->
+        # This should not happen if domain is properly configured
+        # Raise an error instead of using an incorrect fallback
+        raise ArgumentError, "Cannot build correlation condition for subselect: #{reason}"
     end
   end
 

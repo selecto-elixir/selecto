@@ -524,7 +524,7 @@ defmodule Selecto.Executor do
   """
   def execute_with_connection_pool(pool_ref, query, params, aliases) do
     case Selecto.ConnectionPool.execute(pool_ref, query, params, prepared: true) do
-      {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
+      # {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
       {:error, reason} -> {:error, Selecto.Error.query_error("Pooled query execution failed", query, params, %{reason: reason})}
     end
   end

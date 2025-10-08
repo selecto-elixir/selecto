@@ -137,12 +137,156 @@ defmodule Selecto.Subselect do
   end
 
   @doc """
-  Resolve the join path needed to reach a target schema from the source.
+  Resolve the join path needed to reach a target schema from the current context.
+
+  If we're in a pivoted context, the path is calculated from the pivot target.
+  Otherwise, the path is calculated from the source.
   """
   @spec resolve_join_path(Types.t(), atom()) :: {:ok, [atom()]} | {:error, String.t()}
   def resolve_join_path(selecto, target_schema) do
-    # Reuse the path-finding logic from Pivot module
-    Selecto.Pivot.calculate_join_path(selecto, target_schema)
+    if Selecto.Pivot.has_pivot?(selecto) do
+      # In pivot context - calculate path from pivot target to target schema
+      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      pivot_target = pivot_config.target_schema
+
+      # Use the path-finding logic starting from pivot target
+      case find_join_path_from_schema(selecto.domain, pivot_target, target_schema, []) do
+        {:ok, path} -> {:ok, path}
+        :not_found -> {:error, "No join path found from #{pivot_target} to #{target_schema}"}
+      end
+    else
+      # Normal context - use standard path calculation from source
+      Selecto.Pivot.calculate_join_path(selecto, target_schema)
+    end
+  end
+
+  # Find a join path starting from a specific schema (not just source)
+  defp find_join_path_from_schema(domain, from_schema, to_schema, visited) do
+    cond do
+      from_schema == to_schema && from_schema not in visited && length(visited) == 0 ->
+        # Self-referential case ONLY when this is the initial call (visited is empty)
+        # For example: film → film_actors → film (when asking for film from film)
+        # NOT when we've traversed from another schema and arrived at the target
+        from_schema_config = Map.get(domain.schemas, from_schema)
+
+        if from_schema_config && from_schema_config.associations do
+          # Try to find a path that goes through another table and back
+          case find_self_referential_path(
+            domain,
+            from_schema_config.associations,
+            to_schema,
+            [from_schema]
+          ) do
+            {:ok, path} -> {:ok, path}
+            :not_found -> {:ok, []}  # Fallback to direct (same table)
+          end
+        else
+          {:ok, []}
+        end
+
+      from_schema == to_schema ->
+        # Reached target - return empty path (we're already there)
+        {:ok, []}
+
+      from_schema in visited ->
+        # Cycle detected
+        :not_found
+
+      true ->
+        # Get the schema config (could be source or a schema in schemas map)
+        from_schema_config = Map.get(domain.schemas, from_schema)
+
+        if from_schema_config && from_schema_config.associations do
+          find_path_through_associations(
+            domain,
+            from_schema_config.associations,
+            to_schema,
+            [from_schema | visited]
+          )
+        else
+          :not_found
+        end
+    end
+  end
+
+  # Find a self-referential path (e.g., film → film_actors → film)
+  defp find_self_referential_path(domain, associations, target_schema, _visited) do
+    # First try: Look through direct associations
+    case find_through_direct_associations(domain, associations, target_schema) do
+      {:ok, path} -> {:ok, path}
+      :not_found ->
+        # Second try: Search all schemas for junction tables that connect to target
+        find_through_junction_inference(domain, target_schema)
+    end
+  end
+
+  defp find_through_direct_associations(domain, associations, target_schema) do
+    associations
+    |> Enum.reduce_while(:not_found, fn {assoc_name, assoc_config}, _acc ->
+      queryable_schema = assoc_config.queryable
+
+      # Check if this is a direct self-reference (e.g., categories.parent_category → categories)
+      if queryable_schema == target_schema do
+        # Direct self-join, return just the association name
+        {:halt, {:ok, [assoc_name]}}
+      else
+        # Check if this could be a junction table
+        junction_config = Map.get(domain.schemas, queryable_schema)
+
+        if junction_config && junction_config.associations do
+          back_assoc = Enum.find(junction_config.associations, fn {_name, assoc} ->
+            assoc.queryable == target_schema
+          end)
+
+          if back_assoc do
+            # Found a path: target → junction → target (many-to-many)
+            {:halt, {:ok, [assoc_name, target_schema]}}
+          else
+            {:cont, :not_found}
+          end
+        else
+          {:cont, :not_found}
+        end
+      end
+    end)
+  end
+
+  # Infer self-referential junction by searching all schemas
+  defp find_through_junction_inference(domain, target_schema) do
+    target_config = Map.get(domain.schemas, target_schema)
+    if !target_config, do: :not_found
+
+    target_table = target_config.source_table
+
+    # Search all schemas for junction tables that connect to our target twice
+    Enum.reduce_while(domain.schemas, :not_found, fn {schema_name, schema_config}, _acc ->
+      # Check if this schema's associations point to our target
+      target_associations = Enum.filter(schema_config.associations, fn {_name, assoc} ->
+        target_sch = Map.get(domain.schemas, assoc.queryable)
+        target_sch && target_sch.source_table == target_table
+      end)
+
+      # If we found at least one association to our target, this could be a junction
+      if length(target_associations) >= 1 do
+        # This schema connects to our target - use it as junction
+        {:halt, {:ok, [schema_name, target_schema]}}
+      else
+        {:cont, :not_found}
+      end
+    end)
+  end
+
+  # Helper to search through associations for a path
+  defp find_path_through_associations(domain, associations, target, visited) do
+    associations
+    |> Enum.reduce_while(:not_found, fn {assoc_name, assoc_config}, _acc ->
+      next_schema = assoc_config.queryable
+
+      case find_join_path_from_schema(domain, next_schema, target, visited) do
+        {:ok, path} -> {:halt, {:ok, [assoc_name | path]}}
+        :not_found -> {:cont, :not_found}
+      end
+    end)
   end
 
   # Private helper functions
