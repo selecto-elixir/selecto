@@ -447,48 +447,18 @@ defmodule Selecto.Builder.Sql do
 
   @spec build_where(Selecto.Types.t()) :: {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(), Selecto.Types.sql_params()}
   defp build_where(selecto) do
-    require Logger
-
-    # Get stack trace to see what's calling this
-    stack = Process.info(self(), :current_stacktrace) |> elem(1)
-    stack_info = stack
-    |> Enum.take(15)
-    |> Enum.map(fn
-      {module, function, arity, location} when is_list(location) ->
-        file = Keyword.get(location, :file, "unknown")
-        line = Keyword.get(location, :line, 0)
-        "  #{inspect(module)}.#{function}/#{arity} at #{file}:#{line}"
-      {module, function, arity, _} ->
-        "  #{inspect(module)}.#{function}/#{arity}"
-    end)
-    |> Enum.join("\n")
-
-    Logger.debug("""
-    === SQL BUILDER WHERE PROCESSING STACK TRACE ===
-    Stack trace:
-    #{stack_info}
-
-    selecto.set.filtered raw value: #{inspect(selecto.set.filtered, pretty: true)}
-    """)
-
     # Combine regular filters with JSON and array filters
     # Filter out any bucket_ranges strings that shouldn't be filters
     set_filters = selecto.set.filtered
     |> Enum.reject(fn
       filter when is_binary(filter) ->
         # Check if this looks like a bucket range string
-        is_bucket_range = String.match?(filter, ~r/^\d+-\d+,\d+\+$|^\d+,\d+-\d+|\d+\+/)
-        if is_bucket_range do
-          Logger.warning("Rejecting bucket_ranges string from filters: #{inspect(filter)}")
-        end
-        is_bucket_range
+        String.match?(filter, ~r/^\d+-\d+,\d+\+$|^\d+,\d+-\d+|\d+\+/)
       _ ->
         false
     end)
 
-    Logger.debug("Set filters after rejection: #{inspect(set_filters, pretty: true)}")
     regular_filters = Map.get(Selecto.domain(selecto), :required_filters, []) ++ set_filters
-    Logger.debug("Final regular_filters for WHERE: #{inspect(regular_filters, pretty: true)}")
     
     # Add JSON filters if they exist
     json_filters = case Map.get(selecto.set, :json_filters) do
@@ -506,11 +476,8 @@ defmodule Selecto.Builder.Sql do
           {:array_filter, spec}
         end)
     end
-    
+
     all_filters = regular_filters ++ json_filters ++ array_filters
-    Logger.debug("All filters combined: #{inspect(all_filters, pretty: true)}")
-    Logger.debug("About to call WHERE.build with {:and, filters}")
-    Logger.debug("Passing to WHERE.build: #{inspect({:and, all_filters}, pretty: true)}")
 
     Selecto.Builder.Sql.Where.build(selecto, {:and, all_filters})
   end
