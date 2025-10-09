@@ -110,12 +110,6 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {conj, filters}) when conj in [:and, :or] do
-    require Logger
-    ### output call stack here
-    Logger.debug("Call stack:\n" <> Exception.format_stacktrace())
-    Logger.debug("=== WHERE.build processing #{conj} with #{length(filters)} filters ===")
-    Logger.debug("Filters: #{inspect(filters, pretty: true)}")
-
     # Handle empty filter list - return empty result to avoid empty WHERE clauses
     if Enum.empty?(filters) do
       {[], [], []}
@@ -123,7 +117,6 @@ defmodule Selecto.Builder.Sql.Where do
       {joins, clauses, params} =
         Enum.reduce(filters, {[], [], []}, fn
           f, {joins, clauses, params} ->
-            Logger.debug("Processing individual filter: #{inspect(f, pretty: true)}")
             {j, c, p} = build(selecto, f)
             {joins ++ [j], clauses ++ [c], params ++ p}
         end)

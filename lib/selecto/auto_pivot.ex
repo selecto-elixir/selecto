@@ -32,9 +32,6 @@ defmodule Selecto.AutoPivot do
     view_mode = Keyword.get(opts, :view_mode, "detail")
     selected_columns = Keyword.get(opts, :selected, [])
 
-    Logger.debug("=== AUTO_PIVOT: Checking if pivot needed ===")
-    Logger.debug("View mode: #{view_mode}, Selected columns: #{inspect(selected_columns)}")
-
     # Auto-pivot should only be used for detail views, not aggregate views
     # Aggregate views handle joins naturally through GROUP BY
     if view_mode != "aggregate" do
@@ -42,8 +39,6 @@ defmodule Selecto.AutoPivot do
         target_table = find_pivot_target(selecto, selected_columns)
 
         if target_table do
-          Logger.debug("Applying pivot to target: #{inspect(target_table)}")
-
           # Find the join path to the target table
           join_path = find_join_path(selecto.domain, target_table)
 
