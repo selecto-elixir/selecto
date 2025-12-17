@@ -24,6 +24,7 @@ defmodule Selecto.Telemetry do
   """
 
   require Logger
+  alias Selecto.LogSanitizer
 
   @slow_query_threshold 10_000  # Queries > 10s are "slow"
   @very_slow_query_threshold 30_000  # Queries > 30s are "very slow"
@@ -77,8 +78,8 @@ defmodule Selecto.Telemetry do
   Handle Selecto telemetry events.
   """
   def handle_event([:selecto, :query, :start], _measurements, metadata, _config) do
-    query_preview = String.slice(metadata[:query] || "unknown", 0, 100)
-    Logger.debug("[Selecto] Query started: #{query_preview}...")
+    query_preview = LogSanitizer.sanitize_query(metadata[:query], [], max_length: 100, show_param_count: false)
+    Logger.debug("[Selecto] Query started: #{query_preview}")
   end
 
   def handle_event([:selecto, :query, :complete], measurements, metadata, config) do
@@ -90,10 +91,10 @@ defmodule Selecto.Telemetry do
     # Record query completion with monitor
     monitor.record_query(duration)
 
-    # Log slow queries
+    # Log slow queries (parameters are never logged for security)
     cond do
       duration >= config.very_slow_threshold ->
-        query_preview = String.slice(metadata[:query] || "unknown", 0, 200)
+        query_preview = LogSanitizer.sanitize_query(metadata[:query], metadata[:params] || [], max_length: 200)
         Logger.error("""
         [Selecto] VERY SLOW QUERY (#{duration}ms)
         Query: #{query_preview}
@@ -105,7 +106,7 @@ defmodule Selecto.Telemetry do
         monitor.record_slow_query(duration)
 
       duration >= config.slow_threshold ->
-        query_preview = String.slice(metadata[:query] || "unknown", 0, 200)
+        query_preview = LogSanitizer.sanitize_query(metadata[:query], metadata[:params] || [], max_length: 200)
         Logger.warning("""
         [Selecto] Slow query detected (#{duration}ms)
         Query: #{query_preview}
@@ -138,7 +139,7 @@ defmodule Selecto.Telemetry do
 
     Logger.error("""
     [Selecto] Query error
-    Error: #{inspect(error)}
+    Error: #{LogSanitizer.sanitize_error(error)}
     Duration: #{duration}ms
     Query ID: #{metadata[:query_id]}
     """)

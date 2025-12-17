@@ -84,7 +84,8 @@ defmodule Selecto.Performance.Hooks do
         error ->
           # Log hook errors but don't break execution
           require Logger
-          Logger.error("Hook error at #{hook_point}: #{inspect(error)}")
+          alias Selecto.LogSanitizer
+          Logger.error("Hook error at #{hook_point}: #{LogSanitizer.sanitize_error(error)}")
           ctx
       end
     end)
@@ -205,11 +206,12 @@ defmodule Selecto.Performance.Hooks do
       context
     end)
     
-    # Slow query logging
+    # Slow query logging (parameters are never logged for security)
     register(:after_execution, fn context ->
       if context.execution_time > slow_query_threshold do
         require Logger
-        Logger.warning("Slow query detected (#{context.execution_time}ms): #{String.slice(context.sql, 0, 200)}...")
+        alias Selecto.LogSanitizer
+        Logger.warning("Slow query detected (#{context.execution_time}ms): #{LogSanitizer.sanitize_query(context.sql, context[:params] || [], max_length: 200)}")
         
         # Auto-explain very slow queries
         if context.execution_time > auto_explain_threshold && !context[:explained] do
@@ -237,10 +239,11 @@ defmodule Selecto.Performance.Hooks do
       context
     end)
     
-    # Error tracking
+    # Error tracking (parameters are never logged for security)
     register(:on_error, fn context ->
       require Logger
-      Logger.error("Query execution failed: #{inspect(context.error)}")
+      alias Selecto.LogSanitizer
+      Logger.error("Query execution failed: #{LogSanitizer.sanitize_error(context.error)}")
       :telemetry.execute([:selecto, :query, :error], %{count: 1}, %{
         query_id: context.query_id,
         error: context.error
@@ -275,14 +278,15 @@ defmodule Selecto.Performance.Hooks do
   
   @doc """
   Create a conditional hook that only runs when condition is met.
-  
+
   ## Examples
-  
+
       # Only log queries that touch certain tables
+      # Note: Use LogSanitizer.sanitize_query/2 to avoid logging parameters
       hook = Hooks.conditional_hook(
         fn ctx -> String.contains?(ctx.sql, "users") end,
-        fn ctx -> 
-          Logger.info("User table query: \#{ctx.sql}")
+        fn ctx ->
+          Logger.info("User table query detected (params redacted)")
           ctx
         end
       )
