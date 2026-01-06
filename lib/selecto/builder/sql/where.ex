@@ -325,17 +325,28 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(_sel, other) do
     require Logger
+    alias Selecto.LogSanitizer
+
+    # Determine the type safely without logging the actual value (which may contain sensitive data)
+    type_name = cond do
+      is_binary(other) -> "binary"
+      is_tuple(other) -> "tuple"
+      is_list(other) -> "list"
+      is_map(other) -> "map"
+      true -> "other"
+    end
 
     # Check if this is a bucket_ranges string that shouldn't be here
     if is_binary(other) && String.match?(other, ~r/^\d+-\d+,\d+\+$|^\d+,\d+-\d+|\d+\+/) do
-      Logger.error("WHERE builder received bucket_ranges string as filter: #{inspect(other)}")
+      Logger.error("WHERE builder received bucket_ranges string as filter (value redacted for security)")
       Logger.error("This likely means aggregate or group_by bucket_ranges are being incorrectly passed as filters")
-      raise "WHERE clause builder error: Bucket ranges string #{inspect(other)} was passed as a filter. This should not happen - bucket ranges should be handled by aggregate processing, not WHERE clauses."
+      raise "WHERE clause builder error: Bucket ranges string was passed as a filter. This should not happen - bucket ranges should be handled by aggregate processing, not WHERE clauses."
     end
 
-    Logger.error("WHERE builder received unrecognized filter structure: #{inspect(other, pretty: true)}")
-    Logger.error("Type: #{inspect(is_binary(other) && "binary" || is_tuple(other) && "tuple" || is_list(other) && "list" || is_map(other) && "map" || "other")}")
-    raise "WHERE clause builder error: Unrecognized filter structure #{inspect(other)}. This usually means an aggregate or filter configuration is generating an invalid filter format."
+    # Log type info only, not the actual value which may contain sensitive data
+    Logger.error("WHERE builder received unrecognized filter structure of type: #{type_name}")
+    Logger.error("Debug: Enable debug logging with safe inspection for more details")
+    raise "WHERE clause builder error: Unrecognized filter structure (type: #{type_name}). This usually means an aggregate or filter configuration is generating an invalid filter format."
   end
 
   # Build CASE expression for WHERE clause

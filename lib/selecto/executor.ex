@@ -483,9 +483,10 @@ defmodule Selecto.Executor do
             {:ok, {result.rows, result.columns, aliases}}
           {:error, reason} ->
             require Logger
-            Logger.error("Postgrex query error: #{inspect(reason)}")
-            Logger.error("Query: #{query}")
-            Logger.error("Params: #{inspect(params)}")
+            alias Selecto.LogSanitizer
+            Logger.error("Postgrex query error: #{LogSanitizer.sanitize_error(reason)}")
+            Logger.error("Query: #{LogSanitizer.sanitize_query(query, params)}")
+            # Note: params are intentionally NOT logged to prevent sensitive data exposure
             {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
         end
 
