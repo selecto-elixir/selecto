@@ -91,42 +91,210 @@ defmodule Selecto.Schema.Join do
   defp normalize_joins(source, joins, parent, domain) do
 
     Enum.reduce(joins, [], fn
-      ### Non assoc, need to add tests to verify TODO
-      # {id, %{non_assoc: true} = config}, acc ->
-      #   acc = acc ++ [configure(id, config, parent, source)]
-      #   case Map.get(config, :joins) do
-      #     nil -> acc
-      #     _ -> acc ++ normalize_joins(config.source, config.joins, id)
-      #   end
-
-      {id, config}, acc ->
-        association = source.associations[id]
-        queryable = domain.schemas[association.queryable]
-        acc = acc ++ [configure(id, association, config, parent, source, queryable)]
+      # Non-association (custom) joins - explicitly configured without an Ecto association
+      {id, %{non_assoc: true} = config}, acc ->
+        acc = acc ++ [configure_non_assoc(id, config, parent, source, domain)]
         case Map.get(config, :joins) do
           nil -> acc
-          nested_joins -> acc ++ normalize_joins(queryable, nested_joins, id, domain)
+          nested_joins ->
+            # For non-assoc joins, we need to get the target schema from config
+            target_schema = get_target_schema_for_non_assoc(config, domain)
+            if target_schema do
+              acc ++ normalize_joins(target_schema, nested_joins, id, domain)
+            else
+              acc
+            end
+        end
+
+      # Standard association-based joins
+      {id, config}, acc ->
+        association = source.associations[id]
+
+        case association do
+          # Handle through associations by expanding the intermediate joins
+          %{through: through_path} ->
+            expand_through_joins(id, through_path, config, parent, source, domain, acc)
+
+          # Handle many-to-many associations (join_through table)
+          %{join_through: _join_through} = assoc ->
+            queryable = domain.schemas[assoc.queryable]
+            acc = acc ++ [configure_many_to_many(id, assoc, config, parent, source, queryable, domain)]
+            case Map.get(config, :joins) do
+              nil -> acc
+              nested_joins -> acc ++ normalize_joins(queryable, nested_joins, id, domain)
+            end
+
+          # Standard association
+          _ ->
+            queryable = domain.schemas[association.queryable]
+            acc = acc ++ [configure(id, association, config, parent, source, queryable)]
+            case Map.get(config, :joins) do
+              nil -> acc
+              nested_joins -> acc ++ normalize_joins(queryable, nested_joins, id, domain)
+            end
         end
     end)
   end
 
+  # Get target schema for non-assoc joins from config
+  defp get_target_schema_for_non_assoc(config, domain) do
+    case config do
+      %{target_schema: schema_key} -> domain.schemas[schema_key]
+      %{source: source_table} ->
+        # Try to find schema by source table name
+        Enum.find_value(domain.schemas, fn {_key, schema} ->
+          if schema.source_table == source_table, do: schema, else: nil
+        end)
+      _ -> nil
+    end
+  end
 
-  # #### Non-assoc joins
-  # defp configure(_id, _config, _dep, _from_source) do
-  # end
+  # Expand has_many :through associations into intermediate joins
+  defp expand_through_joins(id, through_path, config, parent, source, domain, acc) do
+    # through_path is a list like [:posts, :tags] meaning:
+    # source -> posts -> tags
+    # We need to ensure intermediate joins exist and configure the final join
 
-  ## TODO this does not work yet!
-  # defp configure(_id, %{through: _through} = _association, _config, _dep, _from_source) do
-  #   ### we are going to expand the through but only add the
+    case through_path do
+      [intermediate_assoc, final_assoc] ->
+        # Get the intermediate association
+        intermediate = source.associations[intermediate_assoc]
 
-  #   ##??????
-  # end
+        if intermediate do
+          intermediate_queryable = domain.schemas[intermediate.queryable]
 
-  ### Custom TODO
-  # defp configure(id, %{type: :custom} = config, dep) do
-  #   ### this join does not have an association
+          # Check if intermediate join is already being added
+          # If not, we need to add it implicitly
+          intermediate_join = configure(
+            intermediate_assoc,
+            intermediate,
+            %{implicit: true},  # Mark as implicitly added for through
+            parent,
+            source,
+            intermediate_queryable
+          )
 
-  # end
+          # Now get the final association from the intermediate schema
+          # We need to look it up from the actual intermediate queryable associations
+          final_assoc_data = intermediate_queryable.associations[final_assoc]
+
+          if final_assoc_data do
+            final_queryable = domain.schemas[final_assoc_data.queryable]
+
+            # Configure the final join with reference to intermediate
+            final_join = configure(
+              id,  # Use the original through association name
+              final_assoc_data,
+              config,
+              intermediate_assoc,  # Parent is the intermediate join
+              intermediate_queryable,
+              final_queryable
+            )
+
+            # Mark the final join as a through join for special handling
+            final_join = Map.put(final_join, :is_through, true)
+            final_join = Map.put(final_join, :through_path, through_path)
+
+            # Add both joins
+            acc = acc ++ [intermediate_join, final_join]
+
+            # Handle nested joins if any
+            case Map.get(config, :joins) do
+              nil -> acc
+              nested_joins -> acc ++ normalize_joins(final_queryable, nested_joins, id, domain)
+            end
+          else
+            # Final association not found, skip
+            acc
+          end
+        else
+          # Intermediate association not found, skip
+          acc
+        end
+
+      # Longer through paths (rare but possible)
+      [first_assoc | rest] when length(rest) >= 2 ->
+        # Recursively expand
+        first = source.associations[first_assoc]
+        if first do
+          first_queryable = domain.schemas[first.queryable]
+          first_join = configure(first_assoc, first, %{implicit: true}, parent, source, first_queryable)
+
+          # Recursively expand the remaining path
+          acc = acc ++ [first_join]
+          expand_through_joins(id, rest, config, first_assoc, first_queryable, domain, acc)
+        else
+          acc
+        end
+
+      _ ->
+        # Invalid through path, skip
+        acc
+    end
+  end
+
+  # Configure non-association (custom) joins
+  defp configure_non_assoc(id, config, parent, _from_source, _domain) do
+    name = Map.get(config, :name, id)
+    source_table = Map.get(config, :source, to_string(id))
+    owner_key = Map.get(config, :owner_key, :id)
+    related_key = Map.get(config, :related_key, :id)
+
+    %{
+      config: config,
+      from_source: nil,  # No Ecto source for custom joins
+      owner_key: owner_key,
+      my_key: related_key,
+      source: source_table,
+      id: id,
+      name: name,
+      requires_join: parent,
+      join_type: :custom,
+      is_custom: true,
+      filters: Map.get(config, :filters, %{}),
+      fields: Map.get(config, :fields, %{})
+    }
+  end
+
+  # Configure many-to-many joins (with join_through table)
+  defp configure_many_to_many(id, association, config, parent, from_source, queryable, _domain) do
+    name = Map.get(config, :name, id)
+    join_through = association.join_through
+
+    # For many-to-many, we need to track the join table
+    join_through_table = case join_through do
+      table when is_binary(table) -> table
+      module when is_atom(module) ->
+        if function_exported?(module, :__schema__, 1) do
+          module.__schema__(:source)
+        else
+          to_string(module) |> String.split(".") |> List.last() |> Macro.underscore()
+        end
+      _ -> "#{id}_join"
+    end
+
+    %{
+      config: config,
+      from_source: from_source,
+      owner_key: association.owner_key,
+      my_key: association.related_key,
+      source: queryable.source_table,
+      id: id,
+      name: name,
+      requires_join: parent,
+      join_type: :many_to_many,
+      join_through: join_through_table,
+      join_keys: Map.get(association, :join_keys, []),
+      filters: Map.get(config, :filters, %{}),
+      fields:
+        Selecto.Schema.Column.configure_columns(
+          association.field,
+          queryable.fields -- Map.get(queryable, :redact_fields, []),
+          queryable,
+          config
+        )
+    } |> parameterize()
+  end
 
   ### id, the id of this join in the joins map on parent
   ### association, the struct form ecto.schema that has instructions on how to join
