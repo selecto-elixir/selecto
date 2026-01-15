@@ -221,13 +221,151 @@ defmodule Selecto.SetOperations do
 
     # Apply column mapping if provided, otherwise pair by position
     defp apply_column_mapping(left_columns, right_columns, nil) do
-      Enum.zip(left_columns, right_columns)
+      # No explicit mapping - try intelligent name-based matching first
+      case try_name_based_mapping(left_columns, right_columns) do
+        {:ok, paired} -> paired
+        :fallback -> Enum.zip(left_columns, right_columns)
+      end
     end
 
-    defp apply_column_mapping(left_columns, right_columns, _mapping) do
-      # TODO: Implement column mapping logic
-      # For now, fall back to position-based pairing
-      Enum.zip(left_columns, right_columns)
+    defp apply_column_mapping(left_columns, right_columns, mapping) when is_list(mapping) do
+      # Explicit column mapping provided: [{left_name, right_name}, ...]
+      # Build a lookup map from left column names to right column names
+      mapping_lookup = Map.new(mapping, fn {left_name, right_name} ->
+        {normalize_name(left_name), normalize_name(right_name)}
+      end)
+
+      # Create paired columns based on the mapping
+      Enum.map(left_columns, fn left_col ->
+        left_name = normalize_name(left_col.name)
+
+        case Map.get(mapping_lookup, left_name) do
+          nil ->
+            # No explicit mapping - try to find by same name or position
+            find_matching_right_column(left_col, right_columns)
+
+          right_name ->
+            # Find the right column with the mapped name
+            right_col = Enum.find(right_columns, fn rc ->
+              normalize_name(rc.name) == right_name
+            end)
+
+            if right_col do
+              {left_col, right_col}
+            else
+              # Mapping target not found - fall back to position
+              find_matching_right_column(left_col, right_columns)
+            end
+        end
+      end)
+    end
+
+    defp apply_column_mapping(left_columns, right_columns, mapping) when is_map(mapping) do
+      # Convert map to list format and recurse
+      apply_column_mapping(left_columns, right_columns, Map.to_list(mapping))
+    end
+
+    # Try to match columns by name (exact or similar)
+    defp try_name_based_mapping(left_columns, right_columns) do
+      # Build a lookup of normalized right column names
+      right_lookup = Map.new(right_columns, fn col ->
+        {normalize_name(col.name), col}
+      end)
+
+      # Also create a list of alternative name mappings (common patterns)
+      alternatives = build_alternative_names(right_columns)
+
+      # Try to pair each left column with a right column by name
+      paired = Enum.map(left_columns, fn left_col ->
+        left_name = normalize_name(left_col.name)
+
+        cond do
+          # Exact name match
+          Map.has_key?(right_lookup, left_name) ->
+            {left_col, Map.get(right_lookup, left_name)}
+
+          # Alternative name match (e.g., full_name -> name, email_address -> email)
+          Map.has_key?(alternatives, left_name) ->
+            {left_col, Map.get(alternatives, left_name)}
+
+          true ->
+            nil
+        end
+      end)
+
+      # Check if we matched all columns
+      if Enum.all?(paired, & &1) do
+        {:ok, paired}
+      else
+        :fallback
+      end
+    end
+
+    # Build alternative name mappings for common patterns
+    defp build_alternative_names(columns) do
+      columns
+      |> Enum.flat_map(fn col ->
+        name = normalize_name(col.name)
+        alternatives = generate_name_alternatives(name)
+        Enum.map(alternatives, fn alt -> {alt, col} end)
+      end)
+      |> Map.new()
+    end
+
+    # Generate alternative names for a column
+    defp generate_name_alternatives(name) do
+      base_alternatives = [
+        # Remove common prefixes
+        String.replace_prefix(name, "full_", ""),
+        String.replace_prefix(name, "company_", ""),
+        String.replace_prefix(name, "contact_", ""),
+        String.replace_prefix(name, "user_", ""),
+        String.replace_prefix(name, "customer_", ""),
+        # Remove common suffixes
+        String.replace_suffix(name, "_address", ""),
+        String.replace_suffix(name, "_name", ""),
+        String.replace_suffix(name, "_id", ""),
+        # Common substitutions
+        name |> String.replace("email_address", "email"),
+        name |> String.replace("phone_number", "phone"),
+        name |> String.replace("full_name", "name"),
+        name |> String.replace("company_name", "name"),
+        name |> String.replace("product_name", "name")
+      ]
+
+      # Filter out unchanged names and empty strings
+      base_alternatives
+      |> Enum.reject(fn alt -> alt == name or alt == "" end)
+      |> Enum.uniq()
+    end
+
+    # Normalize column name for comparison
+    defp normalize_name(name) when is_atom(name), do: Atom.to_string(name) |> normalize_name()
+    defp normalize_name(name) when is_binary(name) do
+      name
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9_]/, "_")
+      |> String.trim("_")
+    end
+
+    # Find a matching right column for a left column
+    defp find_matching_right_column(left_col, right_columns) do
+      left_name = normalize_name(left_col.name)
+
+      # Try exact match first
+      case Enum.find(right_columns, fn rc -> normalize_name(rc.name) == left_name end) do
+        nil ->
+          # Fall back to position-based (use the first unmatched column)
+          # This handles cases where columns are in different orders
+          index = Enum.find_index(right_columns, fn rc ->
+            normalize_name(rc.name) == left_name
+          end) || 0
+
+          {left_col, Enum.at(right_columns, index, List.first(right_columns))}
+
+        right_col ->
+          {left_col, right_col}
+      end
     end
 
     # Check if two types are compatible for set operations
