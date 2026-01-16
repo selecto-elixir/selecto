@@ -239,10 +239,74 @@ defmodule Selecto.Builder.Window do
   defp resolve_field_reference(_selecto, field), do: to_string(field)
 
   # Extract joins required for window function fields
-  defp extract_required_joins(_selecto, _window_spec) do
-    # TODO: Implement join extraction for fields that require joins
-    # For now, return empty list
-    []
+  defp extract_required_joins(selecto, %Spec{partition_by: partition_by, order_by: order_by, arguments: arguments}) do
+    # Collect all field references from the window spec
+    all_fields = collect_field_references(partition_by, order_by, arguments)
+
+    # Find which joins are required for each field
+    all_fields
+    |> Enum.map(&find_join_for_field(selecto, &1))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  # Collect all field references from window spec components
+  defp collect_field_references(partition_by, order_by, arguments) do
+    partition_fields = partition_by || []
+
+    order_fields = case order_by do
+      nil -> []
+      specs when is_list(specs) ->
+        Enum.map(specs, fn
+          {field, _direction} -> field
+          field -> field
+        end)
+    end
+
+    argument_fields = case arguments do
+      nil -> []
+      args when is_list(args) ->
+        Enum.filter(args, &is_binary/1)
+    end
+
+    partition_fields ++ order_fields ++ argument_fields
+  end
+
+  # Find the join required for a field reference
+  defp find_join_for_field(selecto, field) when is_binary(field) do
+    # Check if field is qualified with a join prefix (e.g., "category.name")
+    case String.split(field, ".", parts: 2) do
+      [prefix, _field_name] ->
+        # Check if prefix matches a join
+        joins = Selecto.joins(selecto)
+        join_key = String.to_atom(prefix)
+        if Map.has_key?(joins, join_key) do
+          join_key
+        else
+          # Check columns for this field
+          find_join_from_columns(selecto, field)
+        end
+
+      [_field_only] ->
+        # Unqualified field - check if it needs a join
+        find_join_from_columns(selecto, field)
+    end
+  end
+  defp find_join_for_field(_selecto, _field), do: nil
+
+  # Look up join requirement from column configuration
+  defp find_join_from_columns(selecto, field) do
+    columns = Selecto.columns(selecto)
+
+    case Map.get(columns, field) do
+      nil -> nil
+      column_config ->
+        case Map.get(column_config, :requires_join) do
+          :selecto_root -> nil
+          nil -> nil
+          join -> join
+        end
+    end
   end
 
   # Check if iodata is effectively empty

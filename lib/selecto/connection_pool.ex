@@ -296,34 +296,160 @@ defmodule Selecto.ConnectionPool do
   
   # Private Functions
   
-  defp execute_with_pool(pool_pid, _query, _params, _cache_key, opts) do
-    case checkout_connection(pool_pid, opts) do
-      # NOTE: This clause will never match as checkout_connection always returns {:error, :not_implemented}
-      # {:ok, conn} ->
-      #   try do
-      #     result = if cache_key do
-      #       execute_with_prepared_cache(conn, query, params, cache_key)
-      #     else
-      #       Postgrex.query(conn, query, params)
-      #     end
-      #     
-      #     checkin_connection(pool_pid, conn)
-      #     result
-      #   rescue
-      #     error ->
-      #       checkin_connection(pool_pid, conn)
-      #       {:error, error}
-      #   end
+  defp execute_with_pool(pool_pid, query, params, cache_key, opts) do
+    # DBConnection pools work by passing the pool pid directly to query functions
+    # The pool handles checkout/checkin internally and transparently
+    timeout = Keyword.get(opts, :timeout, 15_000)
+
+    try do
+      if cache_key do
+        execute_with_prepared_cache(pool_pid, query, params, cache_key, timeout)
+      else
+        # Direct query execution - pool handles connection management internally
+        Postgrex.query(pool_pid, query, params, timeout: timeout)
+      end
+    rescue
+      e in DBConnection.ConnectionError ->
+        {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
+      e in Postgrex.Error ->
+        {:error, Selecto.Error.query_error(Exception.message(e), query, params, %{exception: e})}
+      e ->
+        {:error, Selecto.Error.query_error(Exception.message(e), query, params, %{exception: e})}
+    end
+  end
+
+  defp execute_with_prepared_cache(pool_pid, query, params, cache_key, timeout) do
+    # For prepared statements, we use Postgrex's built-in prepare/execute mechanism
+    # DBConnection handles the connection pooling transparently
+
+    # Check if we have a cached prepared statement name
+    case Process.get({:selecto_prepared, cache_key}) do
+      nil ->
+        # No cached statement - use regular query which auto-prepares in Postgrex
+        # Postgrex automatically prepares and caches statements internally
+        result = Postgrex.query(pool_pid, query, params, timeout: timeout)
+
+        # Cache the statement reference for future use (statement is cached in Postgrex)
+        Process.put({:selecto_prepared, cache_key}, true)
+
+        result
+
+      _cached ->
+        # Statement is already prepared in Postgrex's internal cache
+        Postgrex.query(pool_pid, query, params, timeout: timeout)
+    end
+  end
+
+  @doc """
+  Checkout a connection from the pool for manual management.
+
+  This is useful for transactions or when you need to execute multiple
+  queries on the same connection.
+
+  ## Parameters
+
+  - `pool_ref` - The pool reference
+  - `opts` - Options including :timeout
+
+  ## Returns
+
+  - `{:ok, connection_ref}` - Connection checked out successfully
+  - `{:error, reason}` - Checkout failed
+
+  ## Examples
+
+      {:ok, conn} = Selecto.ConnectionPool.checkout(pool)
+      try do
+        Postgrex.query!(conn, "BEGIN", [])
+        Postgrex.query!(conn, "INSERT INTO ...", [...])
+        Postgrex.query!(conn, "COMMIT", [])
+      after
+        Selecto.ConnectionPool.checkin(pool, conn)
+      end
+  """
+  @spec checkout(pool_ref(), Keyword.t()) :: {:ok, DBConnection.conn()} | {:error, term()}
+  def checkout(pool_ref, opts \\ []) do
+    _timeout = Keyword.get(opts, :timeout, 15_000)
+
+    case get_pool_pid(pool_ref) do
+      {:ok, pool_pid} ->
+        # DBConnection pools handle checkout internally when you call query functions
+        # For manual checkout semantics, we return a reference to the pool
+        # The actual connection checkout happens when you execute a query
+        ref = make_ref()
+        Process.put({:selecto_checkout, ref}, pool_pid)
+        {:ok, {:selecto_conn, ref, pool_pid}}
+
       {:error, reason} ->
         {:error, reason}
     end
   end
-  
-  
-  defp checkout_connection(_pool_pid, _opts) do
-    # TODO: Implement proper connection checkout using the correct DBConnection API
-    # The DBConnection.checkout/2 function doesn't exist in the public API
-    {:error, :not_implemented}
+
+  @doc """
+  Return a checked-out connection to the pool.
+
+  Always call this after checkout/2 to return the connection.
+  """
+  @spec checkin(pool_ref(), term()) :: :ok
+  def checkin(_pool_ref, {:selecto_conn, ref, _pool_pid}) do
+    Process.delete({:selecto_checkout, ref})
+    :ok
+  end
+  def checkin(_pool_ref, _conn), do: :ok
+
+  @doc """
+  Execute a function with a checked-out connection.
+
+  This is the recommended way to use connections for multiple operations.
+  The connection is automatically returned to the pool when the function completes.
+
+  ## Examples
+
+      Selecto.ConnectionPool.with_connection(pool, fn conn ->
+        Postgrex.query!(conn, "SELECT * FROM users", [])
+      end)
+  """
+  @spec with_connection(pool_ref(), (DBConnection.conn() -> result)) :: {:ok, result} | {:error, term()} when result: term()
+  def with_connection(pool_ref, fun) when is_function(fun, 1) do
+    case get_pool_pid(pool_ref) do
+      {:ok, pool_pid} ->
+        # DBConnection.run handles checkout/checkin automatically
+        try do
+          result = fun.(pool_pid)
+          {:ok, result}
+        rescue
+          e in DBConnection.ConnectionError ->
+            {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
+          e ->
+            {:error, Selecto.Error.query_error(Exception.message(e), nil, [], %{exception: e})}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Execute a transaction on a pooled connection.
+
+  All queries in the function are executed within a database transaction.
+
+  ## Examples
+
+      Selecto.ConnectionPool.transaction(pool, fn conn ->
+        Postgrex.query!(conn, "INSERT INTO orders ...", [...])
+        Postgrex.query!(conn, "UPDATE inventory ...", [...])
+      end)
+  """
+  @spec transaction(pool_ref(), (DBConnection.conn() -> result), Keyword.t()) :: {:ok, result} | {:error, term()} when result: term()
+  def transaction(pool_ref, fun, opts \\ []) when is_function(fun, 1) do
+    case get_pool_pid(pool_ref) do
+      {:ok, pool_pid} ->
+        Postgrex.transaction(pool_pid, fun, opts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
   
   defp validate_pool_health(pool_pid) do

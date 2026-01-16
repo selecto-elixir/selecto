@@ -292,29 +292,217 @@ defmodule Selecto.PhoenixHelpers do
     |> Enum.join(" ")
   end
 
-  # These functions would need to be implemented in Selecto core
-  # For now, they're placeholders that work with a custom metadata system
+  # Query state tracking functions
+  # These work with the selecto.set map to track current query state
 
   defp get_current_page(selecto, default) do
-    get_in(selecto, [Access.key(:metadata, %{}), :page]) || default
+    # First check metadata, then check limit/offset to calculate page
+    case get_in(selecto, [Access.key(:set, %{}), :page]) do
+      nil ->
+        # Calculate from limit/offset if available
+        limit = Map.get(selecto.set, :limit)
+        offset = Map.get(selecto.set, :offset, 0)
+        if limit && limit > 0 do
+          div(offset, limit) + 1
+        else
+          default
+        end
+      page -> page
+    end
   end
 
   defp get_per_page(selecto, default) do
-    get_in(selecto, [Access.key(:metadata, %{}), :per_page]) || default
+    # Check set for per_page or limit
+    case get_in(selecto, [Access.key(:set, %{}), :per_page]) do
+      nil ->
+        Map.get(selecto.set, :limit, default)
+      per_page -> per_page
+    end
   end
 
-  defp get_current_sort(_selecto), do: nil
-
-  defp get_current_filter_value(_selecto, _field), do: nil
-
-  defp put_pagination(selecto, key, value) do
-    metadata = Map.get(selecto, :metadata, %{})
-    updated_metadata = Map.put(metadata, key, value)
-    Map.put(selecto, :metadata, updated_metadata)
+  defp get_current_sort(selecto) do
+    # Extract current sort from order_by in the set
+    case Map.get(selecto.set, :order_by, []) do
+      [] -> nil
+      [{field, _direction} | _] -> field
+      [field | _] when is_binary(field) -> field
+      _ -> nil
+    end
   end
 
-  defp remove_filter(selecto, _field) do
-    # This would need to be implemented in Selecto core
+  defp get_current_filter_value(selecto, field) do
+    # Look up filter value from filtered list
+    filters = Map.get(selecto.set, :filtered, [])
+
+    Enum.find_value(filters, fn
+      {^field, value} -> value
+      {filter_field, value} when is_binary(filter_field) ->
+        if filter_field == to_string(field), do: value, else: nil
+      _ -> nil
+    end)
+  end
+
+  defp put_pagination(selecto, :page, page) do
+    per_page = get_per_page(selecto, 20)
+    offset = (page - 1) * per_page
+
     selecto
+    |> put_in([Access.key(:set), :page], page)
+    |> put_in([Access.key(:set), :offset], offset)
+    |> put_in([Access.key(:set), :limit], per_page)
+  end
+
+  defp put_pagination(selecto, :per_page, per_page) do
+    page = get_current_page(selecto, 1)
+    offset = (page - 1) * per_page
+
+    selecto
+    |> put_in([Access.key(:set), :per_page], per_page)
+    |> put_in([Access.key(:set), :limit], per_page)
+    |> put_in([Access.key(:set), :offset], offset)
+  end
+
+  defp remove_filter(selecto, field) do
+    # Remove a filter from the filtered list
+    field_str = to_string(field)
+
+    updated_filters = selecto.set.filtered
+    |> Enum.reject(fn
+      {f, _} when is_atom(f) -> to_string(f) == field_str
+      {f, _} when is_binary(f) -> f == field_str
+      _ -> false
+    end)
+
+    put_in(selecto, [Access.key(:set), :filtered], updated_filters)
+  end
+
+  @doc """
+  Get all current filter values as a map.
+
+  Useful for pre-populating filter forms or debugging.
+
+  ## Examples
+
+      current_filters = Selecto.PhoenixHelpers.get_filters(selecto)
+      # => %{"status" => "active", "category_id" => 5}
+  """
+  def get_filters(selecto) do
+    filters = Map.get(selecto.set, :filtered, [])
+
+    filters
+    |> Enum.map(fn
+      {field, value} -> {to_string(field), value}
+      _ -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.into(%{})
+  end
+
+  @doc """
+  Get current sort configuration.
+
+  Returns the current sort field and direction.
+
+  ## Examples
+
+      {field, direction} = Selecto.PhoenixHelpers.get_sort(selecto)
+      # => {"created_at", :desc}
+  """
+  def get_sort(selecto) do
+    case Map.get(selecto.set, :order_by, []) do
+      [] -> {nil, :asc}
+      [{field, direction} | _] -> {field, direction}
+      [field | _] when is_binary(field) -> {field, :asc}
+      [{:desc, field} | _] -> {field, :desc}
+      [{:asc, field} | _] -> {field, :asc}
+      _ -> {nil, :asc}
+    end
+  end
+
+  @doc """
+  Check if a field is currently being filtered.
+
+  ## Examples
+
+      if Selecto.PhoenixHelpers.is_filtered?(selecto, "status") do
+        # Show clear filter button
+      end
+  """
+  def is_filtered?(selecto, field) do
+    get_current_filter_value(selecto, field) != nil
+  end
+
+  @doc """
+  Check if a field is currently being sorted.
+
+  ## Examples
+
+      {is_sorted, direction} = Selecto.PhoenixHelpers.is_sorted?(selecto, "name")
+      # => {true, :asc}
+  """
+  def is_sorted?(selecto, field) do
+    {sort_field, direction} = get_sort(selecto)
+    if to_string(sort_field) == to_string(field) do
+      {true, direction}
+    else
+      {false, :asc}
+    end
+  end
+
+  @doc """
+  Toggle sort direction for a field.
+
+  If the field is not currently sorted, sorts ascending.
+  If sorted ascending, switches to descending.
+  If sorted descending, removes sorting.
+
+  ## Examples
+
+      selecto = Selecto.PhoenixHelpers.toggle_sort(selecto, "name")
+  """
+  def toggle_sort(selecto, field) do
+    {is_sorted, current_direction} = is_sorted?(selecto, field)
+
+    case {is_sorted, current_direction} do
+      {false, _} ->
+        # Not sorted - add ascending sort
+        put_in(selecto, [Access.key(:set), :order_by], [{field, :asc}])
+
+      {true, :asc} ->
+        # Currently ascending - switch to descending
+        put_in(selecto, [Access.key(:set), :order_by], [{field, :desc}])
+
+      {true, :desc} ->
+        # Currently descending - remove sort
+        put_in(selecto, [Access.key(:set), :order_by], [])
+    end
+  end
+
+  @doc """
+  Clear all filters from the query.
+
+  ## Examples
+
+      selecto = Selecto.PhoenixHelpers.clear_filters(selecto)
+  """
+  def clear_filters(selecto) do
+    put_in(selecto, [Access.key(:set), :filtered], [])
+  end
+
+  @doc """
+  Reset query to default state.
+
+  Clears filters, sorting, and pagination.
+
+  ## Examples
+
+      selecto = Selecto.PhoenixHelpers.reset_query(selecto)
+  """
+  def reset_query(selecto) do
+    selecto
+    |> clear_filters()
+    |> put_in([Access.key(:set), :order_by], [])
+    |> put_in([Access.key(:set), :page], 1)
+    |> put_in([Access.key(:set), :offset], 0)
   end
 end

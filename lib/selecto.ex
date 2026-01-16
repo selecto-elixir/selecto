@@ -279,6 +279,48 @@ defmodule Selecto do
   defdelegate available_fields(selecto), to: Selecto.Fields
 
   @doc """
+  Infer the SQL type of an expression.
+
+  Returns the type of a field, function, literal, or complex expression.
+  Useful for type checking, validation, and UI components that need type information.
+
+  ## Examples
+
+      # Field type lookup
+      {:ok, :string} = Selecto.infer_type(selecto, "product_name")
+
+      # Aggregate function
+      {:ok, :bigint} = Selecto.infer_type(selecto, {:count, "*"})
+
+      # Numeric aggregate
+      {:ok, :decimal} = Selecto.infer_type(selecto, {:sum, "price"})
+
+      # Literal
+      {:ok, :integer} = Selecto.infer_type(selecto, {:literal, 42})
+  """
+  @spec infer_type(t(), term()) :: {:ok, Selecto.TypeSystem.sql_type()} | {:error, term()}
+  defdelegate infer_type(selecto, expression), to: Selecto.TypeSystem
+
+  @doc """
+  Check if two SQL types are compatible for comparisons or assignments.
+
+  ## Examples
+
+      true = Selecto.types_compatible?(:integer, :decimal)
+      false = Selecto.types_compatible?(:string, :boolean)
+  """
+  @spec types_compatible?(Selecto.TypeSystem.sql_type(), Selecto.TypeSystem.sql_type()) :: boolean()
+  defdelegate types_compatible?(type1, type2), to: Selecto.TypeSystem, as: :compatible?
+
+  @doc """
+  Get the type category for a given SQL type.
+
+  Categories: :numeric, :string, :boolean, :datetime, :json, :array, :binary, :uuid, :unknown
+  """
+  @spec type_category(Selecto.TypeSystem.sql_type()) :: Selecto.TypeSystem.type_category()
+  defdelegate type_category(type), to: Selecto.TypeSystem
+
+  @doc """
   Get field suggestions for autocomplete or error recovery.
   """
   @spec field_suggestions(t(), String.t()) :: [String.t()]
@@ -287,30 +329,111 @@ defmodule Selecto do
   @spec set(t()) :: Selecto.Types.query_set()
   defdelegate set(selecto), to: Selecto.Fields
 
-  #### TODO join stuff, CTE stuff
-  ### options:
-  ### paramterize: value -- will cause a special case of this join with the indicated parameter, and fields/filters to be made available
-  ### inner: true -- change the default
+  @doc """
+  Enable a join from the domain configuration or add a custom join dynamically.
 
-  # def join(selecto_struct, join_id, options \\ []) do
-  # end
+  This allows adding joins at runtime that either:
+  - Enable predefined joins from the domain configuration
+  - Add completely custom joins not in the domain
 
-  ### returns a key to use to add filters, selects, etc from this join
-  # def join_paramterize(selecto_struct, join_id, parameter, options) do
-  # end
+  ## Parameters
 
-  # def join(selecto_struct, join_id, join_selecto, options \\ []) do
-  # end
+  - `join_id` - The join identifier (atom)
+  - `options` - Optional configuration overrides
 
-  ### CTEs. once a CTE is entered, further CTEs can reference it. CTEs are meant to be added as configuration not dynamically!
-  # def with(selecto_struct, cte_name, cte, params, options \\ []) do
-  # end
-  # def with(selecto_struct, cte_name, cte_selecto, options \\ []) do
-  # end
+  ## Options
 
-  ### Modify an existing CTE
-  # def on_with(selecto_struct, cte_name, fn selecto, cte_selecto -> selecto end, options \\ [])
-  # end
+  - `:type` - Join type (:left, :inner, :right, :full). Default: :left
+  - `:source` - Source table name (required for custom joins)
+  - `:on` - Join conditions as list of maps with :left and :right keys
+  - `:owner_key` - The key on the parent table
+  - `:related_key` - The key on the joined table
+  - `:fields` - Map of field configurations to expose from the joined table
+
+  ## Examples
+
+      # Enable domain-configured join
+      selecto |> Selecto.join(:category)
+
+      # Custom join with explicit configuration
+      selecto |> Selecto.join(:audit_log,
+        source: "audit_logs",
+        on: [%{left: "id", right: "record_id"}],
+        type: :left,
+        fields: %{
+          action: %{type: :string},
+          created_at: %{type: :naive_datetime}
+        }
+      )
+  """
+  @spec join(t(), atom(), keyword()) :: t()
+  defdelegate join(selecto, join_id, options \\ []), to: Selecto.DynamicJoin
+
+  @doc """
+  Create a parameterized instance of an existing join.
+
+  Parameterized joins allow the same association to be joined multiple times
+  with different filter conditions. The parameter creates a unique instance
+  that can be referenced using dot notation: `join_name:parameter.field_name`
+
+  ## Parameters
+
+  - `join_id` - Base join identifier to parameterize
+  - `parameter` - Unique parameter value to identify this instance
+  - `options` - Filter conditions and options
+
+  ## Examples
+
+      # Create parameterized join for electronics products
+      selecto
+      |> Selecto.join_parameterize(:products, "electronics", category_id: 1)
+      |> Selecto.select(["products:electronics.product_name"])
+
+      # Multiple parameterized instances for comparison
+      selecto
+      |> Selecto.join_parameterize(:orders, "active", status: "active")
+      |> Selecto.join_parameterize(:orders, "completed", status: "completed")
+      |> Selecto.select([
+          "orders:active.total as active_total",
+          "orders:completed.total as completed_total"
+        ])
+  """
+  @spec join_parameterize(t(), atom(), String.t() | atom(), keyword()) :: t()
+  defdelegate join_parameterize(selecto, join_id, parameter, options \\ []), to: Selecto.DynamicJoin
+
+  @doc """
+  Join with another Selecto query as a subquery.
+
+  This creates a join using a separate Selecto query as the right side,
+  enabling complex subquery joins for aggregations and derived tables.
+
+  ## Parameters
+
+  - `join_id` - Identifier for this join
+  - `join_selecto` - The Selecto struct to use as subquery
+  - `options` - Join configuration
+
+  ## Options
+
+  - `:type` - Join type (:left, :inner, :right, :full). Default: :left
+  - `:on` - Join conditions referencing the subquery alias
+
+  ## Examples
+
+      # Create a subquery for aggregated data
+      order_totals = Selecto.configure(order_domain, connection)
+      |> Selecto.select(["customer_id", {:sum, "total", as: "total_spent"}])
+      |> Selecto.group_by(["customer_id"])
+
+      # Join aggregated subquery to main query
+      selecto
+      |> Selecto.join_subquery(:customer_totals, order_totals,
+          on: [%{left: "customer_id", right: "customer_id"}]
+        )
+      |> Selecto.select(["name", "customer_totals.total_spent"])
+  """
+  @spec join_subquery(t(), atom(), t(), keyword()) :: t()
+  defdelegate join_subquery(selecto, join_id, join_selecto, options \\ []), to: Selecto.DynamicJoin
 
   @doc """
   Add a field to the Select list. Send in one or a list of field names or selectable tuples.

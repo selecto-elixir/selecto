@@ -168,6 +168,37 @@ defmodule Selecto.SQL.Functions do
       {:array_agg, field} ->
         prep_array_function(selecto, "array_agg", [field])
 
+      {:array_agg, field, opts} when is_list(opts) ->
+        prep_array_agg_with_opts(selecto, field, opts)
+
+      # String aggregation - 2 argument version
+      {:string_agg, field, delimiter} ->
+        prep_string_agg(selecto, field, delimiter)
+
+      {:string_agg, field, delimiter, opts} when is_list(opts) ->
+        prep_string_agg_with_opts(selecto, field, delimiter, opts)
+
+      # JSON/JSONB object aggregation - 2 argument versions
+      {:json_object_agg, key_field, value_field} ->
+        prep_object_agg(selecto, "json_object_agg", key_field, value_field)
+
+      {:jsonb_object_agg, key_field, value_field} ->
+        prep_object_agg(selecto, "jsonb_object_agg", key_field, value_field)
+
+      # JSON array aggregation
+      {:json_agg, field} ->
+        prep_array_function(selecto, "json_agg", [field])
+
+      {:jsonb_agg, field} ->
+        prep_array_function(selecto, "jsonb_agg", [field])
+
+      # GROUPING function for ROLLUP/CUBE queries
+      {:grouping, fields} when is_list(fields) ->
+        prep_grouping_function(selecto, fields)
+
+      {:grouping, field} ->
+        prep_grouping_function(selecto, [field])
+
       {:array_length, field} ->
         prep_array_function(selecto, "array_length", [field, {:literal, 1}])
 
@@ -477,5 +508,101 @@ defmodule Selecto.SQL.Functions do
           result -> result
         end
     end
+  end
+
+  # String aggregation helper - string_agg(field, delimiter)
+  defp prep_string_agg(selecto, field, delimiter) do
+    {field_iodata, field_joins, field_params} = prep_single_arg(selecto, field)
+
+    # Delimiter is typically a literal string
+    delimiter_str = if is_binary(delimiter), do: delimiter, else: to_string(delimiter)
+
+    func_iodata = ["string_agg(", field_iodata, ", ", {:param, delimiter_str}, ")"]
+    {func_iodata, field_joins, field_params ++ [delimiter_str]}
+  end
+
+  # String aggregation with options (ORDER BY, DISTINCT)
+  defp prep_string_agg_with_opts(selecto, field, delimiter, opts) do
+    {field_iodata, field_joins, field_params} = prep_single_arg(selecto, field)
+
+    delimiter_str = if is_binary(delimiter), do: delimiter, else: to_string(delimiter)
+
+    # Handle DISTINCT
+    distinct = if Keyword.get(opts, :distinct, false), do: "DISTINCT ", else: ""
+
+    # Handle ORDER BY within the aggregate
+    {order_clause, order_joins, order_params} = case Keyword.get(opts, :order_by) do
+      nil ->
+        {[], [], []}
+
+      fields when is_list(fields) ->
+        {order_parts, o_joins, o_params} = prep_function_args(selecto, fields)
+        {[" ORDER BY ", Enum.intersperse(order_parts, ", ")], o_joins, o_params}
+
+      field_spec ->
+        {order_parts, o_joins, o_params} = prep_function_args(selecto, [field_spec])
+        {[" ORDER BY ", order_parts], o_joins, o_params}
+    end
+
+    func_iodata = [
+      "string_agg(", distinct, field_iodata, ", ", {:param, delimiter_str},
+      order_clause, ")"
+    ]
+
+    all_joins = field_joins ++ order_joins
+    all_params = field_params ++ [delimiter_str] ++ order_params
+
+    {func_iodata, all_joins, all_params}
+  end
+
+  # Array aggregation with options (ORDER BY, DISTINCT)
+  defp prep_array_agg_with_opts(selecto, field, opts) do
+    {field_iodata, field_joins, field_params} = prep_single_arg(selecto, field)
+
+    # Handle DISTINCT
+    distinct = if Keyword.get(opts, :distinct, false), do: "DISTINCT ", else: ""
+
+    # Handle ORDER BY within the aggregate
+    {order_clause, order_joins, order_params} = case Keyword.get(opts, :order_by) do
+      nil ->
+        {[], [], []}
+
+      fields when is_list(fields) ->
+        {order_parts, o_joins, o_params} = prep_function_args(selecto, fields)
+        {[" ORDER BY ", Enum.intersperse(order_parts, ", ")], o_joins, o_params}
+
+      field_spec ->
+        {order_parts, o_joins, o_params} = prep_function_args(selecto, [field_spec])
+        {[" ORDER BY ", order_parts], o_joins, o_params}
+    end
+
+    func_iodata = ["array_agg(", distinct, field_iodata, order_clause, ")"]
+
+    all_joins = field_joins ++ order_joins
+    all_params = field_params ++ order_params
+
+    {func_iodata, all_joins, all_params}
+  end
+
+  # JSON/JSONB object aggregation helper - takes key and value fields
+  defp prep_object_agg(selecto, func_name, key_field, value_field) do
+    {key_iodata, key_joins, key_params} = prep_single_arg(selecto, key_field)
+    {value_iodata, value_joins, value_params} = prep_single_arg(selecto, value_field)
+
+    func_iodata = [func_name, "(", key_iodata, ", ", value_iodata, ")"]
+
+    all_joins = key_joins ++ value_joins
+    all_params = key_params ++ value_params
+
+    {func_iodata, all_joins, all_params}
+  end
+
+  # GROUPING function for ROLLUP/CUBE - indicates whether a column is aggregated
+  defp prep_grouping_function(selecto, fields) do
+    {field_parts, all_joins, all_params} = prep_function_args(selecto, fields)
+
+    func_iodata = ["GROUPING(", Enum.intersperse(field_parts, ", "), ")"]
+
+    {func_iodata, all_joins, all_params}
   end
 end
