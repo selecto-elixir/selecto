@@ -704,6 +704,13 @@ defmodule Selecto.Builder.Sql.Select do
   # DUPLICATE REMOVED - This handler is now placed BEFORE the generic 3-element tuple handler
   # to ensure it matches before the generic handler tries to treat bucket_ranges as a filter
 
+  # Special handling for count_distinct - generates COUNT(DISTINCT column) not count_distinct(column)
+  def prep_selector(selecto, {:count_distinct, selector}, pivot_aliases) do
+    {sel_iodata, join, param} = prep_selector(selecto, selector, pivot_aliases)
+    func_call_iodata = ["COUNT(DISTINCT ", sel_iodata, ")"]
+    {func_call_iodata, join, param}
+  end
+
   def prep_selector(selecto, {func, selector}, pivot_aliases) when is_atom(func) do
     {sel_iodata, join, param} = prep_selector(selecto, selector, pivot_aliases)
     func_name = Atom.to_string(func) |> check_string()
