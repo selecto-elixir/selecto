@@ -2,6 +2,7 @@ defmodule Selecto.Builder.Sql.Where do
   import Selecto.Builder.Sql.Helpers
 
   alias Selecto.Builder.Sql.Select
+  alias Selecto.Jsonb
 
   # Predicate formats supported:
   #   {SELECTOR} # for boolean fields
@@ -318,9 +319,264 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " = ", {:param, values}, " "], param ++ [values]}
   end
 
+  # ---------------------------------------------------------------------------
+  # JSONB Operations with dot notation
+  # ---------------------------------------------------------------------------
+
+  # JSONB contains - check if JSONB column contains value
+  def build(selecto, {field, {:jsonb_contains, value}}) when is_map(value) do
+    domain = selecto.config
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, []} ->
+        # Contains on the whole column
+        json_value = Jason.encode!(value)
+        {[],
+         [" ", build_selector_string(selecto, :selecto_root, column), " @> ", {:param, json_value}, "::jsonb "],
+         []}
+
+      {:jsonb, column, path} ->
+        # Contains on a nested path
+        json_value = Jason.encode!(value)
+        extraction = Jsonb.build_extraction(column, path, as_text: false, table_alias: get_root_alias(selecto))
+        {[], [" ", extraction, " @> ", {:param, json_value}, "::jsonb "], []}
+
+      {:regular, _} ->
+        # Not a JSONB field, try to use as regular contains
+        json_value = Jason.encode!(value)
+        {sel, join, param} = Select.prep_selector(selecto, field)
+        {List.wrap(join), [" ", sel, " @> ", {:param, json_value}, "::jsonb "], param}
+    end
+  end
+
+  # JSONB key exists - check if key exists in JSONB
+  def build(selecto, {field, :exists}) do
+    domain = selecto.config
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} when path != [] ->
+        exists_expr = Jsonb.build_key_exists(column, path, table_alias: get_root_alias(selecto))
+        {[], [" ", exists_expr, " "], []}
+
+      _ ->
+        # Not a JSONB path, treat as "is not null"
+        build(selecto, {field, :not_null})
+    end
+  end
+
+  # JSONB array contains - check if JSONB array contains value(s)
+  def build(selecto, {field, {:contains, value}}) do
+    domain = selecto.config
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        contains_expr = Jsonb.build_array_contains(column, path, value, table_alias: get_root_alias(selecto))
+        {[], [" ", contains_expr, " "], []}
+
+      {:regular, _} ->
+        # Fallback to array contains for regular array columns
+        build(selecto, {:array_contains, field, List.wrap(value)})
+    end
+  end
+
+  # JSONB array contains all - check if JSONB array contains all values
+  def build(selecto, {field, {:contains_all, values}}) when is_list(values) do
+    domain = selecto.config
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        contains_expr = Jsonb.build_array_contains_all(column, path, values, table_alias: get_root_alias(selecto))
+        {[], [" ", contains_expr, " "], []}
+
+      {:regular, _} ->
+        # Fallback to array contains for regular array columns
+        build(selecto, {:array_contains, field, values})
+    end
+  end
+
+  # JSONB path with comparison operators
+  def build(selecto, {field, {comp, value}}) when is_binary(field) and comp in [:gt, :lt, :gte, :lte, :eq, :ne, :=, :!=, :<, :>, :<=, :>=] do
+    domain = selecto.config
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        build_jsonb_comparison(selecto, column, path, comp, value)
+
+      {:regular, _} ->
+        # Not a JSONB field, use regular comparison
+        build_regular_comparison(selecto, field, comp, value)
+    end
+  end
+
+  # JSONB path with :in operator
+  def build(selecto, {field, {:in, list}}) when is_binary(field) and is_list(list) do
+    domain = selecto.config
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        build_jsonb_in(selecto, column, path, list)
+
+      {:regular, _} ->
+        # Not a JSONB field, use regular IN
+        conf = Selecto.field(selecto, field)
+        {sel, join, param} = Select.prep_selector(selecto, field)
+        adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+        in_clause = case adapter do
+          Selecto.DB.MySQL -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+          Selecto.DB.MariaDB -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+          _ -> [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+        end
+        {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
+    end
+  end
+
+  # JSONB path with :between operator
+  def build(selecto, {field, {:between, min, max}}) when is_binary(field) do
+    domain = selecto.config
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        build_jsonb_between(selecto, column, path, min, max)
+
+      {:regular, _} ->
+        # Not a JSONB field, delegate to regular between handler
+        conf = Selecto.field(selecto, field)
+        field_name = extract_database_field(field, conf)
+        if conf.type in [:date, :naive_datetime, :utc_datetime, :datetime] do
+          {conf.requires_join,
+           [
+             " (",
+             build_selector_string(selecto, conf.requires_join, field_name),
+             " >= ",
+             {:param, to_type(conf.type, min)},
+             " and ",
+             build_selector_string(selecto, conf.requires_join, field_name),
+             " < ",
+             {:param, to_type(conf.type, max)},
+             ") "
+           ], []}
+        else
+          {conf.requires_join,
+           [
+             " ",
+             build_selector_string(selecto, conf.requires_join, field_name),
+             " between ",
+             {:param, to_type(conf.type, min)},
+             " and ",
+             {:param, to_type(conf.type, max)},
+             " "
+           ], []}
+        end
+    end
+  end
+
+  # Generic field = value (with JSONB dot notation support)
+  def build(selecto, {field, value}) when is_binary(field) do
+    domain = selecto.config
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        build_jsonb_equality(selecto, column, path, value)
+
+      {:regular, _} ->
+        {sel, join, param} = Select.prep_selector(selecto, field)
+        {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
+    end
+  end
+
   def build(selecto, {field, value}) do
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
+  end
+
+  # ---------------------------------------------------------------------------
+  # JSONB Helper Functions
+  # ---------------------------------------------------------------------------
+
+  defp build_jsonb_equality(selecto, column, path, value) do
+    domain = selecto.config
+    path_schema = Jsonb.get_path_schema(domain, column, path)
+    field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
+    cast = Jsonb.pg_cast_for_type(field_type)
+
+    extraction = Jsonb.build_extraction(column, path, as_text: true, table_alias: get_root_alias(selecto), cast: cast)
+
+    # For nil values, check if the key exists and is null vs key doesn't exist
+    if is_nil(value) do
+      {[], [" (", extraction, " IS NULL) "], []}
+    else
+      {[], [" ", extraction, " = ", {:param, to_string(value)}, " "], []}
+    end
+  end
+
+  defp build_jsonb_comparison(selecto, column, path, comp, value) do
+    domain = selecto.config
+    path_schema = Jsonb.get_path_schema(domain, column, path)
+    field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
+    cast = Jsonb.pg_cast_for_type(field_type)
+
+    extraction = Jsonb.build_extraction(column, path, as_text: true, table_alias: get_root_alias(selecto), cast: cast)
+
+    sql_op = case comp do
+      :gt -> ">"
+      :lt -> "<"
+      :gte -> ">="
+      :lte -> "<="
+      :eq -> "="
+      :ne -> "!="
+      other -> to_string(other)
+    end
+
+    # Cast value appropriately for comparison
+    param_value = case field_type do
+      t when t in [:integer, :decimal, :float] -> value
+      _ -> to_string(value)
+    end
+
+    {[], [" ", extraction, " ", sql_op, " ", {:param, param_value}, " "], []}
+  end
+
+  defp build_jsonb_in(selecto, column, path, list) do
+    domain = selecto.config
+    path_schema = Jsonb.get_path_schema(domain, column, path)
+    field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
+    cast = Jsonb.pg_cast_for_type(field_type)
+
+    extraction = Jsonb.build_extraction(column, path, as_text: true, table_alias: get_root_alias(selecto), cast: cast)
+
+    # Convert list values to appropriate types
+    typed_list = case field_type do
+      t when t in [:integer, :decimal, :float] -> list
+      _ -> Enum.map(list, &to_string/1)
+    end
+
+    {[], [" ", extraction, " = ANY(", {:param, typed_list}, ") "], []}
+  end
+
+  defp build_jsonb_between(selecto, column, path, min, max) do
+    domain = selecto.config
+    path_schema = Jsonb.get_path_schema(domain, column, path)
+    field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
+    cast = Jsonb.pg_cast_for_type(field_type)
+
+    extraction = Jsonb.build_extraction(column, path, as_text: true, table_alias: get_root_alias(selecto), cast: cast)
+
+    {[], [" ", extraction, " BETWEEN ", {:param, min}, " AND ", {:param, max}, " "], []}
+  end
+
+  defp build_regular_comparison(selecto, field, comp, value) do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+
+    sql_op = case comp do
+      :gt -> ">"
+      :lt -> "<"
+      :gte -> ">="
+      :lte -> "<="
+      :eq -> "="
+      :ne -> "!="
+      other -> to_string(other)
+    end
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " ", sql_op, " ", {:param, to_type(conf.type, value)}, " "], param}
+  end
+
+  defp get_root_alias(selecto) do
+    # Get the table alias for the root table
+    Map.get(selecto, :root_alias, "selecto_root")
   end
 
   def build(_sel, other) do
