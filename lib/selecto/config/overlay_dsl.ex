@@ -46,6 +46,24 @@ defmodule Selecto.Config.OverlayDSL do
 
   - `@redactions` - List of field atoms to redact from queries
 
+  ### JSONB Schema (with `defjsonb_schema`)
+
+  Define structured schemas for JSONB columns to enable typed access, filtering, and display:
+
+      defjsonb_schema :attributes do
+        field :color, :string, label: "Color"
+        field :weight, :decimal, label: "Weight (kg)", precision: 2
+        field :organic, :boolean, label: "Organic"
+        field :certifications, {:array, :string}, label: "Certifications"
+        field :dimensions, :object do
+          field :width, :decimal, label: "Width"
+          field :height, :decimal, label: "Height"
+        end
+      end
+
+  Supported types: `:string`, `:integer`, `:decimal`, `:boolean`, `:date`, `:datetime`,
+  `{:array, type}`, `:object` (with nested fields)
+
   ### Column Directives (within `defcolumn`)
 
   - `label/1` - Human-readable column label
@@ -130,6 +148,7 @@ defmodule Selecto.Config.OverlayDSL do
 
     jsonb_schemas_map =
       jsonb_schemas
+      |> Enum.map(fn {name, fields} -> {name, fields} end)
       |> Map.new()
 
     quote do
@@ -179,6 +198,129 @@ defmodule Selecto.Config.OverlayDSL do
 
     quote do
       @overlay_filters {unquote(filter_name), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a JSONB schema for a JSONB column, enabling typed field access,
+  filtering, and display of structured JSON data.
+
+  ## Example
+
+      defjsonb_schema :attributes do
+        field :color, :string, label: "Color"
+        field :weight, :decimal, label: "Weight (kg)", precision: 2
+        field :organic, :boolean, label: "Organic"
+        field :origin_country, :string, label: "Country of Origin"
+        field :certifications, {:array, :string}, label: "Certifications"
+        field :dimensions, :object do
+          field :width, :decimal, label: "Width"
+          field :height, :decimal, label: "Height"
+          field :depth, :decimal, label: "Depth"
+        end
+      end
+
+  ## Supported Field Types
+
+  - `:string` - Text values
+  - `:integer` - Whole numbers
+  - `:decimal` - Decimal numbers (supports `precision` option)
+  - `:boolean` - True/false values
+  - `:date` - Date values (ISO 8601 format)
+  - `:datetime` - DateTime values (ISO 8601 format)
+  - `{:array, type}` - Arrays of the specified type
+  - `:object` - Nested object (use nested `field` calls)
+
+  ## Field Options
+
+  - `label` - Human-readable label for display
+  - `precision` - Decimal precision (for `:decimal` type)
+  - `required` - Whether the field is required (default: false)
+  - `default` - Default value for the field
+  - `filterable` - Whether the field can be filtered (default: true)
+  - `sortable` - Whether the field can be sorted (default: true)
+  - `format` - Display format (`:currency`, `:percentage`, etc.)
+  """
+  defmacro defjsonb_schema(column_name, do: block) do
+    fields = extract_jsonb_fields(block)
+
+    quote do
+      @overlay_jsonb_schemas {unquote(column_name), unquote(Macro.escape(fields))}
+    end
+  end
+
+  # Extract JSONB field definitions from block
+  defp extract_jsonb_fields({:__block__, _, exprs}) do
+    Enum.flat_map(exprs, &parse_jsonb_field/1)
+  end
+
+  defp extract_jsonb_fields(expr) do
+    parse_jsonb_field(expr)
+  end
+
+  # Parse a single field definition
+  defp parse_jsonb_field({:field, _, [name, type | rest]}) do
+    opts = extract_field_options(rest)
+    [build_jsonb_field(name, type, opts)]
+  end
+
+  defp parse_jsonb_field(_), do: []
+
+  # Extract options from field arguments
+  defp extract_field_options([]), do: %{}
+
+  defp extract_field_options([[do: nested_block]]) do
+    # Nested object with fields
+    nested_fields = extract_jsonb_fields(nested_block)
+    %{fields: nested_fields}
+  end
+
+  defp extract_field_options([opts]) when is_list(opts) do
+    Map.new(opts)
+  end
+
+  defp extract_field_options([opts, [do: nested_block]]) when is_list(opts) do
+    nested_fields = extract_jsonb_fields(nested_block)
+    opts |> Map.new() |> Map.put(:fields, nested_fields)
+  end
+
+  defp extract_field_options(_), do: %{}
+
+  # Build the field specification map
+  defp build_jsonb_field(name, type, opts) do
+    base = %{
+      name: name,
+      type: normalize_type(type),
+      label: Map.get(opts, :label, humanize_name(name)),
+      filterable: Map.get(opts, :filterable, true),
+      sortable: Map.get(opts, :sortable, true)
+    }
+
+    base
+    |> maybe_add(:precision, opts)
+    |> maybe_add(:required, opts)
+    |> maybe_add(:default, opts)
+    |> maybe_add(:format, opts)
+    |> maybe_add(:fields, opts)
+  end
+
+  defp normalize_type({:array, inner_type}), do: {:array, inner_type}
+  defp normalize_type(type) when is_atom(type), do: type
+  defp normalize_type(type), do: type
+
+  defp humanize_name(name) when is_atom(name) do
+    name
+    |> Atom.to_string()
+    |> String.replace("_", " ")
+    |> String.split()
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
+  end
+
+  defp maybe_add(map, key, opts) do
+    case Map.get(opts, key) do
+      nil -> map
+      value -> Map.put(map, key, value)
     end
   end
 
@@ -278,58 +420,32 @@ defmodule Selecto.Config.OverlayDSL do
   """
   defmacro options(_value), do: quote(do: nil)
 
+  # JSONB Schema Field Directives
+
   @doc """
-  Defines a JSONB schema for a column.
+  Defines a field within a JSONB schema.
 
-  The schema defines the structure and types of the JSONB data,
-  enabling type-safe filtering and updates.
+  This macro is only valid inside a `defjsonb_schema` block.
 
-  ## Example
+  ## Examples
 
-      defjsonb_schema :attributes do
-        %{
-          "color" => %{type: :string, required: true},
-          "size" => %{type: :string, enum: ["small", "medium", "large", "xl"]},
-          "weight" => %{type: :decimal, min: 0},
-          "in_stock" => %{type: :boolean, default: true},
-          "dimensions" => %{
-            type: :object,
-            schema: %{
-              "length" => %{type: :decimal, required: true},
-              "width" => %{type: :decimal},
-              "height" => %{type: :decimal}
-            }
-          },
-          "tags" => %{
-            type: :array,
-            items: %{type: :string}
-          }
-        }
+      # Simple field with type and label
+      field :color, :string, label: "Color"
+
+      # Field with multiple options
+      field :weight, :decimal, label: "Weight", precision: 2, required: true
+
+      # Array field
+      field :tags, {:array, :string}, label: "Tags"
+
+      # Nested object field
+      field :dimensions, :object do
+        field :width, :decimal
+        field :height, :decimal
       end
-
-  ## Supported Types
-
-  - `:string` - Text values
-  - `:integer` - Whole numbers
-  - `:decimal` / `:float` - Decimal numbers
-  - `:boolean` - True/false values
-  - `:date` - Date values
-  - `:datetime` - Date and time values
-  - `:object` - Nested objects (use `schema` key to define structure)
-  - `:array` - Arrays (use `items` key to define item type)
-
-  ## Validation Options
-
-  - `:required` - Field must be present
-  - `:enum` - List of allowed values
-  - `:min` / `:max` - Numeric bounds
-  - `:min_length` / `:max_length` - String length bounds
-  - `:pattern` - Regex pattern for strings
-  - `:default` - Default value if not provided
   """
-  defmacro defjsonb_schema(column_name, do: schema) do
-    quote do
-      @overlay_jsonb_schemas {unquote(column_name), unquote(schema)}
-    end
+  defmacro field(_name, _type, _opts \\ []) do
+    # This is a placeholder - actual processing happens in extract_jsonb_fields
+    quote do: nil
   end
 end
