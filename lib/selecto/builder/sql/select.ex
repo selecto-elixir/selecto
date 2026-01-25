@@ -1,6 +1,8 @@
 defmodule Selecto.Builder.Sql.Select do
   import Selecto.Builder.Sql.Helpers
 
+  alias Selecto.Jsonb
+
   ### TODO alter prep_selector to return the data type
 
   @doc """
@@ -719,8 +721,53 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def prep_selector(selecto, selector, pivot_aliases) when is_binary(selector) do
+    # First check if this is a JSONB path (e.g., "attributes.color")
+    domain = selecto.config
+    case Jsonb.parse_field_reference(selector, domain) do
+      {:jsonb, column, path} ->
+        # This is a JSONB path - generate extraction SQL
+        prep_jsonb_selector(selecto, column, path, pivot_aliases)
+
+      {:regular, _} ->
+        # Not a JSONB path, use standard field resolution
+        prep_regular_selector(selecto, selector, pivot_aliases)
+    end
+  end
+
+  # Handle JSONB path selectors - extract value from JSONB column
+  defp prep_jsonb_selector(selecto, column, path, pivot_aliases) do
+    domain = selecto.config
+
+    # Get schema info for type casting
+    path_schema = Jsonb.get_path_schema(domain, column, path)
+    field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
+    cast = Jsonb.pg_cast_for_type(field_type)
+
+    # Get the table alias
+    conf = Selecto.field(selecto, column)
+    join_alias = if conf do
+      Map.get(pivot_aliases, conf.requires_join, conf.requires_join)
+    else
+      :selecto_root
+    end
+
+    # Build the extraction expression
+    table_alias_str = get_table_alias_string(selecto, join_alias)
+    extraction = Jsonb.build_extraction(column, path,
+      as_text: true,
+      table_alias: table_alias_str,
+      cast: cast
+    )
+
+    requires_join = if conf, do: conf.requires_join, else: :selecto_root
+    {[extraction], requires_join, []}
+  end
+
+  # Standard field resolution (non-JSONB)
+  defp prep_regular_selector(selecto, selector, pivot_aliases) do
     # First check if it's a dynamic column (from UNNEST, CTE, etc.)
-    dynamic_columns = Map.get(selecto.set, :dynamic_columns, %{})
+    set = Map.get(selecto, :set) || %{}
+    dynamic_columns = if is_map(set), do: Map.get(set, :dynamic_columns, %{}), else: %{}
 
     conf = if Map.has_key?(dynamic_columns, selector) do
       # Create a minimal field config for dynamic columns
@@ -766,6 +813,12 @@ defmodule Selecto.Builder.Sql.Select do
         prep_selector(selecto, sub, pivot_aliases)
     end
   end
+
+  # Get the string representation of a table alias for JSONB extraction
+  defp get_table_alias_string(_selecto, nil), do: nil
+  defp get_table_alias_string(_selecto, :selecto_root), do: "selecto_root"
+  defp get_table_alias_string(_selecto, alias) when is_binary(alias), do: alias
+  defp get_table_alias_string(_selecto, alias) when is_atom(alias), do: Atom.to_string(alias)
 
   def prep_selector(selecto, selector, pivot_aliases) when is_atom(selector) do
     prep_selector(selecto, Atom.to_string(selector), pivot_aliases)
