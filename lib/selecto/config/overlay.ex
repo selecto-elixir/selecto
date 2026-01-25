@@ -117,6 +117,7 @@ defmodule Selecto.Config.Overlay do
   def merge(base, overlay) when is_map(base) and is_map(overlay) do
     base
     |> merge_columns(overlay)
+    |> merge_jsonb_schemas(overlay)
     |> merge_filters(overlay)
     |> merge_redact_fields(overlay)
     |> merge_other_fields(overlay)
@@ -140,6 +141,27 @@ defmodule Selecto.Config.Overlay do
       update_in(base, [:source, :columns], fn base_columns ->
         base_columns = base_columns || %{}
         deep_merge(base_columns, overlay_columns)
+      end)
+    else
+      base
+    end
+  end
+
+  # Merges JSONB schema definitions from overlay into base columns.
+  #
+  # For each JSONB schema defined in the overlay, the schema is added
+  # to the corresponding column's configuration. This replaces the
+  # `schema: :stub` placeholder with the actual schema.
+  defp merge_jsonb_schemas(base, overlay) do
+    overlay_jsonb_schemas = get_in(overlay, [:jsonb_schemas]) || %{}
+
+    if map_size(overlay_jsonb_schemas) > 0 do
+      Enum.reduce(overlay_jsonb_schemas, base, fn {column_name, schema}, acc ->
+        # Update the column configuration with the JSONB schema
+        update_in(acc, [:source, :columns, column_name], fn column_config ->
+          column_config = column_config || %{}
+          Map.put(column_config, :schema, schema)
+        end)
       end)
     else
       base
@@ -186,7 +208,7 @@ defmodule Selecto.Config.Overlay do
   # These fields use shallow merge - overlay replaces base value entirely.
   # Skip special fields that have their own merge logic.
   defp merge_other_fields(base, overlay) do
-    skip_fields = [:columns, :filters, :redact_fields]
+    skip_fields = [:columns, :filters, :redact_fields, :jsonb_schemas]
 
     overlay
     |> Map.drop(skip_fields)

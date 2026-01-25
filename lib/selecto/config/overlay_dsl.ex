@@ -105,6 +105,7 @@ defmodule Selecto.Config.OverlayDSL do
       import Selecto.Config.OverlayDSL
       Module.register_attribute(__MODULE__, :overlay_columns, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_filters, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_jsonb_schemas, accumulate: true)
       Module.register_attribute(__MODULE__, :redactions, accumulate: false)
 
       @before_compile Selecto.Config.OverlayDSL
@@ -114,6 +115,7 @@ defmodule Selecto.Config.OverlayDSL do
   defmacro __before_compile__(env) do
     columns = Module.get_attribute(env.module, :overlay_columns) |> Enum.reverse()
     filters = Module.get_attribute(env.module, :overlay_filters) |> Enum.reverse()
+    jsonb_schemas = Module.get_attribute(env.module, :overlay_jsonb_schemas) |> Enum.reverse()
     redactions = Module.get_attribute(env.module, :redactions) || []
 
     columns_map =
@@ -126,11 +128,16 @@ defmodule Selecto.Config.OverlayDSL do
       |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
       |> Map.new()
 
+    jsonb_schemas_map =
+      jsonb_schemas
+      |> Map.new()
+
     quote do
       def overlay do
         %{
           columns: unquote(Macro.escape(columns_map)),
           filters: unquote(Macro.escape(filters_map)),
+          jsonb_schemas: unquote(Macro.escape(jsonb_schemas_map)),
           redact_fields: unquote(redactions)
         }
       end
@@ -270,4 +277,59 @@ defmodule Selecto.Config.OverlayDSL do
   Sets the valid options for a select-type filter.
   """
   defmacro options(_value), do: quote(do: nil)
+
+  @doc """
+  Defines a JSONB schema for a column.
+
+  The schema defines the structure and types of the JSONB data,
+  enabling type-safe filtering and updates.
+
+  ## Example
+
+      defjsonb_schema :attributes do
+        %{
+          "color" => %{type: :string, required: true},
+          "size" => %{type: :string, enum: ["small", "medium", "large", "xl"]},
+          "weight" => %{type: :decimal, min: 0},
+          "in_stock" => %{type: :boolean, default: true},
+          "dimensions" => %{
+            type: :object,
+            schema: %{
+              "length" => %{type: :decimal, required: true},
+              "width" => %{type: :decimal},
+              "height" => %{type: :decimal}
+            }
+          },
+          "tags" => %{
+            type: :array,
+            items: %{type: :string}
+          }
+        }
+      end
+
+  ## Supported Types
+
+  - `:string` - Text values
+  - `:integer` - Whole numbers
+  - `:decimal` / `:float` - Decimal numbers
+  - `:boolean` - True/false values
+  - `:date` - Date values
+  - `:datetime` - Date and time values
+  - `:object` - Nested objects (use `schema` key to define structure)
+  - `:array` - Arrays (use `items` key to define item type)
+
+  ## Validation Options
+
+  - `:required` - Field must be present
+  - `:enum` - List of allowed values
+  - `:min` / `:max` - Numeric bounds
+  - `:min_length` / `:max_length` - String length bounds
+  - `:pattern` - Regex pattern for strings
+  - `:default` - Default value if not provided
+  """
+  defmacro defjsonb_schema(column_name, do: schema) do
+    quote do
+      @overlay_jsonb_schemas {unquote(column_name), unquote(schema)}
+    end
+  end
 end
