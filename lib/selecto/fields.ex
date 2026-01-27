@@ -132,7 +132,10 @@ defmodule Selecto.Fields do
 
     if custom_col do
       # Return the full custom column definition with all properties intact
+      # Ensure requires_join is set (defaults to :selecto_root for root-level custom columns)
       custom_col
+      |> Map.put_new(:requires_join, :selecto_root)
+      |> Map.put_new(:colid, field_str)
     else
       # Try enhanced field resolution for regular fields
       case Selecto.FieldResolver.resolve_field(selecto, field_name) do
