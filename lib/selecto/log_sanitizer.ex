@@ -159,11 +159,12 @@ defmodule Selecto.LogSanitizer do
   defp param_type(p) when is_boolean(p), do: "boolean"
   defp param_type(p) when is_atom(p), do: "atom"
   defp param_type(p) when is_list(p), do: "list"
-  defp param_type(p) when is_map(p), do: "map"
+  # Struct patterns must come before the generic is_map guard
   defp param_type(%Date{}), do: "date"
   defp param_type(%DateTime{}), do: "datetime"
   defp param_type(%NaiveDateTime{}), do: "naive_datetime"
   defp param_type(%Time{}), do: "time"
   defp param_type(%Decimal{}), do: "decimal"
+  defp param_type(p) when is_map(p), do: "map"
   defp param_type(_), do: "other"
 end

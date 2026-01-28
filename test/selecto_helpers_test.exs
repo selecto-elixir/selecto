@@ -10,6 +10,27 @@ defmodule Selecto.HelpersTest do
       assert Helpers.check_safe_phrase("test value") == "test value"
     end
 
+    test "returns nil for nil input" do
+      assert Helpers.check_safe_phrase(nil) == nil
+    end
+
+    test "converts integers to strings and validates" do
+      assert Helpers.check_safe_phrase(123) == "123"
+      assert Helpers.check_safe_phrase(42) == "42"
+    end
+
+    test "converts floats to strings and validates" do
+      # Floats will contain a period which is a special character
+      assert_raise RuntimeError, fn ->
+        Helpers.check_safe_phrase(3.14)
+      end
+    end
+
+    test "converts atoms to strings and validates" do
+      assert Helpers.check_safe_phrase(:hello) == "hello"
+      assert Helpers.check_safe_phrase(:valid_name) == "valid_name"
+    end
+
     test "raises error for empty strings" do
       assert_raise RuntimeError, "Invalid String ", fn ->
         Helpers.check_safe_phrase("")
@@ -31,6 +52,16 @@ defmodule Selecto.HelpersTest do
 
       assert_raise RuntimeError, "Invalid String 'quoted'", fn ->
         Helpers.check_safe_phrase("'quoted'")
+      end
+    end
+
+    test "raises error for SQL injection attempts" do
+      assert_raise RuntimeError, fn ->
+        Helpers.check_safe_phrase("'; DROP TABLE users; --")
+      end
+
+      assert_raise RuntimeError, fn ->
+        Helpers.check_safe_phrase("1 OR 1=1")
       end
     end
   end

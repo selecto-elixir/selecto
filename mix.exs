@@ -12,6 +12,9 @@ defmodule Selecto.MixProject do
       description: "A query builder",
       licenses: "MIT",
       package: package(),
+
+      # Test coverage
+      test_coverage: [tool: ExCoveralls],
       
       # Dialyzer configuration
       dialyzer: [
@@ -51,8 +54,7 @@ defmodule Selecto.MixProject do
           "Schema": [
             Selecto.Schema,
             Selecto.Schema.Join,
-            Selecto.Schema.Column,
-            Selecto.Schema.Filter
+            Selecto.Schema.Column
           ],
           "Utilities": [
             Selecto.SQL.Params,
@@ -60,6 +62,18 @@ defmodule Selecto.MixProject do
             Selecto.Helpers
           ]
         ]
+      ]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test,
+        "coveralls.json": :test
       ]
     ]
   end
@@ -83,7 +97,8 @@ defmodule Selecto.MixProject do
       {:benchee, "~> 1.0", only: [:dev, :test], optional: true},
       {:benchee_html, "~> 1.0", only: [:dev, :test], optional: true},
       {:dialyxir, "~> 1.3", only: [:dev], runtime: false},
-      {:ecto_sql, "~> 3.12", optional: true}
+      {:ecto_sql, "~> 3.12", optional: true},
+      {:excoveralls, "~> 0.18", only: :test}
     ]
   end
 
