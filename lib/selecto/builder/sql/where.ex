@@ -213,6 +213,12 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " ", to_string(comp), " ", {:param, value}, " "], param}
   end
 
+  def build(selecto, {field, {:not_like, value}}) do
+    # NOT LIKE filter - value should already have % wildcards
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {List.wrap(join), [" ", sel, " NOT LIKE ", {:param, value}, " "], param}
+  end
+
   def build(selecto, {field, {comp, value}}) when comp in [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
@@ -253,6 +259,21 @@ defmodule Selecto.Builder.Sql.Where do
     end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
+  end
+
+  def build(selecto, {field, {:not_in, list}}) when is_list(list) do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+
+    # Use adapter-specific syntax for NOT IN
+    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    not_in_clause = case adapter do
+      Selecto.DB.MySQL -> [" ", sel, " NOT IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+      Selecto.DB.MariaDB -> [" ", sel, " NOT IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+      _ -> [" NOT (", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ")) "]
+    end
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join), not_in_clause, param}
   end
 
   def build(selecto, {field, list}) when is_list(list) do
