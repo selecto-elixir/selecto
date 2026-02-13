@@ -4,6 +4,18 @@
 
 Selecto is a powerful, production-ready query building system that allows you to construct complex SQL queries within configured domains. It features comprehensive support for advanced join patterns, hierarchical relationships, OLAP dimensions, and Common Table Expressions (CTEs).
 
+## 📌 Release Status (0.3.x)
+
+- **Stable**: Core query building, join handling, CTE support, and standard filter/select/order flows.
+- **Experimental**: Advanced subfilter APIs (`Selecto.Subfilter.Parser`, `Selecto.Subfilter.Registry`, `Selecto.Subfilter.SQL`) remain available but are still being hardened for broad domain coverage.
+- **Not Included**: Schema/domain code generation and UI components are not part of `selecto` and are provided by companion packages (`selecto_mix`, `selecto_components`).
+
+## ⚠️ Known Limitations (Advanced Subfilters)
+
+- Multi-hop subfilter paths must be explicit or unambiguous in domain join config; complex paths can return `:unresolvable_path`.
+- SQL compound operation rendering is intentionally simplified and currently combines top-level compound groups with `AND`.
+- Some advanced subfilter SQL builders still assume film-domain style correlation keys (for example `film_id`) and may need customization for non-film domain schemas.
+
 ## 🚀 Key Features
 
 - **Enhanced Join Types**: Self-joins, lateral joins, cross joins, full outer joins, conditional joins
@@ -304,7 +316,7 @@ domain = %{
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.2.6"}
+    {:selecto, "~> 0.3.0"}
   ]
 end
 ```
