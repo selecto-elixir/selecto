@@ -1,5 +1,6 @@
 defmodule SelectoTest do
   use ExUnit.Case
+  @moduletag :requires_db
 
   doctest Selecto
 

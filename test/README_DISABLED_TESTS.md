@@ -7,18 +7,7 @@ conditions needed to re-enable them.
 
 ## Disabled Files
 
-### `test/selecto_test.exs.disabled`
-- Classification: `:requires_db`
-- Reason: hard dependency on a live PostgreSQL instance and mutable DDL/DML setup.
-- Deterministic prerequisites:
-1. PostgreSQL reachable at `localhost:5432`
-2. Database `selecto_test`
-3. Credentials: `postgres` / `password`
-- What it does: creates/drops `users`, `posts`, `post_tags` and runs end-to-end query execution tests.
-- Re-enable steps:
-1. Rename to `test/selecto_test.exs`
-2. Add `@moduletag :requires_db`
-3. Run with DB available: `mix test test/selecto_test.exs`
+None currently.
 
 ## Recently Re-enabled
 
@@ -27,6 +16,19 @@ conditions needed to re-enable them.
 - Validation command: `mix test test/selecto_cte_integration_test.exs`
 - Result: `11 tests, 0 failures`
 - Compatibility note: this suite depends on legacy `Selecto.Builder.Cte` helpers, now provided for backward compatibility.
+
+### `test/selecto_test.exs`
+- Re-enabled on: 2026-02-13
+- Safety model: tagged with `@moduletag :requires_db`, and excluded by default in `test/test_helper.exs`.
+- Default behavior: `mix test` skips this suite.
+- To run intentionally:
+1. Ensure PostgreSQL is reachable with:
+- host: `localhost`
+- port: `5432`
+- database: `selecto_test`
+- username/password: `postgres` / `password`
+2. Execute with DB tests enabled:
+- `SELECTO_RUN_DB_TESTS=1 mix test test/selecto_test.exs --include requires_db`
 
 ## Policy
 
