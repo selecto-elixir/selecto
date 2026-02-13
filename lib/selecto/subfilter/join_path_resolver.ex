@@ -314,14 +314,86 @@ defmodule Selecto.Subfilter.JoinPathResolver do
     end
   end
 
-  defp try_step_by_step_resolution(path_segments, target_field, _domain_config, _base_table) do
-    # For now, return error for complex auto-resolution
-    # In a full implementation, this would attempt to chain joins step-by-step
-    {:error, %Error{
-      type: :complex_auto_resolution_not_implemented,
-      message: "Complex automatic path resolution not yet implemented",
-      details: %{path_segments: path_segments, target_field: target_field}
-    }}
+  defp try_step_by_step_resolution(path_segments, target_field, domain_config, _base_table) do
+    path_prefix = Enum.join(path_segments, ".")
+
+    with {:error, :not_found} <- infer_join_sequence_from_known_paths(path_prefix, domain_config),
+         {:error, :not_found} <- chain_relationship_segments(path_segments, domain_config) do
+      {:error, %Error{
+        type: :unresolvable_path,
+        message: "No join sequence could be inferred for relationship path",
+        details: %{path_segments: path_segments, target_field: target_field}
+      }}
+    else
+      {:ok, joins} -> {:ok, joins}
+      {:error, %Error{} = error} -> {:error, error}
+    end
+  end
+
+  defp infer_join_sequence_from_known_paths(path_prefix, domain_config) do
+    candidate_sequences =
+      domain_config.joins
+      |> Enum.filter(fn {key, _value} -> String.starts_with?(key, path_prefix <> ".") end)
+      |> Enum.map(fn {_key, value} -> normalize_join_value(value) end)
+      |> Enum.reject(&is_nil/1)
+
+    unique_sequences =
+      candidate_sequences
+      |> Enum.uniq_by(&join_sequence_signature/1)
+
+    case unique_sequences do
+      [] -> {:error, :not_found}
+      [joins] -> {:ok, joins}
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp chain_relationship_segments([first_segment | rest_segments], domain_config) do
+    Enum.reduce_while(rest_segments, {:ok, first_segment, []}, fn next_segment, {:ok, current_segment, joins_acc} ->
+      join_key = "#{current_segment}.#{next_segment}"
+
+      case Map.get(domain_config.joins, join_key) do
+        nil ->
+          {:halt, {:error, :not_found}}
+
+        join_value ->
+          case normalize_join_value(join_value) do
+            nil ->
+              {:halt, {:error, :not_found}}
+
+            normalized_joins ->
+              {:cont, {:ok, next_segment, joins_acc ++ normalized_joins}}
+          end
+      end
+    end)
+    |> case do
+      {:ok, _last_segment, []} -> {:error, :not_found}
+      {:ok, _last_segment, joins} -> {:ok, joins}
+      {:error, :not_found} -> {:error, :not_found}
+      {:error, %Error{} = error} -> {:error, error}
+    end
+  end
+
+  defp normalize_join_value(%{via: _via_table} = join_config) do
+    decompose_via_join(join_config, nil)
+  end
+
+  defp normalize_join_value(joins) when is_list(joins) do
+    joins
+  end
+
+  defp normalize_join_value(%{} = join_config) do
+    [join_config]
+  end
+
+  defp normalize_join_value(_value) do
+    nil
+  end
+
+  defp join_sequence_signature(joins) do
+    Enum.map(joins, fn join ->
+      {Map.get(join, :from), Map.get(join, :to), Map.get(join, :type), Map.get(join, :on)}
+    end)
   end
 
   defp determine_target_table(%RelationshipPath{target_table: target_table}, _joins) when is_binary(target_table) do

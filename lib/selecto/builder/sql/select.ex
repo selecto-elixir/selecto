@@ -920,9 +920,20 @@ defmodule Selecto.Builder.Sql.Select do
     end)
   end
 
-  defp get_cte_fields(_selecto) do
-    # Phase 1: Stub - Phase 2+ will implement CTE field detection
-    []
+  defp get_cte_fields(selecto) do
+    selecto
+    |> Map.get(:set, %{})
+    |> Map.get(:ctes, [])
+    |> Enum.flat_map(fn cte_spec ->
+      cte_name = Map.get(cte_spec, :name)
+      cte_columns = Map.get(cte_spec, :columns, [])
+
+      if is_binary(cte_name) and is_list(cte_columns) do
+        Enum.map(cte_columns, fn col -> "#{cte_name}.#{col}" end)
+      else
+        []
+      end
+    end)
   end
 
   defp validate_field_references(_sql_template, field_mappings, available_fields) do
