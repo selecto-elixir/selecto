@@ -429,19 +429,6 @@ defmodule Selecto.Builder.Pivot do
     {from_iodata, [], [], []}
   end
 
-  # Keep for potential future use
-  defp _build_join_sequence(selecto, join_path) do
-    source_alias = get_source_alias()
-
-    {join_clauses, params, _current_alias} =
-      Enum.reduce(join_path, {[], [], source_alias}, fn join_name, {acc_clauses, acc_params, current_alias} ->
-        {join_clause, join_params, next_alias} = build_single_join(selecto, join_name, current_alias)
-        {acc_clauses ++ [join_clause], acc_params ++ join_params, next_alias}
-      end)
-
-    {get_source_alias(), join_clauses, params}
-  end
-
   defp build_single_join(selecto, join_name, current_alias) do
     join_config = get_join_config(selecto, join_name)
     next_alias = generate_join_alias(join_name)
@@ -508,92 +495,8 @@ defmodule Selecto.Builder.Pivot do
     end
   end
   
-  # Keep for potential future use
-  defp _get_target_table_safe(selecto, target_schema) do
-    # Try to get the target table, falling back to using the schema name as table name
-    case Map.get(selecto.domain.schemas, target_schema) do
-      nil ->
-        # The target_schema might be the table name itself
-        to_string(target_schema)
-      schema_config -> 
-        Map.get(schema_config, :source_table) || to_string(target_schema)
-    end
-  end
-
   defp get_source_alias, do: "s"
   defp get_target_alias, do: "t"
-  
-  # Keep for potential future use
-  defp _get_association_config(selecto, assoc_name) do
-    # Get association config from the source schema
-    # Support both 'associations' and 'joins' structures
-    associations = Map.get(selecto.domain.source, :associations) || Map.get(selecto.domain, :joins, %{})
-    
-    # For nested joins, we need to search recursively
-    find_join_config_recursive(associations, assoc_name)
-  end
-  
-  defp find_join_config_recursive(joins, target_name) when is_map(joins) do
-    target_str = to_string(target_name)
-    
-    result = Enum.find_value(joins, fn {join_name, join_config} ->
-      join_name_str = to_string(join_name)
-      
-      if join_name_str == target_str do
-        # Found it - return the config
-        # Add a fake queryable field if it doesn't exist (for compatibility)
-        config = if Map.has_key?(join_config, :queryable) do
-          join_config
-        else
-          # Use the join name as the queryable (it's usually the table name)
-          Map.put(join_config, :queryable, join_name)
-        end
-        
-        # Also ensure we have join_keys for compatibility
-        if not Map.has_key?(config, :owner_key) and not Map.has_key?(config, :join_keys) do
-          # Infer join keys based on table names
-          _config = Map.put(config, :join_keys, _infer_join_keys(join_name))
-        end
-        
-        config
-      else
-        # Check nested joins
-        case Map.get(join_config, :joins) do
-          nil -> nil
-          nested_joins -> find_join_config_recursive(nested_joins, target_name)
-        end
-      end
-    end)
-    
-    result
-  end
-  
-  defp find_join_config_recursive(_, _), do: nil
-  
-  # Keep for potential future use
-  defp _infer_join_keys(join_name) do
-    # Infer join keys based on common patterns
-    join_str = to_string(join_name)
-    
-    cond do
-      String.contains?(join_str, "film_actor") ->
-        [actor_id: :actor_id]
-      String.contains?(join_str, "film") ->
-        [film_id: :film_id]  
-      true ->
-        # Default pattern: singular_name_id
-        singular = String.replace(join_str, ~r/s$/, "")
-        key = String.to_atom("#{singular}_id")
-        [{key, key}]
-    end
-  end
-  # Keep for potential future use
-  defp _get_final_join_alias([]), do: get_source_alias()
-  defp _get_final_join_alias(join_path) do
-    # The final alias is the alias of the last join in the path
-    join_name = List.last(join_path)
-    generate_join_alias(join_name)
-  end
 
   defp generate_join_alias(join_name) do
     "j_" <> to_string(join_name)
@@ -745,17 +648,6 @@ defmodule Selecto.Builder.Pivot do
       params = Enum.map(filters, fn {_field, value} -> value end)
 
       {where_clause, params}
-    end
-  end
-
-  # Keep for potential future use
-  defp _get_connection_field(selecto, target_schema, _join_path) do
-    # Return the field that connects the final join to the target
-    target_config = Map.get(selecto.domain.schemas, target_schema)
-    if target_config do
-      to_string(target_config.primary_key || :id)
-    else
-      "id"
     end
   end
 

@@ -132,7 +132,7 @@ defmodule Selecto.LogSanitizer do
       {:params, _} -> {:params, "[redacted]"}
       {:error, e} -> {:error, sanitize_error(e)}
       {:reason, r} -> {:reason, sanitize_error(r)}
-      {k, v} when k in [:password, :secret, :token, :key, :credential] -> {k, "[redacted]"}
+      {k, _v} when k in [:password, :secret, :token, :key, :credential] -> {k, "[redacted]"}
       other -> other
     end)
     |> Map.new()
