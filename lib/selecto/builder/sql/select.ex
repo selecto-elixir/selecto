@@ -720,7 +720,9 @@ defmodule Selecto.Builder.Sql.Select do
     {func_call_iodata, join, param}
   end
 
-  def prep_selector(selecto, selector, pivot_aliases) when is_binary(selector) do
+  def prep_selector(selecto, selector, pivot_aliases) when is_binary(selector) or is_atom(selector) do
+    selector = if is_atom(selector), do: Atom.to_string(selector), else: selector
+
     # First check if this is a JSONB path (e.g., "attributes.color")
     domain = selecto.config
     case Jsonb.parse_field_reference(selector, domain) do
@@ -731,6 +733,18 @@ defmodule Selecto.Builder.Sql.Select do
       {:regular, _} ->
         # Not a JSONB path, use standard field resolution
         prep_regular_selector(selecto, selector, pivot_aliases)
+    end
+  end
+
+  def prep_selector(selecto, selector, _pivot_aliases) do
+    # Try advanced SQL functions first
+    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
+      nil ->
+        # Not an advanced function, fall back to error
+        raise "Unsupported selector type: #{inspect(selector)}. Supported types: atoms, tuples with functions, strings, and literals."
+
+      result ->
+        result
     end
   end
 
@@ -820,22 +834,6 @@ defmodule Selecto.Builder.Sql.Select do
   defp get_table_alias_string(_selecto, alias) when is_binary(alias), do: alias
   defp get_table_alias_string(_selecto, alias) when is_atom(alias), do: Atom.to_string(alias)
 
-  def prep_selector(selecto, selector, pivot_aliases) when is_atom(selector) do
-    prep_selector(selecto, Atom.to_string(selector), pivot_aliases)
-  end
-
-  def prep_selector(selecto, selector, _pivot_aliases) do
-    # Try advanced SQL functions first
-    case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
-      nil ->
-        # Not an advanced function, fall back to error
-        raise "Unsupported selector type: #{inspect(selector)}. Supported types: atoms, tuples with functions, strings, and literals."
-
-      result ->
-        result
-    end
-  end
-
   ### make the builder build the dynamic so we can use same parts for SQL
 
   # Future feature: subquery and array operations
@@ -920,9 +918,20 @@ defmodule Selecto.Builder.Sql.Select do
     end)
   end
 
-  defp get_cte_fields(_selecto) do
-    # Phase 1: Stub - Phase 2+ will implement CTE field detection
-    []
+  defp get_cte_fields(selecto) do
+    selecto
+    |> Map.get(:set, %{})
+    |> Map.get(:ctes, [])
+    |> Enum.flat_map(fn cte_spec ->
+      cte_name = Map.get(cte_spec, :name)
+      cte_columns = Map.get(cte_spec, :columns, [])
+
+      if is_binary(cte_name) and is_list(cte_columns) do
+        Enum.map(cte_columns, fn col -> "#{cte_name}.#{col}" end)
+      else
+        []
+      end
+    end)
   end
 
   defp validate_field_references(_sql_template, field_mappings, available_fields) do

@@ -4,9 +4,9 @@ defmodule Selecto.Builder.Sql.Hierarchy do
   
   Supports adjacency lists, materialized paths, and closure table patterns
   using recursive CTEs and specialized SQL constructs.
-  
-  Phase 1: Foundation stubs that maintain backward compatibility
-  Phase 2: Full CTE implementation for all hierarchy patterns
+
+  The module exposes concrete builders for each hierarchy strategy and a
+  deterministic fallback join for unrecognized patterns.
   """
   
   import Selecto.Builder.Sql.Helpers
@@ -15,10 +15,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
   @doc """
   Build hierarchical join with appropriate CTE pattern.
   
-  Phase 1: Returns basic LEFT JOIN to maintain existing functionality
-  Phase 2: Will implement full recursive CTE generation
-  
-  Returns: {from_clause_iodata, params, [ctes]}
+  Returns: `{from_clause_iodata, params, ctes}`.
   """
   def build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes) do
     case pattern do
@@ -104,7 +101,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     {fc ++ [basic_join_iodata], p, ctes}
   end
   
-  # Helper: Build basic LEFT JOIN clause for Phase 1 compatibility
+  # Helper: Build basic LEFT JOIN clause used by the explicit fallback path.
   defp build_basic_join_clause(selecto, join, config) do
     [
       " left join ", config.source, " ", build_join_string(selecto, join),
@@ -112,8 +109,6 @@ defmodule Selecto.Builder.Sql.Hierarchy do
       " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
     ]
   end
-  
-  # Phase 2 Helper Stubs - Will be implemented in Phase 2
   
   @doc """
   Build recursive CTE for adjacency list pattern.
@@ -148,8 +143,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     name_field = Map.get(config, :name_field, "name") 
     parent_field = Map.get(config, :parent_field, "parent_id")
     
-    # For now, create a simplified CTE without full Selecto integration
-    # This is Phase 2.0 - will be enhanced in Phase 2.5
+    # Build a deterministic recursive CTE with a configurable depth limit.
     cte_name = hierarchy_cte_name(join)
     
     # Build raw SQL iodata for recursive CTE with parameter placeholder
@@ -270,19 +264,11 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     {query_iodata, []}
   end
   
-  # Phase 2: Additional helper functions will be added here
-  # - cycle detection for adjacency lists
-  # - path parsing and validation
-  # - closure table optimization
-  # - CTE parameter coordination
-
   @doc """
-  Example of how Phase 2 hierarchical joins would use Selecto-powered CTEs.
+  Example of hierarchical join integration using Selecto-powered CTEs.
   
-  This demonstrates the integration pattern that will be implemented in Phase 2,
-  showing how hierarchical joins will leverage the new Selecto CTE API.
-  
-  ## Phase 2 Implementation Preview
+  This demonstrates the integration pattern for teams wiring these CTE helpers
+  into higher-level query flows.
   
       # Instead of raw SQL generation, we'll use Selecto queries:
       
@@ -321,7 +307,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
   """
   def example_selecto_hierarchy_usage do
     """
-    This function demonstrates the intended usage pattern for Phase 2:
+    This function demonstrates the intended usage pattern:
     
     # Users will build hierarchical CTEs using familiar Selecto syntax
     hierarchy_domain = configure_hierarchy_domain(categories_table)
@@ -350,8 +336,6 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     """
   end
 
-  # Phase 2: Helper functions for Selecto CTE integration
-  
   def hierarchy_cte_name(join), do: "#{join}_hierarchy"
   
 end

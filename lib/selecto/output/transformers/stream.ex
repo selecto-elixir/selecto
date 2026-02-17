@@ -267,7 +267,7 @@ defmodule Selecto.Output.Transformers.Stream do
     delimiter = Keyword.get(options, :delimiter, ",")
     quote_char = Keyword.get(options, :quote_char, "\"")
 
-    column_names = Enum.map(columns, fn col -> Map.get(aliases, col, col) end)
+    _column_names = Enum.map(columns, fn col -> Map.get(aliases, col, col) end)
 
     Enum.map(batch, fn row ->
       row
@@ -308,7 +308,7 @@ defmodule Selecto.Output.Transformers.Stream do
     end)
   end
 
-  defp transform_single_row(row, columns, :raw, _options), do: row
+  defp transform_single_row(row, _columns, :raw, _options), do: row
   defp transform_single_row(row, columns, :maps, _options) do
     columns |> Enum.zip(row) |> Enum.into(%{})
   end

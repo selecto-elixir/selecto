@@ -58,5 +58,36 @@ defmodule Selecto.Subfilter.RegistryTest do
       assert analysis.join_complexity == :low
       assert analysis.strategy_distribution == %{exists: 2}
     end
+
+    test "generate_sql returns base query unchanged when no subfilters", %{registry: registry} do
+      base_query = "SELECT * FROM film"
+      {:ok, sql, params} = Registry.generate_sql(registry, base_query)
+
+      assert sql == base_query
+      assert params == []
+    end
+
+    test "generate_sql appends generated subfilter where clause to base query", %{registry: registry} do
+      {:ok, registry} = Registry.add_subfilter(registry, "film.rating", "R")
+      base_query = "SELECT * FROM film"
+
+      {:ok, sql, params} = Registry.generate_sql(registry, base_query)
+
+      assert String.starts_with?(sql, base_query)
+      assert sql =~ "WHERE"
+      assert params == ["R"]
+      refute sql =~ "-- subfilters would be added here"
+    end
+
+    test "generate_sql merges into existing WHERE clause", %{registry: registry} do
+      {:ok, registry} = Registry.add_subfilter(registry, "film.rating", "R")
+      base_query = "SELECT * FROM film WHERE film.active = true"
+
+      {:ok, sql, params} = Registry.generate_sql(registry, base_query)
+
+      assert String.starts_with?(sql, base_query)
+      assert sql =~ "AND ("
+      assert params == ["R"]
+    end
   end
 end

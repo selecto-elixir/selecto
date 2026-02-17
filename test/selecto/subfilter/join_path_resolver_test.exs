@@ -68,6 +68,20 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
       {:ok, spec} = Parser.parse("film.director.name", "Spielberg")
       {:error, %Error{type: :unresolvable_path}} = JoinPathResolver.resolve(spec.relationship_path, :film_domain)
     end
+
+    test "auto-resolves a multi-hop path from known path prefixes" do
+      {:ok, spec} = Parser.parse("film.actor.last_name", "Smith")
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, :film_domain)
+
+      assert %JoinResolution{
+               joins: [
+                 %{from: :film, to: :film_actor},
+                 %{from: :film_actor, to: :actor}
+               ],
+               target_table: :actor,
+               target_field: "last_name"
+             } = resolution
+    end
   end
 
   describe "Selecto.Subfilter.JoinPathResolver.validate_path/2" do

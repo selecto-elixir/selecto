@@ -1,57 +1,37 @@
 # Disabled Tests
 
-The following test files have been disabled to remove database dependencies:
+Date reviewed: 2026-02-13
 
-## Database-Dependent Tests (Disabled)
+This file tracks intentionally disabled tests, why they are disabled, and the exact
+conditions needed to re-enable them.
 
-### `selecto_test.exs.disabled` 
-- **Original file**: `selecto_test.exs`
-- **Reason**: Requires PostgreSQL database connection and `selecto_test` database
-- **Content**: Main integration tests with actual database queries
-- **Setup**: Creates tables (`users`, `posts`, `post_tags`) and runs real SQL queries
+## Disabled Files
 
-### `selecto_cte_integration_test.exs.disabled`
-- **Original file**: `selecto_cte_integration_test.exs` 
-- **Reason**: Attempts to use full Selecto domain configuration with real `Selecto.gen_sql/2` calls
-- **Content**: Complex CTE integration tests that require complete Selecto functionality
-- **Issues**: Domain configuration complexity and incomplete Selecto feature support in test environment
+None currently.
 
-## Active Tests (64 passing)
+## Recently Re-enabled
 
-The following tests remain active and pass without database dependencies:
+### `test/selecto_cte_integration_test.exs`
+- Re-enabled on: 2026-02-13
+- Validation command: `mix test test/selecto_cte_integration_test.exs`
+- Result: `11 tests, 0 failures`
+- Compatibility note: this suite depends on legacy `Selecto.Builder.Cte` helpers, now provided for backward compatibility.
 
-- **`cte_builder_test.exs`** - Core CTE building functionality (14 tests)
-- **`simple_selecto_cte_test.exs`** - Selecto CTE API design verification (7 tests)  
-- **`phase1_integration_test.exs`** - Phase 1 backward compatibility (5 tests)
-- **`selecto_integration_test.exs`** - Basic integration without DB (4 tests)
-- **`selecto_*_test.exs`** - Various unit tests for SQL building, parameter handling, etc. (34+ tests)
+### `test/selecto_test.exs`
+- Re-enabled on: 2026-02-13
+- Safety model: tagged with `@moduletag :requires_db`, and excluded by default in `test/test_helper.exs`.
+- Default behavior: `mix test` skips this suite.
+- To run intentionally:
+1. Ensure PostgreSQL is reachable with:
+- host: `localhost`
+- port: `5432`
+- database: `selecto_test`
+- username/password: `postgres` / `password`
+2. Execute with DB tests enabled:
+- `SELECTO_RUN_DB_TESTS=1 mix test test/selecto_test.exs --include requires_db`
 
-## Re-enabling Tests
+## Policy
 
-To re-enable the disabled tests:
-
-1. **Database tests**: Ensure PostgreSQL is running with `selecto_test` database
-   ```bash
-   mv test/selecto_test.exs.disabled test/selecto_test.exs
-   ```
-
-2. **CTE integration tests**: Fix domain configuration issues first
-   ```bash  
-   mv test/selecto_cte_integration_test.exs.disabled test/selecto_cte_integration_test.exs
-   ```
-
-## Test Coverage
-
-Current active tests provide comprehensive coverage for:
-
-- ✅ Core CTE generation and parameterization
-- ✅ Selecto-powered CTE API design
-- ✅ Phase 1 advanced joins infrastructure  
-- ✅ SQL building and parameter handling
-- ✅ Custom column safety
-- ✅ Backward compatibility
-
-Missing coverage (requires database):
-- 🔶 End-to-end query execution
-- 🔶 Real domain configuration with complex joins
-- 🔶 Full Selecto workflow integration
+When disabled files are re-enabled, they must use explicit tags:
+- DB-dependent suites: `@moduletag :requires_db`
+- Transitional/incomplete suites: `@moduletag :skip` with a linked tracking issue

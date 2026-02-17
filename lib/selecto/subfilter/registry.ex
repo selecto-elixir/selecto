@@ -19,7 +19,7 @@ defmodule Selecto.Subfilter.Registry do
   """
 
   #alias Selecto.Subfilter
-  alias Selecto.Subfilter.{Spec, Parser, JoinPathResolver, Error}
+  alias Selecto.Subfilter.{Spec, Parser, JoinPathResolver, SQL, Error}
 
   # Registry structure to manage multiple subfilters
   defstruct [
@@ -225,10 +225,18 @@ defmodule Selecto.Subfilter.Registry do
   subquery SQL that integrates with the main query.
   """
   @spec generate_sql(t(), String.t()) :: {:ok, String.t(), [any()]} | {:error, Error.t()}
-  def generate_sql(%__MODULE__{} = _registry, base_query) do
-    # This would coordinate with the SQL builder system
-    # For now, return a placeholder
-    {:ok, "#{base_query} -- subfilters would be added here", []}
+  def generate_sql(%__MODULE__{} = registry, base_query) when is_binary(base_query) do
+    if map_size(registry.subfilters) == 0 do
+      {:ok, base_query, []}
+    else
+      case SQL.generate(registry) do
+        {:ok, where_clause, params} ->
+          {:ok, merge_where_clause(base_query, where_clause), params}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
   end
 
   # Private implementation functions
@@ -270,6 +278,16 @@ defmodule Selecto.Subfilter.Registry do
         add_compound_subfilters(updated_registry, rest, [subfilter_id | subfilter_ids])
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp merge_where_clause(base_query, where_clause) do
+    trimmed_where = String.replace_prefix(where_clause, "WHERE ", "")
+
+    if Regex.match?(~r/\bwhere\b/i, base_query) do
+      base_query <> " AND (" <> trimmed_where <> ")"
+    else
+      base_query <> " " <> where_clause
     end
   end
 

@@ -136,7 +136,7 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
         case parse_join_with_parameters(join_with_params) do
           {join_name, []} ->
             {:ok, %{type: :qualified, join: join_name, field: field, parameters: nil}}
-          {join_name, parameters} ->
+          {join_name, parameters} when is_list(parameters) ->
             {:ok, %{type: :parameterized, join: join_name, field: field, parameters: parameters}}
           {:error, reason} ->
             {:error, reason}
