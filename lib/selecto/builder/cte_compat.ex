@@ -1,4 +1,4 @@
-defmodule Selecto.Builder.Cte do
+defmodule Selecto.Builder.CteCompat do
   @moduledoc """
   Backward-compatible CTE helpers retained for legacy tests and integrations.
 
