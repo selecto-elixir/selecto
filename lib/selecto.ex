@@ -1238,9 +1238,14 @@ defmodule Selecto do
             |> Selecto.join(:inner, cte_ref, on: "employee.manager_id = employee_hierarchy.employee_id")
           end
         )
-      |> Selecto.select(["employee_id", "name", "level"])
-      |> Selecto.from("employee_hierarchy")
-      |> Selecto.order_by([{"level", :asc}, {"name", :asc}])
+      |> Selecto.join(:inner, "employee_hierarchy",
+          on: "selecto_root.employee_id = employee_hierarchy.employee_id")
+      |> Selecto.select([
+          "employee_hierarchy.employee_id",
+          "employee_hierarchy.name",
+          "employee_hierarchy.level"
+        ])
+      |> Selecto.order_by([{"employee_hierarchy.level", :asc}, {"employee_hierarchy.name", :asc}])
 
       # Generated SQL:
       # WITH RECURSIVE employee_hierarchy AS (
@@ -1252,9 +1257,10 @@ defmodule Selecto do
       #   FROM employee
       #   INNER JOIN employee_hierarchy ON employee.manager_id = employee_hierarchy.employee_id
       # )
-      # SELECT employee_id, name, level
-      # FROM employee_hierarchy
-      # ORDER BY level ASC, name ASC
+      # SELECT employee_hierarchy.employee_id, employee_hierarchy.name, employee_hierarchy.level
+      # FROM employee
+      # INNER JOIN employee_hierarchy ON employee.employee_id = employee_hierarchy.employee_id
+      # ORDER BY employee_hierarchy.level ASC, employee_hierarchy.name ASC
   """
   # Consolidated version that handles both parameter formats:
   # 1. (selecto, cte_name, base_fn, recursive_fn, opts) - original inline format

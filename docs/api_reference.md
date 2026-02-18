@@ -357,10 +357,9 @@ base_case = selecto
 
 # Recursive case: child categories  
 recursive_case = selecto
-  |> Selecto.select(["c.id", "c.name", "c.parent_id", "h.level + 1"])
-  |> Selecto.from("categories c")
-  |> Selecto.join("hierarchy h", "c.parent_id = h.id")
-  |> Selecto.filter([{"h.level", {:lt, 5}}])
+  |> Selecto.select(["id", "name", "parent_id", "hierarchy.level + 1"])
+  |> Selecto.join(:inner, "hierarchy", on: "selecto_root.parent_id = hierarchy.id")
+  |> Selecto.filter([{"hierarchy.level", {:lt, 5}}])
 
 {recursive_cte, params} = Cte.build_recursive_cte_from_selecto(
   "category_hierarchy",

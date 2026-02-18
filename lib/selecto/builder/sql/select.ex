@@ -39,7 +39,7 @@ defmodule Selecto.Builder.Sql.Select do
       when is_binary(sql_template) do
     # Validate that all referenced fields exist
     available_fields = get_available_fields(selecto)
-    validate_field_references(sql_template, field_mappings, available_fields)
+    validate_field_references(selecto, field_mappings, available_fields)
 
     # Replace field placeholders with actual field references
     safe_sql = substitute_field_references(sql_template, field_mappings, selecto)
@@ -934,10 +934,10 @@ defmodule Selecto.Builder.Sql.Select do
     end)
   end
 
-  defp validate_field_references(_sql_template, field_mappings, available_fields) do
+  defp validate_field_references(selecto, field_mappings, available_fields) do
     # Ensure all field references in mappings exist
     Enum.each(field_mappings, fn {_placeholder, field_ref} ->
-      case validate_field_exists(field_ref, available_fields) do
+      case validate_field_exists(selecto, field_ref, available_fields) do
         :ok ->
           :ok
 
@@ -947,21 +947,60 @@ defmodule Selecto.Builder.Sql.Select do
     end)
   end
 
-  defp validate_field_exists(field_ref, available_fields) do
+  defp validate_field_exists(selecto, field_ref, available_fields) do
     cond do
       field_ref in available_fields ->
         :ok
 
       String.contains?(field_ref, ".") ->
-        # Check if it's a valid qualified field reference
-        if Enum.any?(available_fields, &String.starts_with?(&1, field_ref)) do
-          :ok
-        else
-          {:error, "field not found in available joins"}
+        # Check if it's a valid qualified field reference, including permissive CTE fields
+        case String.split(field_ref, ".", parts: 2) do
+          [prefix, field_name] ->
+            cond do
+              Enum.any?(available_fields, &(&1 == field_ref)) ->
+                :ok
+
+              cte_exists?(selecto, prefix) and cte_field_allowed?(selecto, prefix, field_name) ->
+                :ok
+
+              true ->
+                {:error, "field not found in available joins/ctes"}
+            end
+
+          _ ->
+            {:error, "invalid qualified field format"}
         end
 
       true ->
         {:error, "field not found in source columns"}
+    end
+  end
+
+  defp cte_exists?(selecto, cte_name) do
+    selecto
+    |> Map.get(:set, %{})
+    |> Map.get(:ctes, [])
+    |> Enum.any?(fn cte -> Map.get(cte, :name) == cte_name end)
+  end
+
+  defp cte_field_allowed?(selecto, cte_name, field_name) do
+    cte_spec =
+      selecto
+      |> Map.get(:set, %{})
+      |> Map.get(:ctes, [])
+      |> Enum.find(fn cte -> Map.get(cte, :name) == cte_name end)
+
+    case cte_spec do
+      nil ->
+        false
+
+      spec ->
+        case Map.get(spec, :columns) do
+          nil -> true
+          [] -> true
+          cols when is_list(cols) -> field_name in Enum.map(cols, &to_string/1)
+          _ -> true
+        end
     end
   end
 
