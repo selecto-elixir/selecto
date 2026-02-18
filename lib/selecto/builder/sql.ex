@@ -574,7 +574,7 @@ defmodule Selecto.Builder.Sql do
             :basic ->
               # Existing basic join logic
               join_iodata = [
-                " left join ", quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
+                sql_join_keyword(config), quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
                 " on ", build_selector_string(selecto, join, config.my_key),
                 " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
               ]
@@ -621,7 +621,7 @@ defmodule Selecto.Builder.Sql do
       nil ->
         # Fallback to basic join if enhanced join fails
         join_iodata = [
-          " left join ", quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
+          sql_join_keyword(config), quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
           " on ", build_selector_string(selecto, join, config.my_key),
           " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
         ]
@@ -635,6 +635,20 @@ defmodule Selecto.Builder.Sql do
 
   # Note: Using existing helper functions from Selecto.Builder.Sql.Helpers
   # build_join_string/2 and build_selector_string/3 are imported at the top of the module
+
+  defp sql_join_keyword(config) do
+    case Map.get(config, :type, :left) do
+      :inner -> " inner join "
+      :right -> " right join "
+      :full -> " full join "
+      :cross -> " cross join "
+      "inner" -> " inner join "
+      "right" -> " right join "
+      "full" -> " full join "
+      "cross" -> " cross join "
+      _ -> " left join "
+    end
+  end
 
   # Phase 4: LATERAL join integration functions
   defp build_lateral_joins(selecto) do

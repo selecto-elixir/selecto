@@ -99,8 +99,10 @@ defmodule Selecto.FieldResolver do
     cte_fields = get_cte_fields(selecto)
 
     source_fields
-    |> Map.merge(join_fields)
+    # Prefer explicit join field definitions over permissive CTE fallback
+    # when both expose the same qualified name.
     |> Map.merge(cte_fields)
+    |> Map.merge(join_fields)
   end
 
   @doc """
