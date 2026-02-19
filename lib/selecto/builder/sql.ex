@@ -582,8 +582,7 @@ defmodule Selecto.Builder.Sql do
                 # Existing basic join logic
                 join_iodata = [
                   sql_join_keyword(config), quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
-                  " on ", build_selector_string(selecto, join, config.my_key),
-                  " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
+                  " on ", build_join_on_clause(selecto, join, config)
                 ]
                 {fc ++ [join_iodata], p, ctes}
             end
@@ -622,22 +621,22 @@ defmodule Selecto.Builder.Sql do
     |> Enum.map(fn
       %{left: left, right: right, operator: operator} ->
         [
-          build_selector_string(selecto, requires_join, left),
+          resolve_on_side(selecto, requires_join, left),
           " ",
           to_string(operator),
           " ",
-          build_selector_string(selecto, join, right)
+          resolve_on_side(selecto, join, right)
         ]
 
       %{left: left, right: right} ->
         [
-          build_selector_string(selecto, requires_join, left),
+          resolve_on_side(selecto, requires_join, left),
           " = ",
-          build_selector_string(selecto, join, right)
+          resolve_on_side(selecto, join, right)
         ]
 
       other ->
-        raise ArgumentError, "Invalid :on condition for subquery join: #{inspect(other)}"
+        raise ArgumentError, "Invalid :on condition for join: #{inspect(other)}"
     end)
     |> Enum.intersperse(" and ")
   end
@@ -701,8 +700,7 @@ defmodule Selecto.Builder.Sql do
         # Fallback to basic join if enhanced join fails
         join_iodata = [
           sql_join_keyword(config), quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
-          " on ", build_selector_string(selecto, join, config.my_key),
-          " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
+          " on ", build_join_on_clause(selecto, join, config)
         ]
         {fc ++ [join_iodata], p, ctes}
 
@@ -728,6 +726,35 @@ defmodule Selecto.Builder.Sql do
       _ -> " left join "
     end
   end
+
+  defp build_join_on_clause(selecto, join, config) do
+    case Map.get(config, :on, []) do
+      on_conditions when is_list(on_conditions) and on_conditions != [] ->
+        requires_join = Map.get(config, :requires_join, :selecto_root)
+        build_on_conditions(selecto, join, requires_join, on_conditions)
+
+      _ ->
+        [
+          build_selector_string(selecto, join, config.my_key),
+          " = ",
+          build_selector_string(selecto, config.requires_join, config.owner_key)
+        ]
+    end
+  end
+
+  defp resolve_on_side(selecto, default_join, field_ref) when is_binary(field_ref) do
+    if String.contains?(field_ref, ".") do
+      field_ref
+    else
+      build_selector_string(selecto, default_join, field_ref)
+    end
+  end
+
+  defp resolve_on_side(selecto, default_join, field_ref) when is_atom(field_ref) do
+    build_selector_string(selecto, default_join, field_ref)
+  end
+
+  defp resolve_on_side(_selecto, _default_join, field_ref), do: to_string(field_ref)
 
   # Phase 4: LATERAL join integration functions
   defp build_lateral_joins(selecto) do

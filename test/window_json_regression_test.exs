@@ -355,6 +355,61 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert csv =~ "Wireless Headphones,79.99"
   end
 
+  test "stream output transformer handles aliases list from Selecto query metadata" do
+    rows = [["Wireless Headphones", Decimal.new("79.99")], ["Smart Watch", Decimal.new("199.99")]]
+    columns = ["name", "price"]
+    aliases = ["6ee949dc-86f5-4ed2-bac8-078786d26fd2", "4e2455d1-28c3-4aa2-8189-6804f489f46e"]
+
+    assert {:ok, stream} = Selecto.Output.Formats.transform({rows, columns, aliases}, {:stream, :maps}, [])
+
+    maps = Enum.take(stream, 2)
+    assert maps == [
+             %{"name" => "Wireless Headphones", "price" => Decimal.new("79.99")},
+             %{"name" => "Smart Watch", "price" => Decimal.new("199.99")}
+           ]
+  end
+
+  test "join/3 honors explicit on conditions for custom joins" do
+    query =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.join(:customer_lookup,
+        source: "customers",
+        type: :inner,
+        on: [%{left: "customer_id", right: "id"}],
+        fields: %{
+          name: %{type: :string},
+          tier: %{type: :string}
+        }
+      )
+      |> Selecto.select(["order_number", "customer_lookup.name", "customer_lookup.tier", "total"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ "from orders selecto_root inner join customers customer_lookup on selecto_root.customer_id = customer_lookup.id"
+  end
+
+  test "star_dimension join uses selecto_root alias in ON clause" do
+    star_domain =
+      order_domain_with_customer_join()
+      |> put_in([:joins, :customer, :type], :star_dimension)
+
+    query =
+      Selecto.configure(star_domain, :mock_connection, validate: false)
+      |> Selecto.select(["customer.name", {:count, "*"}])
+      |> Selecto.group_by(["customer.name"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ "LEFT JOIN customers customer ON selecto_root.customer_id = customer.id"
+    refute sql =~ "ON orders.customer_id = customer.id"
+  end
+
   test "lateral subquery join includes subquery params and keeps global placeholder order" do
     subquery_query =
       Selecto.configure(order_domain(), :mock_connection, validate: false)

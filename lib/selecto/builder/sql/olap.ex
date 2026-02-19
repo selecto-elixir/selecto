@@ -246,10 +246,11 @@ defmodule Selecto.Builder.Sql.Olap do
   # Helper functions
   
   defp get_fact_table_reference(selecto) do
-    # Extract fact table name from selecto configuration
+    # Fact table is aliased as selecto_root in Selecto SQL generation.
+    # OLAP joins must use that alias to avoid invalid FROM references.
     case selecto do
-      %{domain: %{source: %{source_table: table}}} -> table
-      _ -> "fact_table"  # Fallback for testing
+      %{domain: %{source: %{source_table: _table}}} -> "selecto_root"
+      _ -> "selecto_root"  # Fallback for testing
     end
   end
   
