@@ -562,29 +562,104 @@ defmodule Selecto.Builder.Sql do
         if config == nil do
           {fc, p, ctes}
         else
-          case detect_advanced_join_pattern(config) do
-            {:hierarchy, pattern} ->
-              Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
+          if Map.get(config, :join_type) == :subquery do
+            build_subquery_join(selecto, join, config, fc, p, ctes)
+          else
+            case detect_advanced_join_pattern(config) do
+              {:hierarchy, pattern} ->
+                Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
 
-            {:tagging, _} ->
-              build_tagging_join(selecto, join, config, fc, p, ctes)
+              {:tagging, _} ->
+                build_tagging_join(selecto, join, config, fc, p, ctes)
 
-            {:olap, type} ->
-              build_olap_join(selecto, join, config, type, fc, p, ctes)
+              {:olap, type} ->
+                build_olap_join(selecto, join, config, type, fc, p, ctes)
 
-            {:enhanced, join_type} ->
-              build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
+              {:enhanced, join_type} ->
+                build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
 
-            :basic ->
-              # Existing basic join logic
-              join_iodata = [
-                sql_join_keyword(config), quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
-                " on ", build_selector_string(selecto, join, config.my_key),
-                " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-              ]
-              {fc ++ [join_iodata], p, ctes}
+              :basic ->
+                # Existing basic join logic
+                join_iodata = [
+                  sql_join_keyword(config), quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
+                  " on ", build_selector_string(selecto, join, config.my_key),
+                  " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
+                ]
+                {fc ++ [join_iodata], p, ctes}
+            end
           end
         end
+    end)
+  end
+
+  # Dynamic subquery joins registered by Selecto.DynamicJoin.join_subquery/4.
+  # `config.subquery` is SQL text with $n placeholders and `config.subquery_params`
+  # carries values; convert placeholders to iodata params so numbering is coordinated.
+  defp build_subquery_join(selecto, join, config, fc, p, ctes) do
+    subquery_sql = Map.get(config, :subquery) ||
+      raise ArgumentError, "Subquery join #{inspect(join)} is missing :subquery SQL"
+
+    subquery_params = Map.get(config, :subquery_params, [])
+    subquery_iodata = convert_sql_placeholders_to_iodata(subquery_sql, subquery_params)
+
+    on_conditions = Map.get(config, :on, [])
+    requires_join = Map.get(config, :requires_join, :selecto_root)
+
+    on_iodata = build_on_conditions(selecto, join, requires_join, on_conditions)
+
+    join_iodata = [
+      sql_join_keyword(config), "(", subquery_iodata, ") ", build_join_string(selecto, join),
+      " on ", on_iodata
+    ]
+
+    {fc ++ [join_iodata], p ++ subquery_params, ctes}
+  end
+
+  defp build_on_conditions(_selecto, _join, _requires_join, []), do: raise(ArgumentError, "Subquery join requires at least one :on condition")
+
+  defp build_on_conditions(selecto, join, requires_join, on_conditions) when is_list(on_conditions) do
+    on_conditions
+    |> Enum.map(fn
+      %{left: left, right: right, operator: operator} ->
+        [
+          build_selector_string(selecto, requires_join, left),
+          " ",
+          to_string(operator),
+          " ",
+          build_selector_string(selecto, join, right)
+        ]
+
+      %{left: left, right: right} ->
+        [
+          build_selector_string(selecto, requires_join, left),
+          " = ",
+          build_selector_string(selecto, join, right)
+        ]
+
+      other ->
+        raise ArgumentError, "Invalid :on condition for subquery join: #{inspect(other)}"
+    end)
+    |> Enum.intersperse(" and ")
+  end
+
+  defp convert_sql_placeholders_to_iodata(sql, params) do
+    values_by_index =
+      params
+      |> Enum.with_index(1)
+      |> Map.new(fn {value, idx} -> {idx, value} end)
+
+    Regex.split(~r/(\$\d+)/, sql, include_captures: true, trim: false)
+    |> Enum.map(fn part ->
+      case Regex.run(~r/^\$(\d+)$/, part, capture: :all_but_first) do
+        [idx] ->
+          case Map.fetch(values_by_index, String.to_integer(idx)) do
+            {:ok, value} -> {:param, value}
+            :error -> part
+          end
+
+        _ ->
+          part
+      end
     end)
   end
 

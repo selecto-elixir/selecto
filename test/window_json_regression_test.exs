@@ -74,6 +74,73 @@ defmodule Selecto.WindowJsonRegressionTest do
     }
   end
 
+  defp customer_domain do
+    %{
+      name: "Customers",
+      source: %{
+        source_table: "customers",
+        primary_key: :id,
+        fields: [:id, :name, :tier],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          name: %{type: :string},
+          tier: %{type: :string}
+        },
+        associations: %{}
+      },
+      schemas: %{},
+      joins: %{}
+    }
+  end
+
+  defp order_domain_with_customer_join do
+    %{
+      name: "Orders",
+      source: %{
+        source_table: "orders",
+        primary_key: :id,
+        fields: [:id, :order_number, :status, :total, :customer_id],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          order_number: %{type: :string},
+          status: %{type: :string},
+          total: %{type: :decimal},
+          customer_id: %{type: :integer}
+        },
+        associations: %{
+          customer: %{field: :customer, queryable: :customers, owner_key: :customer_id, related_key: :id}
+        }
+      },
+      schemas: %{
+        customers: %{
+          source_table: "customers",
+          primary_key: :id,
+          fields: [:id, :name, :tier],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :integer},
+            name: %{type: :string},
+            tier: %{type: :string}
+          }
+        }
+      },
+      joins: %{
+        customer: %{
+          name: "Customer",
+          type: :left,
+          source: "customers",
+          on: [%{left: "customer_id", right: "id"}],
+          fields: %{
+            name: %{type: :string},
+            tier: %{type: :string}
+          }
+        }
+      }
+    }
+  end
+
   test "window SQL uses selecto_root alias for unqualified fields" do
     query =
       Selecto.configure(employee_domain(), :mock_connection, validate: false)
@@ -175,5 +242,81 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert params == []
     assert sql =~ "WITH status_labels (\"status\", \"status_label\") AS (VALUES ('processing', 'In Progress'), ('shipped', 'In Transit'), ('delivered', 'Completed'))"
     assert sql =~ "from orders selecto_root left join status_labels status_labels on status_labels.status = selecto_root.status"
+  end
+
+  test "join_subquery injects parameterized subquery and preserves params" do
+    high_value_delivered_orders =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.select(["customer_id", "order_number", "total"])
+      |> Selecto.filter({:and, [
+        {"status", "delivered"},
+        {"total", {:>, 1000}}
+      ]})
+
+    query =
+      Selecto.configure(customer_domain(), :mock_connection, validate: false)
+      |> Selecto.join_subquery(:high_value_delivered, high_value_delivered_orders,
+        type: :inner,
+        on: [%{left: "id", right: "customer_id"}]
+      )
+      |> Selecto.select(["name", "tier", "high_value_delivered.order_number", "high_value_delivered.total"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["delivered", 1000]
+    assert sql =~ "from customers selecto_root inner join ("
+    assert sql =~ "select selecto_root.customer_id, selecto_root.order_number, selecto_root.total"
+    assert sql =~ "where (((( selecto_root.status = $1 ) and ( selecto_root.total > $2 ))))"
+    assert sql =~ ") high_value_delivered on selecto_root.id = high_value_delivered.customer_id"
+  end
+
+  test "join_parameterize exposes dot notation fields for generated aliases" do
+    query =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.join_parameterize(:customer, "alias_a")
+      |> Selecto.join_parameterize(:customer, "alias_b")
+      |> Selecto.select(["order_number", "customer:alias_a.name", "customer:alias_b.tier"])
+      |> Selecto.limit(3)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ "select selecto_root.order_number, \"customer:alias_a\".name, \"customer:alias_b\".tier"
+    assert sql =~ "left join customers \"customer:alias_a\" on \"customer:alias_a\".id = selecto_root.customer_id"
+    assert sql =~ "left join customers \"customer:alias_b\" on \"customer:alias_b\".id = selecto_root.customer_id"
+  end
+
+  test "dynamic custom join can join non-association table with dot-notation fields" do
+    query =
+      Selecto.configure(product_domain(), :mock_connection, validate: false)
+      |> Selecto.join(:reviews,
+        source: "reviews",
+        type: :left,
+        owner_key: :id,
+        related_key: :product_id,
+        fields: %{
+          rating: %{type: :integer},
+          title: %{type: :string},
+          helpful_count: %{type: :integer}
+        }
+      )
+      |> Selecto.select(["name", "reviews.rating", "reviews.title", "reviews.helpful_count"])
+      |> Selecto.filter({:and, [
+        {"active", true},
+        {"reviews.rating", {:>=, 4}}
+      ]})
+      |> Selecto.order_by({"reviews.rating", :desc})
+      |> Selecto.limit(10)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == [true, 4]
+    assert sql =~ "from products selecto_root left join reviews reviews on reviews.product_id = selecto_root.id"
+    assert sql =~ "where (((( selecto_root.active = $1 ) and ( reviews.rating >= $2 ))))"
+    assert sql =~ "order by reviews.rating desc"
   end
 end
