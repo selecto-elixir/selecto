@@ -6,10 +6,60 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
   alias Selecto.Subfilter.JoinPathResolver.JoinResolution
   alias Selecto.Subfilter.Error
 
+  defp film_domain_config do
+    %{
+      tables: [:film, :category, :film_category, :actor, :film_actor, :language],
+      joins: %{
+        "film.rating" => %{from: :film, to: :film, type: :self, field: :rating},
+        "film.title" => %{from: :film, to: :film, type: :self, field: :title},
+        "film.release_year" => %{from: :film, to: :film, type: :self, field: :release_year},
+        "film.rental_rate" => %{from: :film, to: :film, type: :self, field: :rental_rate},
+        "film.film_id" => %{from: :film, to: :film, type: :self, field: :film_id},
+        "film.category" => %{
+          from: :film,
+          to: :category,
+          type: :inner,
+          via: :film_category,
+          on: "film.film_id = film_category.film_id AND film_category.category_id = category.category_id"
+        },
+        "film.actor" => %{
+          from: :film,
+          to: :actor,
+          type: :inner,
+          via: :film_actor,
+          on: "film.film_id = film_actor.film_id AND film_actor.actor_id = actor.actor_id"
+        },
+        "film.actors" => %{
+          from: :film,
+          to: :film_actor,
+          type: :inner,
+          on: "film.film_id = film_actor.film_id"
+        },
+        "film.language" => %{
+          from: :film,
+          to: :language,
+          type: :inner,
+          on: "film.language_id = language.language_id"
+        },
+        "film.category.name" => [
+          %{from: :film, to: :film_category, type: :inner, on: "film.film_id = film_category.film_id"},
+          %{from: :film_category, to: :category, type: :inner, on: "film_category.category_id = category.category_id"}
+        ],
+        "film.language.name" => [
+          %{from: :film, to: :language, type: :inner, on: "film.language_id = language.language_id"}
+        ],
+        "film.actor.first_name" => [
+          %{from: :film, to: :film_actor, type: :inner, on: "film.film_id = film_actor.film_id"},
+          %{from: :film_actor, to: :actor, type: :inner, on: "film_actor.actor_id = actor.actor_id"}
+        ]
+      }
+    }
+  end
+
   describe "Selecto.Subfilter.JoinPathResolver.resolve/3" do
     test "resolves a simple direct field access" do
       {:ok, spec} = Parser.parse("film.rating", "R")
-      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, :film_domain)
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, film_domain_config())
 
       assert %JoinResolution{
                joins: [%{from: :film, to: :film, type: :self, field: :rating}],
@@ -20,7 +70,7 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
 
     test "resolves a single-hop join with a via table" do
       {:ok, spec} = Parser.parse("film.category", "Action")
-      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, :film_domain)
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, film_domain_config())
 
       assert %JoinResolution{
                joins: [
@@ -36,7 +86,7 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
 
     test "resolves a pre-configured multi-hop join" do
       {:ok, spec} = Parser.parse("film.category.name", "Action")
-      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, :film_domain)
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, film_domain_config())
 
       assert %JoinResolution{
                joins: [
@@ -50,7 +100,7 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
 
     test "resolves an aggregation subfilter path" do
       {:ok, spec} = Parser.parse("film", {:count, ">", 5})
-      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, :film_domain)
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, film_domain_config())
 
       assert %JoinResolution{
                joins: [%{from: :film, to: :film, type: :self}],
@@ -66,12 +116,12 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
 
     test "returns an error for an unresolvable path" do
       {:ok, spec} = Parser.parse("film.director.name", "Spielberg")
-      {:error, %Error{type: :unresolvable_path}} = JoinPathResolver.resolve(spec.relationship_path, :film_domain)
+      {:error, %Error{type: :unresolvable_path}} = JoinPathResolver.resolve(spec.relationship_path, film_domain_config())
     end
 
     test "auto-resolves a multi-hop path from known path prefixes" do
       {:ok, spec} = Parser.parse("film.actor.last_name", "Smith")
-      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, :film_domain)
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, film_domain_config())
 
       assert %JoinResolution{
                joins: [
@@ -87,12 +137,12 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
   describe "Selecto.Subfilter.JoinPathResolver.validate_path/2" do
     test "returns :ok for a valid path" do
       {:ok, spec} = Parser.parse("film.category.name", "Action")
-      assert :ok == JoinPathResolver.validate_path(spec.relationship_path, :film_domain)
+      assert :ok == JoinPathResolver.validate_path(spec.relationship_path, film_domain_config())
     end
 
     test "returns an error for an invalid path" do
       {:ok, spec} = Parser.parse("film.director.name", "Spielberg")
-      assert {:error, %Error{}} = JoinPathResolver.validate_path(spec.relationship_path, :film_domain)
+      assert {:error, %Error{}} = JoinPathResolver.validate_path(spec.relationship_path, film_domain_config())
     end
   end
 end

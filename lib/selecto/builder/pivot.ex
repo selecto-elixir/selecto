@@ -429,22 +429,28 @@ defmodule Selecto.Builder.Pivot do
     {from_iodata, [], [], []}
   end
 
-  defp build_single_join(selecto, join_name, current_alias) do
-    join_config = get_join_config(selecto, join_name)
+  defp build_single_join(selecto, join_name, current_alias, current_position) do
+    association = get_association_from_position(selecto, join_name, current_position)
+
+    if association == nil do
+      raise ArgumentError, "Association #{join_name} not found at position #{current_position}"
+    end
+
+    join_config = ensure_association_fields(association, join_name)
     next_alias = generate_join_alias(join_name)
 
     join_type = Map.get(join_config, :type, :inner)
-    join_table = get_join_table(selecto, join_name)
+    join_table = get_join_table(selecto, join_name, current_position)
 
     # Build ON clause based on association configuration
-    {on_clause, on_params} = build_join_condition(selecto, join_name, current_alias, next_alias)
+    {on_clause, on_params} = build_join_condition(selecto, join_name, current_alias, next_alias, current_position)
 
     join_clause = [
       " ", sql_join_type(join_type), " JOIN ", join_table, " ", next_alias,
       " ON ", on_clause
     ]
 
-    {join_clause, on_params, next_alias}
+    {join_clause, on_params, next_alias, Map.get(association, :queryable, join_name)}
   end
 
   defp build_correlation_subquery(selecto, pivot_config, target_alias) do
@@ -480,10 +486,14 @@ defmodule Selecto.Builder.Pivot do
     # Build explicit JOIN clauses from source to target
     source_alias = get_source_alias()
 
-    Enum.reduce(pivot_config.join_path, {[], []}, fn join_name, {acc_clauses, acc_params} ->
-      {join_clause, join_params, _} = build_single_join(selecto, join_name, source_alias)
-      {acc_clauses ++ [join_clause], acc_params ++ join_params}
+    Enum.reduce(pivot_config.join_path, {[], [], source_alias, :source}, fn join_name,
+                                                                             {acc_clauses, acc_params, current_alias, current_position} ->
+      {join_clause, join_params, next_alias, next_position} =
+        build_single_join(selecto, join_name, current_alias, current_position)
+
+      {acc_clauses ++ [join_clause], acc_params ++ join_params, next_alias, next_position}
     end)
+    |> then(fn {clauses, params, _alias, _position} -> {clauses, params} end)
   end
 
   # Helper functions for table and field resolution
@@ -502,16 +512,9 @@ defmodule Selecto.Builder.Pivot do
     "j_" <> to_string(join_name)
   end
 
-  defp get_join_config(selecto, join_name) do
-    case Map.get(selecto.config.joins, join_name) do
-      nil -> raise ArgumentError, "Join #{join_name} not found in configuration"
-      config -> config
-    end
-  end
-
-  defp get_join_table(selecto, join_name) do
+  defp get_join_table(selecto, join_name, current_position) do
     # Get the association to find the target schema
-    association = get_association_for_join(selecto, join_name)
+    association = get_association_from_position(selecto, join_name, current_position)
     target_schema = association.queryable
 
     case Map.get(selecto.domain.schemas, target_schema) do
@@ -520,9 +523,9 @@ defmodule Selecto.Builder.Pivot do
     end
   end
 
-  defp build_join_condition(selecto, join_name, current_alias, next_alias) do
+  defp build_join_condition(selecto, join_name, current_alias, next_alias, current_position) do
     # Get association configuration to build ON clause
-    association = get_association_for_join(selecto, join_name)
+    association = get_association_from_position(selecto, join_name, current_position)
 
     # Infer the join keys based on naming conventions
     owner_key = Map.get(association, :owner_key)
@@ -530,18 +533,6 @@ defmodule Selecto.Builder.Pivot do
 
     on_clause = [current_alias, ".", to_string(owner_key), " = ", next_alias, ".", to_string(related_key)]
     {on_clause, []}
-  end
-
-  defp get_association_for_join(selecto, join_name) do
-    # This function should be called with context about where we are in the path
-    # For now, we'll navigate the hierarchical structure properly
-    result = get_association_from_position(selecto, join_name, :source)
-
-    if result == nil do
-      raise ArgumentError, "Association #{join_name} not found"
-    else
-      result
-    end
   end
 
   defp get_association_from_position(selecto, target_name, current_position) do
@@ -629,10 +620,13 @@ defmodule Selecto.Builder.Pivot do
 
   defp build_reverse_joins(selecto, join_path, source_alias, _target_alias) do
     # Build joins from source to target for correlation subquery
-    {join_clauses, params, _} =
-      Enum.reduce(join_path, {[], [], source_alias}, fn join_name, {acc_clauses, acc_params, current_alias} ->
-        {join_clause, join_params, next_alias} = build_single_join(selecto, join_name, current_alias)
-        {acc_clauses ++ [join_clause], acc_params ++ join_params, next_alias}
+    {join_clauses, params, _last_alias, _last_position} =
+      Enum.reduce(join_path, {[], [], source_alias, :source}, fn join_name,
+                                                                 {acc_clauses, acc_params, current_alias, current_position} ->
+        {join_clause, join_params, next_alias, next_position} =
+          build_single_join(selecto, join_name, current_alias, current_position)
+
+        {acc_clauses ++ [join_clause], acc_params ++ join_params, next_alias, next_position}
       end)
 
     {join_clauses, params}

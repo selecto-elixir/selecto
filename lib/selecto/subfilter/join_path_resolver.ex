@@ -1,29 +1,9 @@
 defmodule Selecto.Subfilter.JoinPathResolver do
   @moduledoc """
-  Resolve relationship paths into join sequences using domain configurations.
+  Resolve relationship paths into join sequences using domain join-path configuration.
 
-  This module takes parsed relationship paths like "film.rating" or "film.category.name"
-  and resolves them into concrete join sequences using the existing domain join
-  configurations from Phase 1.1 parameterized joins.
-
-  ## Examples
-
-      iex> Selecto.Subfilter.JoinPathResolver.resolve("film.rating", :film_domain)
-      {:ok, %JoinResolution{
-        joins: [%{from: :film, to: :film, type: :self, field: :rating}],
-        target_table: :film,
-        target_field: :rating
-      }}
-
-      iex> Selecto.Subfilter.JoinPathResolver.resolve("film.category.name", :film_domain)
-      {:ok, %JoinResolution{
-        joins: [
-          %{from: :film, to: :film_category, type: :inner, on: "film.film_id = film_category.film_id"},
-          %{from: :film_category, to: :category, type: :inner, on: "film_category.category_id = category.category_id"}
-        ],
-        target_table: :category,
-        target_field: :name
-      }}
+  This module expects a domain configuration with a flat `joins` map keyed by
+  relationship paths (e.g. `"orders.customer.name"`).
   """
 
   alias Selecto.Subfilter.{RelationshipPath, Error}
@@ -64,14 +44,14 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   ## Parameters
 
   - `relationship_path` - Parsed RelationshipPath struct
-  - `domain_name` - Domain name to use for join resolution (e.g., :film_domain)
+  - `domain_name` - Domain identifier or a domain join-path config map
   - `base_table` - Base table for the query (defaults to first segment of path)
 
   ## Returns
 
   {:ok, JoinResolution.t()} | {:error, Subfilter.Error.t()}
   """
-  @spec resolve(RelationshipPath.t(), atom(), atom() | nil) ::
+  @spec resolve(RelationshipPath.t(), atom() | map(), atom() | nil) ::
     {:ok, JoinResolution.t()} | {:error, Error.t()}
   def resolve(%RelationshipPath{} = path, domain_name, base_table \\ nil) do
     with {:ok, domain_config} <- get_domain_config(domain_name),
@@ -99,7 +79,7 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   compound subfilters (AND/OR operations) as it can detect and reuse common
   join sequences.
   """
-  @spec resolve_multiple([RelationshipPath.t()], atom(), atom() | nil) ::
+  @spec resolve_multiple([RelationshipPath.t()], atom() | map(), atom() | nil) ::
     {:ok, [JoinResolution.t()]} | {:error, Error.t()}
   def resolve_multiple(paths, domain_name, base_table \\ nil) do
     case resolve_all_paths(paths, domain_name, base_table, []) do
@@ -117,7 +97,7 @@ defmodule Selecto.Subfilter.JoinPathResolver do
 
   This is useful for early validation before attempting to build queries.
   """
-  @spec validate_path(RelationshipPath.t(), atom()) :: :ok | {:error, Error.t()}
+  @spec validate_path(RelationshipPath.t(), atom() | map()) :: :ok | {:error, Error.t()}
   def validate_path(%RelationshipPath{} = path, domain_name) do
     case resolve(path, domain_name) do
       {:ok, _resolution} -> :ok
@@ -127,90 +107,49 @@ defmodule Selecto.Subfilter.JoinPathResolver do
 
   # Private implementation functions
 
-  defp get_domain_config(domain_name) do
-    # Note: In a real implementation, this would integrate with the existing
-    # domain configuration system from Phase 1.1. For now, we'll define
-    # some example configurations to demonstrate the structure.
-
-    case domain_name do
-      :film_domain ->
-        {:ok, %{
-          tables: [:film, :category, :film_category, :actor, :film_actor, :language],
-          joins: %{
-            # Direct field access (no join needed)
-            "film.rating" => %{from: :film, to: :film, type: :self, field: :rating},
-            "film.title" => %{from: :film, to: :film, type: :self, field: :title},
-            "film.release_year" => %{from: :film, to: :film, type: :self, field: :release_year},
-            "film.rental_rate" => %{from: :film, to: :film, type: :self, field: :rental_rate},
-            "film.film_id" => %{from: :film, to: :film, type: :self, field: :film_id},
-
-            # Single-hop joins
-            "film.category" => %{
-              from: :film,
-              to: :category,
-              type: :inner,
-              via: :film_category,
-              on: "film.film_id = film_category.film_id AND film_category.category_id = category.category_id"
-            },
-            "film.actor" => %{
-              from: :film,
-              to: :actor,
-              type: :inner,
-              via: :film_actor,
-              on: "film.film_id = film_actor.film_id AND film_actor.actor_id = actor.actor_id"
-            },
-            "film.actors" => %{
-              from: :film,
-              to: :film_actor,
-              type: :inner,
-              on: "film.film_id = film_actor.film_id"
-            },
-            "film.language" => %{
-              from: :film,
-              to: :language,
-              type: :inner,
-              on: "film.language_id = language.language_id"
-            },
-
-            # Multi-hop path resolution
-            "film.category.name" => [
-              %{from: :film, to: :film_category, type: :inner, on: "film.film_id = film_category.film_id"},
-              %{from: :film_category, to: :category, type: :inner, on: "film_category.category_id = category.category_id"}
-            ],
-            "film.language.name" => [
-              %{from: :film, to: :language, type: :inner, on: "film.language_id = language.language_id"}
-            ],
-            "film.actor.first_name" => [
-              %{from: :film, to: :film_actor, type: :inner, on: "film.film_id = film_actor.film_id"},
-              %{from: :film_actor, to: :actor, type: :inner, on: "film_actor.actor_id = actor.actor_id"}
-            ]
-          }
-        }}
-
-      :actor_domain ->
-        {:ok, %{
-          tables: [:actor, :film, :film_actor],
-          joins: %{
-            "actor.first_name" => %{from: :actor, to: :actor, type: :self, field: :first_name},
-            "actor.last_name" => %{from: :actor, to: :actor, type: :self, field: :last_name},
-            "actor.film" => %{
-              from: :actor,
-              to: :film,
-              type: :inner,
-              via: :film_actor,
-              on: "actor.actor_id = film_actor.actor_id AND film_actor.film_id = film.film_id"
-            }
-          }
-        }}
-
-      _ ->
-        {:error, %Error{
-          type: :unknown_domain,
-          message: "Domain configuration not found",
-          details: %{domain: domain_name}
-        }}
-    end
+  defp get_domain_config(%{} = domain_config) do
+    normalize_domain_config(domain_config)
   end
+
+  defp get_domain_config(domain_name) when is_atom(domain_name) do
+    {:error, %Error{
+      type: :unknown_domain,
+      message: "Domain configuration not found",
+      details: %{domain: domain_name}
+    }}
+  end
+
+  defp get_domain_config(other) do
+    {:error, %Error{
+      type: :invalid_domain_config,
+      message: "Domain configuration must be an atom or map",
+      details: %{domain: other}
+    }}
+  end
+
+  defp normalize_domain_config(%{joins: joins} = domain_config) when is_map(joins) do
+    normalized_joins =
+      joins
+      |> Enum.map(fn {key, value} -> {normalize_join_key(key), value} end)
+      |> Map.new()
+
+    {:ok, %{
+      tables: Map.get(domain_config, :tables, []),
+      joins: normalized_joins
+    }}
+  end
+
+  defp normalize_domain_config(_domain_config) do
+    {:error, %Error{
+      type: :invalid_domain_config,
+      message: "Domain configuration must include a joins map",
+      details: %{}
+    }}
+  end
+
+  defp normalize_join_key(key) when is_binary(key), do: key
+  defp normalize_join_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_join_key(key), do: to_string(key)
 
   defp resolve_base_table(%RelationshipPath{path_segments: [first_segment | _]}, nil) do
     {:ok, String.to_atom(first_segment)}

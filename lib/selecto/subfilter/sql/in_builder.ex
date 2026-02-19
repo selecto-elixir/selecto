@@ -18,13 +18,14 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
   
   alias Selecto.Subfilter.{Spec, Error}
   alias Selecto.Subfilter.JoinPathResolver.JoinResolution
+  alias Selecto.Subfilter.SQL.Helpers, as: SQLHelpers
 
   @doc """
   Generate IN subquery SQL for a given subfilter.
   """
   @spec generate(Spec.t(), JoinResolution.t(), any()) :: 
     {:ok, String.t(), [any()]} | {:error, Error.t()}
-  def generate(%Spec{} = spec, %JoinResolution{} = join_resolution, _registry) do
+  def generate(%Spec{} = spec, %JoinResolution{} = join_resolution, registry) do
     with {:ok, joins_sql, params1} <- build_joins_sql(join_resolution),
          {:ok, where_sql, params2} <- build_where_sql(spec, join_resolution) do
       
@@ -35,8 +36,8 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
       WHERE #{where_sql}
       """
       
-      # The main query's field to filter on
-      main_query_field = "film.film_id" # This is a simplification
+      correlation_key = SQLHelpers.infer_correlation_key(join_resolution)
+      main_query_field = SQLHelpers.build_outer_field(join_resolution, registry, correlation_key)
       
       final_sql = 
         if spec.negate do
@@ -51,9 +52,11 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
     end
   end
 
-  defp build_select_clause(%JoinResolution{joins: [first_join | _]}) do
-    # The SELECT clause should return the foreign key that links back to the main query
-    "#{first_join.from}.film_id" # This is a simplification
+  defp build_select_clause(%JoinResolution{} = join_resolution) do
+    subquery_table = SQLHelpers.subquery_base_table(join_resolution)
+    correlation_key = SQLHelpers.infer_correlation_key(join_resolution)
+
+    "#{subquery_table}.#{correlation_key}"
   end
 
   defp build_from_clause(%JoinResolution{joins: [first_join | _]}) do
@@ -86,7 +89,7 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
 
   # Build filter condition based on filter spec type
   defp build_filter_condition(%{type: :temporal} = filter_spec, target_table, target_field) do
-    qualified_field = "#{target_table}.#{target_field}"
+    qualified_field = "#{SQLHelpers.table_name(target_table)}.#{target_field}"
     
     case filter_spec.temporal_type do
       :recent_years ->
@@ -115,7 +118,7 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
   end
 
   defp build_filter_condition(%{type: :range} = filter_spec, target_table, target_field) do
-    qualified_field = "#{target_table}.#{target_field}"
+    qualified_field = "#{SQLHelpers.table_name(target_table)}.#{target_field}"
     sql = "#{qualified_field} BETWEEN ? AND ?"
     params = [filter_spec.min_value, filter_spec.max_value]
     {:ok, sql, params}
@@ -123,13 +126,13 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
 
   defp build_filter_condition(%{type: :in_list} = filter_spec, target_table, target_field) do
     placeholders = Enum.map_join(filter_spec.values, ", ", fn _ -> "?" end)
-    filter_sql = "#{target_table}.#{target_field} IN (#{placeholders})"
+    filter_sql = "#{SQLHelpers.table_name(target_table)}.#{target_field} IN (#{placeholders})"
     params = filter_spec.values
     {:ok, filter_sql, params}
   end
 
   defp build_filter_condition(%{type: :equality} = filter_spec, target_table, target_field) do
-    filter_sql = "#{target_table}.#{target_field} = ?"
+    filter_sql = "#{SQLHelpers.table_name(target_table)}.#{target_field} = ?"
     params = [filter_spec.value]
     {:ok, filter_sql, params}
   end

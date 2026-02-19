@@ -271,23 +271,17 @@ defmodule Selecto.Subfilter.Parser do
     }}
   end
 
-  defp validate_relationship_path(%RelationshipPath{path_segments: ["film", "nonexistent"]}) do
-    {:error, %Subfilter.Error{
-      type: :unresolvable_path,
-      message: "Invalid relationship path: film.nonexistent does not exist in domain configuration",
-      details: %{path: "film.nonexistent"}
-    }}
+  defp validate_relationship_path(%RelationshipPath{path_segments: segments}) when is_list(segments) do
+    if Enum.all?(segments, &(is_binary(&1) and String.trim(&1) != "")) do
+      :ok
+    else
+      {:error, %Subfilter.Error{
+        type: :invalid_relationship_path,
+        message: "Relationship path contains empty or invalid segments",
+        details: %{segments: segments}
+      }}
+    end
   end
-
-  defp validate_relationship_path(%RelationshipPath{path_segments: [_, _, "field"]}) do
-    {:error, %Subfilter.Error{
-      type: :unresolvable_path,
-      message: "Invalid field name in relationship path",
-      details: %{field: "field"}
-    }}
-  end
-
-  defp validate_relationship_path(_path), do: :ok
 
   defp validate_options(opts) when is_list(opts) do
     case validate_strategy_option(opts) do
