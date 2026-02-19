@@ -215,6 +215,9 @@ defmodule Selecto.EctoAdapter do
   end
 
   defp get_association_related_key(%{related_key: related_key}), do: related_key
+  # Many-to-many associations don't expose `related_key` directly.
+  # For introspection, fall back to the related schema primary key semantics.
+  defp get_association_related_key(%{__struct__: Ecto.Association.ManyToMany}), do: :id
   defp get_association_related_key(%{through: [_, _related_assoc]}) do
     # For has_through, the related_key comes from the second association in the path
     # We'll use a default for now, but this might need schema introspection
@@ -223,6 +226,7 @@ defmodule Selecto.EctoAdapter do
 
   defp get_association_type(%{__struct__: Ecto.Association.Has}), do: :has_many
   defp get_association_type(%{__struct__: Ecto.Association.BelongsTo}), do: :belongs_to
+  defp get_association_type(%{__struct__: Ecto.Association.ManyToMany}), do: :many_to_many
   defp get_association_type(%{__struct__: Ecto.Association.HasThrough}), do: :has_many_through
   defp get_association_type(_), do: :unknown
 
@@ -280,6 +284,7 @@ defmodule Selecto.EctoAdapter do
 
   defp association_to_join_type(:has_many), do: :left
   defp association_to_join_type(:belongs_to), do: :left
+  defp association_to_join_type(:many_to_many), do: :left
   defp association_to_join_type(:has_many_through), do: :left
   defp association_to_join_type(_), do: :left
 

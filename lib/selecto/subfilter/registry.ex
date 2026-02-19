@@ -33,7 +33,7 @@ defmodule Selecto.Subfilter.Registry do
   ]
 
   @type t :: %__MODULE__{
-    domain_name: atom(),
+    domain_name: atom() | map(),
     base_table: atom() | nil,
     subfilters: %{String.t() => Spec.t()},
     join_resolutions: %{String.t() => JoinPathResolver.JoinResolution.t()},
@@ -55,7 +55,7 @@ defmodule Selecto.Subfilter.Registry do
   - `domain_name` - Domain configuration to use (e.g., :film_domain)
   - `opts` - Options including :base_table, :optimization_hints
   """
-  @spec new(atom(), keyword()) :: t()
+  @spec new(atom() | map(), keyword()) :: t()
   def new(domain_name, opts \\ []) do
     %__MODULE__{
       domain_name: domain_name,

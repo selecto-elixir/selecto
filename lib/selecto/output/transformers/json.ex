@@ -202,7 +202,7 @@ defmodule Selecto.Output.Transformers.Json do
         value = Enum.at(row, index)
 
         # Get the effective column name (use alias if available)
-        effective_name = Map.get(aliases, column, column)
+        effective_name = resolve_display_name(column, aliases, index)
 
         # Apply key transformation
         final_name = case opts.keys do
@@ -227,6 +227,26 @@ defmodule Selecto.Output.Transformers.Json do
     rescue
       error -> {:error, error}
     end
+  end
+
+  defp resolve_display_name(column, aliases, _idx) when is_map(aliases) do
+    Map.get(aliases, column, column)
+  end
+
+  defp resolve_display_name(column, aliases, idx) when is_list(aliases) do
+    case Enum.at(aliases, idx) do
+      nil -> column
+      alias_name when is_binary(alias_name) ->
+        if looks_like_uuid?(alias_name), do: column, else: alias_name
+      alias_name ->
+        alias_name
+    end
+  end
+
+  defp resolve_display_name(column, _aliases, _idx), do: column
+
+  defp looks_like_uuid?(value) when is_binary(value) do
+    Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, value)
   end
 
   defp coerce_for_json(value, _opts) when is_nil(value), do: nil

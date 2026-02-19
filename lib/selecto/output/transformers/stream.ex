@@ -239,7 +239,10 @@ defmodule Selecto.Output.Transformers.Stream do
   end
 
   defp transform_batch_to_maps(batch, columns, aliases, _options) do
-    column_names = Enum.map(columns, fn col -> Map.get(aliases, col, col) end)
+    column_names =
+      columns
+      |> Enum.with_index()
+      |> Enum.map(fn {col, idx} -> resolve_display_name(col, aliases, idx) end)
 
     Enum.map(batch, fn row ->
       column_names
@@ -267,7 +270,10 @@ defmodule Selecto.Output.Transformers.Stream do
     delimiter = Keyword.get(options, :delimiter, ",")
     quote_char = Keyword.get(options, :quote_char, "\"")
 
-    _column_names = Enum.map(columns, fn col -> Map.get(aliases, col, col) end)
+    _column_names =
+      columns
+      |> Enum.with_index()
+      |> Enum.map(fn {col, idx} -> resolve_display_name(col, aliases, idx) end)
 
     Enum.map(batch, fn row ->
       row
@@ -293,8 +299,10 @@ defmodule Selecto.Output.Transformers.Stream do
       _ -> Keyword.get(options, :keys, :strings)
     end
 
-    Enum.map(columns, fn col ->
-      name = Map.get(aliases, col, col)
+    columns
+    |> Enum.with_index()
+    |> Enum.map(fn {col, idx} ->
+      name = resolve_display_name(col, aliases, idx) |> to_string()
       case key_type do
         :atoms -> String.to_atom(name)
         :existing_atoms ->
@@ -337,14 +345,22 @@ defmodule Selecto.Output.Transformers.Stream do
   defp maybe_write_header(io_device, columns, aliases, :csv, options) do
     if Keyword.get(options, :headers, true) do
       delimiter = Keyword.get(options, :delimiter, ",")
-      header = columns |> Enum.map(fn col -> Map.get(aliases, col, col) end) |> Enum.join(delimiter)
+      header =
+        columns
+        |> Enum.with_index()
+        |> Enum.map(fn {col, idx} -> resolve_display_name(col, aliases, idx) end)
+        |> Enum.join(delimiter)
       IO.puts(io_device, header)
     end
   end
   defp maybe_write_header(io_device, columns, aliases, {:csv, csv_opts}, _options) do
     if Keyword.get(csv_opts, :headers, true) do
       delimiter = Keyword.get(csv_opts, :delimiter, ",")
-      header = columns |> Enum.map(fn col -> Map.get(aliases, col, col) end) |> Enum.join(delimiter)
+      header =
+        columns
+        |> Enum.with_index()
+        |> Enum.map(fn {col, idx} -> resolve_display_name(col, aliases, idx) end)
+        |> Enum.join(delimiter)
       IO.puts(io_device, header)
     end
   end
@@ -358,4 +374,27 @@ defmodule Selecto.Output.Transformers.Stream do
   end
   defp format_for_io(item, _format) when is_binary(item), do: item <> "\n"
   defp format_for_io(item, _format), do: inspect(item) <> "\n"
+
+  defp resolve_display_name(column, aliases, _idx) when is_map(aliases) do
+    Map.get(aliases, column, column)
+  end
+
+  defp resolve_display_name(column, aliases, idx) when is_list(aliases) do
+    case Enum.at(aliases, idx) do
+      nil ->
+        column
+
+      alias_name when is_binary(alias_name) ->
+        if looks_like_uuid?(alias_name), do: column, else: alias_name
+
+      alias_name ->
+        alias_name
+    end
+  end
+
+  defp resolve_display_name(column, _aliases, _idx), do: column
+
+  defp looks_like_uuid?(value) when is_binary(value) do
+    Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, value)
+  end
 end

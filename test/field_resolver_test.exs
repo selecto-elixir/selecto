@@ -41,6 +41,12 @@ defmodule Selecto.FieldResolverTest do
             }
           }
         }
+      },
+      set: %{
+        ctes: [
+          %{name: "high_value_orders", columns: nil},
+          %{name: "order_totals", columns: ["id", "total", "status"]}
+        ]
       }
     }
     
@@ -134,6 +140,7 @@ defmodule Selecto.FieldResolverTest do
       assert %Error{type: :field_resolution_error} = error
       assert error.message =~ "Join 'non_existent_join' not found"
       assert is_list(error.details.available_joins)
+      assert is_list(error.details.available_ctes)
     end
     
     test "returns error for non-existent field in existing join", %{selecto: selecto} do
@@ -142,6 +149,32 @@ defmodule Selecto.FieldResolverTest do
       assert %Error{type: :field_resolution_error} = error
       assert error.message =~ "Field 'non_existent_field' not found in join 'posts'"
       assert is_list(error.details.available_fields_in_join)
+    end
+
+    test "resolves qualified field from CTE when columns are not declared", %{selecto: selecto} do
+      {:ok, field_info} = FieldResolver.resolve_field(selecto, "high_value_orders.total")
+
+      assert field_info.name == "total"
+      assert field_info.qualified_name == "high_value_orders.total"
+      assert field_info.source_join == "high_value_orders"
+      assert field_info.table_alias == "high_value_orders"
+    end
+
+    test "resolves qualified field from CTE when columns are declared", %{selecto: selecto} do
+      {:ok, field_info} = FieldResolver.resolve_field(selecto, "order_totals.total")
+
+      assert field_info.name == "total"
+      assert field_info.qualified_name == "order_totals.total"
+      assert field_info.source_join == "order_totals"
+      assert field_info.table_alias == "order_totals"
+    end
+
+    test "returns error for unknown field in CTE with declared columns", %{selecto: selecto} do
+      {:error, error} = FieldResolver.resolve_field(selecto, "order_totals.unknown_col")
+
+      assert %Error{type: :field_resolution_error} = error
+      assert error.message =~ "Field 'unknown_col' not found in CTE 'order_totals'"
+      assert is_list(error.details.available_fields_in_cte)
     end
     
     test "returns error for invalid field reference format", %{selecto: selecto} do
@@ -153,7 +186,7 @@ defmodule Selecto.FieldResolverTest do
   end
   
   describe "get_available_fields/1" do
-    test "returns all available fields from source and joins", %{selecto: selecto} do
+    test "returns all available fields from source, joins, and declared CTE columns", %{selecto: selecto} do
       fields = FieldResolver.get_available_fields(selecto)
       
       # Source fields (excluding redacted email)
@@ -167,11 +200,16 @@ defmodule Selecto.FieldResolverTest do
       assert Map.has_key?(fields, "posts.title")
       assert Map.has_key?(fields, "comments.content")
       assert Map.has_key?(fields, "profile.bio")
+
+      # Declared CTE fields are included, undeclared CTE fields are not enumerable
+      assert Map.has_key?(fields, "order_totals.total")
+      refute Map.has_key?(fields, "high_value_orders.total")
       
       # Check field info structure
       assert fields["name"].source_join == :selecto_root
       assert fields["posts.title"].source_join == :posts
       assert fields["posts.title"].type == :string
+      assert fields["order_totals.total"].source_join == "order_totals"
     end
   end
   

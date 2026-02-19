@@ -17,14 +17,28 @@ defmodule Selecto.Builder.CTE do
   CTEs and parameter bindings.
   """
   def build_with_clause(ctes) when is_list(ctes) and length(ctes) > 0 do
-    # Order CTEs by dependencies
-    case Selecto.Advanced.CTE.detect_circular_dependencies(ctes) do
-      {:ok, ordered_ctes} ->
-        build_ordered_with_clause(ordered_ctes)
-        
-      {:error, validation_error} ->
-        raise validation_error
+    {structured_ctes, raw_ctes, invalid_entries} = partition_ctes(ctes)
+
+    if invalid_entries != [] do
+      raise ArgumentError, "Unsupported CTE entries: #{inspect(invalid_entries)}"
     end
+
+    ordered_structured_ctes =
+      case structured_ctes do
+        [] ->
+          []
+
+        list ->
+          case Selecto.Advanced.CTE.detect_circular_dependencies(list) do
+            {:ok, ordered_ctes} ->
+              ordered_ctes
+
+            {:error, validation_error} ->
+              raise validation_error
+          end
+      end
+
+    build_ordered_with_clause(ordered_structured_ctes, raw_ctes)
   end
   
   def build_with_clause([]), do: {[], []}
@@ -44,24 +58,44 @@ defmodule Selecto.Builder.CTE do
   end
   
   # Build WITH clause from ordered CTEs
-  defp build_ordered_with_clause(ordered_ctes) do
+  defp build_ordered_with_clause(ordered_structured_ctes, raw_ctes) do
     # Check if any CTE is recursive
-    has_recursive = Enum.any?(ordered_ctes, &(&1.type == :recursive))
-    
-    # Build individual CTE definitions
-    {cte_definitions, all_params} = 
-      ordered_ctes
+    has_recursive = Enum.any?(ordered_structured_ctes, &(&1.type == :recursive))
+
+    # Build structured CTE definitions
+    {structured_definitions, structured_params} =
+      ordered_structured_ctes
       |> Enum.map(&build_cte_definition/1)
+      |> Enum.unzip()
+
+    # Raw CTE entries are already complete CTE definitions.
+    {raw_definitions, raw_params} =
+      raw_ctes
+      |> Enum.map(fn {:raw_cte, cte_definition, params} -> {cte_definition, params} end)
       |> Enum.unzip()
     
     # Combine with proper WITH syntax
     with_keyword = if has_recursive, do: "WITH RECURSIVE ", else: "WITH "
+    cte_definitions = raw_definitions ++ structured_definitions
     cte_list = Enum.intersperse(cte_definitions, ",\n    ")
     
     with_clause = [with_keyword | cte_list]
-    combined_params = List.flatten(all_params)
+    combined_params = List.flatten(raw_params) ++ List.flatten(structured_params)
     
     {with_clause, combined_params}
+  end
+
+  defp partition_ctes(ctes) do
+    Enum.reduce(ctes, {[], [], []}, fn
+      %Spec{} = cte, {structured, raw, invalid} ->
+        {structured ++ [cte], raw, invalid}
+
+      {:raw_cte, cte_definition, params}, {structured, raw, invalid} ->
+        {structured, raw ++ [{:raw_cte, cte_definition, params}], invalid}
+
+      entry, {structured, raw, invalid} ->
+        {structured, raw, invalid ++ [entry]}
+    end)
   end
   
   # Generate SQL for individual CTE

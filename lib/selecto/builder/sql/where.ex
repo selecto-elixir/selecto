@@ -135,6 +135,11 @@ defmodule Selecto.Builder.Sql.Where do
     end
   end
 
+  # Prebuilt SQL filters (used by JSON and other advanced operations).
+  def build(_selecto, {:raw_sql_filter, filter_iodata}) do
+    {[], [" ", filter_iodata, " "], []}
+  end
+
   # Handle :between with list format [{min, max}]
   # For datetime types, use >= start AND < end for better boundary handling
   def build(selecto, {field, {:between, [min, max]}}) do

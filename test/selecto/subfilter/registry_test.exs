@@ -4,9 +4,23 @@ defmodule Selecto.Subfilter.RegistryTest do
   alias Selecto.Subfilter.Registry
   alias Selecto.Subfilter.Error
 
+  defp film_domain_config do
+    %{
+      tables: [:film, :category, :film_category, :actor, :film_actor, :language],
+      joins: %{
+        "film.rating" => %{from: :film, to: :film, type: :self, field: :rating},
+        "film.release_year" => %{from: :film, to: :film, type: :self, field: :release_year},
+        "film.category.name" => [
+          %{from: :film, to: :film_category, type: :inner, on: "film.film_id = film_category.film_id"},
+          %{from: :film_category, to: :category, type: :inner, on: "film_category.category_id = category.category_id"}
+        ]
+      }
+    }
+  end
+
   describe "Selecto.Subfilter.Registry" do
     setup do
-      registry = Registry.new(:film_domain, base_table: :film)
+      registry = Registry.new(film_domain_config(), base_table: :film)
       {:ok, registry: registry}
     end
 

@@ -19,15 +19,16 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
 
   alias Selecto.Subfilter.{Spec, Error}
   alias Selecto.Subfilter.JoinPathResolver.JoinResolution
+  alias Selecto.Subfilter.SQL.Helpers, as: SQLHelpers
 
   @doc """
   Generate EXISTS subquery SQL for a given subfilter.
   """
   @spec generate(Spec.t(), JoinResolution.t(), any()) ::
     {:ok, String.t(), [any()]} | {:error, Error.t()}
-  def generate(%Spec{} = spec, %JoinResolution{} = join_resolution, _registry) do
+  def generate(%Spec{} = spec, %JoinResolution{} = join_resolution, registry) do
     with {:ok, joins_sql, params1} <- build_joins_sql(join_resolution),
-         {:ok, where_sql, params2} <- build_where_sql(spec, join_resolution) do
+         {:ok, where_sql, params2} <- build_where_sql(spec, join_resolution, registry) do
 
       subquery_sql = """
       SELECT 1
@@ -76,11 +77,13 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
   defp join_type_to_sql(:full), do: "FULL"
   defp join_type_to_sql(:self), do: "" # Self joins are handled in WHERE
 
-  defp build_where_sql(%Spec{filter_spec: filter_spec}, %JoinResolution{target_table: target_table, target_field: target_field}) do
+  defp build_where_sql(
+         %Spec{filter_spec: filter_spec},
+         %JoinResolution{target_table: target_table, target_field: target_field} = join_resolution,
+         registry
+       ) do
     # Build the WHERE clause for the subquery
-
-    # This needs to correlate the subquery with the main query
-    correlation_sql = "#{target_table}.film_id = film.film_id" # This is a simplification
+    correlation_sql = SQLHelpers.build_correlation_condition(join_resolution, registry)
 
     # Build the filter SQL based on filter spec type
     with {:ok, filter_sql, params} <- build_filter_condition(filter_spec, target_table, target_field) do
@@ -90,7 +93,7 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
 
   # Build filter condition based on filter spec type
   defp build_filter_condition(%{type: :temporal} = filter_spec, target_table, target_field) do
-    qualified_field = "#{target_table}.#{target_field}"
+    qualified_field = "#{SQLHelpers.table_name(target_table)}.#{target_field}"
     
     case filter_spec.temporal_type do
       :recent_years ->
@@ -115,15 +118,22 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
   end
 
   defp build_filter_condition(%{type: :range} = filter_spec, target_table, target_field) do
-    qualified_field = "#{target_table}.#{target_field}"
+    qualified_field = "#{SQLHelpers.table_name(target_table)}.#{target_field}"
     sql = "#{qualified_field} BETWEEN ? AND ?"
     params = [filter_spec.min_value, filter_spec.max_value]
     {:ok, sql, params}
   end
 
+  defp build_filter_condition(%{type: :in_list} = filter_spec, target_table, target_field) do
+    placeholders = Enum.map_join(filter_spec.values, ", ", fn _ -> "?" end)
+    qualified_field = "#{SQLHelpers.table_name(target_table)}.#{target_field}"
+    sql = "#{qualified_field} IN (#{placeholders})"
+    {:ok, sql, filter_spec.values}
+  end
+
   defp build_filter_condition(filter_spec, target_table, target_field) do
     # Default case for existing equality, comparison, in_list, aggregation filters
-    qualified_field = "#{target_table}.#{target_field}"
+    qualified_field = "#{SQLHelpers.table_name(target_table)}.#{target_field}"
     sql = "#{qualified_field} #{filter_spec.operator} ?"
     params = [filter_spec.value]
     {:ok, sql, params}

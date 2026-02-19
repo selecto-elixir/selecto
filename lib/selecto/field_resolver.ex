@@ -96,8 +96,13 @@ defmodule Selecto.FieldResolver do
   def get_available_fields(selecto) do
     source_fields = get_source_fields(selecto)
     join_fields = get_join_fields(selecto)
+    cte_fields = get_cte_fields(selecto)
 
-    Map.merge(source_fields, join_fields)
+    source_fields
+    # Prefer explicit join field definitions over permissive CTE fallback
+    # when both expose the same qualified name.
+    |> Map.merge(cte_fields)
+    |> Map.merge(join_fields)
   end
 
   @doc """
@@ -203,23 +208,33 @@ defmodule Selecto.FieldResolver do
 
     case Map.get(available_fields, qualified_name) do
       nil ->
-        # Check if the join exists
-        if Map.has_key?(selecto.config.joins, String.to_atom(join_name)) do
-          join_atom = String.to_atom(join_name)
-          join_info = selecto.config.joins[join_atom]
-          available_join_fields = Map.keys(join_info.fields || %{})
-          {:error, Error.field_resolution_error(
-            "Field '#{field_name}' not found in join '#{join_name}'",
-            qualified_name,
-            %{available_fields_in_join: available_join_fields}
-          )}
-        else
-          available_joins = Map.keys(selecto.config.joins)
-          {:error, Error.field_resolution_error(
-            "Join '#{join_name}' not found",
-            qualified_name,
-            %{available_joins: available_joins}
-          )}
+        case resolve_cte_field(selecto, join_name, field_name, qualified_name) do
+          {:ok, cte_field_info} ->
+            {:ok, cte_field_info}
+
+          :not_cte ->
+            # Check if the join exists
+            if Map.has_key?(selecto.config.joins, String.to_atom(join_name)) do
+              join_atom = String.to_atom(join_name)
+              join_info = selecto.config.joins[join_atom]
+              available_join_fields = Map.keys(join_info.fields || %{})
+              {:error, Error.field_resolution_error(
+                "Field '#{field_name}' not found in join '#{join_name}'",
+                qualified_name,
+                %{available_fields_in_join: available_join_fields}
+              )}
+            else
+              available_joins = Map.keys(selecto.config.joins)
+              available_ctes = get_cte_names(selecto)
+              {:error, Error.field_resolution_error(
+                "Join '#{join_name}' not found",
+                qualified_name,
+                %{available_joins: available_joins, available_ctes: available_ctes}
+              )}
+            end
+
+          {:error, error} ->
+            {:error, error}
         end
       field_info ->
         {:ok, field_info}
@@ -247,7 +262,8 @@ defmodule Selecto.FieldResolver do
     case Map.get(available_fields, field_name) do
       nil ->
         # Check if we're in pivot context and try bracket notation
-        has_pivot = Map.has_key?(selecto.set, :pivot_state)
+        set = Map.get(selecto, :set, %{}) || %{}
+        has_pivot = Map.has_key?(set, :pivot_state)
         if has_pivot do
           # In pivot context, try to find field in bracket notation
           bracket_matches = available_fields
@@ -419,7 +435,8 @@ defmodule Selecto.FieldResolver do
 
   defp get_join_fields(selecto) do
     # Check if we're in pivot context
-    has_pivot = Map.has_key?(selecto.set, :pivot_state)
+    set = Map.get(selecto, :set, %{}) || %{}
+    has_pivot = Map.has_key?(set, :pivot_state)
 
     selecto.config.joins
     |> Enum.flat_map(fn {join_name, join_config} ->
@@ -486,6 +503,90 @@ defmodule Selecto.FieldResolver do
     end)
     |> Enum.into(%{})
   end
+
+  defp get_cte_fields(selecto) do
+    selecto
+    |> get_cte_specs()
+    |> Enum.flat_map(fn cte_spec ->
+      cte_name = Map.get(cte_spec, :name)
+      columns = normalize_cte_columns(Map.get(cte_spec, :columns))
+
+      if is_binary(cte_name) and columns != [] do
+        Enum.map(columns, fn col ->
+          field_name = to_string(col)
+          qualified_name = "#{cte_name}.#{field_name}"
+          {qualified_name, build_cte_field_info(cte_name, field_name, :any)}
+        end)
+      else
+        []
+      end
+    end)
+    |> Enum.into(%{})
+  end
+
+  defp resolve_cte_field(selecto, cte_name, field_name, qualified_name) do
+    case get_cte_spec_by_name(selecto, cte_name) do
+      nil ->
+        :not_cte
+
+      cte_spec ->
+        declared_columns = normalize_cte_columns(Map.get(cte_spec, :columns))
+
+        case declared_columns do
+          [] ->
+            # CTE exists but did not declare columns. Allow qualified references.
+            {:ok, build_cte_field_info(cte_name, field_name, :any)}
+
+          _ ->
+            if field_name in declared_columns do
+              {:ok, build_cte_field_info(cte_name, field_name, :any)}
+            else
+              {:error, Error.field_resolution_error(
+                "Field '#{field_name}' not found in CTE '#{cte_name}'",
+                qualified_name,
+                %{available_fields_in_cte: declared_columns}
+              )}
+            end
+        end
+    end
+  end
+
+  defp build_cte_field_info(cte_name, field_name, field_type) do
+    %{
+      name: field_name,
+      qualified_name: "#{cte_name}.#{field_name}",
+      source_join: cte_name,
+      type: field_type,
+      alias: nil,
+      table_alias: cte_name,
+      field: field_name,
+      parameters: nil,
+      parameter_signature: nil
+    }
+  end
+
+  defp get_cte_specs(selecto) do
+    set = Map.get(selecto, :set, %{}) || %{}
+
+    set
+    |> Map.get(:ctes, [])
+    |> List.wrap()
+  end
+
+  defp get_cte_names(selecto) do
+    selecto
+    |> get_cte_specs()
+    |> Enum.map(&Map.get(&1, :name))
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp get_cte_spec_by_name(selecto, cte_name) do
+    Enum.find(get_cte_specs(selecto), fn spec -> Map.get(spec, :name) == cte_name end)
+  end
+
+  defp normalize_cte_columns(nil), do: []
+  defp normalize_cte_columns(columns) when is_list(columns), do: Enum.map(columns, &to_string/1)
+  defp normalize_cte_columns(_), do: []
 
   defp extract_field_name(field_key) when is_binary(field_key) do
     # Handle formats like "join[field]" -> "field"

@@ -359,12 +359,14 @@ defmodule Selecto.Builder.Sql do
       case Map.get(selecto.set, :json_selects) do
         nil -> {[], []}
         json_specs when is_list(json_specs) ->
-          json_specs
-          |> Enum.map(&Selecto.Builder.JsonOperations.build_json_select/1)
-          |> Enum.unzip()
-          |> case do
-            {[], []} -> {[], []}
-            {clauses, params} -> {clauses, List.flatten(params)}
+          clauses =
+            Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_select/1)
+
+          if clauses == [] do
+            {[], []}
+          else
+            # JSON select builders currently return iodata expressions directly.
+            {clauses, []}
           end
       end
 
@@ -464,7 +466,9 @@ defmodule Selecto.Builder.Sql do
     json_filters = case Map.get(selecto.set, :json_filters) do
       nil -> []
       json_specs when is_list(json_specs) ->
-        Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_filter/1)
+        Enum.map(json_specs, fn spec ->
+          {:raw_sql_filter, Selecto.Builder.JsonOperations.build_json_filter(spec)}
+        end)
     end
     
     # Add Array filters if they exist
@@ -558,29 +562,103 @@ defmodule Selecto.Builder.Sql do
         if config == nil do
           {fc, p, ctes}
         else
-          case detect_advanced_join_pattern(config) do
-            {:hierarchy, pattern} ->
-              Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
+          if Map.get(config, :join_type) == :subquery do
+            build_subquery_join(selecto, join, config, fc, p, ctes)
+          else
+            case detect_advanced_join_pattern(config) do
+              {:hierarchy, pattern} ->
+                Hierarchy.build_hierarchy_join_with_cte(selecto, join, config, pattern, fc, p, ctes)
 
-            {:tagging, _} ->
-              build_tagging_join(selecto, join, config, fc, p, ctes)
+              {:tagging, _} ->
+                build_tagging_join(selecto, join, config, fc, p, ctes)
 
-            {:olap, type} ->
-              build_olap_join(selecto, join, config, type, fc, p, ctes)
+              {:olap, type} ->
+                build_olap_join(selecto, join, config, type, fc, p, ctes)
 
-            {:enhanced, join_type} ->
-              build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
+              {:enhanced, join_type} ->
+                build_enhanced_join(selecto, join, config, join_type, fc, p, ctes)
 
-            :basic ->
-              # Existing basic join logic
-              join_iodata = [
-                " left join ", quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
-                " on ", build_selector_string(selecto, join, config.my_key),
-                " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
-              ]
-              {fc ++ [join_iodata], p, ctes}
+              :basic ->
+                # Existing basic join logic
+                join_iodata = [
+                  sql_join_keyword(config), quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
+                  " on ", build_join_on_clause(selecto, join, config)
+                ]
+                {fc ++ [join_iodata], p, ctes}
+            end
           end
         end
+    end)
+  end
+
+  # Dynamic subquery joins registered by Selecto.DynamicJoin.join_subquery/4.
+  # `config.subquery` is SQL text with $n placeholders and `config.subquery_params`
+  # carries values; convert placeholders to iodata params so numbering is coordinated.
+  defp build_subquery_join(selecto, join, config, fc, p, ctes) do
+    subquery_sql = Map.get(config, :subquery) ||
+      raise ArgumentError, "Subquery join #{inspect(join)} is missing :subquery SQL"
+
+    subquery_params = Map.get(config, :subquery_params, [])
+    subquery_iodata = convert_sql_placeholders_to_iodata(subquery_sql, subquery_params)
+
+    on_conditions = Map.get(config, :on, [])
+    requires_join = Map.get(config, :requires_join, :selecto_root)
+
+    on_iodata = build_on_conditions(selecto, join, requires_join, on_conditions)
+
+    join_iodata = [
+      sql_join_keyword(config), "(", subquery_iodata, ") ", build_join_string(selecto, join),
+      " on ", on_iodata
+    ]
+
+    {fc ++ [join_iodata], p ++ subquery_params, ctes}
+  end
+
+  defp build_on_conditions(_selecto, _join, _requires_join, []), do: raise(ArgumentError, "Subquery join requires at least one :on condition")
+
+  defp build_on_conditions(selecto, join, requires_join, on_conditions) when is_list(on_conditions) do
+    on_conditions
+    |> Enum.map(fn
+      %{left: left, right: right, operator: operator} ->
+        [
+          resolve_on_side(selecto, requires_join, left),
+          " ",
+          to_string(operator),
+          " ",
+          resolve_on_side(selecto, join, right)
+        ]
+
+      %{left: left, right: right} ->
+        [
+          resolve_on_side(selecto, requires_join, left),
+          " = ",
+          resolve_on_side(selecto, join, right)
+        ]
+
+      other ->
+        raise ArgumentError, "Invalid :on condition for join: #{inspect(other)}"
+    end)
+    |> Enum.intersperse(" and ")
+  end
+
+  defp convert_sql_placeholders_to_iodata(sql, params) do
+    values_by_index =
+      params
+      |> Enum.with_index(1)
+      |> Map.new(fn {value, idx} -> {idx, value} end)
+
+    Regex.split(~r/(\$\d+)/, sql, include_captures: true, trim: false)
+    |> Enum.map(fn part ->
+      case Regex.run(~r/^\$(\d+)$/, part, capture: :all_but_first) do
+        [idx] ->
+          case Map.fetch(values_by_index, String.to_integer(idx)) do
+            {:ok, value} -> {:param, value}
+            :error -> part
+          end
+
+        _ ->
+          part
+      end
     end)
   end
 
@@ -621,9 +699,8 @@ defmodule Selecto.Builder.Sql do
       nil ->
         # Fallback to basic join if enhanced join fails
         join_iodata = [
-          " left join ", quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
-          " on ", build_selector_string(selecto, join, config.my_key),
-          " = ", build_selector_string(selecto, config.requires_join, config.owner_key)
+          sql_join_keyword(config), quote_identifier(selecto, config.source), " ", build_join_string(selecto, join),
+          " on ", build_join_on_clause(selecto, join, config)
         ]
         {fc ++ [join_iodata], p, ctes}
 
@@ -635,6 +712,49 @@ defmodule Selecto.Builder.Sql do
 
   # Note: Using existing helper functions from Selecto.Builder.Sql.Helpers
   # build_join_string/2 and build_selector_string/3 are imported at the top of the module
+
+  defp sql_join_keyword(config) do
+    case Map.get(config, :type, :left) do
+      :inner -> " inner join "
+      :right -> " right join "
+      :full -> " full join "
+      :cross -> " cross join "
+      "inner" -> " inner join "
+      "right" -> " right join "
+      "full" -> " full join "
+      "cross" -> " cross join "
+      _ -> " left join "
+    end
+  end
+
+  defp build_join_on_clause(selecto, join, config) do
+    case Map.get(config, :on, []) do
+      on_conditions when is_list(on_conditions) and on_conditions != [] ->
+        requires_join = Map.get(config, :requires_join, :selecto_root)
+        build_on_conditions(selecto, join, requires_join, on_conditions)
+
+      _ ->
+        [
+          build_selector_string(selecto, join, config.my_key),
+          " = ",
+          build_selector_string(selecto, config.requires_join, config.owner_key)
+        ]
+    end
+  end
+
+  defp resolve_on_side(selecto, default_join, field_ref) when is_binary(field_ref) do
+    if String.contains?(field_ref, ".") do
+      field_ref
+    else
+      build_selector_string(selecto, default_join, field_ref)
+    end
+  end
+
+  defp resolve_on_side(selecto, default_join, field_ref) when is_atom(field_ref) do
+    build_selector_string(selecto, default_join, field_ref)
+  end
+
+  defp resolve_on_side(_selecto, _default_join, field_ref), do: to_string(field_ref)
 
   # Phase 4: LATERAL join integration functions
   defp build_lateral_joins(selecto) do
@@ -685,9 +805,9 @@ defmodule Selecto.Builder.Sql do
     unnest_clause = 
       case ordinality do
         nil ->
-          ["UNNEST(", field_iodata, ") AS ", alias_name]
+          ["CROSS JOIN LATERAL UNNEST(", field_iodata, ") AS ", alias_name]
         ord_alias ->
-          ["UNNEST(", field_iodata, ") WITH ORDINALITY AS ", alias_name, "(value, ", ord_alias, ")"]
+          ["CROSS JOIN LATERAL UNNEST(", field_iodata, ") WITH ORDINALITY AS ", alias_name, "(value, ", ord_alias, ")"]
       end
     
     {unnest_clause, field_params}
@@ -724,9 +844,8 @@ defmodule Selecto.Builder.Sql do
     
     Enum.map(values_specs, fn spec ->
       values_cte_sql = ValuesClause.build_values_cte(spec)
-      # VALUES clauses don't have parameters in our simple implementation
-      # but this structure is consistent with other CTE builders
-      {values_cte_sql, []}
+      # Raw CTE entry handled directly by Selecto.Builder.CTE.
+      {:raw_cte, values_cte_sql, []}
     end)
   end
 

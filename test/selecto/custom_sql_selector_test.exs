@@ -28,5 +28,30 @@ defmodule Selecto.CustomSqlSelectorTest do
       assert params == []
       assert IO.iodata_to_binary(result_iodata) =~ "active_customers.customer_id"
     end
+
+    test "accepts CTE-qualified fields when CTE columns are not declared" do
+      selecto = %{
+        config: %{
+          columns: %{"id" => %{}, "name" => %{}},
+          joins: %{}
+        },
+        set: %{
+          ctes: [
+            %{name: "high_value_orders", columns: nil}
+          ]
+        }
+      }
+
+      field_mappings = %{"cte_total" => "high_value_orders.total"}
+      sql_template = "COALESCE({{cte_total}}, 0)"
+
+      {result_iodata, join, params} =
+        Select.prep_selector(selecto, {:custom_sql, sql_template, field_mappings})
+
+      assert is_list(result_iodata)
+      assert join == :selecto_root
+      assert params == []
+      assert IO.iodata_to_binary(result_iodata) =~ "high_value_orders.total"
+    end
   end
 end
