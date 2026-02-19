@@ -703,9 +703,9 @@ defmodule Selecto.Builder.Sql do
     unnest_clause = 
       case ordinality do
         nil ->
-          ["UNNEST(", field_iodata, ") AS ", alias_name]
+          ["CROSS JOIN LATERAL UNNEST(", field_iodata, ") AS ", alias_name]
         ord_alias ->
-          ["UNNEST(", field_iodata, ") WITH ORDINALITY AS ", alias_name, "(value, ", ord_alias, ")"]
+          ["CROSS JOIN LATERAL UNNEST(", field_iodata, ") WITH ORDINALITY AS ", alias_name, "(value, ", ord_alias, ")"]
       end
     
     {unnest_clause, field_params}
@@ -742,9 +742,8 @@ defmodule Selecto.Builder.Sql do
     
     Enum.map(values_specs, fn spec ->
       values_cte_sql = ValuesClause.build_values_cte(spec)
-      # VALUES clauses don't have parameters in our simple implementation
-      # but this structure is consistent with other CTE builders
-      {values_cte_sql, []}
+      # Raw CTE entry handled directly by Selecto.Builder.CTE.
+      {:raw_cte, values_cte_sql, []}
     end)
   end
 
