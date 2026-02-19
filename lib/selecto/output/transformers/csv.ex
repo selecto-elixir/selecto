@@ -61,7 +61,8 @@ defmodule Selecto.Output.Transformers.CSV do
       :ok ->
         case coerce_rows(rows, columns) do
           {:ok, coerced_rows} ->
-            csv_content = build_csv(coerced_rows, aliases, opts)
+            headers = resolve_header_names(columns, aliases)
+            csv_content = build_csv(coerced_rows, headers, opts)
             {:ok, csv_content}
           {:error, error} ->
             {:error, error}
@@ -88,7 +89,8 @@ defmodule Selecto.Output.Transformers.CSV do
 
     case validate_options(opts, columns) do
       :ok ->
-        csv_stream = build_csv_stream(rows, columns, aliases, opts)
+        headers = resolve_header_names(columns, aliases)
+        csv_stream = build_csv_stream(rows, columns, headers, opts)
         {:ok, csv_stream}
 
       {:error, error} ->
@@ -103,12 +105,12 @@ defmodule Selecto.Output.Transformers.CSV do
   end
 
   # Build complete CSV content
-  defp build_csv(rows, aliases, opts) do
+  defp build_csv(rows, headers, opts) do
     lines = []
 
     # Add header if requested
     lines = if opts[:headers] do
-      header_line = build_csv_line(aliases, opts)
+      header_line = build_csv_line(headers, opts)
       [header_line | lines]
     else
       lines
@@ -134,11 +136,11 @@ defmodule Selecto.Output.Transformers.CSV do
   end
 
   # Build CSV stream
-  defp build_csv_stream(rows, columns, aliases, opts) do
+  defp build_csv_stream(rows, columns, headers, opts) do
     Stream.concat([
       # Header stream
       if opts[:headers] do
-        [build_csv_line(aliases, opts)]
+        [build_csv_line(headers, opts)]
       else
         []
       end,
@@ -248,7 +250,13 @@ defmodule Selecto.Output.Transformers.CSV do
       coerced_values =
         Enum.zip(row, columns)
         |> Enum.map(fn {value, column_info} ->
-          column_type = Map.get(column_info, :type) || Map.get(column_info, "type")
+          column_type =
+            if is_map(column_info) do
+              Map.get(column_info, :type) || Map.get(column_info, "type")
+            else
+              nil
+            end
+
           TypeCoercion.coerce_value(value, column_type, :safe, %{})
         end)
 
@@ -267,6 +275,34 @@ defmodule Selecto.Output.Transformers.CSV do
   defp safe_to_string(value) when is_nil(value), do: nil
   defp safe_to_string(value) when is_binary(value), do: value
   defp safe_to_string(value), do: inspect(value)
+
+  defp resolve_header_names(columns, aliases) do
+    columns
+    |> Enum.with_index()
+    |> Enum.map(fn {column, idx} ->
+      resolve_display_name(column, aliases, idx) |> to_string()
+    end)
+  end
+
+  defp resolve_display_name(column, aliases, _idx) when is_map(aliases) do
+    Map.get(aliases, column, column)
+  end
+
+  defp resolve_display_name(column, aliases, idx) when is_list(aliases) do
+    case Enum.at(aliases, idx) do
+      nil -> column
+      alias_name when is_binary(alias_name) ->
+        if looks_like_uuid?(alias_name), do: column, else: alias_name
+      alias_name ->
+        alias_name
+    end
+  end
+
+  defp resolve_display_name(column, _aliases, _idx), do: column
+
+  defp looks_like_uuid?(value) when is_binary(value) do
+    Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, value)
+  end
 
   # Validate transformation options
   defp validate_options(opts, columns) do

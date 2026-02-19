@@ -1,6 +1,23 @@
 defmodule Selecto.WindowJsonRegressionTest do
   use ExUnit.Case, async: true
 
+  defmodule EctoAdapterTag do
+    use Ecto.Schema
+
+    schema "tags" do
+      field :name, :string
+    end
+  end
+
+  defmodule EctoAdapterProduct do
+    use Ecto.Schema
+
+    schema "products" do
+      field :name, :string
+      many_to_many :tags, EctoAdapterTag, join_through: "product_tags"
+    end
+  end
+
   defp normalize_sql(sql) do
     sql
     |> then(&Regex.replace(~r/\s+/, &1, " "))
@@ -318,5 +335,55 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ "from products selecto_root left join reviews reviews on reviews.product_id = selecto_root.id"
     assert sql =~ "where (((( selecto_root.active = $1 ) and ( reviews.rating >= $2 ))))"
     assert sql =~ "order by reviews.rating desc"
+  end
+
+  test "output format transformers handle aliases list from Selecto query metadata" do
+    rows = [["Wireless Headphones", Decimal.new("79.99")]]
+    columns = ["name", "price"]
+    aliases = ["6ee949dc-86f5-4ed2-bac8-078786d26fd2", "4e2455d1-28c3-4aa2-8189-6804f489f46e"]
+
+    assert {:ok, [map_row]} = Selecto.Output.Formats.transform({rows, columns, aliases}, :maps, [])
+    assert map_row["name"] == "Wireless Headphones"
+    assert map_row["price"] == Decimal.new("79.99")
+
+    assert {:ok, json} = Selecto.Output.Formats.transform({rows, columns, aliases}, :json, [])
+    assert json =~ "\"name\":\"Wireless Headphones\""
+    assert json =~ "\"price\":\"79.99\""
+
+    assert {:ok, csv} = Selecto.Output.Formats.transform({rows, columns, aliases}, :csv, [])
+    assert csv =~ "name,price"
+    assert csv =~ "Wireless Headphones,79.99"
+  end
+
+  test "lateral subquery join includes subquery params and keeps global placeholder order" do
+    subquery_query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Selecto.select([{:count, "*"}])
+      |> Selecto.filter({"status", "delivered"})
+
+    query =
+      Selecto.configure(product_domain(), :mock_connection, validate: false)
+      |> Selecto.select([
+        "name",
+        {:field, {:raw_sql, "delivered_stats.count"}, "delivered_order_count"}
+      ])
+      |> Selecto.lateral_join(:left, fn _ -> subquery_query end, "delivered_stats")
+      |> Selecto.filter({"active", true})
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["delivered", true]
+    assert sql =~ "LEFT JOIN LATERAL ( select count(*) from orders selecto_root where (( selecto_root.status = $1 )) ) AS delivered_stats ON true"
+    assert sql =~ "where (( selecto_root.active = $2 ))"
+  end
+
+  test "from_ecto schema introspection supports many_to_many associations without crashing" do
+    domain = Selecto.EctoAdapter.schema_to_domain(EctoAdapterProduct, joins: [:tags])
+
+    assert domain.source.source_table == "products"
+    assert Map.has_key?(domain.source.associations, :tags)
+    assert Map.has_key?(domain.schemas, :ecto_adapter_tag)
   end
 end

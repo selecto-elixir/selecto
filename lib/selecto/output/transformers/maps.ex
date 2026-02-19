@@ -106,14 +106,39 @@ defmodule Selecto.Output.Transformers.Maps do
 
   defp transform_column_names(columns, aliases, opts) do
     columns
-    |> Enum.map(fn col ->
-      # Use alias if available, otherwise use column name
-      display_name = Map.get(aliases, col, col)
+    |> Enum.with_index()
+    |> Enum.map(fn {col, idx} ->
+      # Use alias when available, otherwise fall back to DB column name.
+      display_name = resolve_display_name(col, aliases, idx)
       # Apply transformations
       display_name
+      |> to_string()
       |> apply_name_transform(opts[:transform])
       |> convert_to_key_type(opts[:keys])
     end)
+  end
+
+  # Selecto currently passes aliases as either:
+  # - a map (column_name => alias), or
+  # - a list aligned by index with selected fields.
+  defp resolve_display_name(column, aliases, _idx) when is_map(aliases) do
+    Map.get(aliases, column, column)
+  end
+
+  defp resolve_display_name(column, aliases, idx) when is_list(aliases) do
+    case Enum.at(aliases, idx) do
+      nil -> column
+      alias_name when is_binary(alias_name) ->
+        if looks_like_uuid?(alias_name), do: column, else: alias_name
+      alias_name ->
+        alias_name
+    end
+  end
+
+  defp resolve_display_name(column, _aliases, _idx), do: column
+
+  defp looks_like_uuid?(value) when is_binary(value) do
+    Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, value)
   end
 
   defp apply_name_transform(name, :none), do: name

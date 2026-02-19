@@ -58,7 +58,7 @@ defmodule Selecto.Builder.LateralJoin do
       " AS ",
       spec.alias,
       " ON true"
-    ] |> IO.iodata_to_binary()
+    ]
     
     {sql, params}
   end
@@ -72,30 +72,31 @@ defmodule Selecto.Builder.LateralJoin do
     
     # Generate SQL for the subquery
     {subquery_sql, params} = Selecto.to_sql(subquery)
+    subquery_iodata = convert_sql_placeholders_to_iodata(subquery_sql, params)
     
     sql = [
       join_type_sql,
       " JOIN LATERAL (",
-      subquery_sql,
+      subquery_iodata,
       ") AS ",
       spec.alias,
       " ON true"
-    ] |> IO.iodata_to_binary()
+    ]
     
-    {sql, params}
+    # Params are now embedded as {:param, value} markers in subquery_iodata.
+    {sql, []}
   end
   
   # Build table function SQL
   defp build_table_function_sql({:unnest, column_ref}) do
-    {"UNNEST(#{column_ref})", []}
+    {["UNNEST(", column_ref, ")"], []}
   end
   
   defp build_table_function_sql({:function, func_name, args}) do
-    {arg_sql_parts, params} = build_function_args(args)
-    arg_sql = Enum.join(arg_sql_parts, ", ")
+    arg_sql = build_function_args(args)
     
-    function_sql = "#{String.upcase(to_string(func_name))}(#{arg_sql})"
-    {function_sql, params}
+    function_sql = [String.upcase(to_string(func_name)), "(", arg_sql, ")"]
+    {function_sql, []}
   end
   
   defp build_table_function_sql(unknown) do
@@ -106,37 +107,35 @@ defmodule Selecto.Builder.LateralJoin do
   defp build_function_args(args) do
     args
     |> Enum.map(&build_function_arg/1)
-    |> Enum.reduce({[], []}, fn {sql, params}, {acc_sql, acc_params} ->
-      {acc_sql ++ [sql], acc_params ++ params}
-    end)
+    |> Enum.intersperse(", ")
   end
   
   # Build individual function argument
   defp build_function_arg({:ref, field}) do
-    {field, []}  # Correlation reference - no parameters
+    field  # Correlation reference - no parameters
   end
   
   defp build_function_arg(value) when is_binary(value) do
     if String.contains?(value, ".") do
       # Column reference
-      {value, []}
+      value
     else
       # Literal string value
-      {"?", [value]}
+      {:param, value}
     end
   end
   
   defp build_function_arg(value) when is_number(value) or is_boolean(value) do
-    {"?", [value]}
+    {:param, value}
   end
   
   defp build_function_arg({:literal, value}) do
-    {"?", [value]}
+    {:param, value}
   end
   
   defp build_function_arg(unknown) do
     # Fallback - treat as parameter
-    {"?", [unknown]}
+    {:param, unknown}
   end
   
   # Build JOIN type SQL
@@ -195,6 +194,29 @@ defmodule Selecto.Builder.LateralJoin do
         String.contains?(to_string(part), "ORDER BY") -> index
         String.contains?(to_string(part), "LIMIT") -> index
         true -> nil
+      end
+    end)
+  end
+
+  # Convert SQL with $1-style placeholders to iodata markers that participate
+  # in global parameter numbering.
+  defp convert_sql_placeholders_to_iodata(sql, params) do
+    values_by_index =
+      params
+      |> Enum.with_index(1)
+      |> Map.new(fn {value, idx} -> {idx, value} end)
+
+    Regex.split(~r/(\$\d+)/, sql, include_captures: true, trim: false)
+    |> Enum.map(fn part ->
+      case Regex.run(~r/^\$(\d+)$/, part, capture: :all_but_first) do
+        [idx] ->
+          case Map.fetch(values_by_index, String.to_integer(idx)) do
+            {:ok, value} -> {:param, value}
+            :error -> part
+          end
+
+        _ ->
+          part
       end
     end)
   end
