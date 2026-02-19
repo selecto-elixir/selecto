@@ -359,12 +359,14 @@ defmodule Selecto.Builder.Sql do
       case Map.get(selecto.set, :json_selects) do
         nil -> {[], []}
         json_specs when is_list(json_specs) ->
-          json_specs
-          |> Enum.map(&Selecto.Builder.JsonOperations.build_json_select/1)
-          |> Enum.unzip()
-          |> case do
-            {[], []} -> {[], []}
-            {clauses, params} -> {clauses, List.flatten(params)}
+          clauses =
+            Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_select/1)
+
+          if clauses == [] do
+            {[], []}
+          else
+            # JSON select builders currently return iodata expressions directly.
+            {clauses, []}
           end
       end
 
@@ -464,7 +466,9 @@ defmodule Selecto.Builder.Sql do
     json_filters = case Map.get(selecto.set, :json_filters) do
       nil -> []
       json_specs when is_list(json_specs) ->
-        Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_filter/1)
+        Enum.map(json_specs, fn spec ->
+          {:raw_sql_filter, Selecto.Builder.JsonOperations.build_json_filter(spec)}
+        end)
     end
     
     # Add Array filters if they exist

@@ -225,15 +225,14 @@ defmodule Selecto.Builder.Window do
   defp build_frame_boundary({:interval, interval}), do: "INTERVAL '#{interval}' PRECEDING"
 
   # Resolve field references (handle joins if needed)
-  defp resolve_field_reference(selecto, field) when is_binary(field) do
+  defp resolve_field_reference(_selecto, field) when is_binary(field) do
     # Simple implementation - use field resolver or just return field
     # This should integrate with Selecto's field resolution system
     if String.contains?(field, ".") do
       field  # Already qualified
     else
-      # Get source table for qualification
-      source_table = Selecto.source_table(selecto)
-      "#{source_table}.#{field}"
+      # Root fields should reference the query alias used in FROM.
+      "selecto_root.#{field}"
     end
   end
   defp resolve_field_reference(_selecto, field), do: to_string(field)
