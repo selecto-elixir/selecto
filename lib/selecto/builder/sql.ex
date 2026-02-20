@@ -728,18 +728,84 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_join_on_clause(selecto, join, config) do
-    case Map.get(config, :on, []) do
-      on_conditions when is_list(on_conditions) and on_conditions != [] ->
-        requires_join = Map.get(config, :requires_join, :selecto_root)
-        build_on_conditions(selecto, join, requires_join, on_conditions)
+    base_on =
+      case Map.get(config, :on, []) do
+        on_conditions when is_list(on_conditions) and on_conditions != [] ->
+          requires_join = Map.get(config, :requires_join, :selecto_root)
+          build_on_conditions(selecto, join, requires_join, on_conditions)
 
-      _ ->
-        [
-          build_selector_string(selecto, join, config.my_key),
-          " = ",
-          build_selector_string(selecto, config.requires_join, config.owner_key)
-        ]
+        _ ->
+          [
+            build_selector_string(selecto, join, config.my_key),
+            " = ",
+            build_selector_string(selecto, config.requires_join, config.owner_key)
+          ]
+      end
+
+    append_param_filters_to_on_clause(selecto, join, base_on, Map.get(config, :param_filters, %{}))
+  end
+
+  defp append_param_filters_to_on_clause(_selecto, _join, base_on, nil), do: base_on
+  defp append_param_filters_to_on_clause(_selecto, _join, base_on, param_filters) when map_size(param_filters) == 0, do: base_on
+
+  defp append_param_filters_to_on_clause(selecto, join, base_on, param_filters) when is_map(param_filters) do
+    filter_clauses =
+      param_filters
+      |> Enum.sort_by(fn {field, _value} -> to_string(field) end)
+      |> Enum.map(fn {field, value} -> build_param_filter_clause(selecto, join, field, value) end)
+
+    [base_on, " and ", Enum.intersperse(filter_clauses, " and ")]
+  end
+
+  defp build_param_filter_clause(selecto, join, field, nil) do
+    [build_selector_string(selecto, join, field), " is null"]
+  end
+
+  defp build_param_filter_clause(selecto, join, field, {:not_eq, value}) do
+    [build_selector_string(selecto, join, field), " != ", {:param, value}]
+  end
+
+  defp build_param_filter_clause(selecto, join, field, {:gt, value}) do
+    [build_selector_string(selecto, join, field), " > ", {:param, value}]
+  end
+
+  defp build_param_filter_clause(selecto, join, field, {:gte, value}) do
+    [build_selector_string(selecto, join, field), " >= ", {:param, value}]
+  end
+
+  defp build_param_filter_clause(selecto, join, field, {:lt, value}) do
+    [build_selector_string(selecto, join, field), " < ", {:param, value}]
+  end
+
+  defp build_param_filter_clause(selecto, join, field, {:lte, value}) do
+    [build_selector_string(selecto, join, field), " <= ", {:param, value}]
+  end
+
+  defp build_param_filter_clause(selecto, join, field, {:between, min_value, max_value}) do
+    [
+      build_selector_string(selecto, join, field),
+      " between ",
+      {:param, min_value},
+      " and ",
+      {:param, max_value}
+    ]
+  end
+
+  defp build_param_filter_clause(selecto, join, field, {:in, values}) when is_list(values) do
+    if values == [] do
+      "1 = 0"
+    else
+      [
+        build_selector_string(selecto, join, field),
+        " in (",
+        Enum.intersperse(Enum.map(values, fn value -> {:param, value} end), ", "),
+        ")"
+      ]
     end
+  end
+
+  defp build_param_filter_clause(selecto, join, field, value) do
+    [build_selector_string(selecto, join, field), " = ", {:param, value}]
   end
 
   defp resolve_on_side(selecto, default_join, field_ref) when is_binary(field_ref) do
