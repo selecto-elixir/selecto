@@ -136,7 +136,9 @@ defmodule Selecto.AutoPivot do
 
   defp get_source_columns(selecto) do
     source_config = selecto.domain.source
-    Map.keys(source_config.columns || %{})
+    source_config
+    |> Map.get(:columns, %{})
+    |> Map.keys()
   end
 
   defp column_exists_in_source?(column_name, source_columns) do
@@ -154,7 +156,10 @@ defmodule Selecto.AutoPivot do
 
   defp find_join_path(domain, target_table) do
     target_name = to_string(target_table)
-    joins = domain.source.joins || %{}
+    joins =
+      domain
+      |> Map.get(:source, %{})
+      |> Map.get(:joins, %{})
     search_joins_recursive(joins, target_name, [])
   end
 
