@@ -158,6 +158,11 @@ defmodule Selecto.WindowJsonRegressionTest do
     }
   end
 
+  defp order_domain_with_customer_join_filter do
+    order_domain_with_customer_join()
+    |> put_in([:joins, :customer, :filters], %{"tier" => %{type: "string"}})
+  end
+
   test "window SQL uses selecto_root alias for unqualified fields" do
     query =
       Selecto.configure(employee_domain(), :mock_connection, validate: false)
@@ -304,6 +309,22 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ "select selecto_root.order_number, \"customer:alias_a\".name, \"customer:alias_b\".tier"
     assert sql =~ "left join customers \"customer:alias_a\" on \"customer:alias_a\".id = selecto_root.customer_id"
     assert sql =~ "left join customers \"customer:alias_b\" on \"customer:alias_b\".id = selecto_root.customer_id"
+  end
+
+  test "join_parameterize applies parameter filters in join ON clause" do
+    query =
+      Selecto.configure(order_domain_with_customer_join_filter(), :mock_connection, validate: false)
+      |> Selecto.join_parameterize(:customer, "tier_premium", tier: "premium")
+      |> Selecto.join_parameterize(:customer, "tier_standard", tier: "standard")
+      |> Selecto.select(["order_number", "customer:tier_premium.name", "customer:tier_standard.name"])
+      |> Selecto.limit(3)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["premium", "standard"]
+    assert sql =~ "left join customers \"customer:tier_premium\" on \"customer:tier_premium\".id = selecto_root.customer_id and \"customer:tier_premium\".tier = $1"
+    assert sql =~ "left join customers \"customer:tier_standard\" on \"customer:tier_standard\".id = selecto_root.customer_id and \"customer:tier_standard\".tier = $2"
   end
 
   test "dynamic custom join can join non-association table with dot-notation fields" do
