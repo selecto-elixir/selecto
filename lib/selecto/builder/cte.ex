@@ -60,7 +60,12 @@ defmodule Selecto.Builder.CTE do
   # Build WITH clause from ordered CTEs
   defp build_ordered_with_clause(ordered_structured_ctes, raw_ctes) do
     # Check if any CTE is recursive
-    has_recursive = Enum.any?(ordered_structured_ctes, &(&1.type == :recursive))
+    has_recursive =
+      Enum.any?(ordered_structured_ctes, &(&1.type == :recursive)) or
+        Enum.any?(raw_ctes, fn
+          {:raw_recursive_cte, _, _} -> true
+          _ -> false
+        end)
 
     # Build structured CTE definitions
     {structured_definitions, structured_params} =
@@ -71,7 +76,10 @@ defmodule Selecto.Builder.CTE do
     # Raw CTE entries are already complete CTE definitions.
     {raw_definitions, raw_params} =
       raw_ctes
-      |> Enum.map(fn {:raw_cte, cte_definition, params} -> {cte_definition, params} end)
+      |> Enum.map(fn
+        {:raw_cte, cte_definition, params} -> {cte_definition, params}
+        {:raw_recursive_cte, cte_definition, params} -> {cte_definition, params}
+      end)
       |> Enum.unzip()
     
     # Combine with proper WITH syntax
@@ -93,8 +101,76 @@ defmodule Selecto.Builder.CTE do
       {:raw_cte, cte_definition, params}, {structured, raw, invalid} ->
         {structured, raw ++ [{:raw_cte, cte_definition, params}], invalid}
 
+      {:raw_recursive_cte, cte_definition, params}, {structured, raw, invalid} ->
+        {structured, raw ++ [{:raw_recursive_cte, cte_definition, params}], invalid}
+
+      # Legacy raw CTE tuple shape used by hierarchy builders:
+      # {["WITH ..."], [params]}
+      {cte_definition, params}, {structured, raw, invalid} when is_list(params) ->
+        case normalize_legacy_raw_cte(cte_definition, params) do
+          {:ok, normalized_entry} ->
+            {structured, raw ++ [normalized_entry], invalid}
+
+          :error ->
+            {structured, raw, invalid ++ [{cte_definition, params}]}
+        end
+
       entry, {structured, raw, invalid} ->
         {structured, raw, invalid ++ [entry]}
+    end)
+  end
+
+  # Convert legacy tuple CTE entries (`{cte_sql, params}`) to the modern raw CTE form.
+  # Legacy entries often include leading "WITH"/"WITH RECURSIVE"; strip that prefix
+  # and emit parameter markers directly in iodata so numbering is finalized uniformly.
+  defp normalize_legacy_raw_cte(cte_definition, params) do
+    cte_sql =
+      case cte_definition do
+        binary when is_binary(binary) -> binary
+        iodata when is_list(iodata) -> IO.iodata_to_binary(iodata)
+        _ -> nil
+      end
+
+    if is_binary(cte_sql) do
+      trimmed = String.trim_leading(cte_sql)
+
+      {entry_type, definition_sql} =
+        cond do
+          String.starts_with?(String.upcase(trimmed), "WITH RECURSIVE ") ->
+            {:raw_recursive_cte, Regex.replace(~r/^\s*WITH\s+RECURSIVE\s+/i, cte_sql, "", global: false)}
+
+          String.starts_with?(String.upcase(trimmed), "WITH ") ->
+            {:raw_cte, Regex.replace(~r/^\s*WITH\s+/i, cte_sql, "", global: false)}
+
+          true ->
+            {:raw_cte, cte_sql}
+        end
+
+      definition_iodata = replace_placeholders_with_params(definition_sql, params)
+      {:ok, {entry_type, definition_iodata, []}}
+    else
+      :error
+    end
+  end
+
+  defp replace_placeholders_with_params(sql, params) do
+    values_by_index =
+      params
+      |> Enum.with_index(1)
+      |> Map.new(fn {value, idx} -> {idx, value} end)
+
+    Regex.split(~r/(\$\d+)/, sql, include_captures: true, trim: false)
+    |> Enum.map(fn part ->
+      case Regex.run(~r/^\$(\d+)$/, part, capture: :all_but_first) do
+        [idx] ->
+          case Map.fetch(values_by_index, String.to_integer(idx)) do
+            {:ok, value} -> {:param, value}
+            :error -> part
+          end
+
+        _ ->
+          part
+      end
     end)
   end
   
