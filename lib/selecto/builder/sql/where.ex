@@ -1,4 +1,13 @@
 defmodule Selecto.Builder.Sql.Where do
+  @moduledoc """
+  WHERE-clause compiler for Selecto predicate expressions.
+
+  Predicates are translated into iodata fragments plus bind parameters and join
+  dependencies. The builder supports nested boolean logic, comparison operators,
+  NULL checks, ranges, text search, subqueries, EXISTS clauses, JSON predicates,
+  and raw prebuilt filter fragments.
+  """
+
   import Selecto.Builder.Sql.Helpers
 
   alias Selecto.Builder.Sql.Select
@@ -71,14 +80,16 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", in_subquery_fragment(query), " "],
-     param ++ params}
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " in ", in_subquery_fragment(query), " "], param ++ params}
   end
 
   def build(selecto, {field, {:subquery, :in, query}}) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", in_subquery_fragment(query), " "], param}
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " in ", in_subquery_fragment(query), " "], param}
   end
 
   def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
@@ -224,20 +235,22 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " NOT LIKE ", {:param, value}, " "], param}
   end
 
-  def build(selecto, {field, {comp, value}}) when comp in [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne] do
+  def build(selecto, {field, {comp, value}})
+      when comp in [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     # Convert alternative operator names to SQL operators
-    sql_op = case comp do
-      :gt -> ">"
-      :lt -> "<"
-      :gte -> ">="
-      :lte -> "<="
-      :eq -> "="
-      :ne -> "!="
-      other -> to_string(other)
-    end
+    sql_op =
+      case comp do
+        :gt -> ">"
+        :lt -> "<"
+        :gte -> ">="
+        :lte -> "<="
+        :eq -> "="
+        :ne -> "!="
+        other -> to_string(other)
+      end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
      [" ", sel, " ", sql_op, " ", {:param, to_type(conf.type, value)}, " "], param}
@@ -257,11 +270,18 @@ defmodule Selecto.Builder.Sql.Where do
 
     # Use adapter-specific syntax for IN/ANY
     adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
-    in_clause = case adapter do
-      Selecto.DB.MySQL -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-      Selecto.DB.MariaDB -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-      _ -> [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-    end
+
+    in_clause =
+      case adapter do
+        Selecto.DB.MySQL ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
+        Selecto.DB.MariaDB ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
+        _ ->
+          [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+      end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
   end
@@ -272,11 +292,36 @@ defmodule Selecto.Builder.Sql.Where do
 
     # Use adapter-specific syntax for NOT IN
     adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
-    not_in_clause = case adapter do
-      Selecto.DB.MySQL -> [" ", sel, " NOT IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-      Selecto.DB.MariaDB -> [" ", sel, " NOT IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-      _ -> [" NOT (", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ")) "]
-    end
+
+    not_in_clause =
+      case adapter do
+        Selecto.DB.MySQL ->
+          [
+            " ",
+            sel,
+            " NOT IN (",
+            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+            ") "
+          ]
+
+        Selecto.DB.MariaDB ->
+          [
+            " ",
+            sel,
+            " NOT IN (",
+            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+            ") "
+          ]
+
+        _ ->
+          [
+            " NOT (",
+            sel,
+            " = ANY(",
+            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+            ")) "
+          ]
+      end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), not_in_clause, param}
   end
@@ -287,11 +332,18 @@ defmodule Selecto.Builder.Sql.Where do
 
     # Use adapter-specific syntax for IN/ANY
     adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
-    in_clause = case adapter do
-      Selecto.DB.MySQL -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-      Selecto.DB.MariaDB -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-      _ -> [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-    end
+
+    in_clause =
+      case adapter do
+        Selecto.DB.MySQL ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
+        Selecto.DB.MariaDB ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
+        _ ->
+          [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+      end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
   end
@@ -352,18 +404,31 @@ defmodule Selecto.Builder.Sql.Where do
   # JSONB contains - check if JSONB column contains value
   def build(selecto, {field, {:jsonb_contains, value}}) when is_map(value) do
     domain = selecto.config
+
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, []} ->
         # Contains on the whole column
         json_value = Jason.encode!(value)
+
         {[],
-         [" ", build_selector_string(selecto, :selecto_root, column), " @> ", {:param, json_value}, "::jsonb "],
-         []}
+         [
+           " ",
+           build_selector_string(selecto, :selecto_root, column),
+           " @> ",
+           {:param, json_value},
+           "::jsonb "
+         ], []}
 
       {:jsonb, column, path} ->
         # Contains on a nested path
         json_value = Jason.encode!(value)
-        extraction = Jsonb.build_extraction(column, path, as_text: false, table_alias: get_root_alias(selecto))
+
+        extraction =
+          Jsonb.build_extraction(column, path,
+            as_text: false,
+            table_alias: get_root_alias(selecto)
+          )
+
         {[], [" ", extraction, " @> ", {:param, json_value}, "::jsonb "], []}
 
       {:regular, _} ->
@@ -377,6 +442,7 @@ defmodule Selecto.Builder.Sql.Where do
   # JSONB key exists - check if key exists in JSONB
   def build(selecto, {field, :exists}) do
     domain = selecto.config
+
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} when path != [] ->
         exists_expr = Jsonb.build_key_exists(column, path, table_alias: get_root_alias(selecto))
@@ -391,9 +457,12 @@ defmodule Selecto.Builder.Sql.Where do
   # JSONB array contains - check if JSONB array contains value(s)
   def build(selecto, {field, {:contains, value}}) do
     domain = selecto.config
+
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} ->
-        contains_expr = Jsonb.build_array_contains(column, path, value, table_alias: get_root_alias(selecto))
+        contains_expr =
+          Jsonb.build_array_contains(column, path, value, table_alias: get_root_alias(selecto))
+
         {[], [" ", contains_expr, " "], []}
 
       {:regular, _} ->
@@ -405,9 +474,14 @@ defmodule Selecto.Builder.Sql.Where do
   # JSONB array contains all - check if JSONB array contains all values
   def build(selecto, {field, {:contains_all, values}}) when is_list(values) do
     domain = selecto.config
+
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} ->
-        contains_expr = Jsonb.build_array_contains_all(column, path, values, table_alias: get_root_alias(selecto))
+        contains_expr =
+          Jsonb.build_array_contains_all(column, path, values,
+            table_alias: get_root_alias(selecto)
+          )
+
         {[], [" ", contains_expr, " "], []}
 
       {:regular, _} ->
@@ -417,8 +491,11 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   # JSONB path with comparison operators
-  def build(selecto, {field, {comp, value}}) when is_binary(field) and comp in [:gt, :lt, :gte, :lte, :eq, :ne, :=, :!=, :<, :>, :<=, :>=] do
+  def build(selecto, {field, {comp, value}})
+      when is_binary(field) and
+             comp in [:gt, :lt, :gte, :lte, :eq, :ne, :=, :!=, :<, :>, :<=, :>=] do
     domain = selecto.config
+
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} ->
         build_jsonb_comparison(selecto, column, path, comp, value)
@@ -432,6 +509,7 @@ defmodule Selecto.Builder.Sql.Where do
   # JSONB path with :in operator
   def build(selecto, {field, {:in, list}}) when is_binary(field) and is_list(list) do
     domain = selecto.config
+
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} ->
         build_jsonb_in(selecto, column, path, list)
@@ -441,11 +519,37 @@ defmodule Selecto.Builder.Sql.Where do
         conf = Selecto.field(selecto, field)
         {sel, join, param} = Select.prep_selector(selecto, field)
         adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
-        in_clause = case adapter do
-          Selecto.DB.MySQL -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-          Selecto.DB.MariaDB -> [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-          _ -> [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-        end
+
+        in_clause =
+          case adapter do
+            Selecto.DB.MySQL ->
+              [
+                " ",
+                sel,
+                " IN (",
+                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+                ") "
+              ]
+
+            Selecto.DB.MariaDB ->
+              [
+                " ",
+                sel,
+                " IN (",
+                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+                ") "
+              ]
+
+            _ ->
+              [
+                " ",
+                sel,
+                " = ANY(",
+                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+                ") "
+              ]
+          end
+
         {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
     end
   end
@@ -453,6 +557,7 @@ defmodule Selecto.Builder.Sql.Where do
   # JSONB path with :between operator
   def build(selecto, {field, {:between, min, max}}) when is_binary(field) do
     domain = selecto.config
+
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} ->
         build_jsonb_between(selecto, column, path, min, max)
@@ -461,6 +566,7 @@ defmodule Selecto.Builder.Sql.Where do
         # Not a JSONB field, delegate to regular between handler
         conf = Selecto.field(selecto, field)
         field_name = extract_database_field(field, conf)
+
         if conf.type in [:date, :naive_datetime, :utc_datetime, :datetime] do
           {conf.requires_join,
            [
@@ -492,6 +598,7 @@ defmodule Selecto.Builder.Sql.Where do
   # Generic field = value (with JSONB dot notation support)
   def build(selecto, {field, value}) when is_binary(field) do
     domain = selecto.config
+
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} ->
         build_jsonb_equality(selecto, column, path, value)
@@ -511,24 +618,32 @@ defmodule Selecto.Builder.Sql.Where do
     require Logger
 
     # Determine the type safely without logging the actual value (which may contain sensitive data)
-    type_name = cond do
-      is_binary(other) -> "binary"
-      is_tuple(other) -> "tuple"
-      is_list(other) -> "list"
-      is_map(other) -> "map"
-      true -> "other"
-    end
+    type_name =
+      cond do
+        is_binary(other) -> "binary"
+        is_tuple(other) -> "tuple"
+        is_list(other) -> "list"
+        is_map(other) -> "map"
+        true -> "other"
+      end
 
     # Check if this is a bucket_ranges string that shouldn't be here
     if is_binary(other) && String.match?(other, ~r/^\d+-\d+,\d+\+$|^\d+,\d+-\d+|\d+\+/) do
-      Logger.error("WHERE builder received bucket_ranges string as filter (value redacted for security)")
-      Logger.error("This likely means aggregate or group_by bucket_ranges are being incorrectly passed as filters")
+      Logger.error(
+        "WHERE builder received bucket_ranges string as filter (value redacted for security)"
+      )
+
+      Logger.error(
+        "This likely means aggregate or group_by bucket_ranges are being incorrectly passed as filters"
+      )
+
       raise "WHERE clause builder error: Bucket ranges string was passed as a filter. This should not happen - bucket ranges should be handled by aggregate processing, not WHERE clauses."
     end
 
     # Log type info only, not the actual value which may contain sensitive data
     Logger.error("WHERE builder received unrecognized filter structure of type: #{type_name}")
     Logger.error("Debug: Enable debug logging with safe inspection for more details")
+
     raise "WHERE clause builder error: Unrecognized filter structure (type: #{type_name}). This usually means an aggregate or filter configuration is generating an invalid filter format."
   end
 
@@ -542,7 +657,12 @@ defmodule Selecto.Builder.Sql.Where do
     field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
     cast = Jsonb.pg_cast_for_type(field_type)
 
-    extraction = Jsonb.build_extraction(column, path, as_text: true, table_alias: get_root_alias(selecto), cast: cast)
+    extraction =
+      Jsonb.build_extraction(column, path,
+        as_text: true,
+        table_alias: get_root_alias(selecto),
+        cast: cast
+      )
 
     # For nil values, check if the key exists and is null vs key doesn't exist
     if is_nil(value) do
@@ -558,23 +678,30 @@ defmodule Selecto.Builder.Sql.Where do
     field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
     cast = Jsonb.pg_cast_for_type(field_type)
 
-    extraction = Jsonb.build_extraction(column, path, as_text: true, table_alias: get_root_alias(selecto), cast: cast)
+    extraction =
+      Jsonb.build_extraction(column, path,
+        as_text: true,
+        table_alias: get_root_alias(selecto),
+        cast: cast
+      )
 
-    sql_op = case comp do
-      :gt -> ">"
-      :lt -> "<"
-      :gte -> ">="
-      :lte -> "<="
-      :eq -> "="
-      :ne -> "!="
-      other -> to_string(other)
-    end
+    sql_op =
+      case comp do
+        :gt -> ">"
+        :lt -> "<"
+        :gte -> ">="
+        :lte -> "<="
+        :eq -> "="
+        :ne -> "!="
+        other -> to_string(other)
+      end
 
     # Cast value appropriately for comparison
-    param_value = case field_type do
-      t when t in [:integer, :decimal, :float] -> value
-      _ -> to_string(value)
-    end
+    param_value =
+      case field_type do
+        t when t in [:integer, :decimal, :float] -> value
+        _ -> to_string(value)
+      end
 
     {[], [" ", extraction, " ", sql_op, " ", {:param, param_value}, " "], []}
   end
@@ -585,13 +712,19 @@ defmodule Selecto.Builder.Sql.Where do
     field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
     cast = Jsonb.pg_cast_for_type(field_type)
 
-    extraction = Jsonb.build_extraction(column, path, as_text: true, table_alias: get_root_alias(selecto), cast: cast)
+    extraction =
+      Jsonb.build_extraction(column, path,
+        as_text: true,
+        table_alias: get_root_alias(selecto),
+        cast: cast
+      )
 
     # Convert list values to appropriate types
-    typed_list = case field_type do
-      t when t in [:integer, :decimal, :float] -> list
-      _ -> Enum.map(list, &to_string/1)
-    end
+    typed_list =
+      case field_type do
+        t when t in [:integer, :decimal, :float] -> list
+        _ -> Enum.map(list, &to_string/1)
+      end
 
     {[], [" ", extraction, " = ANY(", {:param, typed_list}, ") "], []}
   end
@@ -602,7 +735,12 @@ defmodule Selecto.Builder.Sql.Where do
     field_type = if path_schema, do: Map.get(path_schema, :type), else: nil
     cast = Jsonb.pg_cast_for_type(field_type)
 
-    extraction = Jsonb.build_extraction(column, path, as_text: true, table_alias: get_root_alias(selecto), cast: cast)
+    extraction =
+      Jsonb.build_extraction(column, path,
+        as_text: true,
+        table_alias: get_root_alias(selecto),
+        cast: cast
+      )
 
     {[], [" ", extraction, " BETWEEN ", {:param, min}, " AND ", {:param, max}, " "], []}
   end
@@ -611,15 +749,16 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    sql_op = case comp do
-      :gt -> ">"
-      :lt -> "<"
-      :gte -> ">="
-      :lte -> "<="
-      :eq -> "="
-      :ne -> "!="
-      other -> to_string(other)
-    end
+    sql_op =
+      case comp do
+        :gt -> ">"
+        :lt -> "<"
+        :gte -> ">="
+        :lte -> "<="
+        :eq -> "="
+        :ne -> "!="
+        other -> to_string(other)
+      end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
      [" ", sel, " ", sql_op, " ", {:param, to_type(conf.type, value)}, " "], param}
@@ -642,39 +781,51 @@ defmodule Selecto.Builder.Sql.Where do
         # Build the result (could be a filter expression or boolean)
         {result_joins, result_iodata, result_params} =
           case result do
-            true -> {[], ["TRUE"], []}
-            false -> {[], ["FALSE"], []}
-            nil -> {[], ["NULL"], []}
-            result when is_tuple(result) -> build(selecto, result)
+            true ->
+              {[], ["TRUE"], []}
+
+            false ->
+              {[], ["FALSE"], []}
+
+            nil ->
+              {[], ["NULL"], []}
+
+            result when is_tuple(result) ->
+              build(selecto, result)
+
             result when is_binary(result) or is_number(result) ->
               {[], [{:param, result}], [result]}
           end
 
         when_part = ["WHEN ", cond_iodata, " THEN ", result_iodata]
 
-        {parts_acc ++ [when_part],
-         joins_acc ++ List.wrap(cond_joins) ++ List.wrap(result_joins),
+        {parts_acc ++ [when_part], joins_acc ++ List.wrap(cond_joins) ++ List.wrap(result_joins),
          params_acc ++ cond_params ++ result_params}
       end)
 
     # Build ELSE clause
     {else_joins, else_iodata, else_params} =
       case else_clause do
-        nil -> {[], [], []}
-        true -> {[], [" ELSE TRUE"], []}
-        false -> {[], [" ELSE FALSE"], []}
+        nil ->
+          {[], [], []}
+
+        true ->
+          {[], [" ELSE TRUE"], []}
+
+        false ->
+          {[], [" ELSE FALSE"], []}
+
         else_clause when is_tuple(else_clause) ->
           {ej, ei, ep} = build(selecto, else_clause)
           {ej, [" ELSE ", ei], ep}
+
         else_clause when is_binary(else_clause) or is_number(else_clause) ->
           {[], [" ELSE ", {:param, else_clause}], [else_clause]}
       end
 
     case_iodata = ["CASE ", Enum.intersperse(when_parts, " ")] ++ else_iodata ++ [" END"]
 
-    {case_iodata,
-     all_joins ++ List.wrap(else_joins),
-     all_params ++ else_params}
+    {case_iodata, all_joins ++ List.wrap(else_joins), all_params ++ else_params}
   end
 
   # Helper to convert array SQL with params to iodata format
@@ -690,7 +841,9 @@ defmodule Selecto.Builder.Sql.Where do
             [before_text] -> [before_text]
             [before_text, after_text] -> [before_text, {:param, value}, after_text]
           end
-        other -> [other]
+
+        other ->
+          [other]
       end)
     end)
   end

@@ -1,4 +1,10 @@
 defmodule Selecto.Builder.Join do
+  @moduledoc """
+  Join dependency utilities used by the SQL builder pipeline.
+
+  This module extracts required joins from selected columns and filters, then
+  computes a stable join order that respects parent join dependencies.
+  """
 
   # get a map of joins to list of selected
   def from_selects(fields, selected) do

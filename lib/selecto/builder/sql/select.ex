@@ -1,4 +1,12 @@
 defmodule Selecto.Builder.Sql.Select do
+  @moduledoc """
+  SELECT-expression compiler for Selecto query AST values.
+
+  This module normalizes selector terms (fields, literals, functions, CASE,
+  subqueries, JSON/array helpers, and custom SQL fragments) into iodata SQL
+  fragments alongside required joins and bind parameters.
+  """
+
   import Selecto.Builder.Sql.Helpers
 
   alias Selecto.Jsonb
@@ -338,17 +346,19 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(selecto, {func, fields}, pivot_aliases)
       when func in [:concat, :coalesce, :greatest, :least, :nullif] do
     # Special handling for CONCAT to avoid PostgreSQL parameter type issues
-    processed_fields = if func == :concat do
-      Enum.map(List.wrap(fields), fn
-        {:literal, value} when is_bitstring(value) ->
-          # Convert string literals to non-parameterized form for CONCAT
-          {:literal_string, value}
-        other ->
-          other
-      end)
-    else
-      List.wrap(fields)
-    end
+    processed_fields =
+      if func == :concat do
+        Enum.map(List.wrap(fields), fn
+          {:literal, value} when is_bitstring(value) ->
+            # Convert string literals to non-parameterized form for CONCAT
+            {:literal_string, value}
+
+          other ->
+            other
+        end)
+      else
+        List.wrap(fields)
+      end
 
     {sel_parts, join, param} =
       Enum.reduce(processed_fields, {[], [], []}, fn f, {select, join, param} ->
@@ -412,12 +422,15 @@ defmodule Selecto.Builder.Sql.Select do
         case value do
           v when is_binary(v) or is_number(v) or is_boolean(v) ->
             {{:param, v}, [v]}
+
           nil ->
             {"NULL", []}
+
           field when is_binary(field) ->
             # Could be a field reference
             {sel, _join, param} = prep_selector(selecto, field)
             {sel, param}
+
           expr when is_tuple(expr) ->
             # Complex expression
             {sel, _join, param} = prep_selector(selecto, expr)
@@ -522,26 +535,47 @@ defmodule Selecto.Builder.Sql.Select do
     # Parse ranges to build the "Other" condition
     ranges = parse_bucket_ranges_simple(bucket_ranges)
 
-    conditions = Enum.map(ranges, fn
-      {min, max, _} when is_integer(min) and is_integer(max) ->
-        if min == max do
-          ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) != ", Integer.to_string(min)]
-        else
-          ["NOT (EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) >= ", Integer.to_string(min),
-           " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) <= ", Integer.to_string(max), ")"]
-        end
-      {min, :infinity, _} ->
-        ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) < ", Integer.to_string(min)]
-      {:negative_infinity, max, _} ->
-        ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) > ", Integer.to_string(max)]
-      _ -> nil
-    end) |> Enum.reject(&is_nil/1)
+    conditions =
+      Enum.map(ranges, fn
+        {min, max, _} when is_integer(min) and is_integer(max) ->
+          if min == max do
+            [
+              "EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+              field_iodata,
+              ")) != ",
+              Integer.to_string(min)
+            ]
+          else
+            [
+              "NOT (EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+              field_iodata,
+              ")) >= ",
+              Integer.to_string(min),
+              " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+              field_iodata,
+              ")) <= ",
+              Integer.to_string(max),
+              ")"
+            ]
+          end
 
-    case_sql = if Enum.empty?(conditions) do
-      ["COUNT(*)"]
-    else
-      ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
-    end
+        {min, :infinity, _} ->
+          ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) < ", Integer.to_string(min)]
+
+        {:negative_infinity, max, _} ->
+          ["EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) > ", Integer.to_string(max)]
+
+        _ ->
+          nil
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    case_sql =
+      if Enum.empty?(conditions) do
+        ["COUNT(*)"]
+      else
+        ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
+      end
 
     {case_sql, join, param}
   end
@@ -554,26 +588,42 @@ defmodule Selecto.Builder.Sql.Select do
     # Parse ranges to build the "Other" condition
     ranges = parse_bucket_ranges_simple(bucket_ranges)
 
-    conditions = Enum.map(ranges, fn
-      {min, max, _} when is_integer(min) and is_integer(max) ->
-        if min == max do
-          [field_iodata, " != ", Integer.to_string(min)]
-        else
-          ["NOT (", field_iodata, " >= ", Integer.to_string(min),
-           " AND ", field_iodata, " <= ", Integer.to_string(max), ")"]
-        end
-      {min, :infinity, _} ->
-        [field_iodata, " < ", Integer.to_string(min)]
-      {:negative_infinity, max, _} ->
-        [field_iodata, " > ", Integer.to_string(max)]
-      _ -> nil
-    end) |> Enum.reject(&is_nil/1)
+    conditions =
+      Enum.map(ranges, fn
+        {min, max, _} when is_integer(min) and is_integer(max) ->
+          if min == max do
+            [field_iodata, " != ", Integer.to_string(min)]
+          else
+            [
+              "NOT (",
+              field_iodata,
+              " >= ",
+              Integer.to_string(min),
+              " AND ",
+              field_iodata,
+              " <= ",
+              Integer.to_string(max),
+              ")"
+            ]
+          end
 
-    case_sql = if Enum.empty?(conditions) do
-      ["COUNT(*)"]
-    else
-      ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
-    end
+        {min, :infinity, _} ->
+          [field_iodata, " < ", Integer.to_string(min)]
+
+        {:negative_infinity, max, _} ->
+          [field_iodata, " > ", Integer.to_string(max)]
+
+        _ ->
+          nil
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    case_sql =
+      if Enum.empty?(conditions) do
+        ["COUNT(*)"]
+      else
+        ["COUNT(CASE WHEN ", Enum.intersperse(conditions, " AND "), " THEN 1 END)"]
+      end
 
     {case_sql, join, param}
   end
@@ -625,13 +675,15 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # {:literal_position, value} is for positional numbers (e.g., ORDER BY 1)
-  def prep_selector(_selecto, {:literal_position, value}, _pivot_aliases) when is_integer(value) do
+  def prep_selector(_selecto, {:literal_position, value}, _pivot_aliases)
+      when is_integer(value) do
     {[Integer.to_string(value)], :selecto_root, []}
   end
 
   # {:literal_string, value} is an alias for {:literal, value} when it's a string
   # Keeping for backwards compatibility
-  def prep_selector(_selecto, {:literal_string, value}, _pivot_aliases) when is_bitstring(value) do
+  def prep_selector(_selecto, {:literal_string, value}, _pivot_aliases)
+      when is_bitstring(value) do
     {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
   end
 
@@ -660,20 +712,48 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(selecto, {:count_age_bucket, field, min, max}, pivot_aliases) do
     {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
 
-    case_sql = cond do
-      min == max ->
-        ["COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) = ", Integer.to_string(min), " THEN 1 END)"]
+    case_sql =
+      cond do
+        min == max ->
+          [
+            "COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            field_iodata,
+            ")) = ",
+            Integer.to_string(min),
+            " THEN 1 END)"
+          ]
 
-      max == :infinity ->
-        ["COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) >= ", Integer.to_string(min), " THEN 1 END)"]
+        max == :infinity ->
+          [
+            "COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            field_iodata,
+            ")) >= ",
+            Integer.to_string(min),
+            " THEN 1 END)"
+          ]
 
-      min == :negative_infinity ->
-        ["COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) <= ", Integer.to_string(max), " THEN 1 END)"]
+        min == :negative_infinity ->
+          [
+            "COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            field_iodata,
+            ")) <= ",
+            Integer.to_string(max),
+            " THEN 1 END)"
+          ]
 
-      true ->
-        ["COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) >= ", Integer.to_string(min),
-         " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ", field_iodata, ")) <= ", Integer.to_string(max), " THEN 1 END)"]
-    end
+        true ->
+          [
+            "COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            field_iodata,
+            ")) >= ",
+            Integer.to_string(min),
+            " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            field_iodata,
+            ")) <= ",
+            Integer.to_string(max),
+            " THEN 1 END)"
+          ]
+      end
 
     {case_sql, join, param}
   end
@@ -685,20 +765,30 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(selecto, {:count_bucket, field, min, max}, pivot_aliases) do
     {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
 
-    case_sql = cond do
-      min == max ->
-        ["COUNT(CASE WHEN ", field_iodata, " = ", Integer.to_string(min), " THEN 1 END)"]
+    case_sql =
+      cond do
+        min == max ->
+          ["COUNT(CASE WHEN ", field_iodata, " = ", Integer.to_string(min), " THEN 1 END)"]
 
-      max == :infinity ->
-        ["COUNT(CASE WHEN ", field_iodata, " >= ", Integer.to_string(min), " THEN 1 END)"]
+        max == :infinity ->
+          ["COUNT(CASE WHEN ", field_iodata, " >= ", Integer.to_string(min), " THEN 1 END)"]
 
-      min == :negative_infinity ->
-        ["COUNT(CASE WHEN ", field_iodata, " <= ", Integer.to_string(max), " THEN 1 END)"]
+        min == :negative_infinity ->
+          ["COUNT(CASE WHEN ", field_iodata, " <= ", Integer.to_string(max), " THEN 1 END)"]
 
-      true ->
-        ["COUNT(CASE WHEN ", field_iodata, " >= ", Integer.to_string(min),
-         " AND ", field_iodata, " <= ", Integer.to_string(max), " THEN 1 END)"]
-    end
+        true ->
+          [
+            "COUNT(CASE WHEN ",
+            field_iodata,
+            " >= ",
+            Integer.to_string(min),
+            " AND ",
+            field_iodata,
+            " <= ",
+            Integer.to_string(max),
+            " THEN 1 END)"
+          ]
+      end
 
     {case_sql, join, param}
   end
@@ -720,11 +810,13 @@ defmodule Selecto.Builder.Sql.Select do
     {func_call_iodata, join, param}
   end
 
-  def prep_selector(selecto, selector, pivot_aliases) when is_binary(selector) or is_atom(selector) do
+  def prep_selector(selecto, selector, pivot_aliases)
+      when is_binary(selector) or is_atom(selector) do
     selector = if is_atom(selector), do: Atom.to_string(selector), else: selector
 
     # First check if this is a JSONB path (e.g., "attributes.color")
     domain = selecto.config
+
     case Jsonb.parse_field_reference(selector, domain) do
       {:jsonb, column, path} ->
         # This is a JSONB path - generate extraction SQL
@@ -759,19 +851,23 @@ defmodule Selecto.Builder.Sql.Select do
 
     # Get the table alias
     conf = Selecto.field(selecto, column)
-    join_alias = if conf do
-      Map.get(pivot_aliases, conf.requires_join, conf.requires_join)
-    else
-      :selecto_root
-    end
+
+    join_alias =
+      if conf do
+        Map.get(pivot_aliases, conf.requires_join, conf.requires_join)
+      else
+        :selecto_root
+      end
 
     # Build the extraction expression
     table_alias_str = get_table_alias_string(selecto, join_alias)
-    extraction = Jsonb.build_extraction(column, path,
-      as_text: true,
-      table_alias: table_alias_str,
-      cast: cast
-    )
+
+    extraction =
+      Jsonb.build_extraction(column, path,
+        as_text: true,
+        table_alias: table_alias_str,
+        cast: cast
+      )
 
     requires_join = if conf, do: conf.requires_join, else: :selecto_root
     {[extraction], requires_join, []}
@@ -783,21 +879,23 @@ defmodule Selecto.Builder.Sql.Select do
     set = Map.get(selecto, :set) || %{}
     dynamic_columns = if is_map(set), do: Map.get(set, :dynamic_columns, %{}), else: %{}
 
-    conf = if Map.has_key?(dynamic_columns, selector) do
-      # Create a minimal field config for dynamic columns
-      %{
-        name: selector,
-        field: selector,
-        requires_join: nil,
-        select: nil
-      }
-    else
-      Selecto.field(selecto, selector)
-    end
+    conf =
+      if Map.has_key?(dynamic_columns, selector) do
+        # Create a minimal field config for dynamic columns
+        %{
+          name: selector,
+          field: selector,
+          requires_join: nil,
+          select: nil
+        }
+      else
+        Selecto.field(selecto, selector)
+      end
 
     # Handle case where field configuration doesn't exist
     if conf == nil do
       available_fields = Map.keys(selecto.config.columns || %{}) ++ Map.keys(dynamic_columns)
+
       raise "Field '#{selector}' not found in selecto configuration. Available fields: #{inspect(available_fields)}"
     end
 
@@ -888,7 +986,6 @@ defmodule Selecto.Builder.Sql.Select do
     {select_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
     {select_iodata, join, param, UUID.uuid4()}
   end
-
 
   # build/4 functions
   def build(selecto, field, as, pivot_aliases) do
@@ -1030,6 +1127,7 @@ defmodule Selecto.Builder.Sql.Select do
     |> Enum.map(&parse_single_range_simple/1)
     |> Enum.reject(&is_nil/1)
   end
+
   defp parse_bucket_ranges_simple(_), do: []
 
   defp parse_single_range_simple(range) do

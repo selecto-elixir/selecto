@@ -1,8 +1,17 @@
 defmodule Selecto.Builder.Sql.Helpers do
+  @moduledoc """
+  Helper functions shared by SQL builder modules.
 
+  Responsibilities include:
+
+  - adapter-aware identifier quoting
+  - identifier safety validation
+  - selector and join string construction
+  - support helpers for parameterized join aliases
+  """
 
   ### SQL safety helpers - prevent injection via string validation
-  
+
   @doc """
   Get the appropriate quote character for identifiers based on the database adapter.
   PostgreSQL uses double quotes, MySQL uses backticks, SQLite uses double quotes.
@@ -14,7 +23,7 @@ defmodule Selecto.Builder.Sql.Helpers do
       _ -> "\""
     end
   end
-  
+
   @doc """
   Check if an identifier needs quoting.
   Only quote if it's a reserved word, contains special characters, or has mixed case.
@@ -33,7 +42,7 @@ defmodule Selecto.Builder.Sql.Helpers do
       close cast row array text integer boolean date time timestamp interval
       numeric decimal real double precision varchar char bit varying zone
     )
-    
+
     # Check if it needs quoting
     cond do
       # Reserved words need quoting
@@ -48,9 +57,9 @@ defmodule Selecto.Builder.Sql.Helpers do
       true -> false
     end
   end
-  
+
   def needs_quoting?(_), do: false
-  
+
   @doc """
   Maybe quote an identifier - only adds quotes if necessary.
   """
@@ -61,18 +70,18 @@ defmodule Selecto.Builder.Sql.Helpers do
       str
     end
   end
-  
+
   def maybe_quote_identifier(str) when is_atom(str) do
     maybe_quote_identifier(Atom.to_string(str))
   end
-  
+
   def maybe_quote_identifier(other), do: to_string(other)
 
   def check_string(nil), do: nil
   def check_string(str) when is_integer(str), do: check_string(to_string(str))
   def check_string(str) when is_float(str), do: check_string(to_string(str))
   def check_string(str) when is_atom(str), do: check_string(Atom.to_string(str))
-  
+
   def check_string(string) when is_binary(string) do
     if string |> String.match?(~r/[^a-zA-Z0-9_]/) do
       raise RuntimeError, message: "Invalid String #{string}"
@@ -80,17 +89,19 @@ defmodule Selecto.Builder.Sql.Helpers do
 
     string
   end
-  
+
   def check_string(other) do
     if match?(%Selecto{}, other) do
-      raise ArgumentError, "Cannot use Selecto struct as string in check_string. Got: #{inspect(other, limit: 3)}"
+      raise ArgumentError,
+            "Cannot use Selecto struct as string in check_string. Got: #{inspect(other, limit: 3)}"
     end
-    
+
     try do
       check_string(to_string(other))
     rescue
       Protocol.UndefinedError ->
-        raise ArgumentError, "Cannot convert #{inspect(other, limit: 3)} to string in check_string"
+        raise ArgumentError,
+              "Cannot convert #{inspect(other, limit: 3)} to string in check_string"
     end
   end
 
@@ -102,7 +113,7 @@ defmodule Selecto.Builder.Sql.Helpers do
   def double_wrap(nil), do: ""
   def double_wrap(str) when is_integer(str), do: double_wrap(to_string(str))
   def double_wrap(str) when is_float(str), do: double_wrap(to_string(str))
-  
+
   def double_wrap(str) when is_atom(str) do
     Atom.to_string(str) |> double_wrap()
   end
@@ -115,13 +126,14 @@ defmodule Selecto.Builder.Sql.Helpers do
     # Only quote if necessary
     maybe_quote_identifier(str)
   end
-  
+
   def double_wrap(other) do
     # Don't try to wrap complex structs
     if match?(%Selecto{}, other) do
-      raise ArgumentError, "Cannot use Selecto struct as identifier in double_wrap. Got: #{inspect(other, limit: 3)}"
+      raise ArgumentError,
+            "Cannot use Selecto struct as identifier in double_wrap. Got: #{inspect(other, limit: 3)}"
     end
-    
+
     # Fallback for any other type - convert to string
     try do
       double_wrap(to_string(other))
@@ -130,24 +142,28 @@ defmodule Selecto.Builder.Sql.Helpers do
         raise ArgumentError, "Cannot convert #{inspect(other, limit: 3)} to string in double_wrap"
     end
   end
-  
+
   @doc """
   Wrap an identifier with the appropriate quotes for the database adapter.
   This is the adapter-aware version of double_wrap.
   """
   def quote_identifier(_selecto, nil), do: ""
-  def quote_identifier(selecto, str) when is_integer(str), do: quote_identifier(selecto, to_string(str))
-  def quote_identifier(selecto, str) when is_float(str), do: quote_identifier(selecto, to_string(str))
-  
+
+  def quote_identifier(selecto, str) when is_integer(str),
+    do: quote_identifier(selecto, to_string(str))
+
+  def quote_identifier(selecto, str) when is_float(str),
+    do: quote_identifier(selecto, to_string(str))
+
   def quote_identifier(selecto, str) when is_atom(str) do
     quote_identifier(selecto, Atom.to_string(str))
   end
-  
+
   def quote_identifier(selecto, str) when is_binary(str) do
     if String.match?(str, ~r/[^a-zA-Z0-9_ :&-]/) do
       raise RuntimeError, message: "Invalid Table/Column/Alias Name #{str}"
     end
-    
+
     # Only quote if necessary
     if needs_quoting?(str) do
       quote = get_quote_char(selecto)
@@ -156,19 +172,21 @@ defmodule Selecto.Builder.Sql.Helpers do
       str
     end
   end
-  
+
   def quote_identifier(selecto, other) do
     # Don't try to wrap complex structs
     if match?(%Selecto{}, other) do
-      raise ArgumentError, "Cannot use Selecto struct as identifier in quote_identifier. Got: #{inspect(other, limit: 3)}"
+      raise ArgumentError,
+            "Cannot use Selecto struct as identifier in quote_identifier. Got: #{inspect(other, limit: 3)}"
     end
-    
+
     # Fallback for any other type - convert to string
     try do
       quote_identifier(selecto, to_string(other))
     rescue
       Protocol.UndefinedError ->
-        raise ArgumentError, "Cannot convert #{inspect(other, limit: 3)} to string in quote_identifier"
+        raise ArgumentError,
+              "Cannot convert #{inspect(other, limit: 3)} to string in quote_identifier"
     end
   end
 
@@ -207,5 +225,4 @@ defmodule Selecto.Builder.Sql.Helpers do
       sig -> quote_identifier(selecto, "#{join}_#{sig}")
     end
   end
-
 end
