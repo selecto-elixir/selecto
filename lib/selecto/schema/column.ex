@@ -1,4 +1,16 @@
 defmodule Selecto.Schema.Column do
+  @moduledoc """
+  Builds normalized column definitions for domain fields and join fields.
+
+  Column configuration merges schema metadata with domain overrides, including:
+
+  - generated `colid` values
+  - human-readable display names
+  - filter type overrides
+  - option provider metadata
+  - custom columns declared in the domain
+  """
+
   # Configure columns - move to column
   def configure_columns(join, fields, source, domain) do
     columns =
@@ -8,7 +20,6 @@ defmodule Selecto.Schema.Column do
     custom_columns = get_custom_columns(join, source, domain)
 
     (columns ++ custom_columns) |> Map.new()
-
   end
 
   ### how to do custom columns?
@@ -24,7 +35,8 @@ defmodule Selecto.Schema.Column do
               colid: f,
               requires_join: join
             }
-          ) |> Map.put_new(:type, :custom_column)
+          )
+          |> Map.put_new(:type, :custom_column)
         }
         | acc
       ]
@@ -56,30 +68,35 @@ defmodule Selecto.Schema.Column do
     # Convert field to string - handle both atoms and strings for Postgrex compatibility
     field_str = if is_atom(field), do: Atom.to_string(field), else: field
     # Try to get atom version if field is string (for map lookup)
-    field_atom = if is_atom(field) do
-      field
-    else
-      try do
-        String.to_existing_atom(field)
-      rescue
-        ArgumentError -> nil
+    field_atom =
+      if is_atom(field) do
+        field
+      else
+        try do
+          String.to_existing_atom(field)
+        rescue
+          ArgumentError -> nil
+        end
       end
-    end
 
     # Try both string and atom keys for column config lookup
     columns_map = Map.get(domain, :columns, %{})
-    config = if field_atom do
-      Map.get(columns_map, field_atom, Map.get(columns_map, field_str, %{}))
-    else
-      Map.get(columns_map, field_str, %{})
-    end
+
+    config =
+      if field_atom do
+        Map.get(columns_map, field_atom, Map.get(columns_map, field_str, %{}))
+      else
+        Map.get(columns_map, field_str, %{})
+      end
 
     colid =
       Map.get(
         config,
         :id,
         case join do
-          :selecto_root -> field_str
+          :selecto_root ->
+            field_str
+
           _ ->
             # Handle both atom and string join names for Postgrex compatibility
             join_str = if is_atom(join), do: Atom.to_string(join), else: join
@@ -90,23 +107,26 @@ defmodule Selecto.Schema.Column do
     name = Map.get(config, :name, humanize(field))
 
     # Add appropriate prefix based on join type
-    display_name = case join do
-      :selecto_root ->
-        # For root table, use the domain name from the configuration
-        "#{Map.get(domain, :name, "Domain")}: #{name}"
-      _ ->
-        # For joined tables, use the join name
-        join_info = Map.get(Map.get(domain, :joins, %{}), join, %{})
-        join_name = Map.get(join_info, :name, humanize(join))
-        "#{join_name}: #{name}"
-    end
+    display_name =
+      case join do
+        :selecto_root ->
+          # For root table, use the domain name from the configuration
+          "#{Map.get(domain, :name, "Domain")}: #{name}"
+
+        _ ->
+          # For joined tables, use the join name
+          join_info = Map.get(Map.get(domain, :joins, %{}), join, %{})
+          join_name = Map.get(join_info, :name, humanize(join))
+          "#{join_name}: #{name}"
+      end
 
     # Get column type from source, handling both atom and string field keys
-    source_col = if field_atom do
-      Map.get(source.columns, field_atom, Map.get(source.columns, field_str))
-    else
-      Map.get(source.columns, field_str)
-    end
+    source_col =
+      if field_atom do
+        Map.get(source.columns, field_atom, Map.get(source.columns, field_str))
+      else
+        Map.get(source.columns, field_str)
+      end
 
     base_col = %{
       colid: colid,

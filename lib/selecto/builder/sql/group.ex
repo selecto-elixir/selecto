@@ -1,4 +1,11 @@
 defmodule Selecto.Builder.Sql.Group do
+  @moduledoc """
+  GROUP BY clause builder for Selecto queries.
+
+  Group expressions are compiled through `Selecto.Builder.Sql.Select` and can be
+  emitted either as standard grouped columns or wrapped in SQL `ROLLUP(...)`.
+  """
+
   def group(selecto, rollup: groups) do
     {joins, clauses_iodata, params} = group(selecto, groups)
     {joins, ["rollup( ", clauses_iodata, " )"], params}
