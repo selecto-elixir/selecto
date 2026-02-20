@@ -71,14 +71,14 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", query, " "],
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", in_subquery_fragment(query), " "],
      param ++ params}
   end
 
   def build(selecto, {field, {:subquery, :in, query}}) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", query, " "], param}
+    {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " in ", in_subquery_fragment(query), " "], param}
   end
 
   def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
@@ -714,4 +714,18 @@ defmodule Selecto.Builder.Sql.Where do
   defp to_type(_t, val) do
     val
   end
+
+  # Ensure `IN` subqueries are wrapped in parentheses.
+  # If caller already provides parentheses, keep them as-is.
+  defp in_subquery_fragment(query) when is_binary(query) do
+    trimmed = String.trim(query)
+
+    if String.starts_with?(trimmed, "(") and String.ends_with?(trimmed, ")") do
+      trimmed
+    else
+      ["(", query, ")"]
+    end
+  end
+
+  defp in_subquery_fragment(query), do: ["(", query, ")"]
 end

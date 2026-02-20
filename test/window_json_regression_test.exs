@@ -358,6 +358,21 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ "order by reviews.rating desc"
   end
 
+  test "subquery IN filter wraps subquery SQL in parentheses" do
+    query =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.select(["order_number", "customer_id", "status", "total"])
+      |> Selecto.filter({"customer_id", {:subquery, :in, "SELECT id FROM customers WHERE tier = 'gold'", []}})
+      |> Selecto.order_by({"total", :desc})
+      |> Selecto.limit(10)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ "where (( selecto_root.customer_id in (SELECT id FROM customers WHERE tier = 'gold') ))"
+  end
+
   test "output format transformers handle aliases list from Selecto query metadata" do
     rows = [["Wireless Headphones", Decimal.new("79.99")]]
     columns = ["name", "price"]
