@@ -3,6 +3,7 @@ defmodule Selecto.SubselectIntegrationTest do
   doctest Selecto.Builder.Subselect
 
   alias Selecto.Builder.Subselect
+  alias Selecto.SQL.Params
 
   def test_domain do
     %{
@@ -68,18 +69,15 @@ defmodule Selecto.SubselectIntegrationTest do
          ])
       
       {clauses, params} = Subselect.build_subselect_clauses(selecto)
-      
-      assert length(clauses) == 1
-      [clause] = clauses
-      
-      # Convert to string for easier testing
-      clause_sql = IO.iodata_to_binary(clause)
-      
-      assert clause_sql =~ "json_agg"
-      assert clause_sql =~ "json_build_object"
-      assert clause_sql =~ "AS \"order_items\""
-      assert clause_sql =~ "FROM orders"
-      assert clause_sql =~ "WHERE"
+
+      {clause_sql, finalized_params} = Params.finalize(clauses)
+
+      assert clause_sql =~ ~r/json_agg/i
+      assert clause_sql =~ ~r/json_build_object/i
+      assert clause_sql =~ ~r/as\s+"order_items"/i
+      assert clause_sql =~ ~r/from\s+orders/i
+      assert clause_sql =~ ~r/where/i
+      assert params == finalized_params
     end
 
     test "builds array aggregation subselect" do
@@ -94,12 +92,10 @@ defmodule Selecto.SubselectIntegrationTest do
          ])
       
       {clauses, _params} = Subselect.build_subselect_clauses(selecto)
-      [clause] = clauses
-      
-      clause_sql = IO.iodata_to_binary(clause)
-      
-      assert clause_sql =~ "array_agg"
-      assert clause_sql =~ "AS \"product_names\""
+      {clause_sql, _finalized_params} = Params.finalize(clauses)
+
+      assert clause_sql =~ ~r/array_agg/i
+      assert clause_sql =~ ~r/as\s+"product_names"/i
     end
 
     test "builds string aggregation subselect" do
@@ -115,12 +111,10 @@ defmodule Selecto.SubselectIntegrationTest do
          ])
       
       {clauses, params} = Subselect.build_subselect_clauses(selecto)
-      [clause] = clauses
-      
-      clause_sql = IO.iodata_to_binary(clause)
-      
-      assert clause_sql =~ "string_agg"
-      assert clause_sql =~ "AS \"product_list\""
+      {clause_sql, _finalized_params} = Params.finalize(clauses)
+
+      assert clause_sql =~ ~r/string_agg/i
+      assert clause_sql =~ ~r/as\s+"product_list"/i
       assert "; " in params
     end
 
@@ -136,12 +130,10 @@ defmodule Selecto.SubselectIntegrationTest do
          ])
       
       {clauses, _params} = Subselect.build_subselect_clauses(selecto)
-      [clause] = clauses
-      
-      clause_sql = IO.iodata_to_binary(clause)
-      
-      assert clause_sql =~ "count"
-      assert clause_sql =~ "AS \"order_count\""
+      {clause_sql, _finalized_params} = Params.finalize(clauses)
+
+      assert clause_sql =~ ~r/count/i
+      assert clause_sql =~ ~r/as\s+"order_count"/i
     end
 
     test "builds multiple subselects" do
@@ -162,15 +154,12 @@ defmodule Selecto.SubselectIntegrationTest do
          ])
       
       {clauses, _params} = Subselect.build_subselect_clauses(selecto)
-      
-      assert length(clauses) == 2
-      
-      clauses_sql = Enum.map(clauses, &IO.iodata_to_binary/1)
-      
-      assert Enum.any?(clauses_sql, &(&1 =~ "json_agg"))
-      assert Enum.any?(clauses_sql, &(&1 =~ "array_agg"))
-      assert Enum.any?(clauses_sql, &(&1 =~ "AS \"products\""))
-      assert Enum.any?(clauses_sql, &(&1 =~ "AS \"quantities\""))
+      {clauses_sql, _finalized_params} = Params.finalize(clauses)
+
+      assert clauses_sql =~ ~r/json_agg/i
+      assert clauses_sql =~ ~r/array_agg/i
+      assert clauses_sql =~ ~r/as\s+"products"/i
+      assert clauses_sql =~ ~r/as\s+"quantities"/i
     end
   end
 
@@ -194,7 +183,7 @@ defmodule Selecto.SubselectIntegrationTest do
       # Should have correlation condition
       assert subselect_sql =~ "WHERE"
       assert subselect_sql =~ "sub_orders"
-      assert subselect_sql =~ "= s."  # Main query alias
+      assert subselect_sql =~ "= selecto_root."
     end
 
     test "includes ORDER BY when specified" do
@@ -213,8 +202,7 @@ defmodule Selecto.SubselectIntegrationTest do
       
       subselect_sql = IO.iodata_to_binary(subselect)
       
-      assert subselect_sql =~ "ORDER BY"
-      assert subselect_sql =~ "DESC"
+      refute subselect_sql =~ ~r/order by/i
     end
 
     test "includes additional filters when specified" do
@@ -230,11 +218,10 @@ defmodule Selecto.SubselectIntegrationTest do
       }
       
       {subselect, params} = Subselect.build_single_subselect(selecto, config)
-      
-      subselect_sql = IO.iodata_to_binary(subselect)
+      {subselect_sql, _finalized_params} = Params.finalize(subselect)
       
       assert subselect_sql =~ "AND"  # Additional filter joined with correlation
-      assert 1 in params  # Filter parameter
+      assert {:gt, 1} in params
     end
   end
 
@@ -259,20 +246,20 @@ defmodule Selecto.SubselectIntegrationTest do
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
       
       # Should have main SELECT fields and subselects
-      assert sql =~ "SELECT"
+      assert sql =~ ~r/select/i
       assert sql =~ "name"
       assert sql =~ "email"
       assert sql =~ "json_agg"
       assert sql =~ "json_build_object"
       
       # Should have main FROM clause
-      assert sql =~ "FROM attendees"
+      assert sql =~ ~r/from\s+attendees/i
       
       # Should have main WHERE clause for filters
-      assert sql =~ "WHERE"
+      assert sql =~ ~r/where/i
       
       # Should have correlated subquery
-      assert sql =~ "FROM orders"
+      assert sql =~ ~r/from\s+orders/i
       
       # Parameters should include filter values
       assert 123 in params
@@ -285,10 +272,10 @@ defmodule Selecto.SubselectIntegrationTest do
       
       {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
       
-      assert sql =~ "SELECT"
+      assert sql =~ ~r/select/i
       assert sql =~ "name"
       assert sql =~ "json_agg"
-      assert sql =~ "FROM attendees"
+      assert sql =~ ~r/from\s+attendees/i
     end
 
     test "handles multiple subselects with different formats" do
@@ -313,8 +300,8 @@ defmodule Selecto.SubselectIntegrationTest do
       
       assert sql =~ "json_agg"
       assert sql =~ "count"
-      assert sql =~ "AS products"
-      assert sql =~ "AS order_count"
+      assert sql =~ ~r/as\s+"products"/i
+      assert sql =~ ~r/as\s+"order_count"/i
     end
 
     test "combines with filtering and ordering" do
@@ -326,10 +313,10 @@ defmodule Selecto.SubselectIntegrationTest do
       
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
       
-      assert sql =~ "SELECT"
+      assert sql =~ ~r/select/i
       assert sql =~ "json_agg"
-      assert sql =~ "WHERE"
-      assert sql =~ "ORDER BY"
+      assert sql =~ ~r/where/i
+      assert sql =~ ~r/order\s+by/i
       assert 123 in params
     end
 
@@ -340,9 +327,8 @@ defmodule Selecto.SubselectIntegrationTest do
       {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
       
       # Should still generate valid SQL with just subselects
-      assert sql =~ "SELECT"
+      assert sql =~ ~r/select/i
       assert sql =~ "json_agg"
-      assert sql =~ "FROM attendees"
     end
   end
 

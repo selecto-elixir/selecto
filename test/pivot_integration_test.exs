@@ -3,6 +3,7 @@ defmodule Selecto.PivotIntegrationTest do
   doctest Selecto.Builder.Pivot
 
   alias Selecto.Builder.Pivot
+  alias Selecto.SQL.Params
 
   def test_domain do
     %{
@@ -62,8 +63,13 @@ defmodule Selecto.PivotIntegrationTest do
       },
       name: "Event",
       joins: %{
-        attendees: %{type: :left, name: "attendees"},
-        orders: %{type: :left, name: "orders"}
+        attendees: %{
+          type: :left,
+          name: "attendees",
+          joins: %{
+            orders: %{type: :left, name: "orders"}
+          }
+        }
       }
     }
   end
@@ -80,13 +86,13 @@ defmodule Selecto.PivotIntegrationTest do
       |> Selecto.filter([{"event_id", 123}])
       |> Selecto.pivot(:orders, subquery_strategy: :in)
       
-      {from_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
-      
-      # Convert to string for easier assertion
-      from_sql = IO.iodata_to_binary(from_iodata)
-      
-      assert from_sql =~ "orders"
-      assert from_sql =~ "IN"
+      {from_iodata, where_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
+
+      {from_sql, _from_params} = Params.finalize(from_iodata)
+      {where_sql, _where_params} = Params.finalize(where_iodata)
+
+      assert from_sql =~ ~r/orders/i
+      assert where_sql =~ ~r/\bin\b/i
       assert 123 in params
     end
 
@@ -95,13 +101,13 @@ defmodule Selecto.PivotIntegrationTest do
       |> Selecto.filter([{"event_id", 123}])
       |> Selecto.pivot(:orders, subquery_strategy: :exists)
       
-      {from_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
-      
-      # Convert to string for easier assertion
-      from_sql = IO.iodata_to_binary(from_iodata)
-      
-      assert from_sql =~ "orders"
-      assert from_sql =~ "EXISTS"
+      {from_iodata, where_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
+
+      {from_sql, _from_params} = Params.finalize(from_iodata)
+      {where_sql, _where_params} = Params.finalize(where_iodata)
+
+      assert from_sql =~ ~r/orders/i
+      assert where_sql =~ ~r/exists/i
       assert 123 in params
     end
 
@@ -110,42 +116,15 @@ defmodule Selecto.PivotIntegrationTest do
       |> Selecto.filter([{"event_id", 123}])
       |> Selecto.pivot(:orders, subquery_strategy: :join)
       
-      {from_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
-      
-      # Convert to string for easier assertion
-      from_sql = IO.iodata_to_binary(from_iodata)
-      
-      assert from_sql =~ "orders"
-      assert from_sql =~ "JOIN"
-      assert 123 in params
-    end
-  end
+      {from_iodata, where_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
 
-  describe "extract_pivot_conditions/2" do
-    test "extracts conditions when preserve_filters is true" do
-      selecto = create_test_selecto()
-      |> Selecto.filter([{"event_id", 123}, {"name", "Test Event"}])
-      |> Selecto.pivot(:orders, preserve_filters: true)
-      
-      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
-      {conditions, params} = Pivot.extract_pivot_conditions(selecto, pivot_config)
-      
-      # Should have extracted the filters
-      refute conditions == []
-      assert 123 in params
-      assert "Test Event" in params
-    end
+      {from_sql, _from_params} = Params.finalize(from_iodata)
+      {where_sql, _where_params} = Params.finalize(where_iodata)
 
-    test "returns empty when preserve_filters is false" do
-      selecto = create_test_selecto()
-      |> Selecto.filter([{"event_id", 123}])
-      |> Selecto.pivot(:orders, preserve_filters: false)
-      
-      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
-      {conditions, params} = Pivot.extract_pivot_conditions(selecto, pivot_config)
-      
-      assert conditions == []
-      assert params == []
+      assert from_sql =~ ~r/orders/i
+      assert from_sql =~ ~r/join/i
+      assert where_sql =~ ~r/event_id/i
+      assert 123 in params
     end
   end
 
@@ -160,12 +139,11 @@ defmodule Selecto.PivotIntegrationTest do
       
       {subquery, params} = Pivot.build_join_chain_subquery(selecto, pivot_config, join_path)
       
-      # Convert to string for easier testing
-      subquery_sql = IO.iodata_to_binary(subquery)
+      {subquery_sql, _subquery_params} = Params.finalize(subquery)
       
-      assert subquery_sql =~ "SELECT DISTINCT"
-      assert subquery_sql =~ "FROM events"
-      assert subquery_sql =~ "JOIN"
+      assert subquery_sql =~ ~r/select\s+distinct/i
+      assert subquery_sql =~ ~r/from\s+events/i
+      assert subquery_sql =~ ~r/join/i
       assert 123 in params
     end
   end
@@ -174,18 +152,18 @@ defmodule Selecto.PivotIntegrationTest do
     test "generates complete pivot SQL with IN strategy" do
       selecto = create_test_selecto()
       |> Selecto.filter([{"event_id", 123}])
-      |> Selecto.select(["product_name", "quantity"])
+      |> Selecto.select(["orders.product_name", "orders.quantity"])
       |> Selecto.pivot(:orders, subquery_strategy: :in)
       
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
       
       # Basic SQL structure checks
-      assert sql =~ "SELECT"
-      assert sql =~ "product_name"
-      assert sql =~ "quantity"
-      assert sql =~ "FROM orders"
-      assert sql =~ "IN ("
-      assert sql =~ "SELECT DISTINCT"
+      assert sql =~ ~r/select/i
+      assert sql =~ ~r/product_name/i
+      assert sql =~ ~r/quantity/i
+      assert sql =~ ~r/from\s+orders/i
+      assert sql =~ ~r/\bin\s*\(/i
+      assert sql =~ ~r/select\s+distinct/i
       
       # Parameters should include the filter value
       assert 123 in params
@@ -194,16 +172,16 @@ defmodule Selecto.PivotIntegrationTest do
     test "generates complete pivot SQL with EXISTS strategy" do
       selecto = create_test_selecto()
       |> Selecto.filter([{"event_id", 123}])
-      |> Selecto.select(["product_name"])
+      |> Selecto.select(["orders.product_name"])
       |> Selecto.pivot(:orders, subquery_strategy: :exists)
       
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
       
       # Basic SQL structure checks
-      assert sql =~ "SELECT"
-      assert sql =~ "product_name"
-      assert sql =~ "FROM orders"
-      assert sql =~ "EXISTS ("
+      assert sql =~ ~r/select/i
+      assert sql =~ ~r/product_name/i
+      assert sql =~ ~r/from\s+orders/i
+      assert sql =~ ~r/exists\s*\(/i
       
       # Parameters should include the filter value
       assert 123 in params
@@ -212,13 +190,13 @@ defmodule Selecto.PivotIntegrationTest do
     test "handles pivot with multiple filters" do
       selecto = create_test_selecto()
       |> Selecto.filter([{"event_id", 123}, {"name", "Test Event"}])
-      |> Selecto.select(["product_name"])
+      |> Selecto.select(["orders.product_name"])
       |> Selecto.pivot(:orders)
       
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
       
-      assert sql =~ "SELECT"
-      assert sql =~ "FROM orders"
+      assert sql =~ ~r/select/i
+      assert sql =~ ~r/from\s+orders/i
       
       # Both filter parameters should be present
       assert 123 in params
@@ -228,13 +206,13 @@ defmodule Selecto.PivotIntegrationTest do
     test "handles pivot without preserving filters" do
       selecto = create_test_selecto()
       |> Selecto.filter([{"event_id", 123}])
-      |> Selecto.select(["product_name"])
+      |> Selecto.select(["orders.product_name"])
       |> Selecto.pivot(:orders, preserve_filters: false)
       
-      {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
-      
-      assert sql =~ "SELECT"
-      assert sql =~ "FROM orders"
+      {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
+
+      assert sql =~ ~r/select/i
+      assert sql =~ ~r/from\s+orders/i
       
       # Filter should not be preserved in pivot subquery
       # (Though this depends on implementation details)

@@ -64,8 +64,13 @@ defmodule Selecto.SubselectTest do
       },
       name: "Event",
       joins: %{
-        attendees: %{type: :left, name: "attendees"},
-        orders: %{type: :left, name: "orders"}
+        attendees: %{
+          type: :left,
+          name: "attendees",
+          joins: %{
+            orders: %{type: :left, name: "orders"}
+          }
+        }
       }
     }
   end

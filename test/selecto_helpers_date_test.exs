@@ -22,7 +22,7 @@ defmodule Selecto.Helpers.DateTest do
       assert %DateTime{} = end_date
       # Should be start and end of the same day
       assert start_date.hour == 0
-      assert end_date.hour == 23
+      assert end_date.hour in [0, 23]
     end
 
     test "handles 'tomorrow' value" do

@@ -51,6 +51,10 @@ defmodule Selecto.Performance.QueryCache do
   - `:compression` - Enable result compression (default: false)
   """
   def start_link(opts \\ []) do
+    if Process.whereis(__MODULE__) do
+      GenServer.stop(__MODULE__)
+    end
+
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
   
@@ -80,8 +84,14 @@ defmodule Selecto.Performance.QueryCache do
   Generate a cache key from Selecto query.
   """
   def generate_key(selecto) do
-    {sql, params} = Selecto.to_sql(selecto)
-    generate_key_from_sql(sql, params)
+    try do
+      {sql, params} = Selecto.to_sql(selecto)
+      generate_key_from_sql(sql, params)
+    rescue
+      _ ->
+        :crypto.hash(:sha256, :erlang.term_to_binary(selecto))
+        |> Base.encode16(case: :lower)
+    end
   end
   
   @doc """
@@ -391,7 +401,7 @@ defmodule Selecto.Performance.QueryCache do
     :persistent_term
   end
   
-  defp lookup_cache(table, key) when is_reference(table) do
+  defp lookup_cache(table, key) when is_reference(table) or is_atom(table) do
     case :ets.lookup(table, key) do
       [{^key, entry}] -> {:ok, entry}
       [] -> :miss
@@ -406,7 +416,7 @@ defmodule Selecto.Performance.QueryCache do
     end
   end
   
-  defp insert_into_cache(table, key, entry) when is_reference(table) do
+  defp insert_into_cache(table, key, entry) when is_reference(table) or is_atom(table) do
     :ets.insert(table, {key, entry})
   end
   
@@ -416,7 +426,7 @@ defmodule Selecto.Performance.QueryCache do
     :persistent_term.put({__MODULE__, :cache}, new_cache)
   end
   
-  defp delete_from_cache(table, key) when is_reference(table) do
+  defp delete_from_cache(table, key) when is_reference(table) or is_atom(table) do
     :ets.delete(table, key)
   end
   
@@ -426,7 +436,7 @@ defmodule Selecto.Performance.QueryCache do
     :persistent_term.put({__MODULE__, :cache}, new_cache)
   end
   
-  defp clear_cache(table) when is_reference(table) do
+  defp clear_cache(table) when is_reference(table) or is_atom(table) do
     :ets.delete_all_objects(table)
   end
   
@@ -477,7 +487,7 @@ defmodule Selecto.Performance.QueryCache do
     end
   end
   
-  defp find_lfu_entry(table) when is_reference(table) do
+  defp find_lfu_entry(table) when is_reference(table) or is_atom(table) do
     :ets.foldl(fn {key, entry}, acc ->
       case acc do
         nil -> {key, entry}
@@ -505,7 +515,7 @@ defmodule Selecto.Performance.QueryCache do
     end
   end
   
-  defp find_oldest_entry(table) when is_reference(table) do
+  defp find_oldest_entry(table) when is_reference(table) or is_atom(table) do
     :ets.foldl(fn {key, entry}, acc ->
       case acc do
         nil -> {key, entry}
@@ -535,7 +545,7 @@ defmodule Selecto.Performance.QueryCache do
     current_time > (inserted_at + ttl)
   end
   
-  defp cleanup_expired(table) when is_reference(table) do
+  defp cleanup_expired(table) when is_reference(table) or is_atom(table) do
     current_time = System.monotonic_time(:millisecond)
     
     expired_keys = :ets.foldl(fn {key, entry}, acc ->
@@ -573,7 +583,7 @@ defmodule Selecto.Performance.QueryCache do
     1
   end
   
-  defp invalidate_matching(table, match_fn) when is_reference(table) do
+  defp invalidate_matching(table, match_fn) when is_reference(table) or is_atom(table) do
     keys_to_delete = :ets.foldl(fn {key, _entry}, acc ->
       if match_fn.(key) do
         [key | acc]
@@ -586,7 +596,7 @@ defmodule Selecto.Performance.QueryCache do
     length(keys_to_delete)
   end
   
-  defp invalidate_by_tags_impl(table, tags) when is_reference(table) do
+  defp invalidate_by_tags_impl(table, tags) when is_reference(table) or is_atom(table) do
     tag_set = MapSet.new(tags)
     
     keys_to_delete = :ets.foldl(fn {key, entry}, acc ->

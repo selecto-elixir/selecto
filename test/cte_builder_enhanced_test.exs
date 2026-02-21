@@ -264,7 +264,7 @@ defmodule Selecto.CteBuilderEnhancedTest do
       [with_part, main_part] = complete_query
       
       # Verify WITH clause structure
-      ["WITH ", _cte_parts, " "] = with_part
+      ["WITH ", _cte_parts] = with_part
       assert main_part == main_query
     end
 
