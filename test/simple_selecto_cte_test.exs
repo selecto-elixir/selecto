@@ -6,6 +6,7 @@ defmodule Selecto.SimpleCteTest do
   describe "Selecto-powered CTE functionality" do
     test "build_cte_from_selecto/2 exists and has correct signature" do
       # Verify the function exists with expected signature
+      Code.ensure_loaded!(Selecto.Builder.Cte)
       assert function_exported?(Selecto.Builder.Cte, :build_cte_from_selecto, 2)
       assert function_exported?(Selecto.Builder.Cte, :build_recursive_cte_from_selecto, 3)
       assert function_exported?(Selecto.Builder.Cte, :build_with_clause_from_selecto, 1)

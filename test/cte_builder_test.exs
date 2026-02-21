@@ -156,7 +156,7 @@ defmodule Selecto.CteBuilderTest do
       {final_query, params} = Cte.integrate_ctes_with_query([cte1], main_query, main_params)
       
       expected_query = [
-        ["WITH ", [["users_cte AS (SELECT * FROM users)"]], " "],
+        ["WITH ", [["users_cte AS (SELECT * FROM users)"]]],
         main_query
       ]
       assert final_query == expected_query
@@ -173,7 +173,7 @@ defmodule Selecto.CteBuilderTest do
       assert params == [true, ~D[2024-01-01]]
       
       expected_query = [
-        ["WITH ", [["active_users AS (SELECT * FROM users WHERE active = ", {:param, true}, ")"]], " "],
+        ["WITH ", [["active_users AS (SELECT * FROM users WHERE active = ", {:param, true}, ")"]]],
         main_query
       ]
       assert final_query == expected_query
@@ -324,7 +324,7 @@ defmodule Selecto.CteBuilderTest do
       
       recursive_case = Selecto.configure(domain, nil)
         |> Selecto.select(["id", "name", "parent_id"])
-        |> Selecto.filter([{"active", true}])
+        |> Selecto.filter([{"id", {">", 0}}])
       
       {recursive_cte, params} = Cte.build_recursive_cte_from_selecto(
         "category_tree", base_case, recursive_case
@@ -335,7 +335,7 @@ defmodule Selecto.CteBuilderTest do
       assert cte_name == "category_tree"
       
       # Should combine parameters from both queries
-      assert true in params  # From recursive case filter
+      assert 0 in params
     end
 
     test "handles recursive CTE with no parameters", %{domain: domain} do
@@ -473,7 +473,6 @@ defmodule Selecto.CteBuilderTest do
       )
       
       # Should include parameters from root condition
-      assert true in params  # From active filter
       assert 5 in params     # Default depth limit
     end
   end

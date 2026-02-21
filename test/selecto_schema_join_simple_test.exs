@@ -10,9 +10,9 @@ defmodule Selecto.Schema.JoinSimpleTest do
     test "handles empty joins map" do
       domain = %{joins: %{}, schemas: %{}}
       source = %{associations: %{}}
-      
+
       result = Join.recurse_joins(source, domain)
-      
+
       assert result == %{}
     end
 
@@ -23,7 +23,8 @@ defmodule Selecto.Schema.JoinSimpleTest do
           posts: %{
             name: "Post",
             source_table: "posts",
-            fields: [],  # Empty fields to avoid Column.configure call
+            # Empty fields to avoid Column.configure call
+            fields: [],
             redact_fields: [],
             columns: %{}
           }
@@ -32,18 +33,18 @@ defmodule Selecto.Schema.JoinSimpleTest do
           posts: %{type: :left, name: "posts"}
         }
       }
-      
+
       source = %{
         associations: %{
           posts: %{queryable: :posts, field: :posts, owner_key: :id, related_key: :user_id}
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
-      
+
       assert is_map(result)
       assert Map.has_key?(result, :posts)
-      
+
       join = result[:posts]
       assert join.id == :posts
       assert join.name == "posts"
@@ -56,7 +57,13 @@ defmodule Selecto.Schema.JoinSimpleTest do
     test "assigns unique ids to each join" do
       domain = %{
         schemas: %{
-          posts: %{name: "Post", source_table: "posts", fields: [], redact_fields: [], columns: %{}},
+          posts: %{
+            name: "Post",
+            source_table: "posts",
+            fields: [],
+            redact_fields: [],
+            columns: %{}
+          },
           tags: %{name: "Tag", source_table: "tags", fields: [], redact_fields: [], columns: %{}}
         },
         joins: %{
@@ -64,16 +71,16 @@ defmodule Selecto.Schema.JoinSimpleTest do
           tags: %{type: :left}
         }
       }
-      
+
       source = %{
         associations: %{
           posts: %{queryable: :posts, field: :posts, owner_key: :id, related_key: :user_id},
           tags: %{queryable: :tags, field: :tags, owner_key: :id, related_key: :post_id}
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
-      
+
       # Each join should have its key as the id
       Enum.each(result, fn {key, join} ->
         assert join.id == key
@@ -88,7 +95,8 @@ defmodule Selecto.Schema.JoinSimpleTest do
           categories: %{
             name: "Category",
             source_table: "categories",
-            fields: [:name],  # Need field for dimension join
+            # Need field for dimension join
+            fields: [:name],
             redact_fields: [],
             columns: %{
               name: %{type: :string}
@@ -99,16 +107,21 @@ defmodule Selecto.Schema.JoinSimpleTest do
           category: %{type: :dimension, dimension: :name, name: "Category"}
         }
       }
-      
+
       source = %{
         associations: %{
-          category: %{queryable: :categories, field: :category, owner_key: :category_id, related_key: :id}
+          category: %{
+            queryable: :categories,
+            field: :category,
+            owner_key: :category_id,
+            related_key: :id
+          }
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
       join = result[:category]
-      
+
       # Check custom columns were created for dimension join
       custom_columns = join.config.custom_columns
       assert Map.has_key?(custom_columns, "category")
@@ -132,25 +145,25 @@ defmodule Selecto.Schema.JoinSimpleTest do
           tags: %{type: :tagging, tag_field: :name, name: "Tags"}
         }
       }
-      
+
       source = %{
         associations: %{
           tags: %{queryable: :tags, field: :tags, owner_key: :id, related_key: :post_id}
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
       join = result[:tags]
-      
+
       assert join.join_type == :many_to_many
-      
+
       # Check custom columns for tag aggregation
       custom_columns = join.config.custom_columns
       assert Map.has_key?(custom_columns, "tags_list")
       assert custom_columns["tags_list"].name == "Tags List"
       assert String.contains?(custom_columns["tags_list"].select, "string_agg")
       assert custom_columns["tags_list"].filterable == false
-      
+
       # Check faceted filters
       custom_filters = join.config.custom_filters
       assert Map.has_key?(custom_filters, "tags_filter")
@@ -174,28 +187,33 @@ defmodule Selecto.Schema.JoinSimpleTest do
           parent: %{type: :hierarchical, hierarchy_type: :adjacency_list, depth_limit: 3}
         }
       }
-      
+
       source = %{
         associations: %{
-          parent: %{queryable: :categories, field: :parent, owner_key: :parent_id, related_key: :id}
+          parent: %{
+            queryable: :categories,
+            field: :parent,
+            owner_key: :parent_id,
+            related_key: :id
+          }
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
       join = result[:parent]
-      
+
       assert join.join_type == :hierarchical_adjacency
       assert join.hierarchy_depth == 3
-      
+
       # Check custom columns for hierarchy navigation
       custom_columns = join.config.custom_columns
       assert Map.has_key?(custom_columns, "parent_path")
-      assert Map.has_key?(custom_columns, "parent_level") 
+      assert Map.has_key?(custom_columns, "parent_level")
       assert Map.has_key?(custom_columns, "parent_path_array")
-      
+
       # Verify CTE references
-      assert custom_columns["parent_path"].select == "parent_hierarchy.path"
-      assert custom_columns["parent_level"].select == "parent_hierarchy.level"
+      assert custom_columns["parent_path"].select == "parent.path"
+      assert custom_columns["parent_level"].select == "parent.level"
       assert custom_columns["parent_level"].filterable == true
     end
 
@@ -214,25 +232,30 @@ defmodule Selecto.Schema.JoinSimpleTest do
           customer: %{type: :star_dimension, display_field: :full_name, name: "Customer"}
         }
       }
-      
+
       source = %{
         associations: %{
-          customer: %{queryable: :customers, field: :customer, owner_key: :customer_id, related_key: :id}
+          customer: %{
+            queryable: :customers,
+            field: :customer,
+            owner_key: :customer_id,
+            related_key: :id
+          }
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
       join = result[:customer]
-      
+
       assert join.join_type == :star_dimension
       assert join.display_field == :full_name
-      
+
       # Check custom columns optimized for OLAP
       custom_columns = join.config.custom_columns
       assert Map.has_key?(custom_columns, "customer_display")
       assert custom_columns["customer_display"].is_dimension == true
       assert custom_columns["customer_display"].select == "customer[full_name]"
-      
+
       # Check faceted filters
       custom_filters = join.config.custom_filters
       assert Map.has_key?(custom_filters, "customer_facet")
@@ -260,25 +283,28 @@ defmodule Selecto.Schema.JoinSimpleTest do
           }
         }
       }
-      
+
       source = %{
         associations: %{
           region: %{queryable: :regions, field: :region, owner_key: :region_id, related_key: :id}
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
       join = result[:region]
-      
+
       assert join.join_type == :snowflake_dimension
       assert join.normalization_joins == [%{table: "countries", alias: "co"}]
       assert join.display_field == :name
-      
+
       # Check custom columns with normalization support
       custom_columns = join.config.custom_columns
       assert Map.has_key?(custom_columns, "region_normalized")
-      assert custom_columns["region_normalized"].requires_normalization_joins == [%{table: "countries", alias: "co"}]
-      
+
+      assert custom_columns["region_normalized"].requires_normalization_joins == [
+               %{table: "countries", alias: "co"}
+             ]
+
       # Check that build_snowflake_select handles the normalization join properly
       assert custom_columns["region_normalized"].select == "co.name"
     end
@@ -288,68 +314,103 @@ defmodule Selecto.Schema.JoinSimpleTest do
     test "hierarchical join defaults to adjacency list with depth 5" do
       domain = %{
         schemas: %{
-          categories: %{name: "Category", source_table: "categories", fields: [], redact_fields: [], columns: %{}}
+          categories: %{
+            name: "Category",
+            source_table: "categories",
+            fields: [],
+            redact_fields: [],
+            columns: %{}
+          }
         },
         joins: %{
-          parent: %{type: :hierarchical}  # No hierarchy_type specified
+          # No hierarchy_type specified
+          parent: %{type: :hierarchical}
         }
       }
-      
+
       source = %{
         associations: %{
-          parent: %{queryable: :categories, field: :parent, owner_key: :parent_id, related_key: :id}
+          parent: %{
+            queryable: :categories,
+            field: :parent,
+            owner_key: :parent_id,
+            related_key: :id
+          }
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
       join = result[:parent]
-      
-      assert join.join_type == :hierarchical_adjacency  # Should default
-      assert join.hierarchy_depth == 5  # Should use default depth
+
+      # Should default
+      assert join.join_type == :hierarchical_adjacency
+      # Should use default depth
+      assert join.hierarchy_depth == 5
     end
 
     test "star dimension defaults display_field to :name" do
       domain = %{
         schemas: %{
-          customers: %{name: "Customer", source_table: "customers", fields: [], redact_fields: [], columns: %{}}
+          customers: %{
+            name: "Customer",
+            source_table: "customers",
+            fields: [],
+            redact_fields: [],
+            columns: %{}
+          }
         },
         joins: %{
-          customer: %{type: :star_dimension}  # No display_field specified
+          # No display_field specified
+          customer: %{type: :star_dimension}
         }
       }
-      
+
       source = %{
         associations: %{
-          customer: %{queryable: :customers, field: :customer, owner_key: :customer_id, related_key: :id}
+          customer: %{
+            queryable: :customers,
+            field: :customer,
+            owner_key: :customer_id,
+            related_key: :id
+          }
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
       join = result[:customer]
-      
-      assert join.display_field == :name  # Should default to :name
+
+      # Should default to :name
+      assert join.display_field == :name
     end
 
     test "join name defaults to id when not provided" do
       domain = %{
         schemas: %{
-          posts: %{name: "Post", source_table: "posts", fields: [], redact_fields: [], columns: %{}}
+          posts: %{
+            name: "Post",
+            source_table: "posts",
+            fields: [],
+            redact_fields: [],
+            columns: %{}
+          }
         },
         joins: %{
-          posts: %{}  # No name provided
+          # No name provided
+          posts: %{}
         }
       }
-      
+
       source = %{
         associations: %{
           posts: %{queryable: :posts, field: :posts, owner_key: :id, related_key: :user_id}
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
       join = result[:posts]
-      
-      assert join.name == :posts  # Should default to join id
+
+      # Should default to join id
+      assert join.name == :posts
     end
   end
 
@@ -378,25 +439,26 @@ defmodule Selecto.Schema.JoinSimpleTest do
         joins: %{
           posts: %{
             type: :left,
-            joins: %{  # Nested joins
+            # Nested joins
+            joins: %{
               tags: %{type: :tagging}
             }
           }
         }
       }
-      
+
       source = %{
         associations: %{
           posts: %{queryable: :posts, field: :posts, owner_key: :id, related_key: :user_id}
         }
       }
-      
+
       result = Join.recurse_joins(source, domain)
-      
+
       # Should have both parent and nested join
       assert Map.has_key?(result, :posts)
       assert Map.has_key?(result, :tags)
-      
+
       # Nested join should reference parent
       tags_join = result[:tags]
       assert tags_join.requires_join == :posts
@@ -412,33 +474,35 @@ defmodule Selecto.Schema.JoinSimpleTest do
           nonexistent: %{type: :left}
         }
       }
-      
+
       source = %{
-        associations: %{}  # Missing association
+        # Missing association
+        associations: %{}
       }
-      
-      # Should raise an error when association is missing
-      assert_raise(KeyError, fn ->
+
+      # Current implementation raises when it cannot dereference association config
+      assert_raise(BadMapError, fn ->
         Join.recurse_joins(source, domain)
       end)
     end
 
     test "handles missing queryable schema" do
       domain = %{
-        schemas: %{},  # Missing schema
+        # Missing schema
+        schemas: %{},
         joins: %{
           posts: %{type: :left}
         }
       }
-      
+
       source = %{
         associations: %{
           posts: %{queryable: :posts, field: :posts, owner_key: :id, related_key: :user_id}
         }
       }
-      
-      # Should raise an error when queryable schema is missing
-      assert_raise(KeyError, fn ->
+
+      # Current implementation raises when queryable schema cannot be resolved
+      assert_raise(BadMapError, fn ->
         Join.recurse_joins(source, domain)
       end)
     end

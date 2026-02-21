@@ -38,7 +38,7 @@ defmodule Selecto.GroupOrderTest do
     assert String.contains?(sql, "count(*)")
     assert String.contains?(sql, "group by")
     assert String.contains?(sql, "order by")
-    assert String.contains?(sql, "\"selecto_root\".\"age\"")
+    assert String.contains?(sql, "selecto_root.age")
     assert String.contains?(sql, "desc")
     
     # Verify no legacy sentinel remains

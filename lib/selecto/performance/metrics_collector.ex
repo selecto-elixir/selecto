@@ -358,14 +358,15 @@ defmodule Selecto.Performance.MetricsCollector do
   
   defp update_query_patterns(patterns, metrics) do
     pattern = extract_query_pattern(metrics)
+    query_id = Map.get(metrics, :query_id, "unknown")
     
     Map.update(patterns, pattern, 
-      %{count: 1, total_time: metrics.execution_time, examples: [metrics.query_id]},
+      %{count: 1, total_time: metrics.execution_time, examples: [query_id]},
       fn info ->
         %{info |
           count: info.count + 1,
           total_time: info.total_time + metrics.execution_time,
-          examples: Enum.take([metrics.query_id | info.examples], 5)
+          examples: Enum.take([query_id | info.examples], 5)
         }
       end
     )
@@ -439,10 +440,16 @@ defmodule Selecto.Performance.MetricsCollector do
   end
   
   defp export_metrics_data(state, :json, options) do
+    patterns =
+      state.query_patterns
+      |> Map.to_list()
+      |> Enum.map(fn {pattern, info} -> %{pattern: pattern, info: info} end)
+      |> Enum.take(options[:limit] || 50)
+
     data = %{
       stats: state.stats,
       slow_queries: Enum.take(state.slow_queries, options[:limit] || 100),
-      patterns: Map.to_list(state.query_patterns) |> Enum.take(options[:limit] || 50)
+      patterns: patterns
     }
     
     {:ok, Jason.encode!(data, pretty: true)}
