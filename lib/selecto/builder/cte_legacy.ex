@@ -4,11 +4,16 @@ defmodule Selecto.Builder.Cte do
   alias Selecto.Builder.CteCompat
 
   defdelegate build_cte(name, query_iodata, params), to: CteCompat
+
   def build_recursive_cte(name, base_sql, base_params, recursive_sql, recursive_params) do
     CteCompat.build_recursive_cte(name, base_sql, recursive_sql, base_params, recursive_params)
   end
+
   defdelegate build_cte_from_selecto(name, selecto), to: CteCompat
-  defdelegate build_recursive_cte_from_selecto(name, base_selecto, recursive_selecto), to: CteCompat
+
+  defdelegate build_recursive_cte_from_selecto(name, base_selecto, recursive_selecto),
+    to: CteCompat
+
   def build_with_clause_from_selecto([]), do: {[], []}
   defdelegate build_with_clause_from_selecto(cte_queries), to: CteCompat
   defdelegate build_hierarchy_cte_from_selecto(name, domain, connection, opts), to: CteCompat
@@ -25,6 +30,7 @@ defmodule Selecto.Builder.Cte do
 
   def build_with_clause(ctes) do
     {definitions, param_sets} = Enum.unzip(ctes)
+
     {[
        "WITH ",
        Enum.intersperse(definitions, ", "),

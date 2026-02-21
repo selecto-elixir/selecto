@@ -14,7 +14,7 @@ defmodule Selecto.Builder.Sql do
   # import Selecto.Types - removed to avoid circular dependency
 
   alias Selecto.SQL.Params
-  alias Selecto.Builder.CTE, as: Cte
+  alias Selecto.Builder.CteSql, as: Cte
   alias Selecto.Builder.Sql.Hierarchy
   alias Selecto.Builder.LateralJoin
   alias Selecto.Builder.ValuesClause

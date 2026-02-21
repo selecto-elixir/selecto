@@ -1,7 +1,23 @@
 
 # Selecto Library Changelog
 
-## V 0.3.0 - Security & Validation Overhaul (Current)
+## V 0.3.1 - CTE Module Naming Compatibility
+---------------------------------------------------------
+
+#### Fixed
+- Resolved case-insensitive filesystem conflicts (notably on macOS) caused by
+  having both `Selecto.Builder.Cte` and `Selecto.Builder.CTE`.
+
+#### Changed
+- Renamed the advanced CTE SQL builder module from `Selecto.Builder.CTE` to
+  `Selecto.Builder.CteSql`.
+- Updated internal SQL compilation flow to call `Selecto.Builder.CteSql`.
+
+#### Compatibility
+- Kept `Selecto.Builder.Cte` as the compatibility/legacy API surface for
+  helper-style CTE functions.
+
+## V 0.3.0 - Security & Validation Overhaul
 ---------------------------------------------------------
 
 #### Removed (API Surface Cleanup)
