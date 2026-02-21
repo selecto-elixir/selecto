@@ -97,7 +97,7 @@ defmodule Selecto.Performance.HooksTest do
     assert_received {:hook_error, RuntimeError}
   end
 
-  test "cache mode currently raises due run_hooks argument order" do
+  test "cache hooks on miss then hit" do
     {:ok, _pid} = QueryCache.start_link(default_ttl: 60_000)
 
     Hooks.register(:on_cache_miss, fn ctx ->
@@ -110,7 +110,7 @@ defmodule Selecto.Performance.HooksTest do
       ctx
     end)
 
-    assert_raise FunctionClauseError, fn ->
+    first =
       Hooks.with_hooks(
         selecto(),
         fn _sel, _sql, _params ->
@@ -118,7 +118,21 @@ defmodule Selecto.Performance.HooksTest do
         end,
         cache: true
       )
-    end
+
+    assert {:ok, %{cached: "value"}} = first
+    assert_received {:cache, :miss, _qid1}
+
+    second =
+      Hooks.with_hooks(
+        selecto(),
+        fn _sel, _sql, _params ->
+          flunk("execution_fn should not run on cache hit")
+        end,
+        cache: true
+      )
+
+    assert {:ok, %{cached: "value"}} = second
+    assert_received {:cache, :hit, _qid2}
   end
 
   test "hook composition helpers" do

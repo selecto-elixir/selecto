@@ -40,12 +40,28 @@ defmodule Selecto.Performance.QueryAnalyzerTest do
              )
   end
 
-  test "repo-like atom connection can raise runtime error" do
+  test "repo-like atom connection is wrapped as explain failure" do
     repo_like = Map.put(selecto(), :postgrex_opts, :invalid_connection)
 
-    assert_raise RuntimeError, fn ->
-      QueryAnalyzer.analyze_query(repo_like)
-    end
+    assert {:error, {:explain_failed, %RuntimeError{}}} = QueryAnalyzer.analyze_query(repo_like)
+  end
+
+  test "pool connection failures are wrapped" do
+    pooled = Map.put(selecto(), :postgrex_opts, {:pool, :bad_pool_ref})
+    assert {:error, {:explain_failed, _}} = QueryAnalyzer.analyze_query(pooled)
+  end
+
+  test "table statistics handles mixed query structures and invalid connection" do
+    selecto_map = %{
+      source: %{source_table: "users"},
+      joins: %{posts: %{table: "posts"}},
+      postgrex_opts: []
+    }
+
+    assert {:ok, stats} = QueryAnalyzer.get_table_statistics(selecto_map)
+    assert Map.has_key?(stats, "users")
+    assert Map.has_key?(stats, "posts")
+    assert stats["users"][:error] == "Could not fetch statistics"
   end
 
   test "public wrappers propagate analysis errors" do
