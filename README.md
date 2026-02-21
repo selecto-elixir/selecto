@@ -214,6 +214,8 @@ recursive_case = selecto
 {recursive_cte, params} = Cte.build_recursive_cte_from_selecto("hierarchy", base_case, recursive_case)
 ```
 
+For advanced spec-based CTE SQL generation, use `Selecto.Builder.CteSql`.
+
 ## 📊 Advanced Selection Features
 
 ### Custom SQL with Field Validation
@@ -335,7 +337,7 @@ domain = %{
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.0"}
+    {:selecto, "~> 0.3.1"}
   ]
 end
 ```

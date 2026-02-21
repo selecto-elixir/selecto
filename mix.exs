@@ -4,7 +4,7 @@ defmodule Selecto.MixProject do
   def project do
     [
       app: :selecto,
-      version: "0.3.0",
+      version: "0.3.1",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -38,7 +38,7 @@ defmodule Selecto.MixProject do
           Core: [Selecto, Selecto.Types],
           Builders: [
             Selecto.Builder.Sql,
-            Selecto.Builder.Cte,
+            Selecto.Builder.CteSql,
             Selecto.Builder.Join
           ],
           "SQL Builders": [
