@@ -9,14 +9,15 @@ defmodule Selecto.Builder.Sql.WhereTest do
     source: %{
       source_table: "users",
       primary_key: :id,
-      fields: [:id, :name, :active, :count, :user_id],
+      fields: [:id, :name, :active, :count, :user_id, :created_at],
       redact_fields: [],
       columns: %{
         id: %{type: :integer},
         name: %{type: :string},
         active: %{type: :boolean},
         count: %{type: :integer},
-        user_id: %{type: :id}
+        user_id: %{type: :id},
+        created_at: %{type: :date}
       },
       associations: %{}
     },
@@ -53,7 +54,9 @@ defmodule Selecto.Builder.Sql.WhereTest do
 
   describe "logical combinations" do
     test "and/or/not render" do
-      {_joins, and_iodata, _} = Where.build(selecto(), {:and, [{"name", "John"}, {"active", true}]})
+      {_joins, and_iodata, _} =
+        Where.build(selecto(), {:and, [{"name", "John"}, {"active", true}]})
+
       {and_sql, and_params} = Params.finalize(and_iodata)
       assert and_sql =~ ~r/\sand\s/i
       assert and_params == ["John", true]
@@ -95,6 +98,24 @@ defmodule Selecto.Builder.Sql.WhereTest do
       assert nn_sql =~ ~r/is\s+not\s+null/i
       assert nn_params == []
     end
+
+    test "exists, raw_sql_filter, and empty conjunction" do
+      {_joins, exists_iodata, exists_params} =
+        Where.build(selecto(), {:exists, "SELECT 1", ["x"]})
+
+      {exists_sql, _} = Params.finalize(exists_iodata)
+      assert exists_sql =~ ~r/exists\s*\(/i
+      assert exists_params == ["x"]
+
+      {_joins, raw_iodata, raw_params} =
+        Where.build(selecto(), {:raw_sql_filter, [" users.id = 1 "]})
+
+      {raw_sql, _} = Params.finalize(raw_iodata)
+      assert String.contains?(raw_sql, "users.id = 1")
+      assert raw_params == []
+
+      assert {[], [], []} = Where.build(selecto(), {:and, []})
+    end
   end
 
   describe "type conversion" do
@@ -106,6 +127,55 @@ defmodule Selecto.Builder.Sql.WhereTest do
       {_joins, id_iodata, _} = Where.build(selecto(), {"user_id", {"=", "456"}})
       {_sql, id_params} = Params.finalize(id_iodata)
       assert id_params == [456]
+    end
+  end
+
+  describe "additional branches" do
+    test "datetime between uses half-open range" do
+      {_joins, iodata, _params} =
+        Where.build(
+          selecto(),
+          {"created_at", {:between, "2024-01-01", "2024-02-01"}}
+        )
+
+      {sql, params} = Params.finalize(iodata)
+      assert sql =~ ~r/>=\s*\$1/
+      assert sql =~ ~r/<\s*\$2/
+      assert length(params) == 2
+    end
+
+    test "alternate operators and string operators compile" do
+      {_joins, gt_iodata, _} = Where.build(selecto(), {"count", {:gt, 10}})
+      {gt_sql, gt_params} = Params.finalize(gt_iodata)
+      assert gt_sql =~ ~r/>\s*\$1/
+      assert gt_params == [10]
+
+      {_joins, eq_iodata, _} = Where.build(selecto(), {"count", {"=", "12"}})
+      {eq_sql, eq_params} = Params.finalize(eq_iodata)
+      assert eq_sql =~ ~r/=\s*\$1/
+      assert eq_params == [12]
+    end
+
+    test "mysql in/not_in paths" do
+      mysql_selecto = Map.put(selecto(), :adapter, Selecto.DB.MySQL)
+
+      {_joins, in_iodata, _} = Where.build(mysql_selecto, {"id", {:in, [1, 2]}})
+      {in_sql, _} = Params.finalize(in_iodata)
+      assert in_sql =~ ~r/\sin\s*\(/i
+
+      {_joins, not_in_iodata, _} = Where.build(mysql_selecto, {"id", {:not_in, [1, 2]}})
+      {not_in_sql, _} = Params.finalize(not_in_iodata)
+      assert not_in_sql =~ ~r/not\s+in\s*\(/i
+    end
+
+    test "unrecognized filters raise meaningful errors" do
+      assert_raise RuntimeError, ~r/Bucket ranges string was passed as a filter/, fn ->
+        Where.build(selecto(), "10-20,21+")
+      end
+
+      assert_raise RuntimeError, ~r/Unrecognized filter structure/, fn ->
+        Where.build(selecto(), %{bad: :shape})
+      end
     end
   end
 end
