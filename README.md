@@ -1,14 +1,30 @@
 # Selecto
 
-**Advanced Query Builder for Elixir with Enterprise-Grade Join Support**
+**Advanced Query Builder for Elixir (Alpha)**
 
-Selecto is a powerful, production-ready query building system that allows you to construct complex SQL queries within configured domains. It features comprehensive support for advanced join patterns, hierarchical relationships, OLAP dimensions, and Common Table Expressions (CTEs).
+> ⚠️ **Alpha Quality Software**
+>
+> `selecto` is currently alpha quality and under active development. Expect
+> breaking API changes, behavior changes, incomplete features, and potentially
+> severe bugs. Do not treat current releases as production-hardened without
+> your own validation, testing, and risk controls.
+
+Selecto is a query building system that allows you to construct complex SQL
+queries within configured domains. It supports advanced join patterns,
+hierarchical relationships, OLAP dimensions, and Common Table Expressions
+(CTEs).
 
 ## 📌 Release Status (0.3.x)
 
-- **Stable**: Core query building, join handling, CTE support, and standard filter/select/order flows.
-- **Experimental**: Advanced subfilter APIs (`Selecto.Subfilter.Parser`, `Selecto.Subfilter.Registry`, `Selecto.Subfilter.SQL`) remain available but are still being hardened for broad domain coverage.
-- **Not Included**: Schema/domain code generation and UI components are not part of `selecto` and are provided by companion packages (`selecto_mix`, `selecto_components`).
+- **Alpha**: Core query building, join handling, CTE support, and standard
+  filter/select/order flows are usable but not yet stable; breaking changes may
+  occur between minor releases.
+- **High Risk / Experimental**: Advanced subfilter APIs
+  (`Selecto.Subfilter.Parser`, `Selecto.Subfilter.Registry`,
+  `Selecto.Subfilter.SQL`) are still being hardened for broad domain coverage.
+- **Not Included**: Schema/domain code generation and UI components are not
+  part of `selecto` and are provided by companion packages (`selecto_mix`,
+  `selecto_components`).
 
 ## ⚠️ Known Limitations (Advanced Subfilters)
 
@@ -27,7 +43,7 @@ Selecto is a powerful, production-ready query building system that allows you to
 - **Complex Relationships**: Many-to-many joins with aggregation and faceted filtering
 - **CTE Support**: Both simple and recursive Common Table Expressions
 - **Domain Configuration**: Declarative schema definitions with automatic join resolution
-- **Production Ready**: Comprehensive test coverage (85%+) and battle-tested architecture
+- **Alpha Lifecycle**: Active development with frequent internal and API changes
 
 ## 📋 Quick Start
 
@@ -293,10 +309,13 @@ domain = %{
 
 ## 🧪 Testing and Quality
 
-- **81.52% Test Coverage**: Comprehensive test suite covering all advanced features
-- **Production Ready**: Battle-tested with complex real-world scenarios
-- **Safe Parameterization**: 100% parameterized queries prevent SQL injection
-- **Performance Optimized**: Efficient join ordering and dependency resolution
+- **Broad test coverage**: Includes unit/integration coverage for core paths and
+  many edge cases.
+- **Alpha caveat**: Passing tests do not guarantee production readiness.
+- **Major bugs still possible**: Validate behavior against your own schema,
+  workload, and safety requirements.
+- **Safe parameterization goals**: SQL generation is designed around
+  parameterized query construction.
 
 ## 📚 Documentation
 
@@ -329,14 +348,16 @@ Selecto has evolved through multiple development phases:
 - **Phase 2**: Hierarchical joins 
 - **Phase 3**: Many-to-many tagging
 - **Phase 4**: OLAP dimension optimization
-- **Phase 5**: Testing and documentation (81.52% coverage achieved)
+- **Phase 5**: Ongoing testing and documentation
 
-The codebase uses modern Elixir practices with comprehensive test coverage and is ready for production use.
+The codebase uses modern Elixir practices, but remains alpha software and is
+not presented as production-hardened.
 
 ## 📄 License
 
-[Add your license information here]
+[MIT](LICENSE)
 
 ---
 
-**Selecto** - From simple queries to complex analytics, Selecto handles your database relationships with enterprise-grade reliability.
+**Selecto** - From simple queries to complex analytics, Selecto helps model
+database relationships while the project continues to mature.

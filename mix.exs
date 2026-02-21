@@ -9,7 +9,7 @@ defmodule Selecto.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       name: "Selecto",
-      description: "A query builder",
+      description: "ALPHA: Query builder with breaking changes expected",
       package: package(),
 
       # Test coverage
