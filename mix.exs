@@ -10,12 +10,11 @@ defmodule Selecto.MixProject do
       deps: deps(),
       name: "Selecto",
       description: "A query builder",
-      licenses: "MIT",
       package: package(),
 
       # Test coverage
       test_coverage: [tool: ExCoveralls],
-      
+
       # Dialyzer configuration
       dialyzer: [
         plt_core_path: "priv/plts",
@@ -25,7 +24,7 @@ defmodule Selecto.MixProject do
         ignore_warnings: ".dialyzer_ignore.exs",
         list_unused_filters: true
       ],
-      
+
       # ExDoc configuration for better documentation
       docs: [
         main: "Selecto",
@@ -36,8 +35,8 @@ defmodule Selecto.MixProject do
           "guides/advanced_usage.md"
         ],
         groups_for_modules: [
-          "Core": [Selecto, Selecto.Types],
-          "Builders": [
+          Core: [Selecto, Selecto.Types],
+          Builders: [
             Selecto.Builder.Sql,
             Selecto.Builder.Cte,
             Selecto.Builder.Join
@@ -51,12 +50,12 @@ defmodule Selecto.MixProject do
             Selecto.Builder.Sql.Tagging,
             Selecto.Builder.Sql.Olap
           ],
-          "Schema": [
+          Schema: [
             Selecto.Schema,
             Selecto.Schema.Join,
             Selecto.Schema.Column
           ],
-          "Utilities": [
+          Utilities: [
             Selecto.SQL.Params,
             Selecto.DomainValidator,
             Selecto.Helpers
@@ -104,6 +103,15 @@ defmodule Selecto.MixProject do
 
   defp package() do
     [
+      files: [
+        "lib",
+        "mix.exs",
+        "README.md",
+        "LICENSE",
+        "CHANGELOG.md",
+        "guides",
+        ".formatter.exs"
+      ],
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/selecto-elixir/selecto"},
       source_url: "https://github.com/selecto-elixir/selecto"

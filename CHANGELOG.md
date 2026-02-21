@@ -4,6 +4,18 @@
 ## V 0.3.0 - Security & Validation Overhaul (Current)
 ---------------------------------------------------------
 
+#### Removed (API Surface Cleanup)
+- Removed unused modules from the published API surface:
+  - `Selecto.Connection`
+  - `Selecto.OptionProvider`
+  - `Selecto.QueryTimeoutMonitor`
+  - `Selecto.PhoenixHelpers`
+  - `Selecto.Performance.Optimizer`
+- Removed obsolete examples/tests tied to those modules.
+- Notes:
+  - `Selecto.AutoPivot`, `Selecto.Config.Overlay`, and `Selecto.Performance.Hooks` remain supported.
+  - Workspace runtime and test suites were revalidated after cleanup.
+
 ### PHASE 4: Domain Validation Layer Implementation
 
 #### Added
