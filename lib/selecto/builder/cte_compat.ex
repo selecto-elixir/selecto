@@ -2,7 +2,7 @@ defmodule Selecto.Builder.CteCompat do
   @moduledoc """
   Backward-compatible CTE helpers retained for legacy tests and integrations.
 
-  New code should prefer `Selecto.Builder.CTE`.
+  New code should prefer `Selecto.Builder.Cte`.
   """
 
   alias Selecto.Builder.Sql
@@ -19,7 +19,8 @@ defmodule Selecto.Builder.CteCompat do
   """
   def build_recursive_cte(name, base_sql, recursive_sql, base_params, recursive_params)
       when is_binary(name) do
-    {["RECURSIVE ", name, " AS (", base_sql, " UNION ALL ", recursive_sql, ")"], base_params ++ recursive_params}
+    {["RECURSIVE ", name, " AS (", base_sql, " UNION ALL ", recursive_sql, ")"],
+     base_params ++ recursive_params}
   end
 
   @doc """
@@ -33,11 +34,13 @@ defmodule Selecto.Builder.CteCompat do
   @doc """
   Build a recursive CTE definition from base and recursive Selecto query structs.
   """
-  def build_recursive_cte_from_selecto(name, base_selecto, recursive_selecto) when is_binary(name) do
+  def build_recursive_cte_from_selecto(name, base_selecto, recursive_selecto)
+      when is_binary(name) do
     {base_sql, _base_aliases, base_params} = Sql.build(base_selecto, [])
     {recursive_sql, _recursive_aliases, recursive_params} = Sql.build(recursive_selecto, [])
 
-    {["RECURSIVE ", name, " AS (", [base_sql], " UNION ALL ", [recursive_sql], ")"], base_params ++ recursive_params}
+    {["RECURSIVE ", name, " AS (", [base_sql], " UNION ALL ", [recursive_sql], ")"],
+     base_params ++ recursive_params}
   end
 
   @doc """
@@ -63,13 +66,15 @@ defmodule Selecto.Builder.CteCompat do
     parent_field = Map.get(opts, :parent_field, "parent_id")
     depth_limit = Map.get(opts, :depth_limit, 5)
 
-    base_sql = "SELECT #{id_field}, #{name_field}, #{parent_field}, 0 as level FROM #{source_table} WHERE #{parent_field} IS NULL"
+    base_sql =
+      "SELECT #{id_field}, #{name_field}, #{parent_field}, 0 as level FROM #{source_table} WHERE #{parent_field} IS NULL"
 
     recursive_sql =
       "SELECT c.#{id_field}, c.#{name_field}, c.#{parent_field}, h.level + 1 " <>
         "FROM #{source_table} c JOIN #{name} h ON c.#{parent_field} = h.#{id_field} WHERE h.level < $1"
 
-    {["RECURSIVE ", name, " AS (", [base_sql], " UNION ALL ", [recursive_sql], ")"], [depth_limit]}
+    {["RECURSIVE ", name, " AS (", [base_sql], " UNION ALL ", [recursive_sql], ")"],
+     [depth_limit]}
   end
 
   @doc """
