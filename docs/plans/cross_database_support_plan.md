@@ -44,6 +44,63 @@ Each adapter module should implement:
 - `supports?/1` for feature checks
 - `normalize_result/1` (or equivalent helper) to return `%{rows: rows, columns: cols}`
 
+## Extension Architecture (PostGIS and Similar Features)
+
+### Principles
+
+1. Keep adapters focused on database engines (PostgreSQL, MySQL, MSSQL, SQLite).
+2. Model database extensions (PostGIS, TimescaleDB-specific features, etc.) as optional extension packages.
+3. Keep core Selecto lightweight and avoid mandatory dependencies for extension-specific capabilities.
+
+### Core Extension API (proposed)
+
+Add an extension behavior in core (for example `Selecto.Extension`) with callbacks such as:
+
+- `name/0`
+- `supports_adapter?/1`
+- `capabilities/0`
+- `validate_config/1`
+- `compile_selector/3`
+- `compile_filter/3`
+- `normalize_param/2`
+
+### Configuration Shape (proposed)
+
+Allow extensions on `Selecto.configure/3`:
+
+```elixir
+selecto =
+  Selecto.configure(domain, conn,
+    adapter: Selecto.DB.PostgreSQL,
+    extensions: [SelectoPostGIS.Extension]
+  )
+```
+
+### Package Strategy
+
+1. Create `selecto_postgis` as a separate package.
+2. Keep PostGIS dependencies optional and isolated to that package.
+3. Expose helper constructors for geospatial selectors/filters while compiling through Selecto extension hooks.
+
+### Runtime Safety
+
+1. If adapter is not supported by an extension, return structured `unsupported_feature` errors.
+2. Optionally verify extension installation during initialization (for PostgreSQL: check `pg_extension` for `postgis`).
+3. Fail fast with adapter/feature metadata, never with malformed SQL.
+
+### Test Strategy for Extensions
+
+1. Core: unit tests for extension registration, dispatch, and error handling.
+2. Package: SQL compilation tests for geospatial operators and parameter encoding.
+3. Optional integration tests against a PostGIS-enabled PostgreSQL service.
+
+### Initial PostGIS Capability Set (recommended)
+
+1. Predicates: `ST_Intersects`, `ST_Contains`, `ST_Within`, `ST_DWithin`.
+2. Measurements: `ST_Distance`, `ST_Area`, `ST_Length`.
+3. Output helpers: `ST_AsText`, `ST_AsGeoJSON`.
+4. Input helpers: `ST_GeomFromText`, `ST_GeomFromGeoJSON`, SRID helpers.
+
 ## Implementation Phases
 
 ## Phase 0 - Baseline and Inventory
