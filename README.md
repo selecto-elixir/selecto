@@ -343,7 +343,7 @@ domain = %{
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.1"}
+    {:selecto, "~> 0.3.2"}
   ]
 end
 ```
