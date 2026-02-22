@@ -14,6 +14,12 @@ queries within configured domains. It supports advanced join patterns,
 hierarchical relationships, OLAP dimensions, and Common Table Expressions
 (CTEs).
 
+## 📘 Livebooks, Tutorials, and Demo
+
+- [selecto-elixir/selecto_livebooks](https://github.com/selecto-elixir/selecto_livebooks) contains a Livebook that walks through many Selecto query features.
+- [seeken/selecto_northwind](https://github.com/seeken/selecto_northwind) contains tutorials for building Selecto queries and workflows.
+- [testselecto.fly.dev](https://testselecto.fly.dev) runs the `selecto_test` app as a hosted Selecto demo.
+
 ## 📌 Release Status (0.3.x)
 
 - **Alpha**: Core query building, join handling, CTE support, and standard
