@@ -51,6 +51,17 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
 - **Domain Configuration**: Declarative schema definitions with automatic join resolution
 - **Alpha Lifecycle**: Active development with frequent internal and API changes
 
+## 🧭 Field Path Syntax (0.3.2+)
+
+Selecto examples and tests now standardize on dot notation for joined paths:
+
+- `customer.name`
+- `customer.region.name`
+- `items.product.category.name`
+
+Use this notation consistently across `select`, `filter`, `group_by`, and
+`order_by` field references.
+
 ## 📋 Quick Start
 
 ```elixir
@@ -106,8 +117,8 @@ selecto = Selecto.configure(domain, postgrex_connection)
 
 # Build queries with automatic join resolution
 result = selecto
-  |> Selecto.select(["id", "total", "customer[name]", "items[quantity]"])
-  |> Selecto.filter([{"total", {:gt, 100}}, {"customer[name]", {:like, "John%"}}])
+  |> Selecto.select(["id", "total", "customer.name", "items.quantity"])
+  |> Selecto.filter([{"total", {:gt, 100}}, {"customer.name", {:like, "John%"}}])
   |> Selecto.order_by(["created_at"])
   |> Selecto.execute()
 ```
@@ -190,7 +201,7 @@ joins: %{
 }
 
 # Automatically creates:
-# - Aggregated tag lists: string_agg(tags[name], ', ')
+# - Aggregated tag lists: string_agg(tags.name, ', ')
 # - Faceted filters for individual tag selection
 ```
 
@@ -230,7 +241,7 @@ For advanced spec-based CTE SQL generation, use `Selecto.Builder.CteSql`.
 # Safe custom SQL with automatic field validation
 selecto |> Selecto.select([
   {:custom_sql, "COALESCE({{customer_name}}, 'Unknown')", %{
-    customer_name: "customer[name]"
+    customer_name: "customer.name"
   }}
 ])
 ```
@@ -241,7 +252,7 @@ selecto |> Selecto.select([
 selecto |> Selecto.select([
   {:func, "count", ["*"]},
   {:func, "avg", ["total"]}, 
-  {:array, "product_names", ["items[product_name]"]},
+  {:array, "product_names", ["items.product_name"]},
   {:case, "status", %{
     "high_value" => [{"total", {:gt, 1000}}],
     "else" => [{:literal, "standard"}]
@@ -258,8 +269,8 @@ selecto |> Selecto.filter([
   {:and, [
     {"active", true},
     {:or, [
-      {"customer[region]", "West"},
-      {"customer[region]", "East"}
+      {"customer.region", "West"},
+      {"customer.region", "East"}
     ]}
   ]},
   {"total", {:between, 100, 1000}}

@@ -1,6 +1,24 @@
 
 # Selecto Library Changelog
 
+## V 0.3.2 - Path Syntax Consistency & Documentation Expansion
+---------------------------------------------------------
+
+#### Fixed
+- Standardized nested join field-path handling around dot notation for
+  consistency in schema join resolution and tests.
+
+#### Added
+- Expanded ecosystem references in the README for Livebooks, tutorials, and
+  hosted demo usage.
+- Added a cross-database support planning document (MySQL, MSSQL, SQLite).
+- Expanded cross-database planning docs with extension architecture guidance
+  and PostGIS considerations.
+- Added multi-tenant usage pattern documentation.
+
+#### Changed
+- Bumped package version metadata and README release references to `0.3.2`.
+
 ## V 0.3.1 - CTE Module Naming Compatibility
 ---------------------------------------------------------
 
