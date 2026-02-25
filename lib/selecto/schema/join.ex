@@ -341,7 +341,7 @@ defmodule Selecto.Schema.Join do
     from_field =
       case parent do
         :selecto_root -> "#{association.owner_key}"
-        _ -> "#{parent}[#{association.owner_key}]"
+        _ -> "#{parent}.#{association.owner_key}"
       end
 
     config =
@@ -355,11 +355,11 @@ defmodule Selecto.Schema.Join do
           %{
             name: name,
             ### concat_ws?
-            select: "#{association.field}[#{config.dimension}]",
+            select: "#{association.field}.#{config.dimension}",
             ### we will always get a tuple of select + group_by_filter_select here
             group_by_format: fn {a, _id}, _def -> a end,
             group_by_filter: from_field,
-            group_by_filter_select: ["#{association.field}[#{config.dimension}]", from_field]
+            group_by_filter_select: ["#{association.field}.#{config.dimension}", from_field]
           }
         )
       )
@@ -411,7 +411,7 @@ defmodule Selecto.Schema.Join do
           "#{id}_list",
           %{
             name: "#{name} List",
-            select: "string_agg(#{association.field}[#{tag_field}], ', ')",
+            select: "string_agg(#{association.field}.#{tag_field}, ', ')",
             group_by_format: fn {a, _id}, _def -> a end,
             # Aggregate fields typically aren't filterable
             filterable: false
@@ -517,7 +517,7 @@ defmodule Selecto.Schema.Join do
           "#{id}_display",
           %{
             name: "#{name}",
-            select: "#{association.field}[#{display_field}]",
+            select: "#{association.field}.#{display_field}",
             group_by_format: fn {a, _id}, _def -> a end,
             filterable: true,
             # Mark as dimension for special handling
@@ -864,7 +864,7 @@ defmodule Selecto.Schema.Join do
     # Build select clause that may require additional joins for normalized data
     # This is a simplified version - real implementation would coordinate with SQL builder
     case normalization_joins do
-      [] -> "#{field}[#{display_field}]"
+      [] -> "#{field}.#{display_field}"
       # Use the normalized table's field
       [%{alias: alias_name} | _] -> "#{alias_name}.#{display_field}"
       [%{table: table} | _] -> "#{table}.#{display_field}"

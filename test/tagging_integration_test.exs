@@ -147,7 +147,7 @@ defmodule Selecto.TaggingIntegrationTest do
       expected_columns = %{
         "tags_list" => %{
           name: "Tags List",
-          select: "string_agg(tags[name], ', ')",
+          select: "string_agg(tags.name, ', ')",
           group_by_format: fn {a, _id}, _def -> a end,
           filterable: false
         }
@@ -166,7 +166,7 @@ defmodule Selecto.TaggingIntegrationTest do
       # This simulates what the schema configuration creates
       expected_list_column = %{
         name: "Post Tags List",
-        select: "string_agg(#{join_id}[#{tag_field}], ', ')",
+        select: "string_agg(#{join_id}.#{tag_field}, ', ')",
         filterable: false
       }
       
