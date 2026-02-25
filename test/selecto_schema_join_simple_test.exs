@@ -126,7 +126,7 @@ defmodule Selecto.Schema.JoinSimpleTest do
       custom_columns = join.config.custom_columns
       assert Map.has_key?(custom_columns, "category")
       assert custom_columns["category"].name == "Category"
-      assert custom_columns["category"].select == "category[name]"
+      assert custom_columns["category"].select == "category.name"
       assert custom_columns["category"].group_by_filter == "category_id"
     end
 
@@ -254,7 +254,7 @@ defmodule Selecto.Schema.JoinSimpleTest do
       custom_columns = join.config.custom_columns
       assert Map.has_key?(custom_columns, "customer_display")
       assert custom_columns["customer_display"].is_dimension == true
-      assert custom_columns["customer_display"].select == "customer[full_name]"
+      assert custom_columns["customer_display"].select == "customer.full_name"
 
       # Check faceted filters
       custom_filters = join.config.custom_filters

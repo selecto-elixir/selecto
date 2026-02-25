@@ -107,7 +107,7 @@ defmodule Selecto.AdvancedJoinsEdgeCasesTest do
 
       sql = String.downcase(sql)
       assert String.contains?(sql, "left join customers")
-      assert String.contains?(sql, "customer[name]")
+      assert String.contains?(sql, "customer.name")
     end
 
     test "rejects malicious selector names" do

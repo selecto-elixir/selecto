@@ -37,8 +37,8 @@ select(selecto, fields) :: %Selecto{}
 
 **Field Types:**
 - `"field_name"` - Simple field selection
-- `"join[field]"` - Field from joined table
-- `"join[nested][field]"` - Field from nested joins
+- `"join.field"` - Field from joined table
+- `"join.nested.field"` - Field from nested joins
 - `{:func, "function_name", [args]}` - SQL function call
 - `{:literal, value}` - Literal value
 - `{:custom_sql, sql, field_map}` - Custom SQL with field validation
@@ -50,7 +50,7 @@ select(selecto, fields) :: %Selecto{}
 selecto
 |> Selecto.select([
   "id", 
-  "customer[name]",
+  "customer.name",
   {:func, "count", ["*"]},
   {:case, "status", %{"active" => [{:literal, true}], "else" => [{:literal, false}]}}
 ])
@@ -92,8 +92,8 @@ selecto
   {:and, [
     {"total", {:gt, 100}},
     {:or, [
-      {"customer[region]", "West"},
-      {"customer[type]", "premium"}
+      {"customer.region", "West"},
+      {"customer.type", "premium"}
     ]}
   ]},
   {"created_at", {:between, ~D[2024-01-01], ~D[2024-12-31]}}
@@ -115,7 +115,7 @@ group_by(selecto, fields) :: %Selecto{}
 **Example:**
 ```elixir
 selecto
-|> Selecto.group_by(["customer[region]", "product[category]"])
+|> Selecto.group_by(["customer.region", "product.category"])
 ```
 
 ### `Selecto.order_by/2`
@@ -140,7 +140,7 @@ order_by(selecto, fields) :: %Selecto{}
 ```elixir
 selecto
 |> Selecto.order_by([
-  "customer[name]",
+  "customer.name",
   {:desc, "created_at"},
   {:desc, {:func, "sum", ["total"]}}
 ])
@@ -308,7 +308,7 @@ joins: %{
 **Special Filtering:**
 ```elixir
 # Filter by any tag
-{"tags[name]", "programming"}
+{"tags.name", "programming"}
 
 # Filter by tag aggregation
 {"tags_filter", "elixir"}  # Has "elixir" tag
@@ -563,17 +563,17 @@ end
    |> Selecto.filter([
      {"date_range", {:between, start_date, end_date}},  # Selective date filter first
      {"status", "active"},                               # Then status
-     {"customer[type]", "premium"}                       # Finally join filters
+     {"customer.type", "premium"}                       # Finally join filters
    ])
    ```
 
 2. **Limit Join Depth**: Avoid excessive nested joins
    ```elixir
    # Good: Limited nesting
-   "customer[region][name]"
+   "customer.region.name"
    
    # Avoid: Deep nesting
-   "order[customer][company][region][country][continent][name]"
+   "order.customer.company.region.country.continent.name"
    ```
 
 3. **Use Appropriate Join Types**: 
