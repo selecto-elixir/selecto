@@ -17,7 +17,9 @@
 - Added multi-tenant usage pattern documentation.
 
 #### Changed
-- Bumped package version metadata and README release references to `0.3.2`.
+- Released package version `0.3.2`.
+- Updated documentation/repository references to the `selecto-elixir`
+  organization for published project docs.
 
 ## V 0.3.1 - CTE Module Naming Compatibility
 ---------------------------------------------------------
