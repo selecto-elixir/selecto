@@ -62,6 +62,69 @@ Selecto examples and tests now standardize on dot notation for joined paths:
 Use this notation consistently across `select`, `filter`, `group_by`, and
 `order_by` field references.
 
+## 🧩 Extensions (0.3.3+)
+
+Selecto supports package-provided extensions through the `:extensions` key in
+your domain config.
+
+### Install
+
+```elixir
+def deps do
+  [
+    {:selecto, "~> 0.3.3"},
+    # Optional extension package for spatial/map support
+    {:selecto_postgis, "~> 0.1"}
+  ]
+end
+```
+
+### Enable an extension in a domain
+
+```elixir
+domain = %{
+  name: "Places",
+  source: %{
+    source_table: "places",
+    primary_key: :id,
+    fields: [:id, :name, :location],
+    columns: %{location: %{type: :geometry}},
+    associations: %{}
+  },
+  schemas: %{},
+  joins: %{},
+  extensions: [
+    Selecto.Extensions.PostGIS
+  ]
+}
+```
+
+### Optional extension DSL in overlays
+
+```elixir
+defmodule MyApp.Overlays.PlacesOverlay do
+  use Selecto.Config.OverlayDSL,
+    extensions: [Selecto.Extensions.PostGIS]
+
+  defmap_view do
+    geometry_field("location")
+    popup_field("name")
+    default_zoom(11)
+    center({41.2, -87.6})
+  end
+end
+```
+
+### Authoring your own extension
+
+Implement `Selecto.Extension` and opt into only the callbacks you need:
+
+- `merge_domain/2` for domain defaults/metadata
+- `overlay_dsl_modules/1`, `overlay_setup/2`, `overlay_fragment/2` for overlay
+  DSL integration
+- `components_views/2` for `selecto_components` view registration
+- `updato_domain/2` for `selecto_updato` integration
+
 ## 📋 Quick Start
 
 ```elixir
@@ -354,9 +417,15 @@ domain = %{
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.2"}
+    {:selecto, "~> 0.3.3"}
   ]
 end
+```
+
+For local multi-repo development against vendored ecosystem packages, set:
+
+```bash
+SELECTO_ECOSYSTEM_USE_LOCAL=true
 ```
 
 ## 🤝 Contributing

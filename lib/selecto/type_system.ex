@@ -20,6 +20,7 @@ defmodule Selecto.TypeSystem do
   - **Array**: `{:array, inner_type}`
   - **Binary**: `:binary`, `:bytea`
   - **UUID**: `:uuid`, `:binary_id`
+  - **Spatial**: `:geometry`, `:geography`, `:point`, `:polygon`, etc.
 
   ## Usage
 
@@ -64,10 +65,28 @@ defmodule Selecto.TypeSystem do
           | :bytea
           | :uuid
           | :binary_id
+          | :geometry
+          | :geography
+          | :point
+          | :linestring
+          | :polygon
+          | :multipoint
+          | :multilinestring
+          | :multipolygon
+          | :geometrycollection
           | {:array, sql_type()}
 
   @type type_category ::
-          :numeric | :string | :boolean | :datetime | :json | :array | :binary | :uuid | :unknown
+          :numeric
+          | :string
+          | :boolean
+          | :datetime
+          | :json
+          | :array
+          | :binary
+          | :uuid
+          | :spatial
+          | :unknown
 
   # Type category mappings
   @numeric_types [:integer, :bigint, :smallint, :decimal, :float, :numeric]
@@ -76,6 +95,17 @@ defmodule Selecto.TypeSystem do
   @json_types [:json, :jsonb, :map]
   @binary_types [:binary, :bytea]
   @uuid_types [:uuid, :binary_id]
+  @spatial_types [
+    :geometry,
+    :geography,
+    :point,
+    :linestring,
+    :polygon,
+    :multipoint,
+    :multilinestring,
+    :multipolygon,
+    :geometrycollection
+  ]
 
   # Function return type mappings
   @aggregate_return_types %{
@@ -266,6 +296,7 @@ defmodule Selecto.TypeSystem do
   defp do_infer_type(_selecto, val) when is_integer(val), do: :integer
   defp do_infer_type(_selecto, val) when is_float(val), do: :decimal
   defp do_infer_type(_selecto, val) when is_boolean(val), do: :boolean
+
   defp do_infer_type(_selecto, val) when is_binary(val) and byte_size(val) == 36 do
     # Could be a UUID string
     if String.match?(val, ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) do
@@ -274,6 +305,7 @@ defmodule Selecto.TypeSystem do
       :string
     end
   end
+
   defp do_infer_type(_selecto, val) when is_binary(val), do: :string
   defp do_infer_type(_selecto, nil), do: :unknown
 
@@ -330,13 +362,19 @@ defmodule Selecto.TypeSystem do
   # Scalar functions with known return types
   defp do_infer_type(selecto, {func, args}) when is_atom(func) do
     case Map.get(@scalar_function_return_types, func) do
-      nil -> :unknown
+      nil ->
+        :unknown
+
       :preserve ->
         # Return type matches first argument type
         first_arg = if is_list(args), do: List.first(args), else: args
         do_infer_type(selecto, first_arg)
-      :dynamic -> :unknown
-      type -> type
+
+      :dynamic ->
+        :unknown
+
+      type ->
+        type
     end
   end
 
@@ -345,7 +383,8 @@ defmodule Selecto.TypeSystem do
   end
 
   # Multi-arg functions like coalesce, greatest, least
-  defp do_infer_type(selecto, {func, fields}) when func in [:coalesce, :greatest, :least] and is_list(fields) do
+  defp do_infer_type(selecto, {func, fields})
+       when func in [:coalesce, :greatest, :least] and is_list(fields) do
     # Return type is the common type of all arguments
     field_types = Enum.map(fields, &do_infer_type(selecto, &1))
     find_common_type(field_types)
@@ -361,7 +400,9 @@ defmodule Selecto.TypeSystem do
 
   defp do_infer_type(selecto, {:case, pairs, else_expr}) when is_list(pairs) do
     case pairs do
-      [{_condition, then_expr} | _] -> do_infer_type(selecto, then_expr)
+      [{_condition, then_expr} | _] ->
+        do_infer_type(selecto, then_expr)
+
       _ ->
         if else_expr, do: do_infer_type(selecto, else_expr), else: :unknown
     end
@@ -370,7 +411,9 @@ defmodule Selecto.TypeSystem do
   defp do_infer_type(selecto, {:case, %{} = case_spec}) do
     # New format CASE - check result_expressions
     case Map.get(case_spec, :when_clauses, []) do
-      [{_cond, result} | _] -> do_infer_type(selecto, result)
+      [{_cond, result} | _] ->
+        do_infer_type(selecto, result)
+
       _ ->
         case Map.get(case_spec, :else) do
           nil -> :unknown
@@ -379,7 +422,8 @@ defmodule Selecto.TypeSystem do
     end
   end
 
-  defp do_infer_type(selecto, {:case_when, case_spec}), do: do_infer_type(selecto, {:case, case_spec})
+  defp do_infer_type(selecto, {:case_when, case_spec}),
+    do: do_infer_type(selecto, {:case, case_spec})
 
   # Cast expression - return target type
   defp do_infer_type(_selecto, {:cast, _expr, target_type}) when is_atom(target_type) do
@@ -456,6 +500,7 @@ defmodule Selecto.TypeSystem do
   def type_category({:array, _}), do: :array
   def type_category(type) when type in @binary_types, do: :binary
   def type_category(type) when type in @uuid_types, do: :uuid
+  def type_category(type) when type in @spatial_types, do: :spatial
   def type_category(_), do: :unknown
 
   @doc """
@@ -465,6 +510,7 @@ defmodule Selecto.TypeSystem do
   def compatible?(:unknown, _), do: true
   def compatible?(_, :unknown), do: true
   def compatible?(type, type), do: true
+
   def compatible?(type1, type2) do
     cat1 = type_category(type1)
     cat2 = type_category(type2)
@@ -514,12 +560,19 @@ defmodule Selecto.TypeSystem do
 
   defp coerce_union(type1, type2) do
     cond do
-      type1 == type2 -> {:ok, type1}
-      type1 == :unknown -> {:ok, type2}
-      type2 == :unknown -> {:ok, type1}
+      type1 == type2 ->
+        {:ok, type1}
+
+      type1 == :unknown ->
+        {:ok, type2}
+
+      type2 == :unknown ->
+        {:ok, type1}
+
       compatible?(type1, type2) ->
         # Return the wider type
         {:ok, wider_type(type1, type2)}
+
       true ->
         {:error, "Incompatible types for UNION: #{type1} and #{type2}"}
     end
@@ -613,11 +666,25 @@ defmodule Selecto.TypeSystem do
   defp do_parse_sql_type("jsonb"), do: :jsonb
   defp do_parse_sql_type("bytea"), do: :bytea
   defp do_parse_sql_type("uuid"), do: :uuid
+  defp do_parse_sql_type("geometry"), do: :geometry
+  defp do_parse_sql_type("public.geometry"), do: :geometry
+  defp do_parse_sql_type("geography"), do: :geography
+  defp do_parse_sql_type("public.geography"), do: :geography
+  defp do_parse_sql_type("point"), do: :point
+  defp do_parse_sql_type("linestring"), do: :linestring
+  defp do_parse_sql_type("polygon"), do: :polygon
+  defp do_parse_sql_type("multipoint"), do: :multipoint
+  defp do_parse_sql_type("multilinestring"), do: :multilinestring
+  defp do_parse_sql_type("multipolygon"), do: :multipolygon
+  defp do_parse_sql_type("geometrycollection"), do: :geometrycollection
+  defp do_parse_sql_type("geometry(" <> _), do: :geometry
+  defp do_parse_sql_type("geography(" <> _), do: :geography
   defp do_parse_sql_type(_), do: :unknown
 
   # Find common type among a list of types
   defp find_common_type([]), do: :unknown
   defp find_common_type([type]), do: type
+
   defp find_common_type([type | rest]) do
     Enum.reduce(rest, type, fn t, acc ->
       if compatible?(acc, t) do

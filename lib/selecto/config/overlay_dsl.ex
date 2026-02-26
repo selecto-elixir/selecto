@@ -9,7 +9,9 @@ defmodule Selecto.Config.OverlayDSL do
   ## Usage
 
       defmodule MyApp.SelectoDomains.Overlays.ProductDomainOverlay do
-        use Selecto.Config.OverlayDSL
+        use Selecto.Config.OverlayDSL,
+          # Selecto.Extensions.PostGIS is provided by the :selecto_postgis package
+          extensions: [Selecto.Extensions.PostGIS]
 
         # Module attributes for common configurations
         @redactions [:internal_notes, :cost_price]
@@ -118,23 +120,60 @@ defmodule Selecto.Config.OverlayDSL do
       end
   """
 
-  defmacro __using__(_opts) do
+  defmacro __using__(opts) do
+    expanded_extensions =
+      opts
+      |> Keyword.get(:extensions, [])
+      |> List.wrap()
+      |> Enum.map(&expand_extension_spec(&1, __CALLER__))
+
+    extension_specs =
+      expanded_extensions
+      |> Selecto.Extensions.normalize_specs()
+
+    extension_imports =
+      extension_specs
+      |> Selecto.Extensions.overlay_dsl_modules()
+      |> Enum.map(fn extension_module ->
+        quote do
+          import unquote(extension_module)
+        end
+      end)
+
     quote do
       import Selecto.Config.OverlayDSL
+      unquote_splicing(extension_imports)
+
       Module.register_attribute(__MODULE__, :overlay_columns, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_filters, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_jsonb_schemas, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_extension_specs, accumulate: false)
       Module.register_attribute(__MODULE__, :redactions, accumulate: false)
+      @overlay_extension_specs unquote(Macro.escape(extension_specs))
+
+      Selecto.Extensions.setup_overlay_extensions(__MODULE__, @overlay_extension_specs)
 
       @before_compile Selecto.Config.OverlayDSL
     end
   end
+
+  defp expand_extension_spec({module_ast, extension_opts}, caller) when is_list(extension_opts) do
+    {Macro.expand(module_ast, caller), extension_opts}
+  end
+
+  defp expand_extension_spec(%{module: module_ast, opts: extension_opts}, caller)
+       when is_list(extension_opts) or is_map(extension_opts) do
+    %{module: Macro.expand(module_ast, caller), opts: extension_opts}
+  end
+
+  defp expand_extension_spec(module_ast, caller), do: Macro.expand(module_ast, caller)
 
   defmacro __before_compile__(env) do
     columns = Module.get_attribute(env.module, :overlay_columns) |> Enum.reverse()
     filters = Module.get_attribute(env.module, :overlay_filters) |> Enum.reverse()
     jsonb_schemas = Module.get_attribute(env.module, :overlay_jsonb_schemas) |> Enum.reverse()
     redactions = Module.get_attribute(env.module, :redactions) || []
+    extension_specs = Module.get_attribute(env.module, :overlay_extension_specs) || []
 
     columns_map =
       columns
@@ -151,14 +190,20 @@ defmodule Selecto.Config.OverlayDSL do
       |> Enum.map(fn {name, fields} -> {name, fields} end)
       |> Map.new()
 
+    extension_overlay = Selecto.Extensions.overlay_fragments(env.module, extension_specs)
+
+    overlay =
+      %{
+        columns: columns_map,
+        filters: filters_map,
+        jsonb_schemas: jsonb_schemas_map,
+        redact_fields: redactions
+      }
+      |> Selecto.Extensions.deep_merge(extension_overlay)
+
     quote do
       def overlay do
-        %{
-          columns: unquote(Macro.escape(columns_map)),
-          filters: unquote(Macro.escape(filters_map)),
-          jsonb_schemas: unquote(Macro.escape(jsonb_schemas_map)),
-          redact_fields: unquote(redactions)
-        }
+        unquote(Macro.escape(overlay))
       end
     end
   end
