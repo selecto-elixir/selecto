@@ -14,7 +14,8 @@
   extension DSL imports, compile-time setup callbacks, and overlay fragment
   merging.
 - Added extension callback surfaces for companion packages
-  (`components_views/2`, `updato_domain/2`) to support ecosystem integration.
+  (`components_views/2`, `updato_domain/2`, `ecto_type_to_selecto_type/2`) to
+  support ecosystem integration.
 - Added/expanded tests for extension normalization, callback dispatch, and
   overlay integration behavior.
 
@@ -22,6 +23,9 @@
 - Extracted PostGIS extension implementation from `selecto` core into the
   dedicated `selecto_postgis` package while keeping the runtime module contract
   as `Selecto.Extensions.PostGIS`.
+- Moved PostGIS-specific Ecto custom type mapping out of `Selecto.EctoAdapter`
+  core matching and into extension callback dispatch
+  (`ecto_type_to_selecto_type/2`).
 - Updated extension-related docs and examples to clarify package boundaries and
   extension loading patterns.
 

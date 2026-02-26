@@ -124,6 +124,8 @@ Implement `Selecto.Extension` and opt into only the callbacks you need:
   DSL integration
 - `components_views/2` for `selecto_components` view registration
 - `updato_domain/2` for `selecto_updato` integration
+- `ecto_type_to_selecto_type/2` for extension-driven Ecto schema type mapping
+  in `Selecto.EctoAdapter`
 
 ## 📋 Quick Start
 
