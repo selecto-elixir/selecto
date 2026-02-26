@@ -15,6 +15,25 @@ defmodule Selecto.ExtensionsTest do
     end
   end
 
+  defmodule EctoTypeMarkerExtension do
+    @behaviour Selecto.Extension
+
+    defmodule GeoCustomType do
+      @behaviour Ecto.Type
+
+      def type, do: :string
+      def cast(term), do: {:ok, term}
+      def load(term), do: {:ok, term}
+      def dump(term), do: {:ok, term}
+      def embed_as(_format), do: :self
+      def equal?(left, right), do: left == right
+    end
+
+    @impl true
+    def ecto_type_to_selecto_type(__MODULE__.GeoCustomType, _opts), do: :geometry
+    def ecto_type_to_selecto_type(_, _opts), do: nil
+  end
+
   defmodule OverlayMarkerExtension do
     @behaviour Selecto.Extension
 
@@ -59,6 +78,15 @@ defmodule Selecto.ExtensionsTest do
     defmarker("ok")
   end
 
+  defmodule EctoAdapterGeoSchema do
+    use Ecto.Schema
+
+    schema "geo_items" do
+      field(:name, :string)
+      field(:location, EctoTypeMarkerExtension.GeoCustomType)
+    end
+  end
+
   test "normalizes extension specs" do
     assert Selecto.Extensions.normalize_specs(nil) == []
 
@@ -97,6 +125,27 @@ defmodule Selecto.ExtensionsTest do
 
     assert [{:marker, OverlayMarkerExtension.MarkerView, "Marker View", %{drill_down: :detail}}] =
              views
+  end
+
+  test "ecto type callbacks are dispatched from extension specs" do
+    mapped =
+      Selecto.Extensions.ecto_type_to_selecto_type(
+        EctoTypeMarkerExtension.GeoCustomType,
+        [{EctoTypeMarkerExtension, []}]
+      )
+
+    assert mapped == :geometry
+  end
+
+  test "ecto adapter uses extension ecto type mappings" do
+    domain =
+      Selecto.EctoAdapter.schema_to_domain(
+        EctoAdapterGeoSchema,
+        extensions: [EctoTypeMarkerExtension]
+      )
+
+    assert domain.source.columns.location.type == :geometry
+    assert domain.source.columns.name.type == :string
   end
 
   defp base_domain do

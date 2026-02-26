@@ -59,10 +59,20 @@ defmodule Selecto.Extension do
   """
   @callback updato_domain(domain :: map(), opts :: extension_opts()) :: map()
 
+  @doc """
+  Map Ecto schema field types to Selecto types during `Selecto.EctoAdapter`
+  introspection.
+
+  Return `nil` to indicate no mapping for the provided type.
+  """
+  @callback ecto_type_to_selecto_type(ecto_type :: term(), opts :: extension_opts()) ::
+              atom() | nil
+
   @optional_callbacks merge_domain: 2,
                       overlay_dsl_modules: 1,
                       overlay_setup: 2,
                       overlay_fragment: 2,
                       components_views: 2,
-                      updato_domain: 2
+                      updato_domain: 2,
+                      ecto_type_to_selecto_type: 2
 end

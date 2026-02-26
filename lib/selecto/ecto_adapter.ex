@@ -36,6 +36,7 @@ defmodule Selecto.EctoAdapter do
   - `:redact_fields` - List of fields to exclude from queries (atoms) 
   - `:custom_columns` - Map of custom column definitions
   - `:custom_filters` - Map of custom filter definitions
+  - `:extensions` - List of Selecto extension specs applied during domain build
   - `:validate` - Whether to validate domain configuration (boolean)
   - `:name` - Custom name for the domain (string)
 
@@ -83,13 +84,13 @@ defmodule Selecto.EctoAdapter do
   A domain map compatible with `Selecto.configure/2`
   """
   def schema_to_domain(schema, opts \\ []) do
-    schema_info = introspect_schema(schema)
+    extensions = Keyword.get(opts, :extensions, [])
+    schema_info = introspect_schema(schema, extensions)
     joins_config = Keyword.get(opts, :joins, [])
     redact_fields = Keyword.get(opts, :redact_fields, [])
     custom_columns = Keyword.get(opts, :custom_columns, %{})
     custom_filters = Keyword.get(opts, :custom_filters, %{})
     domain_name = Keyword.get(opts, :name, schema_info.name)
-    extensions = Keyword.get(opts, :extensions, [])
 
     # Build the main source configuration
     source_config = %{
@@ -140,7 +141,7 @@ defmodule Selecto.EctoAdapter do
 
   ## Private functions
 
-  defp introspect_schema(schema) do
+  defp introspect_schema(schema, extensions \\ []) do
     # Get schema metadata
     source = schema.__schema__(:source)
     primary_key = List.first(schema.__schema__(:primary_key))
@@ -148,7 +149,7 @@ defmodule Selecto.EctoAdapter do
     associations = schema.__schema__(:associations)
 
     # Build column type information
-    columns = build_columns_map(schema, fields)
+    columns = build_columns_map(schema, fields, extensions)
 
     # Build associations information
     assoc_info = build_associations_info(schema, associations)
@@ -163,15 +164,19 @@ defmodule Selecto.EctoAdapter do
     }
   end
 
-  defp build_columns_map(schema, fields) do
+  defp build_columns_map(schema, fields, extensions) do
+    normalized_extensions = Selecto.Extensions.normalize_specs(extensions)
+
     Enum.into(fields, %{}, fn field ->
       ecto_type = schema.__schema__(:type, field)
-      selecto_type = ecto_type_to_selecto_type(ecto_type)
+      selecto_type = ecto_type_to_selecto_type(ecto_type, normalized_extensions)
       {field, %{type: selecto_type}}
     end)
   end
 
-  defp ecto_type_to_selecto_type(type) do
+  defp ecto_type_to_selecto_type(type, extensions) do
+    extension_type = Selecto.Extensions.ecto_type_to_selecto_type(type, extensions)
+
     cond do
       type == :id ->
         :integer
@@ -212,40 +217,19 @@ defmodule Selecto.EctoAdapter do
       type == :geography ->
         :geography
 
-      spatial_ecto_type?(type, "Elixir.Geo.PostGIS.Geometry") ->
-        :geometry
-
-      spatial_ecto_type?(type, "Elixir.Geo.PostGIS.Geography") ->
-        :geography
-
       match?({:array, _}, type) ->
-        {:array, ecto_type_to_selecto_type(elem(type, 1))}
+        {:array, ecto_type_to_selecto_type(elem(type, 1), extensions)}
 
       match?({Ecto.Enum, _}, type) ->
         :string
+
+      not is_nil(extension_type) ->
+        extension_type
 
       true ->
         :string
     end
   end
-
-  defp spatial_ecto_type?(type, module_name) when is_atom(type) do
-    Atom.to_string(type) == module_name
-  end
-
-  defp spatial_ecto_type?({:parameterized, module, _params}, module_name) when is_atom(module) do
-    Atom.to_string(module) == module_name
-  end
-
-  defp spatial_ecto_type?({:parameterized, {module, _conf}}, module_name) when is_atom(module) do
-    Atom.to_string(module) == module_name
-  end
-
-  defp spatial_ecto_type?({module, _opts}, module_name) when is_atom(module) do
-    Atom.to_string(module) == module_name
-  end
-
-  defp spatial_ecto_type?(_type, _module_name), do: false
 
   defp build_associations_info(schema, associations) do
     Enum.into(associations, %{}, fn assoc_name ->

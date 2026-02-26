@@ -134,6 +134,20 @@ defmodule Selecto.Extensions do
   end
 
   @doc """
+  Resolve extension-provided Ecto->Selecto type mapping.
+
+  Returns the first non-nil mapping from extensions in declaration order.
+  """
+  @spec ecto_type_to_selecto_type(term(), [normalized_spec()]) :: atom() | nil
+  def ecto_type_to_selecto_type(ecto_type, specs) when is_list(specs) do
+    Enum.find_value(specs, fn {module, opts} ->
+      maybe_invoke(module, :ecto_type_to_selecto_type, [ecto_type, opts], nil)
+    end)
+  end
+
+  def ecto_type_to_selecto_type(_ecto_type, _specs), do: nil
+
+  @doc """
   Deep-merge maps recursively.
   """
   @spec deep_merge(map(), map()) :: map()
