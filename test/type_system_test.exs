@@ -69,11 +69,13 @@ defmodule Selecto.TypeSystemTest do
     assert :string == TypeSystem.type_category(:varchar)
     assert :datetime == TypeSystem.type_category(:timestamp)
     assert :array == TypeSystem.type_category({:array, :integer})
+    assert :spatial == TypeSystem.type_category(:geometry)
     assert :unknown == TypeSystem.type_category(:something_else)
 
     assert TypeSystem.compatible?(:integer, :decimal)
     refute TypeSystem.compatible?(:integer, :string)
     assert TypeSystem.compatible?(:unknown, :string)
+    assert TypeSystem.compatible?(:geometry, :geography)
   end
 
   test "coercion rules for operations" do
@@ -94,6 +96,10 @@ defmodule Selecto.TypeSystemTest do
     assert :char == TypeSystem.parse_sql_type("character(10)")
     assert :time == TypeSystem.parse_sql_type("time with time zone")
     assert :time == TypeSystem.parse_sql_type("timestamp without time zone")
+    assert :geometry == TypeSystem.parse_sql_type("geometry(Point,4326)")
+    assert :geometry == TypeSystem.parse_sql_type("public.geometry")
+    assert :geography == TypeSystem.parse_sql_type("geography")
+    assert :geography == TypeSystem.parse_sql_type("public.geography")
     assert :unknown == TypeSystem.parse_sql_type("mystery")
   end
 end

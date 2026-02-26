@@ -217,6 +217,31 @@ defmodule Selecto.Output.TypeCoercionTest do
     end
   end
 
+  describe "coerce_value/4 - spatial coercion" do
+    test "parses geometry geojson strings to map" do
+      geojson = ~s({"type":"Point","coordinates":[1.0,2.0]})
+
+      assert TypeCoercion.coerce_value(geojson, "geometry") == %{
+               "type" => "Point",
+               "coordinates" => [1.0, 2.0]
+             }
+
+      assert TypeCoercion.coerce_value(geojson, "geometry(Point,4326)") == %{
+               "type" => "Point",
+               "coordinates" => [1.0, 2.0]
+             }
+    end
+
+    test "parses geography geojson strings to map" do
+      geojson = ~s({"type":"Point","coordinates":[-87.62,41.88]})
+
+      assert TypeCoercion.coerce_value(geojson, "geography") == %{
+               "type" => "Point",
+               "coordinates" => [-87.62, 41.88]
+             }
+    end
+  end
+
   describe "coerce_value/4 - custom coercion" do
     test "applies custom coercion function with arity 1" do
       custom = %{"mytype" => fn val -> String.upcase(val) end}
@@ -295,6 +320,9 @@ defmodule Selecto.Output.TypeCoercionTest do
       assert TypeCoercion.get_elixir_type("boolean") == :boolean
       assert TypeCoercion.get_elixir_type("jsonb") == :map
       assert TypeCoercion.get_elixir_type("timestamptz") == :utc_datetime
+      assert TypeCoercion.get_elixir_type("geometry") == :geometry
+      assert TypeCoercion.get_elixir_type("geometry(Point,4326)") == :geometry
+      assert TypeCoercion.get_elixir_type("geography(Point,4326)") == :geography
     end
 
     test "returns :unknown for unknown types" do

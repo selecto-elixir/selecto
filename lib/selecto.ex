@@ -1,6 +1,6 @@
 defmodule Selecto do
   @derive {Inspect, only: [:postgrex_opts, :adapter, :connection, :set]}
-  defstruct [:postgrex_opts, :adapter, :connection, :domain, :config, :set]
+  defstruct [:postgrex_opts, :adapter, :connection, :domain, :config, :set, :extensions]
 
   # import Selecto.Types - removed to avoid circular dependency
 
@@ -264,6 +264,9 @@ defmodule Selecto do
   @spec field(t(), Selecto.Types.field_name()) :: map() | nil
   defdelegate field(selecto, field_name), to: Selecto.Fields
 
+  @spec extensions(t()) :: [{module(), keyword()}]
+  defdelegate extensions(selecto), to: Selecto.Fields
+
   @doc """
   Enhanced field resolution with disambiguation and error handling.
 
@@ -309,7 +312,8 @@ defmodule Selecto do
       true = Selecto.types_compatible?(:integer, :decimal)
       false = Selecto.types_compatible?(:string, :boolean)
   """
-  @spec types_compatible?(Selecto.TypeSystem.sql_type(), Selecto.TypeSystem.sql_type()) :: boolean()
+  @spec types_compatible?(Selecto.TypeSystem.sql_type(), Selecto.TypeSystem.sql_type()) ::
+          boolean()
   defdelegate types_compatible?(type1, type2), to: Selecto.TypeSystem, as: :compatible?
 
   @doc """
@@ -399,7 +403,8 @@ defmodule Selecto do
         ])
   """
   @spec join_parameterize(t(), atom(), String.t() | atom(), keyword()) :: t()
-  defdelegate join_parameterize(selecto, join_id, parameter, options \\ []), to: Selecto.DynamicJoin
+  defdelegate join_parameterize(selecto, join_id, parameter, options \\ []),
+    to: Selecto.DynamicJoin
 
   @doc """
   Join with another Selecto query as a subquery.
@@ -433,7 +438,8 @@ defmodule Selecto do
       |> Selecto.select(["name", "customer_totals.total_spent"])
   """
   @spec join_subquery(t(), atom(), t(), keyword()) :: t()
-  defdelegate join_subquery(selecto, join_id, join_selecto, options \\ []), to: Selecto.DynamicJoin
+  defdelegate join_subquery(selecto, join_id, join_selecto, options \\ []),
+    to: Selecto.DynamicJoin
 
   @doc """
   Add a field to the Select list. Send in one or a list of field names or selectable tuples.
@@ -610,7 +616,7 @@ defmodule Selecto do
       end
   """
   @spec execute_with_metadata(Selecto.Types.t(), Selecto.Types.execute_options()) ::
-    {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
+          {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
   def execute_with_metadata(selecto, opts \\ []) do
     # Delegate to the extracted Executor module
     Selecto.Executor.execute_with_metadata(selecto, opts)
@@ -716,23 +722,25 @@ defmodule Selecto do
       name: alias_name,
       field: alias_name,
       requires_join: nil,
-      type: :text  # Default type for unnested array elements
+      # Default type for unnested array elements
+      type: :text
     }
 
     # Also add ordinality column if requested
-    columns_to_add = if ordinality do
-      %{
-        alias_name => unnested_column,
-        "#{alias_name}_ordinality" => %{
-          name: "#{alias_name}_ordinality",
-          field: "#{alias_name}_ordinality",
-          requires_join: nil,
-          type: :integer
+    columns_to_add =
+      if ordinality do
+        %{
+          alias_name => unnested_column,
+          "#{alias_name}_ordinality" => %{
+            name: "#{alias_name}_ordinality",
+            field: "#{alias_name}_ordinality",
+            requires_join: nil,
+            type: :integer
+          }
         }
-      }
-    else
-      %{alias_name => unnested_column}
-    end
+      else
+        %{alias_name => unnested_column}
+      end
 
     put_in(updated_selecto.config[:columns], Map.merge(current_columns, columns_to_add))
   end
@@ -881,6 +889,7 @@ defmodule Selecto do
         {join_type, subquery_builder_or_function, alias_name, opts} ->
           {join_type, subquery_builder_or_function, alias_name, opts}
       end
+
     # Handle different lateral source types
     lateral_spec =
       case subquery_builder_or_function do
@@ -1010,10 +1019,16 @@ defmodule Selecto do
       json_operations
       |> Enum.map(fn
         {operation, column, path_or_opts} when is_binary(path_or_opts) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path_or_opts)
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
+            path: path_or_opts
+          )
 
         {operation, column, path, opts} when is_binary(path) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, [path: path] ++ opts)
+          Selecto.Advanced.JsonOperations.create_json_operation(
+            operation,
+            column,
+            [path: path] ++ opts
+          )
 
         {operation, column, opts} when is_list(opts) ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column, opts)
@@ -1073,11 +1088,12 @@ defmodule Selecto do
       |> Enum.map(fn
         {operation, column, path_or_value, comparison} when is_binary(path_or_value) ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
-            path: path_or_value, comparison: comparison)
+            path: path_or_value,
+            comparison: comparison
+          )
 
         {operation, column, value} ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
-            value: value)
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, value: value)
 
         {operation, column} ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
@@ -1124,7 +1140,9 @@ defmodule Selecto do
       json_sorts
       |> Enum.map(fn
         {operation, column, path, direction} when is_binary(path) ->
-          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
+          spec =
+            Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
+
           {spec, direction || :asc}
 
         {operation, column, direction} when direction in [:asc, :desc] ->
@@ -1132,7 +1150,9 @@ defmodule Selecto do
           {spec, direction}
 
         {operation, column, path} when is_binary(path) ->
-          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
+          spec =
+            Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
+
           {spec, :asc}
 
         {operation, column} ->
@@ -1269,7 +1289,8 @@ defmodule Selecto do
     cte_spec =
       case {arg2, arg3, arg4, arg5} do
         # Format 1: (selecto, cte_name, base_fn, recursive_fn, opts)
-        {cte_name, base_fn, recursive_fn, opts} when is_function(base_fn) and is_function(recursive_fn) ->
+        {cte_name, base_fn, recursive_fn, opts}
+        when is_function(base_fn) and is_function(recursive_fn) ->
           # Inline spec format
           %{
             name: cte_name,
@@ -1471,14 +1492,23 @@ defmodule Selecto do
           Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg, column, opts)
 
         {:array_agg_distinct, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg_distinct, column, opts)
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_agg_distinct,
+            column,
+            opts
+          )
 
         {:string_agg, column, opts} ->
           Selecto.Advanced.ArrayOperations.create_array_operation(:string_agg, column, opts)
 
         # Size operations with dimension
         {:array_length, column, dimension, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(:array_length, column, dimension, opts)
+          Selecto.Advanced.ArrayOperations.create_array_size(
+            :array_length,
+            column,
+            dimension,
+            opts
+          )
 
         # Size operations without dimension
         {:cardinality, column, opts} ->
@@ -1493,19 +1523,39 @@ defmodule Selecto do
         # Array construction/manipulation with value
         {:array_append, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_append, column, spec_opts)
+
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_append,
+            column,
+            spec_opts
+          )
 
         {:array_prepend, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_prepend, column, spec_opts)
+
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_prepend,
+            column,
+            spec_opts
+          )
 
         {:array_remove, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_remove, column, spec_opts)
+
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_remove,
+            column,
+            spec_opts
+          )
 
         {:array_replace, column, old_value, new_value, opts} ->
           spec_opts = opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_replace, column, spec_opts)
+
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_replace,
+            column,
+            spec_opts
+          )
 
         {:array_cat, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
@@ -1513,20 +1563,40 @@ defmodule Selecto do
 
         {:array_position, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_position, column, spec_opts)
+
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_position,
+            column,
+            spec_opts
+          )
 
         {:array_positions, column, value, opts} ->
           spec_opts = Keyword.put(opts, :value, value)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_positions, column, spec_opts)
+
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_positions,
+            column,
+            spec_opts
+          )
 
         # Array transformation operations
         {:array_to_string, column, delimiter, opts} ->
           spec_opts = Keyword.put(opts, :value, delimiter)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_to_string, column, spec_opts)
+
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_to_string,
+            column,
+            spec_opts
+          )
 
         {:string_to_array, column, delimiter, opts} ->
           spec_opts = Keyword.put(opts, :value, delimiter)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:string_to_array, column, spec_opts)
+
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :string_to_array,
+            column,
+            spec_opts
+          )
 
         # Array constructor (no column)
         {:array, elements, opts} ->
@@ -1642,28 +1712,46 @@ defmodule Selecto do
       array_operations
       |> Enum.map(fn
         {:array_append, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_append, column,
-            Keyword.put(opts, :value, value))
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_append,
+            column,
+            Keyword.put(opts, :value, value)
+          )
 
         {:array_prepend, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_prepend, column,
-            Keyword.put(opts, :value, value))
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_prepend,
+            column,
+            Keyword.put(opts, :value, value)
+          )
 
         {:array_remove, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_remove, column,
-            Keyword.put(opts, :value, value))
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_remove,
+            column,
+            Keyword.put(opts, :value, value)
+          )
 
         {:array_replace, column, old_value, new_value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_replace, column,
-            opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value))
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_replace,
+            column,
+            opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value)
+          )
 
         {:array_to_string, column, delimiter, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_to_string, column,
-            Keyword.put(opts, :value, delimiter))
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :array_to_string,
+            column,
+            Keyword.put(opts, :value, delimiter)
+          )
 
         {:string_to_array, column, delimiter, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:string_to_array, column,
-            Keyword.put(opts, :value, delimiter))
+          Selecto.Advanced.ArrayOperations.create_array_operation(
+            :string_to_array,
+            column,
+            Keyword.put(opts, :value, delimiter)
+          )
 
         {operation, column, opts} when is_atom(operation) ->
           Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)

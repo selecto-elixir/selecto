@@ -42,6 +42,9 @@ defmodule Selecto.Configuration do
     pool_options = Keyword.get(opts, :pool_options, [])
     adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
 
+    extension_specs = Selecto.Extensions.from_domain(domain)
+    domain = Selecto.Extensions.merge_domain_extensions(domain, extension_specs)
+
     if validate? do
       Selecto.DomainValidator.validate_domain!(domain)
     end
@@ -65,24 +68,29 @@ defmodule Selecto.Configuration do
       end
 
     # Initialize connection based on adapter
-    connection = if adapter == Selecto.DB.PostgreSQL do
-      # Backward compatibility: use postgrex_opts directly for PostgreSQL
-      final_postgrex_opts
-    else
-      # For other adapters, let them handle their own connection
-      case adapter.connect(postgrex_opts) do
-        {:ok, conn} -> conn
-        {:error, reason} ->
-          raise "Failed to connect with adapter #{inspect(adapter)}: #{inspect(reason)}"
+    connection =
+      if adapter == Selecto.DB.PostgreSQL do
+        # Backward compatibility: use postgrex_opts directly for PostgreSQL
+        final_postgrex_opts
+      else
+        # For other adapters, let them handle their own connection
+        case adapter.connect(postgrex_opts) do
+          {:ok, conn} ->
+            conn
+
+          {:error, reason} ->
+            raise "Failed to connect with adapter #{inspect(adapter)}: #{inspect(reason)}"
+        end
       end
-    end
 
     %Selecto{
-      postgrex_opts: final_postgrex_opts,  # Keep for backward compatibility
+      # Keep for backward compatibility
+      postgrex_opts: final_postgrex_opts,
       adapter: adapter,
       connection: connection,
       domain: domain,
-      config: configure_domain(domain),
+      config: configure_domain(domain, extension_specs),
+      extensions: extension_specs,
       set: %{
         selected: Map.get(domain, :required_selected, []),
         filtered: [],
@@ -128,7 +136,14 @@ defmodule Selecto.Configuration do
   This is called internally during configure/3.
   """
   @spec configure_domain(Selecto.Types.domain()) :: Selecto.Types.processed_config()
-  def configure_domain(%{source: source} = domain) do
+  def configure_domain(%{source: _source} = domain) do
+    configure_domain(domain, Selecto.Extensions.from_domain(domain))
+  end
+
+  @spec configure_domain(Selecto.Types.domain(), [{module(), keyword()}]) ::
+          Selecto.Types.processed_config()
+  def configure_domain(%{source: source} = domain, extension_specs)
+      when is_list(extension_specs) do
     primary_key = source.primary_key
 
     fields =
@@ -168,7 +183,8 @@ defmodule Selecto.Configuration do
       columns: fields,
       joins: joins,
       filters: filters,
-      domain_data: Map.get(domain, :domain_data)
+      domain_data: Map.get(domain, :domain_data),
+      extensions: extension_specs
     }
   end
 end

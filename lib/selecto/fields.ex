@@ -87,6 +87,15 @@ defmodule Selecto.Fields do
   end
 
   @doc """
+  Get normalized extension specs loaded for this Selecto instance.
+  """
+  @spec extensions(Selecto.Types.t()) :: [{module(), keyword()}]
+  def extensions(selecto) do
+    Map.get(selecto, :extensions) || Map.get(selecto.config, :extensions, []) ||
+      Selecto.Extensions.from_source(selecto)
+  end
+
+  @doc """
   Get the current query set (selected fields, filters, etc.).
 
   ## Examples
@@ -117,18 +126,25 @@ defmodule Selecto.Fields do
 
     # Check both domain and config for custom columns
     # Try multiple possible field formats
-    custom_col = get_in(selecto.domain, [:custom_columns, field_str]) ||
-                 get_in(selecto.domain, [:custom_columns, to_string(field_name)]) ||
-                 # Also try with underscores if field contains them
-                 (if String.contains?(field_str, "_") do
-                   # Try camelCase version
-                   camel = field_str |> String.split("_") |> Enum.map(&String.capitalize/1) |> Enum.join("")
-                   snake_case = String.downcase(camel, :ascii) |> String.replace(~r/([A-Z])/, "_\\1") |> String.trim_leading("_")
-                   get_in(selecto.domain, [:custom_columns, camel]) ||
-                   get_in(selecto.domain, [:custom_columns, snake_case])
-                 end) ||
-                 get_in(selecto.config, [:domain_data, :custom_columns, field_str]) ||
-                 get_in(selecto.config, [:custom_columns, field_str])
+    # Also try with underscores if field contains them
+    custom_col =
+      get_in(selecto.domain, [:custom_columns, field_str]) ||
+        get_in(selecto.domain, [:custom_columns, to_string(field_name)]) ||
+        if String.contains?(field_str, "_") do
+          # Try camelCase version
+          camel =
+            field_str |> String.split("_") |> Enum.map(&String.capitalize/1) |> Enum.join("")
+
+          snake_case =
+            String.downcase(camel, :ascii)
+            |> String.replace(~r/([A-Z])/, "_\\1")
+            |> String.trim_leading("_")
+
+          get_in(selecto.domain, [:custom_columns, camel]) ||
+            get_in(selecto.domain, [:custom_columns, snake_case])
+        end ||
+        get_in(selecto.config, [:domain_data, :custom_columns, field_str]) ||
+        get_in(selecto.config, [:custom_columns, field_str])
 
     if custom_col do
       # Return the full custom column definition with all properties intact
@@ -147,24 +163,34 @@ defmodule Selecto.Fields do
 
         {:error, _} ->
           # Fallback to config columns
-          fallback_result = selecto.config.columns[field_name] || selecto.config.columns[String.to_atom(field_name)]
+          fallback_result =
+            selecto.config.columns[field_name] ||
+              selecto.config.columns[String.to_atom(field_name)]
 
           if fallback_result do
             # Ensure the field property contains the database field name
-            database_field = case Map.get(fallback_result, :field) do
-              atom when is_atom(atom) -> Atom.to_string(atom)
-              string when is_binary(string) -> string
-              nil ->
-                # Extract field name from colid if available, otherwise use the field parameter
-                case Map.get(fallback_result, :colid) do
-                  colid when is_binary(colid) ->
-                    case Regex.run(~r/\[([^\]]+)\]$/, colid) do
-                      [_, field_name] -> field_name
-                      nil -> Atom.to_string(field_name)
-                    end
-                  _ -> Atom.to_string(field_name)
-                end
-            end
+            database_field =
+              case Map.get(fallback_result, :field) do
+                atom when is_atom(atom) ->
+                  Atom.to_string(atom)
+
+                string when is_binary(string) ->
+                  string
+
+                nil ->
+                  # Extract field name from colid if available, otherwise use the field parameter
+                  case Map.get(fallback_result, :colid) do
+                    colid when is_binary(colid) ->
+                      case Regex.run(~r/\[([^\]]+)\]$/, colid) do
+                        [_, field_name] -> field_name
+                        nil -> Atom.to_string(field_name)
+                      end
+
+                    _ ->
+                      Atom.to_string(field_name)
+                  end
+              end
+
             Map.put(fallback_result, :field, database_field)
           else
             fallback_result
@@ -186,7 +212,7 @@ defmodule Selecto.Fields do
       end
   """
   @spec resolve_field(Selecto.Types.t(), Selecto.Types.field_name()) ::
-    {:ok, map()} | {:error, term()}
+          {:ok, map()} | {:error, term()}
   def resolve_field(selecto, field_name) do
     Selecto.FieldResolver.resolve_field(selecto, field_name)
   end

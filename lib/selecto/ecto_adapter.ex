@@ -1,13 +1,13 @@
 defmodule Selecto.EctoAdapter do
   @moduledoc """
   Ecto integration for Selecto query builder.
-  
+
   This module provides functionality to automatically configure Selecto
   from Ecto schemas and repositories, making it easy to integrate with
   Phoenix applications.
-  
+
   ## Usage
-  
+
       # Configure from Ecto repo and schema
       selecto = Selecto.EctoAdapter.configure(MyApp.Repo, MyApp.User)
       
@@ -23,24 +23,25 @@ defmodule Selecto.EctoAdapter do
 
   @doc """
   Configure Selecto from an Ecto repository and schema.
-  
+
   ## Parameters
-  
+
   - `repo` - The Ecto repository module (e.g., MyApp.Repo)
   - `schema` - The Ecto schema module to use as the source table
   - `opts` - Configuration options
-  
+
   ## Options
-  
+
   - `:joins` - List of associations to include as joins (atoms)
   - `:redact_fields` - List of fields to exclude from queries (atoms) 
   - `:custom_columns` - Map of custom column definitions
   - `:custom_filters` - Map of custom filter definitions
+  - `:extensions` - List of Selecto extension specs applied during domain build
   - `:validate` - Whether to validate domain configuration (boolean)
   - `:name` - Custom name for the domain (string)
-  
+
   ## Examples
-  
+
       # Basic usage
       selecto = Selecto.EctoAdapter.configure(MyApp.Repo, MyApp.User)
       
@@ -63,33 +64,34 @@ defmodule Selecto.EctoAdapter do
   def configure(repo, schema, opts \\ []) do
     domain = schema_to_domain(schema, opts)
     db_conn = get_db_connection(repo)
-    
+
     Selecto.configure(domain, db_conn, Keyword.take(opts, [:validate]))
   end
 
   @doc """
   Generate a Selecto domain configuration from an Ecto schema.
-  
+
   This function introspects the Ecto schema and generates a compatible
   domain map for Selecto configuration.
-  
+
   ## Parameters
-  
+
   - `schema` - The Ecto schema module
   - `opts` - Configuration options (see `configure/3`)
-  
+
   ## Returns
-  
+
   A domain map compatible with `Selecto.configure/2`
   """
   def schema_to_domain(schema, opts \\ []) do
-    schema_info = introspect_schema(schema)
+    extensions = Keyword.get(opts, :extensions, [])
+    schema_info = introspect_schema(schema, extensions)
     joins_config = Keyword.get(opts, :joins, [])
     redact_fields = Keyword.get(opts, :redact_fields, [])
     custom_columns = Keyword.get(opts, :custom_columns, %{})
     custom_filters = Keyword.get(opts, :custom_filters, %{})
     domain_name = Keyword.get(opts, :name, schema_info.name)
-    
+
     # Build the main source configuration
     source_config = %{
       source_table: schema_info.table,
@@ -99,26 +101,27 @@ defmodule Selecto.EctoAdapter do
       columns: schema_info.columns,
       associations: build_associations(schema_info.associations, joins_config)
     }
-    
+
     # Build schemas for joins
     schemas_config = build_join_schemas(schema_info.associations, joins_config)
-    
+
     # Build join configuration
     joins_definition = build_joins_definition(schema_info.associations, joins_config)
-    
+
     %{
       source: source_config,
       schemas: schemas_config,
       name: domain_name,
       custom_columns: custom_columns,
       filters: custom_filters,
-      joins: joins_definition
+      joins: joins_definition,
+      extensions: extensions
     }
   end
 
   @doc """
   Get available associations from an Ecto schema.
-  
+
   Returns a list of association names that can be used in joins.
   """
   def get_associations(schema) do
@@ -128,7 +131,7 @@ defmodule Selecto.EctoAdapter do
 
   @doc """
   Get field information from an Ecto schema.
-  
+
   Returns a map with field names and their types.
   """
   def get_fields(schema) do
@@ -138,19 +141,19 @@ defmodule Selecto.EctoAdapter do
 
   ## Private functions
 
-  defp introspect_schema(schema) do
+  defp introspect_schema(schema, extensions \\ []) do
     # Get schema metadata
     source = schema.__schema__(:source)
     primary_key = List.first(schema.__schema__(:primary_key))
     fields = schema.__schema__(:fields)
     associations = schema.__schema__(:associations)
-    
+
     # Build column type information
-    columns = build_columns_map(schema, fields)
-    
+    columns = build_columns_map(schema, fields, extensions)
+
     # Build associations information
     assoc_info = build_associations_info(schema, associations)
-    
+
     %{
       name: get_schema_name(schema),
       table: source,
@@ -161,37 +164,77 @@ defmodule Selecto.EctoAdapter do
     }
   end
 
-  defp build_columns_map(schema, fields) do
+  defp build_columns_map(schema, fields, extensions) do
+    normalized_extensions = Selecto.Extensions.normalize_specs(extensions)
+
     Enum.into(fields, %{}, fn field ->
       ecto_type = schema.__schema__(:type, field)
-      selecto_type = ecto_type_to_selecto_type(ecto_type)
+      selecto_type = ecto_type_to_selecto_type(ecto_type, normalized_extensions)
       {field, %{type: selecto_type}}
     end)
   end
 
-  defp ecto_type_to_selecto_type(type) do
-    case type do
-      :id -> :integer
-      :integer -> :integer
-      :string -> :string
-      :binary -> :string
-      :boolean -> :boolean
-      :decimal -> :decimal
-      :float -> :float
-      :date -> :date
-      :time -> :time
-      :utc_datetime -> :utc_datetime
-      :naive_datetime -> :naive_datetime
-      {:array, inner_type} -> {:array, ecto_type_to_selecto_type(inner_type)}
-      {Ecto.Enum, _} -> :string
-      _ -> :string  # Default fallback
+  defp ecto_type_to_selecto_type(type, extensions) do
+    extension_type = Selecto.Extensions.ecto_type_to_selecto_type(type, extensions)
+
+    cond do
+      type == :id ->
+        :integer
+
+      type == :integer ->
+        :integer
+
+      type == :string ->
+        :string
+
+      type == :binary ->
+        :string
+
+      type == :boolean ->
+        :boolean
+
+      type == :decimal ->
+        :decimal
+
+      type == :float ->
+        :float
+
+      type == :date ->
+        :date
+
+      type == :time ->
+        :time
+
+      type == :utc_datetime ->
+        :utc_datetime
+
+      type == :naive_datetime ->
+        :naive_datetime
+
+      type == :geometry ->
+        :geometry
+
+      type == :geography ->
+        :geography
+
+      match?({:array, _}, type) ->
+        {:array, ecto_type_to_selecto_type(elem(type, 1), extensions)}
+
+      match?({Ecto.Enum, _}, type) ->
+        :string
+
+      not is_nil(extension_type) ->
+        extension_type
+
+      true ->
+        :string
     end
   end
 
   defp build_associations_info(schema, associations) do
     Enum.into(associations, %{}, fn assoc_name ->
       assoc = schema.__schema__(:association, assoc_name)
-      
+
       assoc_info = %{
         queryable: get_association_schema(assoc),
         field: assoc_name,
@@ -199,7 +242,7 @@ defmodule Selecto.EctoAdapter do
         related_key: get_association_related_key(assoc),
         type: get_association_type(assoc)
       }
-      
+
       {assoc_name, assoc_info}
     end)
   end
@@ -208,6 +251,7 @@ defmodule Selecto.EctoAdapter do
   defp get_association_schema(%{through: [through, _]}), do: through
 
   defp get_association_owner_key(%{owner_key: owner_key}), do: owner_key
+
   defp get_association_owner_key(%{through: [_through_assoc, _]}) do
     # For has_through, the owner_key comes from the first association in the path
     # We'll use a default for now, but this might need schema introspection
@@ -218,6 +262,7 @@ defmodule Selecto.EctoAdapter do
   # Many-to-many associations don't expose `related_key` directly.
   # For introspection, fall back to the related schema primary key semantics.
   defp get_association_related_key(%{__struct__: Ecto.Association.ManyToMany}), do: :id
+
   defp get_association_related_key(%{through: [_, _related_assoc]}) do
     # For has_through, the related_key comes from the second association in the path
     # We'll use a default for now, but this might need schema introspection
@@ -250,10 +295,10 @@ defmodule Selecto.EctoAdapter do
     |> Enum.into(%{}, fn join ->
       assoc = associations_info[join]
       schema_atom = get_schema_atom(assoc.queryable)
-      
+
       # Introspect the associated schema
       assoc_schema_info = introspect_schema(assoc.queryable)
-      
+
       schema_config = %{
         source_table: assoc_schema_info.table,
         primary_key: assoc_schema_info.primary_key,
@@ -262,7 +307,7 @@ defmodule Selecto.EctoAdapter do
         columns: assoc_schema_info.columns,
         associations: %{}
       }
-      
+
       {schema_atom, schema_config}
     end)
   end
@@ -272,12 +317,12 @@ defmodule Selecto.EctoAdapter do
     |> Enum.filter(&Map.has_key?(associations_info, &1))
     |> Enum.into(%{}, fn join ->
       assoc = associations_info[join]
-      
+
       join_config = %{
         name: humanize_atom(join),
         type: association_to_join_type(assoc.type)
       }
-      
+
       {join, join_config}
     end)
   end
@@ -303,6 +348,7 @@ defmodule Selecto.EctoAdapter do
   defp get_schema_atom(schema) when is_atom(schema) do
     # Handle both module atoms and plain atoms
     schema_str = Atom.to_string(schema)
+
     if String.starts_with?(schema_str, "Elixir.") do
       # This is a module atom
       schema
@@ -315,7 +361,7 @@ defmodule Selecto.EctoAdapter do
       schema
     end
   end
-  
+
   defp get_schema_atom(schema) when is_binary(schema) do
     String.to_atom(schema)
   end
@@ -329,7 +375,7 @@ defmodule Selecto.EctoAdapter do
       _ -> false
     end
   end
-  
+
   defp is_ecto_schema?(_), do: false
 
   defp humanize_atom(atom) when is_atom(atom) do

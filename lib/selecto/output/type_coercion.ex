@@ -33,7 +33,8 @@ defmodule Selecto.Output.TypeCoercion do
     "varchar" => :string,
     "text" => :string,
     "char" => :string,
-    "bpchar" => :string,  # char(n)
+    # char(n)
+    "bpchar" => :string,
     "name" => :string,
 
     # Boolean
@@ -57,9 +58,12 @@ defmodule Selecto.Output.TypeCoercion do
 
     # Array types
     "array" => :list,
-    "_int4" => {:array, :integer},   # integer array
-    "_text" => {:array, :string},    # text array
-    "_varchar" => {:array, :string}, # varchar array
+    # integer array
+    "_int4" => {:array, :integer},
+    # text array
+    "_text" => {:array, :string},
+    # varchar array
+    "_varchar" => {:array, :string},
 
     # UUID
     "uuid" => :uuid,
@@ -70,6 +74,10 @@ defmodule Selecto.Output.TypeCoercion do
     "macaddr" => :string,
 
     # Geometric types (keep as string by default)
+    "geometry" => :geometry,
+    "geometry(" => :geometry,
+    "geography" => :geography,
+    "geography(" => :geography,
     "point" => :string,
     "line" => :string,
     "lseg" => :string,
@@ -111,9 +119,12 @@ defmodule Selecto.Output.TypeCoercion do
   # Use custom coercion if available
   def coerce_value(value, column_type, :custom, custom_coercions) when is_map(custom_coercions) do
     case Map.get(custom_coercions, column_type) do
-      nil -> coerce_value(value, column_type, :safe, %{})
+      nil ->
+        coerce_value(value, column_type, :safe, %{})
+
       coercion_func when is_function(coercion_func, 1) ->
         apply_coercion_safely(coercion_func, value, :safe)
+
       coercion_func when is_function(coercion_func, 2) ->
         apply_coercion_safely(fn v -> coercion_func.(v, column_type) end, value, :safe)
     end
@@ -121,7 +132,7 @@ defmodule Selecto.Output.TypeCoercion do
 
   # Main coercion logic
   def coerce_value(value, column_type, strategy, _custom_coercions) when column_type != nil do
-    target_type = Map.get(@type_mappings, column_type)
+    target_type = resolve_target_type(column_type)
     do_coerce_value(value, target_type, strategy)
   end
 
@@ -132,32 +143,46 @@ defmodule Selecto.Output.TypeCoercion do
 
   # Private coercion functions
 
-  defp do_coerce_value(value, nil, _strategy), do: value  # Unknown type, return as-is
+  # Unknown type, return as-is
+  defp do_coerce_value(value, nil, _strategy), do: value
 
   defp do_coerce_value(value, :integer, strategy) do
     case value do
-      val when is_integer(val) -> val
+      val when is_integer(val) ->
+        val
+
       val when is_binary(val) ->
         case Integer.parse(val) do
           {int, ""} -> int
           _ -> handle_coercion_error(value, :integer, strategy)
         end
+
       val when is_float(val) ->
-        if val == Float.round(val), do: round(val), else: handle_coercion_error(value, :integer, strategy)
-      _ -> handle_coercion_error(value, :integer, strategy)
+        if val == Float.round(val),
+          do: round(val),
+          else: handle_coercion_error(value, :integer, strategy)
+
+      _ ->
+        handle_coercion_error(value, :integer, strategy)
     end
   end
 
   defp do_coerce_value(value, :float, strategy) do
     case value do
-      val when is_float(val) -> val
-      val when is_integer(val) -> val * 1.0
+      val when is_float(val) ->
+        val
+
+      val when is_integer(val) ->
+        val * 1.0
+
       val when is_binary(val) ->
         case Float.parse(val) do
           {float, ""} -> float
           _ -> handle_coercion_error(value, :float, strategy)
         end
-      _ -> handle_coercion_error(value, :float, strategy)
+
+      _ ->
+        handle_coercion_error(value, :float, strategy)
     end
   end
 
@@ -177,6 +202,7 @@ defmodule Selecto.Output.TypeCoercion do
         rescue
           _ -> handle_coercion_error(value, :decimal, strategy)
         end
+
       {:error, _} ->
         # Decimal not available, keep as string
         to_string(value)
@@ -185,16 +211,24 @@ defmodule Selecto.Output.TypeCoercion do
 
   defp do_coerce_value(value, :boolean, strategy) do
     case value do
-      val when is_boolean(val) -> val
+      val when is_boolean(val) ->
+        val
+
       val when is_binary(val) ->
         case String.downcase(val) do
           v when v in ["true", "t", "yes", "y", "1", "on"] -> true
           v when v in ["false", "f", "no", "n", "0", "off"] -> false
           _ -> handle_coercion_error(value, :boolean, strategy)
         end
-      1 -> true
-      0 -> false
-      _ -> handle_coercion_error(value, :boolean, strategy)
+
+      1 ->
+        true
+
+      0 ->
+        false
+
+      _ ->
+        handle_coercion_error(value, :boolean, strategy)
     end
   end
 
@@ -204,74 +238,98 @@ defmodule Selecto.Output.TypeCoercion do
 
   defp do_coerce_value(value, :date, strategy) do
     case value do
-      %Date{} = val -> val
+      %Date{} = val ->
+        val
+
       val when is_binary(val) ->
         case Date.from_iso8601(val) do
           {:ok, date} -> date
           _ -> handle_coercion_error(value, :date, strategy)
         end
-      _ -> handle_coercion_error(value, :date, strategy)
+
+      _ ->
+        handle_coercion_error(value, :date, strategy)
     end
   end
 
   defp do_coerce_value(value, :time, strategy) do
     case value do
-      %Time{} = val -> val
+      %Time{} = val ->
+        val
+
       val when is_binary(val) ->
         case Time.from_iso8601(val) do
           {:ok, time} -> time
           _ -> handle_coercion_error(value, :time, strategy)
         end
-      _ -> handle_coercion_error(value, :time, strategy)
+
+      _ ->
+        handle_coercion_error(value, :time, strategy)
     end
   end
 
   defp do_coerce_value(value, :naive_datetime, strategy) do
     case value do
-      %NaiveDateTime{} = val -> val
+      %NaiveDateTime{} = val ->
+        val
+
       val when is_binary(val) ->
         case NaiveDateTime.from_iso8601(val) do
           {:ok, ndt} -> ndt
           _ -> handle_coercion_error(value, :naive_datetime, strategy)
         end
-      _ -> handle_coercion_error(value, :naive_datetime, strategy)
+
+      _ ->
+        handle_coercion_error(value, :naive_datetime, strategy)
     end
   end
 
   defp do_coerce_value(value, :utc_datetime, strategy) do
     case value do
-      %DateTime{} = val -> val
+      %DateTime{} = val ->
+        val
+
       val when is_binary(val) ->
         case DateTime.from_iso8601(val) do
           {:ok, dt, _offset} -> dt
           _ -> handle_coercion_error(value, :utc_datetime, strategy)
         end
-      _ -> handle_coercion_error(value, :utc_datetime, strategy)
+
+      _ ->
+        handle_coercion_error(value, :utc_datetime, strategy)
     end
   end
 
   defp do_coerce_value(value, :map, strategy) do
     case value do
-      val when is_map(val) -> val
+      val when is_map(val) ->
+        val
+
       val when is_binary(val) ->
         case Jason.decode(val) do
           {:ok, decoded} -> decoded
           _ -> handle_coercion_error(value, :map, strategy)
         end
-      _ -> handle_coercion_error(value, :map, strategy)
+
+      _ ->
+        handle_coercion_error(value, :map, strategy)
     end
   end
 
   defp do_coerce_value(value, :list, strategy) do
     case value do
-      val when is_list(val) -> val
+      val when is_list(val) ->
+        val
+
       val when is_binary(val) ->
         # Try to parse as JSON array
         case Jason.decode(val) do
           {:ok, decoded} when is_list(decoded) -> decoded
           _ -> handle_coercion_error(value, :list, strategy)
         end
-      _ -> handle_coercion_error(value, :list, strategy)
+
+      _ ->
+        handle_coercion_error(value, :list, strategy)
     end
   end
 
@@ -289,13 +347,23 @@ defmodule Selecto.Output.TypeCoercion do
         else
           handle_coercion_error(value, :uuid, strategy)
         end
-      _ -> handle_coercion_error(value, :uuid, strategy)
+
+      _ ->
+        handle_coercion_error(value, :uuid, strategy)
     end
   end
 
   defp do_coerce_value(value, :binary, _strategy) do
     # Keep binary data as-is
     value
+  end
+
+  defp do_coerce_value(value, :geometry, strategy) do
+    coerce_geojson_like(value, strategy)
+  end
+
+  defp do_coerce_value(value, :geography, strategy) do
+    coerce_geojson_like(value, strategy)
   end
 
   defp do_coerce_value(value, _unknown_type, _strategy) do
@@ -334,7 +402,8 @@ defmodule Selecto.Output.TypeCoercion do
 
       # UUID detection
       Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, value) ->
-        value  # Keep as string UUID
+        # Keep as string UUID
+        value
 
       # JSON object detection
       String.starts_with?(value, "{") and String.ends_with?(value, "}") ->
@@ -345,7 +414,8 @@ defmodule Selecto.Output.TypeCoercion do
         do_coerce_value(value, :list, strategy)
 
       # Default: keep as string
-      true -> value
+      true ->
+        value
     end
   end
 
@@ -370,7 +440,7 @@ defmodule Selecto.Output.TypeCoercion do
   Get the Elixir type for a given PostgreSQL column type.
   """
   def get_elixir_type(postgres_type) do
-    Map.get(@type_mappings, postgres_type, :unknown)
+    resolve_target_type(postgres_type) || :unknown
   end
 
   @doc """
@@ -392,5 +462,33 @@ defmodule Selecto.Output.TypeCoercion do
     |> Enum.map(fn {value, col_type} ->
       coerce_value(value, col_type, strategy, custom_coercions)
     end)
+  end
+
+  defp resolve_target_type(column_type) when is_binary(column_type) do
+    normalized = String.downcase(String.trim(column_type))
+
+    cond do
+      String.starts_with?(normalized, "geometry(") -> :geometry
+      String.starts_with?(normalized, "geography(") -> :geography
+      true -> Map.get(@type_mappings, normalized)
+    end
+  end
+
+  defp resolve_target_type(_), do: nil
+
+  defp coerce_geojson_like(value, strategy) do
+    case value do
+      map when is_map(map) ->
+        map
+
+      binary when is_binary(binary) ->
+        case Jason.decode(binary) do
+          {:ok, decoded} when is_map(decoded) -> decoded
+          _ -> handle_coercion_error(value, :geometry, strategy)
+        end
+
+      _ ->
+        handle_coercion_error(value, :geometry, strategy)
+    end
   end
 end

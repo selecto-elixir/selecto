@@ -1,6 +1,30 @@
 
 # Selecto Library Changelog
 
+## V 0.3.3 - Extension Framework & PostGIS Package Extraction
+---------------------------------------------------------
+
+#### Added
+- Added a first-class extension contract via `Selecto.Extension` and shared
+  extension dispatch/normalization helpers via `Selecto.Extensions`.
+- Added extension loading from domain definitions (`:extensions`) during
+  `Selecto.configure/3`, with normalized extension specs persisted on
+  `Selecto` and processed configuration state.
+- Added extension hook support to `Selecto.Config.OverlayDSL`, including
+  extension DSL imports, compile-time setup callbacks, and overlay fragment
+  merging.
+- Added extension callback surfaces for companion packages
+  (`components_views/2`, `updato_domain/2`) to support ecosystem integration.
+- Added/expanded tests for extension normalization, callback dispatch, and
+  overlay integration behavior.
+
+#### Changed
+- Extracted PostGIS extension implementation from `selecto` core into the
+  dedicated `selecto_postgis` package while keeping the runtime module contract
+  as `Selecto.Extensions.PostGIS`.
+- Updated extension-related docs and examples to clarify package boundaries and
+  extension loading patterns.
+
 ## V 0.3.2 - Path Syntax Consistency & Documentation Expansion
 ---------------------------------------------------------
 
