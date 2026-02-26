@@ -428,6 +428,8 @@ For local multi-repo development against vendored ecosystem packages, set:
 SELECTO_ECOSYSTEM_USE_LOCAL=true
 ```
 
+This is the shared local-development switch used across Selecto ecosystem repos.
+
 ## 🤝 Contributing
 
 Selecto has evolved through multiple development phases:
