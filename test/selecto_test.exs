@@ -110,18 +110,41 @@ defmodule SelectoTest do
     {:ok, pid} = Postgrex.start_link(postgrex_opts)
 
     # Create tables
-    Postgrex.query!(pid, "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT, age INTEGER, active BOOLEAN, created_at TIMESTAMP, updated_at TIMESTAMP)", [])
-    Postgrex.query!(pid, "CREATE TABLE posts (id SERIAL PRIMARY KEY, title TEXT, body TEXT, user_id INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)", [])
-    Postgrex.query!(pid, "CREATE TABLE post_tags (id SERIAL PRIMARY KEY, name TEXT, post_id INTEGER)", [])
+    Postgrex.query!(
+      pid,
+      "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT, age INTEGER, active BOOLEAN, created_at TIMESTAMP, updated_at TIMESTAMP)",
+      []
+    )
+
+    Postgrex.query!(
+      pid,
+      "CREATE TABLE posts (id SERIAL PRIMARY KEY, title TEXT, body TEXT, user_id INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)",
+      []
+    )
+
+    Postgrex.query!(
+      pid,
+      "CREATE TABLE post_tags (id SERIAL PRIMARY KEY, name TEXT, post_id INTEGER)",
+      []
+    )
 
     # Seed data
-    Postgrex.query!(pid, "INSERT INTO users (name, email, age, active) VALUES ('John Doe', 'john.doe@example.com', 30, true)", [])
-    Postgrex.query!(pid, "INSERT INTO posts (title, body, user_id) VALUES ('My first post', 'This is my first post.', 1)", [])
+    Postgrex.query!(
+      pid,
+      "INSERT INTO users (name, email, age, active) VALUES ('John Doe', 'john.doe@example.com', 30, true)",
+      []
+    )
+
+    Postgrex.query!(
+      pid,
+      "INSERT INTO posts (title, body, user_id) VALUES ('My first post', 'This is my first post.', 1)",
+      []
+    )
+
     Postgrex.query!(pid, "INSERT INTO post_tags (name, post_id) VALUES ('elixir', 1)", [])
 
-
     selecto = Selecto.configure(Schema.domain(), pid)
-    
+
     on_exit(fn ->
       Postgrex.query!(pid, "DROP TABLE users", [])
       Postgrex.query!(pid, "DROP TABLE posts", [])
@@ -148,9 +171,12 @@ defmodule SelectoTest do
   end
 
   test "select with filter", %{selecto: selecto} do
-    {rows, _, _} = Selecto.select(selecto, ["name", "email"]) |> Selecto.filter([{"name", "John Doe"}]) |> Selecto.execute()
+    {rows, _, _} =
+      Selecto.select(selecto, ["name", "email"])
+      |> Selecto.filter([{"name", "John Doe"}])
+      |> Selecto.execute()
+
     assert length(rows) == 1
     assert List.first(rows) == ["John Doe", "john.doe@example.com"]
   end
-
 end

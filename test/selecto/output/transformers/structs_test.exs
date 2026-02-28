@@ -20,6 +20,7 @@ defmodule Selecto.Output.Transformers.StructsTest do
         [1, "John Doe", "john@example.com"],
         [2, "Jane Smith", "jane@example.com"]
       ]
+
       columns = ["id", "name", "email"]
       aliases = %{}
 
@@ -27,7 +28,9 @@ defmodule Selecto.Output.Transformers.StructsTest do
 
       assert length(structs) == 2
       assert %SimpleUser{id: 1, name: "John Doe", email: "john@example.com"} = Enum.at(structs, 0)
-      assert %SimpleUser{id: 2, name: "Jane Smith", email: "jane@example.com"} = Enum.at(structs, 1)
+
+      assert %SimpleUser{id: 2, name: "Jane Smith", email: "jane@example.com"} =
+               Enum.at(structs, 1)
     end
 
     test "handles empty rows" do
@@ -71,7 +74,8 @@ defmodule Selecto.Output.Transformers.StructsTest do
           "fullName" => "name",
           "emailAddress" => "email"
         },
-        transform_keys: :none  # Already mapped to correct names
+        # Already mapped to correct names
+        transform_keys: :none
       ]
 
       {:ok, [struct]} = Structs.transform(rows, columns, %{}, SimpleUser, options)
@@ -100,26 +104,25 @@ defmodule Selecto.Output.Transformers.StructsTest do
   describe "type coercion" do
     test "coerces types when enabled" do
       rows = [["123", "John", "john@example.com"]]
-      columns = ["id", "name", "email"]  # Column names, not types
+      # Column names, not types
+      columns = ["id", "name", "email"]
 
-      {:ok, [struct]} = Structs.transform(rows, columns, %{}, SimpleUser, [
-        coerce_types: true
-      ])
+      {:ok, [struct]} = Structs.transform(rows, columns, %{}, SimpleUser, coerce_types: true)
 
       # Without column type information, we can't perform actual type coercion
       # but the transformer should still create the struct correctly
-      assert struct.id == "123"  # Will be coerced if we had type info
+      # Will be coerced if we had type info
+      assert struct.id == "123"
       assert struct.name == "John"
       assert struct.email == "john@example.com"
     end
 
     test "skips coercion when disabled" do
       rows = [["123", "John", "john@example.com"]]
-      columns = ["id", "name", "email"]  # Column names, not types
+      # Column names, not types
+      columns = ["id", "name", "email"]
 
-      {:ok, [struct]} = Structs.transform(rows, columns, %{}, SimpleUser, [
-        coerce_types: false
-      ])
+      {:ok, [struct]} = Structs.transform(rows, columns, %{}, SimpleUser, coerce_types: false)
 
       assert struct.id == "123"
       assert struct.name == "John"
@@ -129,7 +132,8 @@ defmodule Selecto.Output.Transformers.StructsTest do
 
   describe "default values" do
     test "applies default values for missing fields" do
-      rows = [[1, "John"]]  # Missing email
+      # Missing email
+      rows = [[1, "John"]]
       columns = ["id", "name"]
 
       options = [
@@ -143,7 +147,8 @@ defmodule Selecto.Output.Transformers.StructsTest do
 
   describe "validation" do
     test "validates required fields when enforce_keys is true" do
-      rows = [[1, "John", "john@example.com", nil]]  # All fields present
+      # All fields present
+      rows = [[1, "John", "john@example.com", nil]]
       columns = ["id", "name", "email", "created_at"]
 
       options = [
@@ -153,11 +158,14 @@ defmodule Selecto.Output.Transformers.StructsTest do
 
       # This should work because RequiredFieldsUser has all required fields
       {:ok, [struct]} = Structs.transform(rows, columns, %{}, RequiredFieldsUser, options)
-      assert %RequiredFieldsUser{id: 1, name: "John", email: "john@example.com", created_at: nil} = struct
+
+      assert %RequiredFieldsUser{id: 1, name: "John", email: "john@example.com", created_at: nil} =
+               struct
     end
 
     test "handles missing required fields gracefully" do
-      rows = [["John"]]  # Missing id which is required
+      # Missing id which is required
+      rows = [["John"]]
       columns = ["name"]
 
       options = [
@@ -184,7 +192,9 @@ defmodule Selecto.Output.Transformers.StructsTest do
       rows = [[1, "John"]]
       columns = ["id", "name"]
 
-      assert {:error, error} = Structs.transform(rows, columns, %{}, SimpleUser, [invalid_option: true])
+      assert {:error, error} =
+               Structs.transform(rows, columns, %{}, SimpleUser, invalid_option: true)
+
       assert %Error{type: :transformation_error} = error
     end
 
@@ -192,7 +202,9 @@ defmodule Selecto.Output.Transformers.StructsTest do
       rows = [[1, "John"]]
       columns = ["id", "name"]
 
-      assert {:error, error} = Structs.transform(rows, columns, %{}, SimpleUser, [transform_keys: :invalid])
+      assert {:error, error} =
+               Structs.transform(rows, columns, %{}, SimpleUser, transform_keys: :invalid)
+
       assert %Error{type: :transformation_error} = error
     end
 
@@ -212,6 +224,7 @@ defmodule Selecto.Output.Transformers.StructsTest do
         [1, "John", "john@example.com"],
         [2, "Jane", "jane@example.com"]
       ]
+
       columns = ["id", "name", "email"]
 
       {:ok, stream} = Structs.stream_transform(rows, columns, %{}, SimpleUser, [])

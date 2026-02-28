@@ -19,7 +19,9 @@ defmodule Selecto.Builder.CaseExpression do
   def build_case_expression(%Spec{} = spec, selecto \\ nil) do
     case spec.validated do
       false ->
-        raise ArgumentError, "CASE expression specification must be validated before SQL generation"
+        raise ArgumentError,
+              "CASE expression specification must be validated before SQL generation"
+
       true ->
         generate_case_sql(spec, selecto)
     end
@@ -36,6 +38,7 @@ defmodule Selecto.Builder.CaseExpression do
     case spec.alias do
       nil ->
         {case_sql, params}
+
       alias_name ->
         aliased_sql = [case_sql, " AS ", escape_identifier(alias_name)]
         {aliased_sql, params}
@@ -142,18 +145,21 @@ defmodule Selecto.Builder.CaseExpression do
 
   # Build ELSE clause
   defp build_else_clause(nil), do: {"", []}
+
   defp build_else_clause(else_value) do
     # For simple literals, just use parameter tokens directly
     else_clause = [" ELSE ", {:param, else_value}]
     {else_clause, [else_value]}
   end
 
-
   # Escape SQL identifier (table names, column names)
   defp escape_identifier(identifier) when is_binary(identifier) do
     # Simple identifier escaping - quote if contains special characters
     if String.match?(identifier, ~r/^[a-zA-Z_][a-zA-Z0-9_]*$/) and
-       not String.match?(identifier, ~r/^(select|from|where|order|group|having|with|case|when|then|else|end)$/i) do
+         not String.match?(
+           identifier,
+           ~r/^(select|from|where|order|group|having|with|case|when|then|else|end)$/i
+         ) do
       identifier
     else
       "\"#{String.replace(identifier, "\"", "\"\"")}\""

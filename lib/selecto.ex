@@ -477,6 +477,45 @@ defmodule Selecto do
   defdelegate filter(selecto, filters_or_filter), to: Selecto.Query
 
   @doc """
+  Append filters explicitly to the pre-pivot filter list.
+
+  These filters stay attached to the original root side when using `pivot/3`.
+  """
+  @spec pre_pivot_filter(t(), [Selecto.Types.filter()]) :: t()
+  @spec pre_pivot_filter(t(), Selecto.Types.filter()) :: t()
+  defdelegate pre_pivot_filter(selecto, filters_or_filter), to: Selecto.Query
+
+  @doc """
+  Append filters explicitly to the post-pivot filter list.
+
+  These filters apply to the pivoted target root.
+  """
+  @spec post_pivot_filter(t(), [Selecto.Types.filter()]) :: t()
+  @spec post_pivot_filter(t(), Selecto.Types.filter()) :: t()
+  defdelegate post_pivot_filter(selecto, filters_or_filter), to: Selecto.Query
+
+  @doc """
+  Read pre-pivot filters from the query set (`set.filtered`).
+  """
+  @spec pre_pivot_filters(t()) :: [Selecto.Types.filter()]
+  defdelegate pre_pivot_filters(selecto), to: Selecto.Query
+
+  @doc """
+  Read post-pivot filters from the query set (`set.post_pivot_filters`).
+  """
+  @spec post_pivot_filters(t()) :: [Selecto.Types.filter()]
+  defdelegate post_pivot_filters(selecto), to: Selecto.Query
+
+  @doc """
+  Return query filters from legacy and current filter buckets.
+
+  Options:
+  - `:include_post_pivot` (default: `true`)
+  """
+  @spec query_filters(t(), keyword()) :: [Selecto.Types.filter()]
+  defdelegate query_filters(selecto, opts \\ []), to: Selecto.Query
+
+  @doc """
   Add to the Order By clause.
   """
   @spec order_by(t(), [Selecto.Types.order_spec()]) :: t()
@@ -672,9 +711,37 @@ defmodule Selecto do
 
   @doc """
   Generate SQL without executing - useful for debugging and caching.
+
+  Supports optional readability controls:
+  - `pretty: true`
+  - `highlight: :ansi | :markdown`
   """
   @spec to_sql(t(), keyword()) :: {String.t(), list()}
   defdelegate to_sql(selecto, opts \\ []), to: Selecto.Query
+
+  @doc """
+  Format SQL output for readability.
+  """
+  @spec format_sql(String.t(), keyword()) :: String.t()
+  defdelegate format_sql(sql, opts \\ []), to: Selecto.SQL.Formatter, as: :format
+
+  @doc """
+  Apply optional highlighting to SQL (`:ansi` or `:markdown`).
+  """
+  @spec highlight_sql(String.t(), :ansi | :markdown | nil) :: String.t()
+  defdelegate highlight_sql(sql, style), to: Selecto.SQL.Formatter, as: :highlight
+
+  @doc """
+  Run EXPLAIN for a query and return plan details.
+  """
+  @spec explain(t(), keyword()) :: {:ok, map()} | {:error, Selecto.Error.t()}
+  defdelegate explain(selecto, opts \\ []), to: Selecto.Diagnostics
+
+  @doc """
+  Run EXPLAIN ANALYZE for a query and return plan details.
+  """
+  @spec explain_analyze(t(), keyword()) :: {:ok, map()} | {:error, Selecto.Error.t()}
+  defdelegate explain_analyze(selecto, opts \\ []), to: Selecto.Diagnostics
 
   @doc """
   Add a window function to the query.

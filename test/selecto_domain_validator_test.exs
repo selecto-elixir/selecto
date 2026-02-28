@@ -54,7 +54,7 @@ defmodule Selecto.DomainValidatorTest do
         joins: %{}
       }
 
-      assert {:error, [{:missing_required_keys, [:source, :schemas]}]} = 
+      assert {:error, [{:missing_required_keys, [:source, :schemas]}]} =
                DomainValidator.validate_domain(invalid_domain)
     end
 
@@ -79,11 +79,14 @@ defmodule Selecto.DomainValidatorTest do
       }
 
       assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
-      assert Enum.any?(errors, fn 
-        {:schema_missing_keys, {:posts, missing_keys}} -> 
-          [:primary_key, :fields, :columns] -- missing_keys == []
-        _ -> false
-      end)
+
+      assert Enum.any?(errors, fn
+               {:schema_missing_keys, {:posts, missing_keys}} ->
+                 [:primary_key, :fields, :columns] -- missing_keys == []
+
+               _ ->
+                 false
+             end)
     end
 
     test "validates schema fields have column definitions" do
@@ -118,7 +121,8 @@ defmodule Selecto.DomainValidatorTest do
           columns: %{id: %{type: :integer}},
           associations: %{
             posts: %{
-              queryable: :nonexistent_schema,  # Invalid reference
+              # Invalid reference
+              queryable: :nonexistent_schema,
               field: :posts,
               owner_key: :id,
               related_key: :user_id
@@ -131,16 +135,17 @@ defmodule Selecto.DomainValidatorTest do
       }
 
       assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
-      assert Enum.any?(errors, fn 
-        {:association_invalid_queryable, {:source, :posts, :nonexistent_schema}} -> true
-        _ -> false
-      end)
+
+      assert Enum.any?(errors, fn
+               {:association_invalid_queryable, {:source, :posts, :nonexistent_schema}} -> true
+               _ -> false
+             end)
     end
 
     test "validates join references existing associations" do
       invalid_domain = %{
         source: %{
-          source_table: "users", 
+          source_table: "users",
           primary_key: :id,
           fields: [:id],
           redact_fields: [],
@@ -149,15 +154,17 @@ defmodule Selecto.DomainValidatorTest do
         },
         schemas: %{},
         joins: %{
-          nonexistent_association: %{type: :left, name: "nonexistent_association"}  # No such association
+          # No such association
+          nonexistent_association: %{type: :left, name: "nonexistent_association"}
         }
       }
 
       assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
-      assert Enum.any?(errors, fn 
-        {:join_missing_association, {:selecto_root, :nonexistent_association}} -> true
-        _ -> false
-      end)
+
+      assert Enum.any?(errors, fn
+               {:join_missing_association, {:selecto_root, :nonexistent_association}} -> true
+               _ -> false
+             end)
     end
 
     test "detects simple join dependency cycle" do
@@ -170,7 +177,12 @@ defmodule Selecto.DomainValidatorTest do
           redact_fields: [],
           columns: %{id: %{type: :integer}},
           associations: %{
-            comments: %{queryable: :comments, field: :comments, owner_key: :id, related_key: :post_id}
+            comments: %{
+              queryable: :comments,
+              field: :comments,
+              owner_key: :id,
+              related_key: :post_id
+            }
           }
         },
         schemas: %{
@@ -181,17 +193,27 @@ defmodule Selecto.DomainValidatorTest do
             redact_fields: [],
             columns: %{id: %{type: :integer}, post_id: %{type: :integer}},
             associations: %{
-              parent_post: %{queryable: :posts, field: :post, owner_key: :post_id, related_key: :id}
+              parent_post: %{
+                queryable: :posts,
+                field: :post,
+                owner_key: :post_id,
+                related_key: :id
+              }
             }
           },
           posts: %{
-            source_table: "posts",  
+            source_table: "posts",
             primary_key: :id,
             fields: [:id],
             redact_fields: [],
             columns: %{id: %{type: :integer}},
             associations: %{
-              comments: %{queryable: :comments, field: :comments, owner_key: :id, related_key: :post_id}
+              comments: %{
+                queryable: :comments,
+                field: :comments,
+                owner_key: :id,
+                related_key: :post_id
+              }
             }
           }
         },
@@ -201,10 +223,11 @@ defmodule Selecto.DomainValidatorTest do
             name: "comments",
             joins: %{
               parent_post: %{
-                type: :left, 
+                type: :left,
                 name: "parent_post",
                 joins: %{
-                  comments: %{type: :left, name: "nested_comments"}  # This creates the cycle: comments -> parent_post -> comments
+                  # This creates the cycle: comments -> parent_post -> comments
+                  comments: %{type: :left, name: "nested_comments"}
                 }
               }
             }
@@ -214,10 +237,11 @@ defmodule Selecto.DomainValidatorTest do
       }
 
       assert {:error, errors} = DomainValidator.validate_domain(cyclic_domain)
-      assert Enum.any?(errors, fn 
-        {:join_cycle_detected, _cycle} -> true
-        _ -> false
-      end)
+
+      assert Enum.any?(errors, fn
+               {:join_cycle_detected, _cycle} -> true
+               _ -> false
+             end)
     end
 
     test "validates dimension join type has required dimension key" do
@@ -229,7 +253,12 @@ defmodule Selecto.DomainValidatorTest do
           redact_fields: [],
           columns: %{id: %{type: :integer}, customer_id: %{type: :integer}},
           associations: %{
-            customer: %{queryable: :customers, field: :customer, owner_key: :customer_id, related_key: :id}
+            customer: %{
+              queryable: :customers,
+              field: :customer,
+              owner_key: :customer_id,
+              related_key: :id
+            }
           }
         },
         schemas: %{
@@ -253,10 +282,11 @@ defmodule Selecto.DomainValidatorTest do
       }
 
       assert {:error, errors} = DomainValidator.validate_domain(dimension_domain)
-      assert Enum.any?(errors, fn 
-        {:advanced_join_missing_key, {:customer, :dimension, _message}} -> true
-        _ -> false
-      end)
+
+      assert Enum.any?(errors, fn
+               {:advanced_join_missing_key, {:customer, :dimension, _message}} -> true
+               _ -> false
+             end)
     end
 
     test "validates hierarchical closure table join has required keys" do
@@ -268,7 +298,12 @@ defmodule Selecto.DomainValidatorTest do
           redact_fields: [],
           columns: %{id: %{type: :integer}, parent_id: %{type: :integer}},
           associations: %{
-            parent: %{queryable: :categories, field: :parent, owner_key: :parent_id, related_key: :id}
+            parent: %{
+              queryable: :categories,
+              field: :parent,
+              owner_key: :parent_id,
+              related_key: :id
+            }
           }
         },
         schemas: %{
@@ -277,7 +312,11 @@ defmodule Selecto.DomainValidatorTest do
             primary_key: :id,
             fields: [:id, :parent_id, :name],
             redact_fields: [],
-            columns: %{id: %{type: :integer}, parent_id: %{type: :integer}, name: %{type: :string}},
+            columns: %{
+              id: %{type: :integer},
+              parent_id: %{type: :integer},
+              name: %{type: :string}
+            },
             associations: %{}
           }
         },
@@ -293,11 +332,15 @@ defmodule Selecto.DomainValidatorTest do
       }
 
       assert {:error, errors} = DomainValidator.validate_domain(hierarchical_domain)
-      assert Enum.any?(errors, fn 
-        {:advanced_join_missing_key, {:parent, missing_keys, _message}} when is_list(missing_keys) -> 
-          [:closure_table, :ancestor_field, :descendant_field] -- missing_keys == []
-        _ -> false
-      end)
+
+      assert Enum.any?(errors, fn
+               {:advanced_join_missing_key, {:parent, missing_keys, _message}}
+               when is_list(missing_keys) ->
+                 [:closure_table, :ancestor_field, :descendant_field] -- missing_keys == []
+
+               _ ->
+                 false
+             end)
     end
 
     test "validates snowflake dimension has normalization joins" do
@@ -309,7 +352,12 @@ defmodule Selecto.DomainValidatorTest do
           redact_fields: [],
           columns: %{id: %{type: :integer}, product_id: %{type: :integer}},
           associations: %{
-            product: %{queryable: :products, field: :product, owner_key: :product_id, related_key: :id}
+            product: %{
+              queryable: :products,
+              field: :product,
+              owner_key: :product_id,
+              related_key: :id
+            }
           }
         },
         schemas: %{
@@ -318,14 +366,19 @@ defmodule Selecto.DomainValidatorTest do
             primary_key: :id,
             fields: [:id, :name, :category_id],
             redact_fields: [],
-            columns: %{id: %{type: :integer}, name: %{type: :string}, category_id: %{type: :integer}},
+            columns: %{
+              id: %{type: :integer},
+              name: %{type: :string},
+              category_id: %{type: :integer}
+            },
             associations: %{}
           }
         },
         joins: %{
           product: %{
             type: :snowflake_dimension,
-            normalization_joins: [],  # Empty list should trigger validation error
+            # Empty list should trigger validation error
+            normalization_joins: [],
             name: "product"
           }
         },
@@ -333,18 +386,20 @@ defmodule Selecto.DomainValidatorTest do
       }
 
       assert {:error, errors} = DomainValidator.validate_domain(snowflake_domain)
-      assert Enum.any?(errors, fn 
-        {:advanced_join_missing_key, {:product, :normalization_joins, _message}} -> true
-        _ -> false
-      end)
+
+      assert Enum.any?(errors, fn
+               {:advanced_join_missing_key, {:product, :normalization_joins, _message}} -> true
+               _ -> false
+             end)
     end
   end
 
   describe "validate_domain!/1" do
     test "raises ValidationError on invalid domain" do
-      invalid_domain = %{
-        # Missing required keys
-      }
+      invalid_domain =
+        %{
+          # Missing required keys
+        }
 
       assert_raise ValidationError, ~r/Missing required domain keys/, fn ->
         DomainValidator.validate_domain!(invalid_domain)
@@ -379,25 +434,29 @@ defmodule Selecto.DomainValidatorTest do
       ]
 
       formatted = DomainValidator.format_errors(errors)
-      
+
       assert formatted =~ "Missing required domain keys: source, schemas"
       assert formatted =~ "Join dependency cycle detected: a -> b -> c -> a"
-      assert formatted =~ "Association 'posts' in schema 'source' references invalid queryable 'nonexistent'"
+
+      assert formatted =~
+               "Association 'posts' in schema 'source' references invalid queryable 'nonexistent'"
     end
   end
 
   describe "integration with Selecto.configure/3" do
     test "validates domain when validate: true option is passed" do
-      invalid_domain = %{}  # Missing required keys
-      
+      # Missing required keys
+      invalid_domain = %{}
+
       assert_raise ValidationError, fn ->
         Selecto.configure(invalid_domain, :mock_connection, validate: true)
       end
     end
 
     test "skips validation when validate: false or not specified" do
-      invalid_domain = %{}  # Missing required keys - but validation is skipped
-      
+      # Missing required keys - but validation is skipped
+      invalid_domain = %{}
+
       # This should not raise a ValidationError, but will likely fail later during configure_domain
       # with a different error type (like FunctionClauseError)
       assert_raise FunctionClauseError, fn ->

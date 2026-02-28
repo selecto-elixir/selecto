@@ -87,12 +87,12 @@ defmodule Selecto.SelectionShape do
     if tuple_container?(node) do
       maybe_parse_container(selecto, :tuple, Tuple.to_list(node), state, allow_subselect?)
     else
-      parse_leaf(node, state)
+      parse_leaf(selecto, node, state)
     end
   end
 
-  defp parse_node(_selecto, node, state, _allow_subselect?) do
-    parse_leaf(node, state)
+  defp parse_node(selecto, node, state, _allow_subselect?) do
+    parse_leaf(selecto, node, state)
   end
 
   defp maybe_parse_container(selecto, kind, children, state, allow_subselect?) do
@@ -119,10 +119,64 @@ defmodule Selecto.SelectionShape do
     {{:container, kind, child_nodes}, final_state}
   end
 
-  defp parse_leaf(selector, state) do
+  defp parse_leaf(selecto, selector, state) do
+    selector = maybe_expand_computed_alias(selecto, selector)
     index = length(state.selected)
     next_state = %{state | selected: state.selected ++ [selector]}
     {{:leaf, index}, next_state}
+  end
+
+  defp maybe_expand_computed_alias(selecto, selector) when is_binary(selector) do
+    case Selecto.field(selecto, selector) do
+      %{} ->
+        selector
+
+      _ ->
+        case resolve_json_alias(selecto, selector) do
+          {:ok, expanded} -> expanded
+          :error -> selector
+        end
+    end
+  end
+
+  defp maybe_expand_computed_alias(_selecto, selector), do: selector
+
+  defp resolve_json_alias(selecto, alias_name) do
+    with specs when is_list(specs) <- Map.get(selecto.set, :json_selects, []),
+         %{} = spec <- Enum.find(specs, &(Map.get(&1, :alias) == alias_name)),
+         operation
+         when operation in [
+                :json_extract,
+                :json_extract_text,
+                :json_extract_path,
+                :json_extract_path_text
+              ] <- Map.get(spec, :operation),
+         column when is_binary(column) <- Map.get(spec, :column),
+         path when is_binary(path) <- Map.get(spec, :path),
+         {:ok, dot_path} <- json_path_to_dot_path(path) do
+      {:ok, {:field, "#{column}.#{dot_path}", alias_name}}
+    else
+      _ -> :error
+    end
+  end
+
+  defp json_path_to_dot_path(path) when is_binary(path) do
+    normalized =
+      path
+      |> String.trim()
+      |> String.trim_leading("$.")
+      |> String.trim_leading(".")
+
+    cond do
+      normalized == "" ->
+        :error
+
+      String.contains?(normalized, "[") ->
+        :error
+
+      true ->
+        {:ok, normalized}
+    end
   end
 
   defp build_subselect_node(selecto, kind, children, state) do

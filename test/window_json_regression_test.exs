@@ -5,7 +5,7 @@ defmodule Selecto.WindowJsonRegressionTest do
     use Ecto.Schema
 
     schema "tags" do
-      field :name, :string
+      field(:name, :string)
     end
   end
 
@@ -13,8 +13,8 @@ defmodule Selecto.WindowJsonRegressionTest do
     use Ecto.Schema
 
     schema "products" do
-      field :name, :string
-      many_to_many :tags, EctoAdapterTag, join_through: "product_tags"
+      field(:name, :string)
+      many_to_many(:tags, EctoAdapterTag, join_through: "product_tags")
     end
   end
 
@@ -127,7 +127,12 @@ defmodule Selecto.WindowJsonRegressionTest do
           customer_id: %{type: :integer}
         },
         associations: %{
-          customer: %{field: :customer, queryable: :customers, owner_key: :customer_id, related_key: :id}
+          customer: %{
+            field: :customer,
+            queryable: :customers,
+            owner_key: :customer_id,
+            related_key: :id
+          }
         }
       },
       schemas: %{
@@ -211,7 +216,10 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ "metadata ->> 'price_band' AS \"price_band\""
     assert sql =~ "metadata -> 'warehouse' ->> 'zone' AS \"warehouse_zone\""
     assert sql =~ "metadata @> '{\"price_band\":\"premium\"}'"
-    assert sql =~ "where (( selecto_root.active = $1 ) and ( metadata @> '{\"price_band\":\"premium\"}' ))"
+
+    assert sql =~
+             "where (( selecto_root.active = $1 ) and ( metadata @> '{\"price_band\":\"premium\"}' ))"
+
     assert sql =~ "order by selecto_root.price desc, metadata -> 'warehouse' ->> 'zone' asc"
   end
 
@@ -229,7 +237,10 @@ defmodule Selecto.WindowJsonRegressionTest do
     sql = normalize_sql(sql)
 
     assert params == [true]
-    assert sql =~ "from products selecto_root CROSS JOIN LATERAL UNNEST(\"selecto_root\".\"tags\") AS product_tag"
+
+    assert sql =~
+             "from products selecto_root CROSS JOIN LATERAL UNNEST(\"selecto_root\".\"tags\") AS product_tag"
+
     assert sql =~ "where (( selecto_root.active = $1 ))"
   end
 
@@ -262,18 +273,25 @@ defmodule Selecto.WindowJsonRegressionTest do
     sql = normalize_sql(sql)
 
     assert params == []
-    assert sql =~ "WITH status_labels (\"status\", \"status_label\") AS (VALUES ('processing', 'In Progress'), ('shipped', 'In Transit'), ('delivered', 'Completed'))"
-    assert sql =~ "from orders selecto_root left join status_labels status_labels on status_labels.status = selecto_root.status"
+
+    assert sql =~
+             "WITH status_labels (\"status\", \"status_label\") AS (VALUES ('processing', 'In Progress'), ('shipped', 'In Transit'), ('delivered', 'Completed'))"
+
+    assert sql =~
+             "from orders selecto_root left join status_labels status_labels on status_labels.status = selecto_root.status"
   end
 
   test "join_subquery injects parameterized subquery and preserves params" do
     high_value_delivered_orders =
       Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
       |> Selecto.select(["customer_id", "order_number", "total"])
-      |> Selecto.filter({:and, [
-        {"status", "delivered"},
-        {"total", {:>, 1000}}
-      ]})
+      |> Selecto.filter(
+        {:and,
+         [
+           {"status", "delivered"},
+           {"total", {:>, 1000}}
+         ]}
+      )
 
     query =
       Selecto.configure(customer_domain(), :mock_connection, validate: false)
@@ -281,7 +299,12 @@ defmodule Selecto.WindowJsonRegressionTest do
         type: :inner,
         on: [%{left: "id", right: "customer_id"}]
       )
-      |> Selecto.select(["name", "tier", "high_value_delivered.order_number", "high_value_delivered.total"])
+      |> Selecto.select([
+        "name",
+        "tier",
+        "high_value_delivered.order_number",
+        "high_value_delivered.total"
+      ])
       |> Selecto.limit(5)
 
     {sql, params} = Selecto.to_sql(query)
@@ -306,25 +329,41 @@ defmodule Selecto.WindowJsonRegressionTest do
     sql = normalize_sql(sql)
 
     assert params == []
-    assert sql =~ "select selecto_root.order_number, \"customer:alias_a\".name, \"customer:alias_b\".tier"
-    assert sql =~ "left join customers \"customer:alias_a\" on \"customer:alias_a\".id = selecto_root.customer_id"
-    assert sql =~ "left join customers \"customer:alias_b\" on \"customer:alias_b\".id = selecto_root.customer_id"
+
+    assert sql =~
+             "select selecto_root.order_number, \"customer:alias_a\".name, \"customer:alias_b\".tier"
+
+    assert sql =~
+             "left join customers \"customer:alias_a\" on \"customer:alias_a\".id = selecto_root.customer_id"
+
+    assert sql =~
+             "left join customers \"customer:alias_b\" on \"customer:alias_b\".id = selecto_root.customer_id"
   end
 
   test "join_parameterize applies parameter filters in join ON clause" do
     query =
-      Selecto.configure(order_domain_with_customer_join_filter(), :mock_connection, validate: false)
+      Selecto.configure(order_domain_with_customer_join_filter(), :mock_connection,
+        validate: false
+      )
       |> Selecto.join_parameterize(:customer, "tier_premium", tier: "premium")
       |> Selecto.join_parameterize(:customer, "tier_standard", tier: "standard")
-      |> Selecto.select(["order_number", "customer:tier_premium.name", "customer:tier_standard.name"])
+      |> Selecto.select([
+        "order_number",
+        "customer:tier_premium.name",
+        "customer:tier_standard.name"
+      ])
       |> Selecto.limit(3)
 
     {sql, params} = Selecto.to_sql(query)
     sql = normalize_sql(sql)
 
     assert params == ["premium", "standard"]
-    assert sql =~ "left join customers \"customer:tier_premium\" on \"customer:tier_premium\".id = selecto_root.customer_id and \"customer:tier_premium\".tier = $1"
-    assert sql =~ "left join customers \"customer:tier_standard\" on \"customer:tier_standard\".id = selecto_root.customer_id and \"customer:tier_standard\".tier = $2"
+
+    assert sql =~
+             "left join customers \"customer:tier_premium\" on \"customer:tier_premium\".id = selecto_root.customer_id and \"customer:tier_premium\".tier = $1"
+
+    assert sql =~
+             "left join customers \"customer:tier_standard\" on \"customer:tier_standard\".id = selecto_root.customer_id and \"customer:tier_standard\".tier = $2"
   end
 
   test "dynamic custom join can join non-association table with dot-notation fields" do
@@ -342,10 +381,13 @@ defmodule Selecto.WindowJsonRegressionTest do
         }
       )
       |> Selecto.select(["name", "reviews.rating", "reviews.title", "reviews.helpful_count"])
-      |> Selecto.filter({:and, [
-        {"active", true},
-        {"reviews.rating", {:>=, 4}}
-      ]})
+      |> Selecto.filter(
+        {:and,
+         [
+           {"active", true},
+           {"reviews.rating", {:>=, 4}}
+         ]}
+      )
       |> Selecto.order_by({"reviews.rating", :desc})
       |> Selecto.limit(10)
 
@@ -353,7 +395,10 @@ defmodule Selecto.WindowJsonRegressionTest do
     sql = normalize_sql(sql)
 
     assert params == [true, 4]
-    assert sql =~ "from products selecto_root left join reviews reviews on reviews.product_id = selecto_root.id"
+
+    assert sql =~
+             "from products selecto_root left join reviews reviews on reviews.product_id = selecto_root.id"
+
     assert sql =~ "where (((( selecto_root.active = $1 ) and ( reviews.rating >= $2 ))))"
     assert sql =~ "order by reviews.rating desc"
   end
@@ -362,7 +407,9 @@ defmodule Selecto.WindowJsonRegressionTest do
     query =
       Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
       |> Selecto.select(["order_number", "customer_id", "status", "total"])
-      |> Selecto.filter({"customer_id", {:subquery, :in, "SELECT id FROM customers WHERE tier = 'gold'", []}})
+      |> Selecto.filter(
+        {"customer_id", {:subquery, :in, "SELECT id FROM customers WHERE tier = 'gold'", []}}
+      )
       |> Selecto.order_by({"total", :desc})
       |> Selecto.limit(10)
 
@@ -370,7 +417,9 @@ defmodule Selecto.WindowJsonRegressionTest do
     sql = normalize_sql(sql)
 
     assert params == []
-    assert sql =~ "where (( selecto_root.customer_id in (SELECT id FROM customers WHERE tier = 'gold') ))"
+
+    assert sql =~
+             "where (( selecto_root.customer_id in (SELECT id FROM customers WHERE tier = 'gold') ))"
   end
 
   test "output format transformers handle aliases list from Selecto query metadata" do
@@ -378,7 +427,9 @@ defmodule Selecto.WindowJsonRegressionTest do
     columns = ["name", "price"]
     aliases = ["6ee949dc-86f5-4ed2-bac8-078786d26fd2", "4e2455d1-28c3-4aa2-8189-6804f489f46e"]
 
-    assert {:ok, [map_row]} = Selecto.Output.Formats.transform({rows, columns, aliases}, :maps, [])
+    assert {:ok, [map_row]} =
+             Selecto.Output.Formats.transform({rows, columns, aliases}, :maps, [])
+
     assert map_row["name"] == "Wireless Headphones"
     assert map_row["price"] == Decimal.new("79.99")
 
@@ -396,9 +447,11 @@ defmodule Selecto.WindowJsonRegressionTest do
     columns = ["name", "price"]
     aliases = ["6ee949dc-86f5-4ed2-bac8-078786d26fd2", "4e2455d1-28c3-4aa2-8189-6804f489f46e"]
 
-    assert {:ok, stream} = Selecto.Output.Formats.transform({rows, columns, aliases}, {:stream, :maps}, [])
+    assert {:ok, stream} =
+             Selecto.Output.Formats.transform({rows, columns, aliases}, {:stream, :maps}, [])
 
     maps = Enum.take(stream, 2)
+
     assert maps == [
              %{"name" => "Wireless Headphones", "price" => Decimal.new("79.99")},
              %{"name" => "Smart Watch", "price" => Decimal.new("199.99")}
@@ -424,7 +477,9 @@ defmodule Selecto.WindowJsonRegressionTest do
     sql = normalize_sql(sql)
 
     assert params == []
-    assert sql =~ "from orders selecto_root inner join customers customer_lookup on selecto_root.customer_id = customer_lookup.id"
+
+    assert sql =~
+             "from orders selecto_root inner join customers customer_lookup on selecto_root.customer_id = customer_lookup.id"
   end
 
   test "star_dimension join uses selecto_root alias in ON clause" do
@@ -466,7 +521,10 @@ defmodule Selecto.WindowJsonRegressionTest do
     sql = normalize_sql(sql)
 
     assert params == ["delivered", true]
-    assert sql =~ "LEFT JOIN LATERAL ( select count(*) from orders selecto_root where (( selecto_root.status = $1 )) ) AS delivered_stats ON true"
+
+    assert sql =~
+             "LEFT JOIN LATERAL ( select count(*) from orders selecto_root where (( selecto_root.status = $1 )) ) AS delivered_stats ON true"
+
     assert sql =~ "where (( selecto_root.active = $2 ))"
   end
 

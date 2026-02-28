@@ -61,15 +61,15 @@ defmodule Selecto.FieldResolver do
 
   @type field_reference :: String.t() | atom() | tuple()
   @type field_info :: %{
-    name: String.t(),
-    qualified_name: String.t(),
-    source_join: atom(),
-    type: atom(),
-    alias: String.t() | nil,
-    table_alias: String.t() | nil,
-    parameters: [map()] | nil,
-    parameter_signature: String.t() | nil
-  }
+          name: String.t(),
+          qualified_name: String.t(),
+          source_join: atom(),
+          type: atom(),
+          alias: String.t() | nil,
+          table_alias: String.t() | nil,
+          parameters: [map()] | nil,
+          parameter_signature: String.t() | nil
+        }
   @type resolution_result :: {:ok, field_info()} | {:error, term()}
 
   @doc """
@@ -82,8 +82,12 @@ defmodule Selecto.FieldResolver do
     case parse_field_reference(field_ref) do
       {:ok, parsed_ref} ->
         do_resolve_field(selecto, parsed_ref)
+
       {:error, reason} ->
-        {:error, Error.field_resolution_error("Invalid field reference format", field_ref, %{reason: reason})}
+        {:error,
+         Error.field_resolution_error("Invalid field reference format", field_ref, %{
+           reason: reason
+         })}
     end
   end
 
@@ -128,10 +132,11 @@ defmodule Selecto.FieldResolver do
   def is_ambiguous_field?(selecto, field_name) do
     available_fields = get_available_fields(selecto)
 
-    qualified_fields = available_fields
-    |> Enum.filter(fn {qualified_name, _info} ->
-      String.ends_with?(qualified_name, ".#{field_name}") or qualified_name == field_name
-    end)
+    qualified_fields =
+      available_fields
+      |> Enum.filter(fn {qualified_name, _info} ->
+        String.ends_with?(qualified_name, ".#{field_name}") or qualified_name == field_name
+      end)
 
     length(qualified_fields) > 1
   end
@@ -155,12 +160,13 @@ defmodule Selecto.FieldResolver do
   """
   @spec validate_field_references(Selecto.t(), [field_reference()]) :: :ok | {:error, [term()]}
   def validate_field_references(selecto, field_refs) do
-    errors = Enum.reduce(field_refs, [], fn field_ref, acc ->
-      case resolve_field(selecto, field_ref) do
-        {:ok, _field_info} -> acc
-        {:error, error} -> [error | acc]
-      end
-    end)
+    errors =
+      Enum.reduce(field_refs, [], fn field_ref, acc ->
+        case resolve_field(selecto, field_ref) do
+          {:ok, _field_info} -> acc
+          {:error, error} -> [error | acc]
+        end
+      end)
 
     case errors do
       [] -> :ok
@@ -218,24 +224,29 @@ defmodule Selecto.FieldResolver do
               join_atom = String.to_atom(join_name)
               join_info = selecto.config.joins[join_atom]
               available_join_fields = Map.keys(join_info.fields || %{})
-              {:error, Error.field_resolution_error(
-                "Field '#{field_name}' not found in join '#{join_name}'",
-                qualified_name,
-                %{available_fields_in_join: available_join_fields}
-              )}
+
+              {:error,
+               Error.field_resolution_error(
+                 "Field '#{field_name}' not found in join '#{join_name}'",
+                 qualified_name,
+                 %{available_fields_in_join: available_join_fields}
+               )}
             else
               available_joins = Map.keys(selecto.config.joins)
               available_ctes = get_cte_names(selecto)
-              {:error, Error.field_resolution_error(
-                "Join '#{join_name}' not found",
-                qualified_name,
-                %{available_joins: available_joins, available_ctes: available_ctes}
-              )}
+
+              {:error,
+               Error.field_resolution_error(
+                 "Join '#{join_name}' not found",
+                 qualified_name,
+                 %{available_joins: available_joins, available_ctes: available_ctes}
+               )}
             end
 
           {:error, error} ->
             {:error, error}
         end
+
       field_info ->
         {:ok, field_info}
     end
@@ -245,6 +256,7 @@ defmodule Selecto.FieldResolver do
     case do_resolve_field(selecto, %{type: :simple, field: field_name}) do
       {:ok, field_info} ->
         {:ok, Map.put(field_info, :alias, alias_name)}
+
       error ->
         error
     end
@@ -264,33 +276,40 @@ defmodule Selecto.FieldResolver do
         # Check if we're in pivot context and try bracket notation
         set = Map.get(selecto, :set, %{}) || %{}
         has_pivot = Map.has_key?(set, :pivot_state)
+
         if has_pivot do
           # In pivot context, try to find field in bracket notation
-          bracket_matches = available_fields
-          |> Enum.filter(fn {key, _info} ->
-            String.ends_with?(key, "[#{field_name}]")
-          end)
+          bracket_matches =
+            available_fields
+            |> Enum.filter(fn {key, _info} ->
+              String.ends_with?(key, "[#{field_name}]")
+            end)
 
           case bracket_matches do
             [{_bracket_key, field_info}] ->
               # Found exactly one match
               {:ok, field_info}
+
             [] ->
               # No bracket notation matches, continue with normal error handling
               handle_field_not_found(selecto, field_name, available_fields)
+
             _multiple ->
               # Multiple matches, this is ambiguous
               bracket_keys = Enum.map(bracket_matches, fn {key, _} -> key end)
-              {:error, Error.field_resolution_error(
-                "Ambiguous field reference '#{field_name}' in pivot context. Multiple possible matches: #{Enum.join(bracket_keys, ", ")}",
-                field_name,
-                %{available_options: bracket_keys}
-              )}
+
+              {:error,
+               Error.field_resolution_error(
+                 "Ambiguous field reference '#{field_name}' in pivot context. Multiple possible matches: #{Enum.join(bracket_keys, ", ")}",
+                 field_name,
+                 %{available_options: bracket_keys}
+               )}
           end
         else
           # Not in pivot context, use normal error handling
           handle_field_not_found(selecto, field_name, available_fields)
         end
+
       field_info ->
         {:ok, field_info}
     end
@@ -302,18 +321,25 @@ defmodule Selecto.FieldResolver do
     do_resolve_field(selecto, parsed_ref)
   end
 
-  defp do_resolve_field(selecto, %{type: :parameterized, join: join_name, field: field_name, parameters: parameters}) do
+  defp do_resolve_field(selecto, %{
+         type: :parameterized,
+         join: join_name,
+         field: field_name,
+         parameters: parameters
+       }) do
     # Handle parameterized joins
     join_atom = String.to_atom(join_name)
 
     case Map.get(selecto.config.joins, join_atom) do
       nil ->
         available_joins = Map.keys(selecto.config.joins)
-        {:error, Error.field_resolution_error(
-          "Parameterized join '#{join_name}' not found",
-          "#{join_name}:#{build_parameter_signature(parameters)}.#{field_name}",
-          %{available_joins: available_joins}
-        )}
+
+        {:error,
+         Error.field_resolution_error(
+           "Parameterized join '#{join_name}' not found",
+           "#{join_name}:#{build_parameter_signature(parameters)}.#{field_name}",
+           %{available_joins: available_joins}
+         )}
 
       join_config ->
         # Validate parameters against join configuration
@@ -326,27 +352,30 @@ defmodule Selecto.FieldResolver do
             # Check if field exists in the join
             case get_field_from_join(join_config, field_name) do
               {:ok, field_type} ->
-                {:ok, %{
-                  name: field_name,
-                  qualified_name: qualified_name,
-                  source_join: join_atom,
-                  type: field_type,
-                  alias: nil,
-                  table_alias: join_name,
-                  parameters: validated_params,
-                  parameter_signature: parameter_sig,
-                  field: field_name
-                }}
+                {:ok,
+                 %{
+                   name: field_name,
+                   qualified_name: qualified_name,
+                   source_join: join_atom,
+                   type: field_type,
+                   alias: nil,
+                   table_alias: join_name,
+                   parameters: validated_params,
+                   parameter_signature: parameter_sig,
+                   field: field_name
+                 }}
+
               {:error, reason} ->
                 {:error, Error.field_resolution_error(reason, qualified_name, %{})}
             end
 
           {:error, reason} ->
-            {:error, Error.field_resolution_error(
-              "Parameter validation failed for join '#{join_name}': #{reason}",
-              "#{join_name}:#{build_parameter_signature(parameters)}.#{field_name}",
-              %{}
-            )}
+            {:error,
+             Error.field_resolution_error(
+               "Parameter validation failed for join '#{join_name}': #{reason}",
+               "#{join_name}:#{build_parameter_signature(parameters)}.#{field_name}",
+               %{}
+             )}
         end
     end
   end
@@ -359,8 +388,17 @@ defmodule Selecto.FieldResolver do
     case Map.get(available_fields, bracket_key) do
       nil ->
         # Fall back to qualified notation
-        Logger.warning("Deprecated bracket notation '#{join_name}[#{field_name}]'. Consider using dot notation '#{join_name}.#{field_name}'")
-        do_resolve_field(selecto, %{type: :qualified, join: join_name, field: field_name, parameters: nil})
+        Logger.warning(
+          "Deprecated bracket notation '#{join_name}[#{field_name}]'. Consider using dot notation '#{join_name}.#{field_name}'"
+        )
+
+        do_resolve_field(selecto, %{
+          type: :qualified,
+          join: join_name,
+          field: field_name,
+          parameters: nil
+        })
+
       field_info ->
         {:ok, field_info}
     end
@@ -372,52 +410,63 @@ defmodule Selecto.FieldResolver do
     if is_ambiguous_field?(selecto, field_name) do
       options = get_disambiguation_options(selecto, field_name)
       qualified_names = Enum.map(options, & &1.qualified_name)
-      {:error, Error.field_resolution_error(
-        "Ambiguous field reference '#{field_name}'. Please qualify with table name.",
-        field_name,
-        %{available_options: qualified_names}
-      )}
+
+      {:error,
+       Error.field_resolution_error(
+         "Ambiguous field reference '#{field_name}'. Please qualify with table name.",
+         field_name,
+         %{available_options: qualified_names}
+       )}
     else
       suggestions = suggest_fields(selecto, field_name)
-      {:error, Error.field_resolution_error(
-        "Field '#{field_name}' not found",
-        field_name,
-        %{suggestions: suggestions, available_fields: Map.keys(available_fields)}
-      )}
+
+      {:error,
+       Error.field_resolution_error(
+         "Field '#{field_name}' not found",
+         field_name,
+         %{suggestions: suggestions, available_fields: Map.keys(available_fields)}
+       )}
     end
   end
 
   defp get_source_fields(selecto) do
     source = selecto.config.source
-    
+
     # Handle case where source might be a string (table name) or a map/struct
-    fields = case source do
-      source_map when is_map(source_map) -> 
-        Map.get(source_map, :fields, [])
-      _ -> 
-        # Fallback for when source is a string
-        []  
-    end
-    
-    redact_fields = case source do
-      source_map when is_map(source_map) -> 
-        Map.get(source_map, :redact_fields, [])
-      _ -> 
-        []
-    end
-    
-    source_columns = case source do
-      source_map when is_map(source_map) -> 
-        Map.get(source_map, :columns, %{})
-      _ -> 
-        %{}
-    end
-    
+    fields =
+      case source do
+        source_map when is_map(source_map) ->
+          Map.get(source_map, :fields, [])
+
+        _ ->
+          # Fallback for when source is a string
+          []
+      end
+
+    redact_fields =
+      case source do
+        source_map when is_map(source_map) ->
+          Map.get(source_map, :redact_fields, [])
+
+        _ ->
+          []
+      end
+
+    source_columns =
+      case source do
+        source_map when is_map(source_map) ->
+          Map.get(source_map, :columns, %{})
+
+        _ ->
+          %{}
+      end
+
     fields
     |> Enum.filter(fn field -> field not in redact_fields end)
     |> Enum.into(%{}, fn field ->
       # Handle both atom and string fields for Postgrex compatibility
       field_str = if is_atom(field), do: Atom.to_string(field), else: field
+
       field_info = %{
         name: field_str,
         qualified_name: field_str,
@@ -429,6 +478,7 @@ defmodule Selecto.FieldResolver do
         parameters: nil,
         parameter_signature: nil
       }
+
       {field_str, field_info}
     end)
   end
@@ -441,41 +491,45 @@ defmodule Selecto.FieldResolver do
     selecto.config.joins
     |> Enum.flat_map(fn {join_name, join_config} ->
       # For Postgrex domains, fields come from schemas, not directly from join config
-      join_fields = if join_config[:fields] do
-        join_config.fields
-      else
-        # Look up schema by join source
-        schema_name = case join_config[:source] do
-          source when is_atom(source) -> Atom.to_string(source)
-          source when is_binary(source) -> source
-          nil -> nil
-        end
+      join_fields =
+        if join_config[:fields] do
+          join_config.fields
+        else
+          # Look up schema by join source
+          schema_name =
+            case join_config[:source] do
+              source when is_atom(source) -> Atom.to_string(source)
+              source when is_binary(source) -> source
+              nil -> nil
+            end
 
-        if schema_name do
-          schema = get_in(selecto.domain, [:schemas, schema_name])
-          if schema && schema[:columns] do
-            # Convert schema columns to field format
-            Enum.into(schema.columns, %{}, fn {col_name, col_config} ->
-              {col_name, col_config}
-            end)
+          if schema_name do
+            schema = get_in(selecto.domain, [:schemas, schema_name])
+
+            if schema && schema[:columns] do
+              # Convert schema columns to field format
+              Enum.into(schema.columns, %{}, fn {col_name, col_config} ->
+                {col_name, col_config}
+              end)
+            else
+              %{}
+            end
           else
             %{}
           end
-        else
-          %{}
         end
-      end
 
       Enum.flat_map(join_fields, fn {field_key, field_config} ->
         field_name = extract_field_name(field_key)
         qualified_name = "#{join_name}.#{field_name}"
 
         # Get the database field name from the configuration
-        database_field_name = case Map.get(field_config, :field, field_config[:field]) do
-          atom when is_atom(atom) -> Atom.to_string(atom)
-          string when is_binary(string) -> string
-          nil -> field_name
-        end
+        database_field_name =
+          case Map.get(field_config, :field, field_config[:field]) do
+            atom when is_atom(atom) -> Atom.to_string(atom)
+            string when is_binary(string) -> string
+            nil -> field_name
+          end
 
         field_info = %{
           name: field_name,
@@ -492,6 +546,7 @@ defmodule Selecto.FieldResolver do
         # In pivot context, also include bracket notation key for easier access
         if has_pivot do
           bracket_key = "#{join_name}[#{field_name}]"
+
           [
             {qualified_name, field_info},
             {bracket_key, field_info}
@@ -541,11 +596,12 @@ defmodule Selecto.FieldResolver do
             if field_name in declared_columns do
               {:ok, build_cte_field_info(cte_name, field_name, :any)}
             else
-              {:error, Error.field_resolution_error(
-                "Field '#{field_name}' not found in CTE '#{cte_name}'",
-                qualified_name,
-                %{available_fields_in_cte: declared_columns}
-              )}
+              {:error,
+               Error.field_resolution_error(
+                 "Field '#{field_name}' not found in CTE '#{cte_name}'",
+                 qualified_name,
+                 %{available_fields_in_cte: declared_columns}
+               )}
             end
         end
     end
@@ -619,8 +675,10 @@ defmodule Selecto.FieldResolver do
     case param_definitions do
       [] when provided_parameters != [] ->
         {:error, "Join does not accept parameters, but #{length(provided_parameters)} provided"}
+
       [] ->
         {:ok, []}
+
       _ ->
         ParameterizedParser.validate_parameters(provided_parameters, param_definitions)
     end
@@ -641,23 +699,32 @@ defmodule Selecto.FieldResolver do
     case Map.get(join_config, :fields) do
       nil ->
         {:error, "No fields defined for this join"}
+
       fields ->
         # Try to find the field in various formats
         field_atom = String.to_atom(field_name)
-        field_key = Enum.find([field_name, field_atom, "#{join_config.id}[#{field_name}]"], fn key ->
-          Map.has_key?(fields, key)
-        end)
+
+        field_key =
+          Enum.find([field_name, field_atom, "#{join_config.id}[#{field_name}]"], fn key ->
+            Map.has_key?(fields, key)
+          end)
 
         case field_key do
           nil ->
             available_fields = Map.keys(fields) |> Enum.map(&to_string/1)
-            {:error, "Field '#{field_name}' not found in join. Available fields: #{Enum.join(available_fields, ", ")}"}
+
+            {:error,
+             "Field '#{field_name}' not found in join. Available fields: #{Enum.join(available_fields, ", ")}"}
+
           key ->
             field_config = Map.get(fields, key)
-            field_type = case field_config do
-              %{type: type} -> type
-              _ -> :string
-            end
+
+            field_type =
+              case field_config do
+                %{type: type} -> type
+                _ -> :string
+              end
+
             {:ok, field_type}
         end
     end

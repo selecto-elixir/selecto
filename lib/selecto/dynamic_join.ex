@@ -67,13 +67,14 @@ defmodule Selecto.DynamicJoin do
     # Check if this join already exists in the domain
     existing_join = get_in(selecto.config, [:joins, join_id])
 
-    join_config = if existing_join do
-      # Merge options into existing join config
-      merge_join_options(existing_join, options)
-    else
-      # Create a new custom join config
-      build_custom_join(join_id, options)
-    end
+    join_config =
+      if existing_join do
+        # Merge options into existing join config
+        merge_join_options(existing_join, options)
+      else
+        # Create a new custom join config
+        build_custom_join(join_id, options)
+      end
 
     # Add to active joins in the set
     current_joins = Map.get(selecto.set, :active_joins, [])
@@ -140,18 +141,20 @@ defmodule Selecto.DynamicJoin do
     base_join = get_in(selecto.config, [:joins, join_id])
 
     unless base_join do
-      raise ArgumentError, "Cannot parameterize join #{inspect(join_id)} - not found in domain configuration"
+      raise ArgumentError,
+            "Cannot parameterize join #{inspect(join_id)} - not found in domain configuration"
     end
 
     # Extract filter options vs regular options
     {filters, join_opts} = Keyword.split(options, extract_filter_keys(base_join))
 
     # Build parameterized join config
-    param_config = base_join
-    |> Map.put(:parameter, parameter)
-    |> Map.put(:base_join, join_id)
-    |> Map.put(:param_filters, Map.new(filters))
-    |> merge_join_options(join_opts)
+    param_config =
+      base_join
+      |> Map.put(:parameter, parameter)
+      |> Map.put(:base_join, join_id)
+      |> Map.put(:param_filters, Map.new(filters))
+      |> merge_join_options(join_opts)
 
     # Update field names to use parameterized prefix
     param_config = update_field_names_for_param(param_config, param_join_id)
@@ -251,7 +254,9 @@ defmodule Selecto.DynamicJoin do
   end
 
   defp build_custom_join(join_id, options) do
-    source = Keyword.get(options, :source) || raise ArgumentError, "Custom joins require :source option"
+    source =
+      Keyword.get(options, :source) || raise ArgumentError, "Custom joins require :source option"
+
     on = Keyword.get(options, :on, [])
     type = Keyword.get(options, :type, :left)
     owner_key = Keyword.get(options, :owner_key, :id)
@@ -277,12 +282,18 @@ defmodule Selecto.DynamicJoin do
   defp build_field_configs(join_id, fields) do
     Enum.reduce(fields, %{}, fn {field_name, config}, acc ->
       field_key = "#{join_id}[#{field_name}]"
-      field_config = Map.merge(%{
-        name: to_string(field_name),
-        field: to_string(field_name),
-        requires_join: join_id,
-        type: :string
-      }, config)
+
+      field_config =
+        Map.merge(
+          %{
+            name: to_string(field_name),
+            field: to_string(field_name),
+            requires_join: join_id,
+            type: :string
+          },
+          config
+        )
+
       Map.put(acc, field_key, field_config)
     end)
   end
@@ -293,15 +304,16 @@ defmodule Selecto.DynamicJoin do
   end
 
   defp update_field_names_for_param(config, param_join_id) do
-    updated_fields = config.fields
-    |> Enum.map(fn {_key, field_config} ->
-      bracket_key = "#{param_join_id}[#{field_config.field}]"
-      dot_key = "#{param_join_id}.#{field_config.field}"
-      updated_config = Map.put(field_config, :requires_join, param_join_id)
-      [{bracket_key, updated_config}, {dot_key, updated_config}]
-    end)
-    |> List.flatten()
-    |> Enum.into(%{})
+    updated_fields =
+      config.fields
+      |> Enum.map(fn {_key, field_config} ->
+        bracket_key = "#{param_join_id}[#{field_config.field}]"
+        dot_key = "#{param_join_id}.#{field_config.field}"
+        updated_config = Map.put(field_config, :requires_join, param_join_id)
+        [{bracket_key, updated_config}, {dot_key, updated_config}]
+      end)
+      |> List.flatten()
+      |> Enum.into(%{})
 
     Map.put(config, :fields, updated_fields)
   end
@@ -310,13 +322,15 @@ defmodule Selecto.DynamicJoin do
     # Extract selected fields from the subquery to make them available
     join_selecto.set.selected
     |> Enum.map(fn
-      {_, _, _} = tuple -> elem(tuple, 0) # Function with alias
+      # Function with alias
+      {_, _, _} = tuple -> elem(tuple, 0)
       field when is_binary(field) -> field
       _ -> nil
     end)
     |> Enum.reject(&is_nil/1)
     |> Enum.reduce(%{}, fn field, acc ->
       field_key = "#{join_id}.#{field}"
+
       Map.put(acc, field_key, %{
         name: field,
         field: field,

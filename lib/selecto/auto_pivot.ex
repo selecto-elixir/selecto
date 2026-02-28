@@ -79,6 +79,7 @@ defmodule Selecto.AutoPivot do
     case Map.keys(qualified_cols_by_table) do
       [] ->
         false
+
       _table_names ->
         source_cols == []
     end
@@ -95,8 +96,12 @@ defmodule Selecto.AutoPivot do
     {_source_cols, qualified_cols_by_table} = categorize_columns(selected_columns, source_columns)
 
     case Map.keys(qualified_cols_by_table) do
-      [] -> nil
-      [single_table] -> String.to_atom(single_table)
+      [] ->
+        nil
+
+      [single_table] ->
+        String.to_atom(single_table)
+
       [first_table | _rest] ->
         # For multiple tables, pivot to the first one
         # TODO: Could be smarter about choosing the "root" table
@@ -136,19 +141,22 @@ defmodule Selecto.AutoPivot do
 
   defp get_source_columns(selecto) do
     source_config = selecto.domain.source
+
     source_config
     |> Map.get(:columns, %{})
     |> Map.keys()
   end
 
   defp column_exists_in_source?(column_name, source_columns) do
-    col_atom = if is_binary(column_name), do: String.to_existing_atom(column_name), else: column_name
+    col_atom =
+      if is_binary(column_name), do: String.to_existing_atom(column_name), else: column_name
+
     col_string = if is_atom(column_name), do: Atom.to_string(column_name), else: column_name
 
     Enum.any?(source_columns, fn source_col ->
       source_col == col_atom or source_col == col_string or
-      Atom.to_string(source_col) == col_string or
-      String.to_atom(to_string(source_col)) == col_atom
+        Atom.to_string(source_col) == col_string or
+        String.to_atom(to_string(source_col)) == col_atom
     end)
   rescue
     ArgumentError -> false
@@ -156,10 +164,12 @@ defmodule Selecto.AutoPivot do
 
   defp find_join_path(domain, target_table) do
     target_name = to_string(target_table)
+
     joins =
       domain
       |> Map.get(:source, %{})
       |> Map.get(:joins, %{})
+
     search_joins_recursive(joins, target_name, [])
   end
 
@@ -179,6 +189,7 @@ defmodule Selecto.AutoPivot do
       end
     end)
   end
+
   defp search_joins_recursive(_, _, _), do: nil
 
   defp apply_pivot(selecto, target_table, join_path) do

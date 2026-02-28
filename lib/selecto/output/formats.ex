@@ -7,13 +7,17 @@ defmodule Selecto.Output.Formats do
   {rows, columns, aliases} format to other formats like maps, structs, JSON, CSV, etc.
   """
 
-  @type format_spec :: :raw | :maps | :json | :csv |
-                   {:maps, keyword()} |
-                   {:structs, module()} |
-                   {:json, keyword()} |
-                   {:csv, keyword()} |
-                   {:stream, format_spec()} |
-                   {:typed_maps, keyword()}
+  @type format_spec ::
+          :raw
+          | :maps
+          | :json
+          | :csv
+          | {:maps, keyword()}
+          | {:structs, module()}
+          | {:json, keyword()}
+          | {:csv, keyword()}
+          | {:stream, format_spec()}
+          | {:typed_maps, keyword()}
 
   @doc """
   Transform query results from the default format to the specified output format.
@@ -57,7 +61,7 @@ defmodule Selecto.Output.Formats do
       {:ok, csv_string} = transform(result, {:csv, headers: true})
   """
   @spec transform({list(), list(), map()}, format_spec(), keyword()) ::
-    {:ok, term()} | {:error, term()}
+          {:ok, term()} | {:error, term()}
 
   def transform({rows, columns, aliases} = result, format, options \\ []) do
     case format do
@@ -71,7 +75,13 @@ defmodule Selecto.Output.Formats do
         Selecto.Output.Transformers.Maps.transform(rows, columns, aliases, map_options)
 
       {:structs, struct_module} ->
-        Selecto.Output.Transformers.Structs.transform(rows, columns, aliases, struct_module, options)
+        Selecto.Output.Transformers.Structs.transform(
+          rows,
+          columns,
+          aliases,
+          struct_module,
+          options
+        )
 
       :json ->
         Selecto.Output.Transformers.Json.transform(rows, columns, aliases, [])
@@ -86,11 +96,22 @@ defmodule Selecto.Output.Formats do
         Selecto.Output.Transformers.CSV.transform(rows, columns, aliases, csv_options)
 
       {:stream, inner_format} ->
-        Selecto.Output.Transformers.Stream.transform(rows, columns, aliases, inner_format, options)
+        Selecto.Output.Transformers.Stream.transform(
+          rows,
+          columns,
+          aliases,
+          inner_format,
+          options
+        )
 
       {:typed_maps, type_options} ->
         # For typed maps with type coercion
-        Selecto.Output.Transformers.Maps.transform_with_types(rows, columns, aliases, type_options)
+        Selecto.Output.Transformers.Maps.transform_with_types(
+          rows,
+          columns,
+          aliases,
+          type_options
+        )
 
       unknown_format ->
         {:error, {:unknown_format, unknown_format}}
@@ -190,6 +211,7 @@ defmodule Selecto.Output.Formats do
              :ok <- validate_option_value(validated[:transform], valid_transforms, :transform) do
           :ok
         end
+
       {:error, invalid_keys} ->
         {:error, {:invalid_map_options, invalid_keys}}
     end
@@ -202,6 +224,7 @@ defmodule Selecto.Output.Formats do
       {:error, {:struct_module_not_found, module}}
     end
   end
+
   defp validate_struct_module(module), do: {:error, {:invalid_struct_module, module}}
 
   defp validate_json_options(options) do
@@ -216,7 +239,12 @@ defmodule Selecto.Output.Formats do
   defp validate_csv_options(options) do
     _valid_keys = [:headers, :delimiter, :quote_char, :escape_char]
 
-    case Keyword.validate(options, headers: true, delimiter: ",", quote_char: "\"", escape_char: "\\") do
+    case Keyword.validate(options,
+           headers: true,
+           delimiter: ",",
+           quote_char: "\"",
+           escape_char: "\\"
+         ) do
       {:ok, _} -> :ok
       {:error, invalid_keys} -> {:error, {:invalid_csv_options, invalid_keys}}
     end
@@ -229,6 +257,7 @@ defmodule Selecto.Output.Formats do
     case Keyword.validate(options, coerce: :safe, preserve: [], custom_coercions: %{}) do
       {:ok, validated} ->
         validate_option_value(validated[:coerce], valid_coerce_values, :coerce)
+
       {:error, invalid_keys} ->
         {:error, {:invalid_typed_maps_options, invalid_keys}}
     end
@@ -248,26 +277,68 @@ defmodule Selecto.Output.Formats do
   Returns information about memory usage, processing time, and scalability.
   """
   def performance_info(format) do
-    base_format = case format do
-      {format_type, _options} -> format_type
-      format_type -> format_type
-    end
+    base_format =
+      case format do
+        {format_type, _options} -> format_type
+        format_type -> format_type
+      end
 
     case base_format do
       :raw ->
-        %{memory_overhead: 0, processing_time: 0, streaming_capable: false, recommended_max_rows: :unlimited}
+        %{
+          memory_overhead: 0,
+          processing_time: 0,
+          streaming_capable: false,
+          recommended_max_rows: :unlimited
+        }
+
       :maps ->
-        %{memory_overhead: 25, processing_time: 15, streaming_capable: true, recommended_max_rows: 100_000}
+        %{
+          memory_overhead: 25,
+          processing_time: 15,
+          streaming_capable: true,
+          recommended_max_rows: 100_000
+        }
+
       :structs ->
-        %{memory_overhead: 15, processing_time: 5, streaming_capable: true, recommended_max_rows: 500_000}
+        %{
+          memory_overhead: 15,
+          processing_time: 5,
+          streaming_capable: true,
+          recommended_max_rows: 500_000
+        }
+
       :json ->
-        %{memory_overhead: 10, processing_time: 30, streaming_capable: true, recommended_max_rows: 50_000}
+        %{
+          memory_overhead: 10,
+          processing_time: 30,
+          streaming_capable: true,
+          recommended_max_rows: 50_000
+        }
+
       :csv ->
-        %{memory_overhead: 5, processing_time: 20, streaming_capable: true, recommended_max_rows: 1_000_000}
+        %{
+          memory_overhead: 5,
+          processing_time: 20,
+          streaming_capable: true,
+          recommended_max_rows: 1_000_000
+        }
+
       :stream ->
-        %{memory_overhead: -80, processing_time: 10, streaming_capable: true, recommended_max_rows: :unlimited}
+        %{
+          memory_overhead: -80,
+          processing_time: 10,
+          streaming_capable: true,
+          recommended_max_rows: :unlimited
+        }
+
       _ ->
-        %{memory_overhead: :unknown, processing_time: :unknown, streaming_capable: :unknown, recommended_max_rows: :unknown}
+        %{
+          memory_overhead: :unknown,
+          processing_time: :unknown,
+          streaming_capable: :unknown,
+          recommended_max_rows: :unknown
+        }
     end
   end
 end

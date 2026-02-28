@@ -143,22 +143,24 @@ defmodule Selecto.Jsonb do
     cast = Keyword.get(opts, :cast)
     alias_name = Keyword.get(opts, :table_alias)
 
-    column_ref = if alias_name do
-      ~s("#{alias_name}"."#{column}")
-    else
-      ~s("#{column}")
-    end
+    column_ref =
+      if alias_name do
+        ~s("#{alias_name}"."#{column}")
+      else
+        ~s("#{column}")
+      end
 
-    extraction = case path do
-      [single_key] ->
-        operator = if as_text, do: "->>", else: "->"
-        ~s(#{column_ref}#{operator}'#{single_key}')
+    extraction =
+      case path do
+        [single_key] ->
+          operator = if as_text, do: "->>", else: "->"
+          ~s(#{column_ref}#{operator}'#{single_key}')
 
-      keys when is_list(keys) ->
-        path_str = Enum.join(keys, ",")
-        operator = if as_text, do: "#>>", else: "#>"
-        ~s(#{column_ref}#{operator}'{#{path_str}}')
-    end
+        keys when is_list(keys) ->
+          path_str = Enum.join(keys, ",")
+          operator = if as_text, do: "#>>", else: "#>"
+          ~s(#{column_ref}#{operator}'{#{path_str}}')
+      end
 
     # Apply type cast if needed
     case cast do
@@ -186,11 +188,12 @@ defmodule Selecto.Jsonb do
     alias_name = Keyword.get(opts, :table_alias)
     json_value = Jason.encode!(value)
 
-    column_ref = if alias_name do
-      ~s("#{alias_name}"."#{column}")
-    else
-      ~s("#{column}")
-    end
+    column_ref =
+      if alias_name do
+        ~s("#{alias_name}"."#{column}")
+      else
+        ~s("#{column}")
+      end
 
     ~s(#{column_ref} @> '#{json_value}'::jsonb)
   end
@@ -209,11 +212,12 @@ defmodule Selecto.Jsonb do
   def build_key_exists(column, key_or_path, opts \\ []) do
     alias_name = Keyword.get(opts, :table_alias)
 
-    column_ref = if alias_name do
-      ~s("#{alias_name}"."#{column}")
-    else
-      ~s("#{column}")
-    end
+    column_ref =
+      if alias_name do
+        ~s("#{alias_name}"."#{column}")
+      else
+        ~s("#{column}")
+      end
 
     case key_or_path do
       key when is_binary(key) ->
@@ -225,7 +229,10 @@ defmodule Selecto.Jsonb do
       keys when is_list(keys) ->
         # Navigate to parent, then check for last key
         {parent_path, [last_key]} = Enum.split(keys, -1)
-        parent_expr = build_extraction(column, parent_path, as_text: false, table_alias: alias_name)
+
+        parent_expr =
+          build_extraction(column, parent_path, as_text: false, table_alias: alias_name)
+
         ~s(#{parent_expr} ? '#{last_key}')
     end
   end
@@ -274,7 +281,8 @@ defmodule Selecto.Jsonb do
   Determine the PostgreSQL cast type for a JSONB schema type.
   """
   def pg_cast_for_type(nil), do: nil
-  def pg_cast_for_type(:string), do: nil  # No cast needed, ->> returns text
+  # No cast needed, ->> returns text
+  def pg_cast_for_type(:string), do: nil
   def pg_cast_for_type(:integer), do: :integer
   def pg_cast_for_type(:decimal), do: :decimal
   def pg_cast_for_type(:float), do: :float
@@ -290,6 +298,7 @@ defmodule Selecto.Jsonb do
   """
   def jsonb_column?(domain, column) do
     columns = Map.get(domain, :columns, %{})
+
     case Map.get(columns, column) do
       %{type: type} when type in [:jsonb, :json] -> true
       _ -> false

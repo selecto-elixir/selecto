@@ -18,34 +18,41 @@ defmodule Selecto.Subfilter.Registry do
       {:ok, optimized_query_with_subfilters}
   """
 
-  #alias Selecto.Subfilter
+  # alias Selecto.Subfilter
   alias Selecto.Subfilter.{Spec, Parser, JoinPathResolver, SQL, Error}
 
   # Registry structure to manage multiple subfilters
   defstruct [
-    :domain_name,        # Domain configuration to use
-    :base_table,         # Base table for the query
-    :subfilters,         # Map of subfilter_id => Spec
-    :join_resolutions,   # Map of subfilter_id => JoinResolution
-    :strategy_overrides, # Manual strategy overrides
-    :optimization_hints, # Performance optimization hints
-    :compound_ops        # Compound operations (AND/OR between subfilters)
+    # Domain configuration to use
+    :domain_name,
+    # Base table for the query
+    :base_table,
+    # Map of subfilter_id => Spec
+    :subfilters,
+    # Map of subfilter_id => JoinResolution
+    :join_resolutions,
+    # Manual strategy overrides
+    :strategy_overrides,
+    # Performance optimization hints
+    :optimization_hints,
+    # Compound operations (AND/OR between subfilters)
+    :compound_ops
   ]
 
   @type t :: %__MODULE__{
-    domain_name: atom() | map(),
-    base_table: atom() | nil,
-    subfilters: %{String.t() => Spec.t()},
-    join_resolutions: %{String.t() => JoinPathResolver.JoinResolution.t()},
-    strategy_overrides: %{String.t() => atom()},
-    optimization_hints: keyword(),
-    compound_ops: [compound_operation()]
-  }
+          domain_name: atom() | map(),
+          base_table: atom() | nil,
+          subfilters: %{String.t() => Spec.t()},
+          join_resolutions: %{String.t() => JoinPathResolver.JoinResolution.t()},
+          strategy_overrides: %{String.t() => atom()},
+          optimization_hints: keyword(),
+          compound_ops: [compound_operation()]
+        }
 
   @type compound_operation :: %{
-    type: :and | :or,
-    subfilter_ids: [String.t()]
-  }
+          type: :and | :or,
+          subfilter_ids: [String.t()]
+        }
 
   @doc """
   Create a new subfilter registry for the specified domain.
@@ -78,11 +85,15 @@ defmodule Selecto.Subfilter.Registry do
       add_subfilter(registry, "film", {:count, ">", 5}, id: "film_count_filter")
   """
   @spec add_subfilter(t(), String.t(), any(), keyword()) ::
-    {:ok, t()} | {:error, Error.t()}
+          {:ok, t()} | {:error, Error.t()}
   def add_subfilter(%__MODULE__{} = registry, relationship_path, filter_spec, opts \\ []) do
     with {:ok, parsed_spec} <- Parser.parse(relationship_path, filter_spec, opts),
-         {:ok, resolved_joins} <- JoinPathResolver.resolve(parsed_spec.relationship_path, registry.domain_name, registry.base_table) do
-
+         {:ok, resolved_joins} <-
+           JoinPathResolver.resolve(
+             parsed_spec.relationship_path,
+             registry.domain_name,
+             registry.base_table
+           ) do
       subfilter_id = Keyword.get(opts, :id, parsed_spec.id)
 
       # Check for conflicts
@@ -91,9 +102,10 @@ defmodule Selecto.Subfilter.Registry do
           # Update the spec with the final ID
           final_spec = %{parsed_spec | id: subfilter_id}
 
-          updated_registry = %{registry |
-            subfilters: Map.put(registry.subfilters, subfilter_id, final_spec),
-            join_resolutions: Map.put(registry.join_resolutions, subfilter_id, resolved_joins)
+          updated_registry = %{
+            registry
+            | subfilters: Map.put(registry.subfilters, subfilter_id, final_spec),
+              join_resolutions: Map.put(registry.join_resolutions, subfilter_id, resolved_joins)
           }
 
           # Apply strategy optimization
@@ -119,11 +131,15 @@ defmodule Selecto.Subfilter.Registry do
         {"film.release_year", {">", 2000}}
       ])
   """
-  @spec add_compound(t(), :and | :or, [{String.t(), any()}] | [{String.t(), any(), keyword()}], keyword()) ::
-    {:ok, t()} | {:error, Error.t()}
+  @spec add_compound(
+          t(),
+          :and | :or,
+          [{String.t(), any()}] | [{String.t(), any(), keyword()}],
+          keyword()
+        ) ::
+          {:ok, t()} | {:error, Error.t()}
   def add_compound(%__MODULE__{} = registry, compound_type, subfilter_specs, opts \\ []) do
     with {:ok, compound_spec} <- Parser.parse_compound(compound_type, subfilter_specs, opts) do
-
       # Add each individual subfilter first
       case add_compound_subfilters(registry, compound_spec.subfilters) do
         {:ok, updated_registry, subfilter_ids} ->
@@ -132,8 +148,9 @@ defmodule Selecto.Subfilter.Registry do
             subfilter_ids: subfilter_ids
           }
 
-          final_registry = %{updated_registry |
-            compound_ops: [compound_op | updated_registry.compound_ops]
+          final_registry = %{
+            updated_registry
+            | compound_ops: [compound_op | updated_registry.compound_ops]
           }
 
           {:ok, final_registry}
@@ -151,11 +168,12 @@ defmodule Selecto.Subfilter.Registry do
   """
   @spec remove_subfilter(t(), String.t()) :: t()
   def remove_subfilter(%__MODULE__{} = registry, subfilter_id) do
-    %{registry |
-      subfilters: Map.delete(registry.subfilters, subfilter_id),
-      join_resolutions: Map.delete(registry.join_resolutions, subfilter_id),
-      strategy_overrides: Map.delete(registry.strategy_overrides, subfilter_id),
-      compound_ops: remove_from_compound_ops(registry.compound_ops, subfilter_id)
+    %{
+      registry
+      | subfilters: Map.delete(registry.subfilters, subfilter_id),
+        join_resolutions: Map.delete(registry.join_resolutions, subfilter_id),
+        strategy_overrides: Map.delete(registry.strategy_overrides, subfilter_id),
+        compound_ops: remove_from_compound_ops(registry.compound_ops, subfilter_id)
     }
   end
 
@@ -168,29 +186,32 @@ defmodule Selecto.Subfilter.Registry do
   @spec override_strategy(t(), String.t(), atom()) :: {:ok, t()} | {:error, Error.t()}
   def override_strategy(%__MODULE__{} = registry, subfilter_id, strategy)
       when strategy in [:exists, :in, :any, :all] do
-
     case Map.has_key?(registry.subfilters, subfilter_id) do
       true ->
-        updated_registry = %{registry |
-          strategy_overrides: Map.put(registry.strategy_overrides, subfilter_id, strategy)
+        updated_registry = %{
+          registry
+          | strategy_overrides: Map.put(registry.strategy_overrides, subfilter_id, strategy)
         }
+
         {:ok, updated_registry}
 
       false ->
-        {:error, %Error{
-          type: :subfilter_not_found,
-          message: "Subfilter not found in registry",
-          details: %{subfilter_id: subfilter_id, available_ids: Map.keys(registry.subfilters)}
-        }}
+        {:error,
+         %Error{
+           type: :subfilter_not_found,
+           message: "Subfilter not found in registry",
+           details: %{subfilter_id: subfilter_id, available_ids: Map.keys(registry.subfilters)}
+         }}
     end
   end
 
   def override_strategy(_registry, _subfilter_id, invalid_strategy) do
-    {:error, %Error{
-      type: :invalid_strategy,
-      message: "Invalid strategy for override",
-      details: %{strategy: invalid_strategy, valid_strategies: [:exists, :in, :any, :all]}
-    }}
+    {:error,
+     %Error{
+       type: :invalid_strategy,
+       message: "Invalid strategy for override",
+       details: %{strategy: invalid_strategy, valid_strategies: [:exists, :in, :any, :all]}
+     }}
   end
 
   @doc """
@@ -200,12 +221,12 @@ defmodule Selecto.Subfilter.Registry do
   performance implications, and optimization opportunities.
   """
   @spec analyze(t()) :: %{
-    subfilter_count: non_neg_integer(),
-    join_complexity: atom(),
-    strategy_distribution: %{atom() => non_neg_integer()},
-    performance_score: float(),
-    optimization_suggestions: [String.t()]
-  }
+          subfilter_count: non_neg_integer(),
+          join_complexity: atom(),
+          strategy_distribution: %{atom() => non_neg_integer()},
+          performance_score: float(),
+          optimization_suggestions: [String.t()]
+        }
   def analyze(%__MODULE__{} = registry) do
     subfilter_count = map_size(registry.subfilters)
 
@@ -244,11 +265,13 @@ defmodule Selecto.Subfilter.Registry do
   defp check_for_conflicts(%__MODULE__{} = registry, subfilter_id, _spec) do
     case Map.has_key?(registry.subfilters, subfilter_id) do
       true ->
-        {:error, %Error{
-          type: :duplicate_subfilter_id,
-          message: "Subfilter ID already exists in registry",
-          details: %{subfilter_id: subfilter_id}
-        }}
+        {:error,
+         %Error{
+           type: :duplicate_subfilter_id,
+           message: "Subfilter ID already exists in registry",
+           details: %{subfilter_id: subfilter_id}
+         }}
+
       false ->
         :ok
     end
@@ -276,6 +299,7 @@ defmodule Selecto.Subfilter.Registry do
     case add_parsed_subfilter(registry, subfilter_id, spec) do
       {:ok, updated_registry} ->
         add_compound_subfilters(updated_registry, rest, [subfilter_id | subfilter_ids])
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -300,13 +324,20 @@ defmodule Selecto.Subfilter.Registry do
   end
 
   defp add_parsed_subfilter(registry, subfilter_id, spec) do
-    with {:ok, resolved_joins} <- JoinPathResolver.resolve(spec.relationship_path, registry.domain_name, registry.base_table) do
+    with {:ok, resolved_joins} <-
+           JoinPathResolver.resolve(
+             spec.relationship_path,
+             registry.domain_name,
+             registry.base_table
+           ) do
       case check_for_conflicts(registry, subfilter_id, spec) do
         :ok ->
-          updated_registry = %{registry |
-            subfilters: Map.put(registry.subfilters, subfilter_id, spec),
-            join_resolutions: Map.put(registry.join_resolutions, subfilter_id, resolved_joins)
+          updated_registry = %{
+            registry
+            | subfilters: Map.put(registry.subfilters, subfilter_id, spec),
+              join_resolutions: Map.put(registry.join_resolutions, subfilter_id, resolved_joins)
           }
+
           {:ok, updated_registry}
 
         {:error, reason} ->
@@ -340,7 +371,10 @@ defmodule Selecto.Subfilter.Registry do
     end
   end
 
-  defp calculate_strategy_distribution(%__MODULE__{subfilters: subfilters, strategy_overrides: overrides}) do
+  defp calculate_strategy_distribution(%__MODULE__{
+         subfilters: subfilters,
+         strategy_overrides: overrides
+       }) do
     subfilters
     |> Map.keys()
     |> Enum.reduce(%{}, fn subfilter_id, acc ->
@@ -372,7 +406,11 @@ defmodule Selecto.Subfilter.Registry do
     suggestions =
       case assess_join_complexity(registry) do
         complexity when complexity in [:high, :very_high] ->
-          ["Consider reducing join complexity by using IN strategy for some subfilters" | suggestions]
+          [
+            "Consider reducing join complexity by using IN strategy for some subfilters"
+            | suggestions
+          ]
+
         _ ->
           suggestions
       end
@@ -383,7 +421,10 @@ defmodule Selecto.Subfilter.Registry do
 
     suggestions =
       if exists_count > 3 do
-        ["Consider using IN strategy for some EXISTS subfilters to improve performance" | suggestions]
+        [
+          "Consider using IN strategy for some EXISTS subfilters to improve performance"
+          | suggestions
+        ]
       else
         suggestions
       end

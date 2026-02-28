@@ -67,20 +67,24 @@ defmodule Selecto.Output.Transformers.Json do
           processed_maps = apply_null_handling(maps, opts.null_handling)
 
           # Create final JSON structure
-          json_data = if opts.include_meta do
-            %{
-              "data" => processed_maps,
-              "meta" => build_metadata(rows, columns, aliases)
-            }
-          else
-            processed_maps
-          end
+          json_data =
+            if opts.include_meta do
+              %{
+                "data" => processed_maps,
+                "meta" => build_metadata(rows, columns, aliases)
+              }
+            else
+              processed_maps
+            end
 
           # Serialize to JSON
           case serialize_json(json_data, opts) do
-            {:ok, json_string} -> {:ok, json_string}
+            {:ok, json_string} ->
+              {:ok, json_string}
+
             {:error, reason} ->
-              {:error, Error.transformation_error("JSON serialization failed: #{inspect(reason)}")}
+              {:error,
+               Error.transformation_error("JSON serialization failed: #{inspect(reason)}")}
           end
 
         {:error, reason} ->
@@ -118,6 +122,7 @@ defmodule Selecto.Output.Transformers.Json do
                   "data" => [],
                   "meta" => build_metadata([], columns, aliases)
                 }
+
                 case serialize_json(json_data, opts) do
                   {:ok, json} -> {[json], {[], 1, false}}
                   {:error, _} -> {:halt, {[], 1, false}}
@@ -131,22 +136,24 @@ defmodule Selecto.Output.Transformers.Json do
                 {:ok, map} ->
                   processed_map = apply_null_handling([map], opts.null_handling) |> List.first()
 
-                  json_item = if needs_meta and index == 0 do
-                    # First item includes metadata wrapper
-                    %{
-                      "data" => [processed_map],
-                      "meta" => build_metadata([row | rest], columns, aliases)
-                    }
-                  else
-                    processed_map
-                  end
+                  json_item =
+                    if needs_meta and index == 0 do
+                      # First item includes metadata wrapper
+                      %{
+                        "data" => [processed_map],
+                        "meta" => build_metadata([row | rest], columns, aliases)
+                      }
+                    else
+                      processed_map
+                    end
 
                   case serialize_json(json_item, opts) do
                     {:ok, json} -> {[json], {rest, index + 1, false}}
                     {:error, _} -> {:halt, {rest, index + 1, false}}
                   end
 
-                {:error, _} -> {:halt, {rest, index + 1, false}}
+                {:error, _} ->
+                  {:halt, {rest, index + 1, false}}
               end
           end
 
@@ -180,12 +187,14 @@ defmodule Selecto.Output.Transformers.Json do
 
     # Convert each row to a map
     try do
-      maps = Enum.map(rows, fn row ->
-        case convert_single_row_to_map(row, columns, aliases, opts) do
-          {:ok, map} -> map
-          {:error, _} -> %{}  # Return empty map on error
-        end
-      end)
+      maps =
+        Enum.map(rows, fn row ->
+          case convert_single_row_to_map(row, columns, aliases, opts) do
+            {:ok, map} -> map
+            # Return empty map on error
+            {:error, _} -> %{}
+          end
+        end)
 
       {:ok, maps}
     rescue
@@ -196,32 +205,35 @@ defmodule Selecto.Output.Transformers.Json do
   defp convert_single_row_to_map(row, columns, aliases, opts) do
     try do
       # Create column name -> value mapping
-      map_data = columns
-      |> Enum.with_index()
-      |> Enum.map(fn {column, index} ->
-        value = Enum.at(row, index)
+      map_data =
+        columns
+        |> Enum.with_index()
+        |> Enum.map(fn {column, index} ->
+          value = Enum.at(row, index)
 
-        # Get the effective column name (use alias if available)
-        effective_name = resolve_display_name(column, aliases, index)
+          # Get the effective column name (use alias if available)
+          effective_name = resolve_display_name(column, aliases, index)
 
-        # Apply key transformation
-        final_name = case opts.keys do
-          :atoms -> ensure_atom(effective_name)
-          :strings -> to_string(effective_name)
-        end
+          # Apply key transformation
+          final_name =
+            case opts.keys do
+              :atoms -> ensure_atom(effective_name)
+              :strings -> to_string(effective_name)
+            end
 
-        # Apply type coercion if enabled
-        coerced_value = if opts.coerce_types do
-          # For JSON, we need to be more careful about type coercion
-          # to ensure JSON serializability
-          coerce_for_json(value, opts)
-        else
-          value
-        end
+          # Apply type coercion if enabled
+          coerced_value =
+            if opts.coerce_types do
+              # For JSON, we need to be more careful about type coercion
+              # to ensure JSON serializability
+              coerce_for_json(value, opts)
+            else
+              value
+            end
 
-        {final_name, coerced_value}
-      end)
-      |> Enum.into(%{})
+          {final_name, coerced_value}
+        end)
+        |> Enum.into(%{})
 
       {:ok, map_data}
     rescue
@@ -235,9 +247,12 @@ defmodule Selecto.Output.Transformers.Json do
 
   defp resolve_display_name(column, aliases, idx) when is_list(aliases) do
     case Enum.at(aliases, idx) do
-      nil -> column
+      nil ->
+        column
+
       alias_name when is_binary(alias_name) ->
         if looks_like_uuid?(alias_name), do: column, else: alias_name
+
       alias_name ->
         alias_name
     end
@@ -246,7 +261,10 @@ defmodule Selecto.Output.Transformers.Json do
   defp resolve_display_name(column, _aliases, _idx), do: column
 
   defp looks_like_uuid?(value) when is_binary(value) do
-    Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, value)
+    Regex.match?(
+      ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      value
+    )
   end
 
   defp coerce_for_json(value, _opts) when is_nil(value), do: nil
@@ -268,9 +286,17 @@ defmodule Selecto.Output.Transformers.Json do
 
   defp coerce_for_json(%Date{} = date, opts) do
     case opts.date_format do
-      :iso8601 -> Date.to_iso8601(date)
-      :unix -> date |> Date.to_erl() |> :calendar.datetime_to_gregorian_seconds() |> Kernel.-(62167219200)
-      :string -> to_string(date)
+      :iso8601 ->
+        Date.to_iso8601(date)
+
+      :unix ->
+        date
+        |> Date.to_erl()
+        |> :calendar.datetime_to_gregorian_seconds()
+        |> Kernel.-(62_167_219_200)
+
+      :string ->
+        to_string(date)
     end
   end
 
@@ -308,17 +334,19 @@ defmodule Selecto.Output.Transformers.Json do
       "total_rows" => length(rows),
       "columns" => columns,
       "aliases" => aliases,
-      "query_time_ms" => nil,  # Could be populated by caller
+      # Could be populated by caller
+      "query_time_ms" => nil,
       "generated_at" => DateTime.utc_now() |> DateTime.to_iso8601()
     }
   end
 
   defp serialize_json(data, opts) do
-    jason_options = if opts.pretty do
-      [pretty: true]
-    else
-      []
-    end
+    jason_options =
+      if opts.pretty do
+        [pretty: true]
+      else
+        []
+      end
 
     case Jason.encode(data, jason_options) do
       {:ok, json} -> {:ok, json}
@@ -327,6 +355,7 @@ defmodule Selecto.Output.Transformers.Json do
   end
 
   defp ensure_atom(name) when is_atom(name), do: name
+
   defp ensure_atom(name) when is_binary(name) do
     try do
       String.to_existing_atom(name)
@@ -334,5 +363,6 @@ defmodule Selecto.Output.Transformers.Json do
       ArgumentError -> String.to_atom(name)
     end
   end
+
   defp ensure_atom(name), do: name |> to_string() |> ensure_atom()
 end

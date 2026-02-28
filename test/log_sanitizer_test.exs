@@ -17,10 +17,12 @@ defmodule Selecto.LogSanitizerTest do
     end
 
     test "handles multiple params" do
-      result = LogSanitizer.sanitize_query(
-        "SELECT * FROM users WHERE id = $1 AND name = $2",
-        [123, "test"]
-      )
+      result =
+        LogSanitizer.sanitize_query(
+          "SELECT * FROM users WHERE id = $1 AND name = $2",
+          [123, "test"]
+        )
+
       assert result == "SELECT * FROM users WHERE id = $1 AND name = $2 [2 param(s) redacted]"
     end
 
@@ -38,11 +40,13 @@ defmodule Selecto.LogSanitizerTest do
     end
 
     test "can hide param count with show_param_count: false" do
-      result = LogSanitizer.sanitize_query(
-        "SELECT * FROM users WHERE id = $1",
-        [123],
-        show_param_count: false
-      )
+      result =
+        LogSanitizer.sanitize_query(
+          "SELECT * FROM users WHERE id = $1",
+          [123],
+          show_param_count: false
+        )
+
       assert result == "SELECT * FROM users WHERE id = $1"
     end
 
@@ -192,6 +196,7 @@ defmodule Selecto.LogSanitizerTest do
         key: "encryption_key",
         credential: "creds"
       ]
+
       result = LogSanitizer.safe_context(context)
 
       assert result[:password] == "[redacted]"

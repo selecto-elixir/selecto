@@ -9,9 +9,14 @@ defmodule Selecto.Phase1IntegrationTest do
   end
 
   test "hierarchy builders return iodata tuples" do
-    {adj_sql, adj_params} = Selecto.Builder.Sql.Hierarchy.build_adjacency_list_cte(nil, :test, %{source: "tbl"})
-    {mp_sql, mp_params} = Selecto.Builder.Sql.Hierarchy.build_materialized_path_query(nil, :test, %{source: "tbl"})
-    {cl_sql, cl_params} = Selecto.Builder.Sql.Hierarchy.build_closure_table_query(nil, :test, %{source: "tbl"})
+    {adj_sql, adj_params} =
+      Selecto.Builder.Sql.Hierarchy.build_adjacency_list_cte(nil, :test, %{source: "tbl"})
+
+    {mp_sql, mp_params} =
+      Selecto.Builder.Sql.Hierarchy.build_materialized_path_query(nil, :test, %{source: "tbl"})
+
+    {cl_sql, cl_params} =
+      Selecto.Builder.Sql.Hierarchy.build_closure_table_query(nil, :test, %{source: "tbl"})
 
     assert is_list(adj_sql) and is_list(adj_params)
     assert is_list(mp_sql) and is_list(mp_params)

@@ -57,7 +57,9 @@ defmodule Selecto.Subfilter.SQL.Helpers do
   @spec build_outer_field(JoinResolution.t(), map(), String.t()) :: String.t()
   def build_outer_field(%JoinResolution{} = join_resolution, registry, field_name)
       when is_binary(field_name) do
-    outer_table = outer_base_table(registry, join_resolution) || subquery_base_table(join_resolution)
+    outer_table =
+      outer_base_table(registry, join_resolution) || subquery_base_table(join_resolution)
+
     "#{outer_table}.#{field_name}"
   end
 
@@ -70,7 +72,8 @@ defmodule Selecto.Subfilter.SQL.Helpers do
              String.trim(condition),
              capture: :all_but_first
            ) do
-        [left_table, left_col, right_table, _right_col] when left_table == from_table and right_table == to_table ->
+        [left_table, left_col, right_table, _right_col]
+        when left_table == from_table and right_table == to_table ->
           left_col
 
         [_left_table, _left_col, right_table, right_col] when right_table == from_table ->

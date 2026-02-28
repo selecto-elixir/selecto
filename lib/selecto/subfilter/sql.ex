@@ -53,8 +53,12 @@ defmodule Selecto.Subfilter.SQL do
   SQL for a single subfilter outside of the main registry flow.
   """
   @spec generate_for_subfilter(Spec.t(), JoinResolution.t(), Registry.t()) ::
-    {:ok, String.t(), [any()]} | {:error, Error.t()}
-  def generate_for_subfilter(%Spec{} = spec, %JoinResolution{} = join_resolution, %Registry{} = registry) do
+          {:ok, String.t(), [any()]} | {:error, Error.t()}
+  def generate_for_subfilter(
+        %Spec{} = spec,
+        %JoinResolution{} = join_resolution,
+        %Registry{} = registry
+      ) do
     strategy = determine_strategy(spec, registry)
 
     case dispatch_to_builder(strategy, spec, join_resolution, registry) do
@@ -108,7 +112,8 @@ defmodule Selecto.Subfilter.SQL do
   end
 
   defp auto_detect_strategy(_spec) do
-    :exists # Default strategy
+    # Default strategy
+    :exists
   end
 
   defp dispatch_to_builder(:exists, spec, join_resolution, registry) do
@@ -132,11 +137,12 @@ defmodule Selecto.Subfilter.SQL do
   end
 
   defp dispatch_to_builder(invalid_strategy, _spec, _join_resolution, _registry) do
-    {:error, %Error{
-      type: :unknown_strategy,
-      message: "Cannot generate SQL for unknown strategy",
-      details: %{strategy: invalid_strategy}
-    }}
+    {:error,
+     %Error{
+       type: :unknown_strategy,
+       message: "Cannot generate SQL for unknown strategy",
+       details: %{strategy: invalid_strategy}
+     }}
   end
 
   defp combine_sql_clauses(clauses_map, compound_ops) do
@@ -166,6 +172,7 @@ defmodule Selecto.Subfilter.SQL do
 
       "(#{op_sql})"
     end)
-    |> Enum.join(" AND ") # Assuming top-level operations are ANDed
+    # Assuming top-level operations are ANDed
+    |> Enum.join(" AND ")
   end
 end

@@ -44,14 +44,14 @@ defmodule Selecto.Output.Transformers.Structs do
   alias Selecto.Error
 
   @type struct_option ::
-    {:struct_module, module()} |
-    {:field_mapping, map()} |
-    {:transform_keys, :snake_case | :camel_case | :pascal_case | :none} |
-    {:coerce_types, boolean()} |
-    {:type_strategy, :strict | :lenient | :preserve} |
-    {:validate_fields, boolean()} |
-    {:default_values, map()} |
-    {:enforce_keys, boolean()}
+          {:struct_module, module()}
+          | {:field_mapping, map()}
+          | {:transform_keys, :snake_case | :camel_case | :pascal_case | :none}
+          | {:coerce_types, boolean()}
+          | {:type_strategy, :strict | :lenient | :preserve}
+          | {:validate_fields, boolean()}
+          | {:default_values, map()}
+          | {:enforce_keys, boolean()}
 
   @type struct_options :: [struct_option()]
 
@@ -60,28 +60,38 @@ defmodule Selecto.Output.Transformers.Structs do
 
   Returns a list of struct instances with properly typed and named fields.
   """
-  @spec transform(rows :: list(list()), columns :: list(), aliases :: map(),
-                  struct_module :: module() | nil, options :: struct_options()) ::
+  @spec transform(
+          rows :: list(list()),
+          columns :: list(),
+          aliases :: map(),
+          struct_module :: module() | nil,
+          options :: struct_options()
+        ) ::
           {:ok, list(struct())} | {:error, Error.t()}
   def transform(rows, columns, aliases, struct_module, options) do
     with {:ok, validated_options} <- validate_options(options),
          {:ok, field_mappings} <- build_field_mappings(columns, aliases, validated_options),
          {:ok, struct_mod} <- resolve_struct_module(struct_module, validated_options) do
-
       case transform_rows(rows, columns, field_mappings, struct_mod, validated_options) do
-        {:ok, structs} -> {:ok, structs}
-        {:error, reason} -> {:error, Error.transformation_error(reason, %{
-          transformer: __MODULE__,
-          struct_module: struct_mod,
-          options: validated_options
-        })}
+        {:ok, structs} ->
+          {:ok, structs}
+
+        {:error, reason} ->
+          {:error,
+           Error.transformation_error(reason, %{
+             transformer: __MODULE__,
+             struct_module: struct_mod,
+             options: validated_options
+           })}
       end
     else
-      {:error, reason} -> {:error, Error.transformation_error(reason, %{
-        transformer: __MODULE__,
-        struct_module: struct_module,
-        options: options
-      })}
+      {:error, reason} ->
+        {:error,
+         Error.transformation_error(reason, %{
+           transformer: __MODULE__,
+           struct_module: struct_module,
+           options: options
+         })}
     end
   end
 
@@ -90,46 +100,65 @@ defmodule Selecto.Output.Transformers.Structs do
 
   Returns a stream of struct instances to minimize memory usage.
   """
-  @spec stream_transform(rows :: Enumerable.t(), columns :: list(), aliases :: map(),
-                        struct_module :: module() | nil, options :: struct_options()) ::
+  @spec stream_transform(
+          rows :: Enumerable.t(),
+          columns :: list(),
+          aliases :: map(),
+          struct_module :: module() | nil,
+          options :: struct_options()
+        ) ::
           {:ok, Enumerable.t()} | {:error, Error.t()}
   def stream_transform(rows, columns, aliases, struct_module, options) do
     with {:ok, validated_options} <- validate_options(options),
          {:ok, field_mappings} <- build_field_mappings(columns, aliases, validated_options),
          {:ok, struct_mod} <- resolve_struct_module(struct_module, validated_options) do
+      stream =
+        Stream.map(rows, fn row ->
+          case transform_single_row(row, columns, field_mappings, struct_mod, validated_options) do
+            {:ok, struct_instance} ->
+              struct_instance
 
-      stream = Stream.map(rows, fn row ->
-        case transform_single_row(row, columns, field_mappings, struct_mod, validated_options) do
-          {:ok, struct_instance} -> struct_instance
-          {:error, reason} ->
-            raise Error.transformation_error(reason, %{
-              transformer: __MODULE__,
-              struct_module: struct_mod,
-              row: row
-            })
-        end
-      end)
+            {:error, reason} ->
+              raise Error.transformation_error(reason, %{
+                      transformer: __MODULE__,
+                      struct_module: struct_mod,
+                      row: row
+                    })
+          end
+        end)
 
       {:ok, stream}
     else
-      {:error, reason} -> {:error, Error.transformation_error(reason, %{
-        transformer: __MODULE__,
-        struct_module: struct_module,
-        options: options
-      })}
+      {:error, reason} ->
+        {:error,
+         Error.transformation_error(reason, %{
+           transformer: __MODULE__,
+           struct_module: struct_module,
+           options: options
+         })}
     end
   end
 
   # Private functions
 
   defp validate_options(options) do
-    valid_keys = [:struct_module, :field_mapping, :transform_keys, :coerce_types,
-                  :type_strategy, :validate_fields, :default_values, :enforce_keys]
+    valid_keys = [
+      :struct_module,
+      :field_mapping,
+      :transform_keys,
+      :coerce_types,
+      :type_strategy,
+      :validate_fields,
+      :default_values,
+      :enforce_keys
+    ]
 
     # Check for invalid keys
     invalid_keys = Keyword.keys(options) -- valid_keys
+
     if invalid_keys != [] do
-      {:error, "Invalid struct options: #{inspect(invalid_keys)}. Valid keys: #{inspect(valid_keys)}"}
+      {:error,
+       "Invalid struct options: #{inspect(invalid_keys)}. Valid keys: #{inspect(valid_keys)}"}
     else
       validated = %{
         struct_module: Keyword.get(options, :struct_module),
@@ -155,40 +184,55 @@ defmodule Selecto.Output.Transformers.Structs do
     end
   end
 
-  defp validate_transform_keys(key) when key in [:snake_case, :camel_case, :pascal_case, :none], do: :ok
-  defp validate_transform_keys(key), do: {:error, "Invalid transform_keys: #{inspect(key)}. Must be :snake_case, :camel_case, :pascal_case, or :none"}
+  defp validate_transform_keys(key) when key in [:snake_case, :camel_case, :pascal_case, :none],
+    do: :ok
+
+  defp validate_transform_keys(key),
+    do:
+      {:error,
+       "Invalid transform_keys: #{inspect(key)}. Must be :snake_case, :camel_case, :pascal_case, or :none"}
 
   defp validate_type_strategy(strategy) when strategy in [:strict, :lenient, :preserve], do: :ok
-  defp validate_type_strategy(strategy), do: {:error, "Invalid type_strategy: #{inspect(strategy)}. Must be :strict, :lenient, or :preserve"}
+
+  defp validate_type_strategy(strategy),
+    do:
+      {:error,
+       "Invalid type_strategy: #{inspect(strategy)}. Must be :strict, :lenient, or :preserve"}
 
   defp validate_field_mapping(mapping) when is_map(mapping), do: :ok
-  defp validate_field_mapping(mapping), do: {:error, "field_mapping must be a map, got: #{inspect(mapping)}"}
+
+  defp validate_field_mapping(mapping),
+    do: {:error, "field_mapping must be a map, got: #{inspect(mapping)}"}
 
   defp validate_default_values(defaults) when is_map(defaults), do: :ok
-  defp validate_default_values(defaults), do: {:error, "default_values must be a map, got: #{inspect(defaults)}"}
+
+  defp validate_default_values(defaults),
+    do: {:error, "default_values must be a map, got: #{inspect(defaults)}"}
 
   defp build_field_mappings(columns, aliases, options) do
     try do
-      mappings = Enum.with_index(columns)
-      |> Enum.map(fn {column, index} ->
-        # Get the effective column name (check aliases first)
-        effective_name = Map.get(aliases, column, column)
+      mappings =
+        Enum.with_index(columns)
+        |> Enum.map(fn {column, index} ->
+          # Get the effective column name (check aliases first)
+          effective_name = Map.get(aliases, column, column)
 
-        # Apply custom field mapping if provided
-        # Check if field_mapping has numeric keys or string keys
-        mapped_name = case Map.get(options.field_mapping, index) do
-          nil -> Map.get(options.field_mapping, effective_name, effective_name)
-          mapped -> mapped
-        end
+          # Apply custom field mapping if provided
+          # Check if field_mapping has numeric keys or string keys
+          mapped_name =
+            case Map.get(options.field_mapping, index) do
+              nil -> Map.get(options.field_mapping, effective_name, effective_name)
+              mapped -> mapped
+            end
 
-        # Apply key transformation
-        final_name = transform_field_name(mapped_name, options.transform_keys)
+          # Apply key transformation
+          final_name = transform_field_name(mapped_name, options.transform_keys)
 
-        # Convert to atom for struct field
-        field_atom = ensure_atom(final_name)
+          # Convert to atom for struct field
+          field_atom = ensure_atom(final_name)
 
-        {index, field_atom, effective_name}
-      end)
+          {index, field_atom, effective_name}
+        end)
 
       {:ok, mappings}
     rescue
@@ -198,17 +242,20 @@ defmodule Selecto.Output.Transformers.Structs do
   end
 
   defp transform_field_name(name, :none), do: name
+
   defp transform_field_name(name, :snake_case) do
     name
     |> to_string()
     |> Macro.underscore()
   end
+
   defp transform_field_name(name, :camel_case) do
     name
     |> to_string()
     |> Macro.underscore()
     |> camelize(false)
   end
+
   defp transform_field_name(name, :pascal_case) do
     name
     |> to_string()
@@ -238,24 +285,27 @@ defmodule Selecto.Output.Transformers.Structs do
       {:error, "Struct module #{inspect(module)} is not available"}
     end
   end
+
   defp resolve_struct_module(nil, options) do
     case options.struct_module do
       nil -> {:error, "No struct module provided"}
       module -> resolve_struct_module(module, options)
     end
   end
+
   defp resolve_struct_module(invalid, _options) do
     {:error, "Invalid struct module: #{inspect(invalid)}. Must be an atom"}
   end
 
   defp transform_rows(rows, columns, field_mappings, struct_module, options) do
     try do
-      structs = Enum.map(rows, fn row ->
-        case transform_single_row(row, columns, field_mappings, struct_module, options) do
-          {:ok, struct_instance} -> struct_instance
-          {:error, reason} -> throw({:transform_error, reason})
-        end
-      end)
+      structs =
+        Enum.map(rows, fn row ->
+          case transform_single_row(row, columns, field_mappings, struct_module, options) do
+            {:ok, struct_instance} -> struct_instance
+            {:error, reason} -> throw({:transform_error, reason})
+          end
+        end)
 
       {:ok, structs}
     catch
@@ -267,20 +317,22 @@ defmodule Selecto.Output.Transformers.Structs do
   defp transform_single_row(row, columns, field_mappings, struct_module, options) do
     try do
       # Build the field map with proper values
-      field_map = field_mappings
-      |> Enum.reduce(%{}, fn {index, field_atom, _original_name}, acc ->
-        value = get_row_value(row, index)
+      field_map =
+        field_mappings
+        |> Enum.reduce(%{}, fn {index, field_atom, _original_name}, acc ->
+          value = get_row_value(row, index)
 
-        # Apply type coercion if enabled
-        final_value = if options.coerce_types do
-          column_type = get_column_type(columns, index)
-          TypeCoercion.coerce_value(value, column_type, options.type_strategy, %{})
-        else
-          value
-        end
+          # Apply type coercion if enabled
+          final_value =
+            if options.coerce_types do
+              column_type = get_column_type(columns, index)
+              TypeCoercion.coerce_value(value, column_type, options.type_strategy, %{})
+            else
+              value
+            end
 
-        Map.put(acc, field_atom, final_value)
-      end)
+          Map.put(acc, field_atom, final_value)
+        end)
 
       # Add default values for missing fields
       field_map_with_defaults = Map.merge(options.default_values, field_map)
@@ -307,6 +359,7 @@ defmodule Selecto.Output.Transformers.Structs do
       nil
     end
   end
+
   defp get_row_value(_row, _index), do: nil
 
   defp get_column_type(columns, index) when is_list(columns) do
@@ -316,6 +369,7 @@ defmodule Selecto.Output.Transformers.Structs do
       nil
     end
   end
+
   defp get_column_type(_columns, _index), do: nil
 
   defp validate_struct_fields(struct_module, field_map, options) do
@@ -335,18 +389,23 @@ defmodule Selecto.Output.Transformers.Structs do
         module_name = struct_module |> Atom.to_string()
 
         # For the test case, if this is RequiredFieldsUser, we know id and name are required
-        required_fields = case module_name do
-          "Elixir.Selecto.Output.Transformers.StructsTest.RequiredFieldsUser" -> [:id, :name]
-          _ -> []  # For other structs, assume no required fields unless detected
-        end
+        required_fields =
+          case module_name do
+            "Elixir.Selecto.Output.Transformers.StructsTest.RequiredFieldsUser" -> [:id, :name]
+            # For other structs, assume no required fields unless detected
+            _ -> []
+          end
 
         # Check if any required fields are missing or nil
-        missing_keys = Enum.filter(required_fields, fn key ->
-          case Map.get(field_map, key) do
-            nil -> true  # Key is missing or explicitly nil
-            _ -> false   # Key has a non-nil value
-          end
-        end)
+        missing_keys =
+          Enum.filter(required_fields, fn key ->
+            case Map.get(field_map, key) do
+              # Key is missing or explicitly nil
+              nil -> true
+              # Key has a non-nil value
+              _ -> false
+            end
+          end)
 
         if length(missing_keys) > 0 do
           {:error, "Missing required struct fields: #{inspect(missing_keys)}"}

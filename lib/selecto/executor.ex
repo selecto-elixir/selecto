@@ -32,7 +32,8 @@ defmodule Selecto.Executor do
           Logger.error("Query failed: \#{inspect(error)}")
       end
   """
-  @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_result()
+  @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) ::
+          Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
     start_time = System.monotonic_time(:millisecond)
     query_id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
@@ -75,16 +76,17 @@ defmodule Selecto.Executor do
               }
             )
 
-            {:error, Selecto.Error.validation_error(
-              "Query too complex to execute safely",
-              %{
-                complexity_score: analysis.score,
-                max_score: analysis.details.max_score,
-                issues: analysis.blocking_issues,
-                recommendations: analysis.recommendations,
-                details: analysis.details
-              }
-            )}
+            {:error,
+             Selecto.Error.validation_error(
+               "Query too complex to execute safely",
+               %{
+                 complexity_score: analysis.score,
+                 max_score: analysis.details.max_score,
+                 issues: analysis.blocking_issues,
+                 recommendations: analysis.recommendations,
+                 details: analysis.details
+               }
+             )}
         end
       end
 
@@ -98,14 +100,20 @@ defmodule Selecto.Executor do
           format_options = Keyword.get(opts, :format_options, [])
 
           case Selecto.Output.Formats.transform({rows, columns, aliases}, format, format_options) do
-            {:ok, transformed_result} -> {:ok, transformed_result}
-            {:error, transform_error} -> {:error, Selecto.Error.transformation_error("Output format transformation failed", %{
-              format: format,
-              options: format_options,
-              error: transform_error
-            })}
+            {:ok, transformed_result} ->
+              {:ok, transformed_result}
+
+            {:error, transform_error} ->
+              {:error,
+               Selecto.Error.transformation_error("Output format transformation failed", %{
+                 format: format,
+                 options: format_options,
+                 error: transform_error
+               })}
           end
-        error_result -> error_result
+
+        error_result ->
+          error_result
       end
     rescue
       error ->
@@ -128,7 +136,10 @@ defmodule Selecto.Executor do
     catch
       :exit, reason ->
         duration = System.monotonic_time(:millisecond) - start_time
-        error_result = {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
+
+        error_result =
+          {:error,
+           Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
 
         # Emit telemetry event for connection error
         :telemetry.execute(
@@ -149,113 +160,131 @@ defmodule Selecto.Executor do
   # Execute query with timeout protection
   defp execute_with_timeout_protection(selecto, opts, query_id, start_time) do
     # Get timeout from options or default
-    timeout = opts[:timeout] || 30_000  # Default 30 seconds
-    max_timeout = 300_000  # 5 minutes absolute maximum
+    # Default 30 seconds
+    timeout = opts[:timeout] || 30_000
+    # 5 minutes absolute maximum
+    max_timeout = 300_000
     timeout = min(timeout, max_timeout)
 
     # Wrap execution in Task.async for timeout enforcement
-    task = Task.async(fn ->
-      try do
-        {query, aliases, params} = Selecto.gen_sql(selecto, opts)
+    task =
+      Task.async(fn ->
+        try do
+          {query, aliases, params} = Selecto.gen_sql(selecto, opts)
 
-        # Emit telemetry event for query start
-        :telemetry.execute(
-          [:selecto, :query, :start],
-          %{system_time: System.system_time()},
-          %{query_id: query_id, query: query}
-        )
+          # Emit telemetry event for query start
+          :telemetry.execute(
+            [:selecto, :query, :start],
+            %{system_time: System.system_time()},
+            %{query_id: query_id, query: query}
+          )
 
-        # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
-        result = cond do
-        # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
-        selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
-          execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
+          # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
+          result =
+            cond do
+              # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
+              selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+                execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
 
-        # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
-        is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
-          execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
+              # If it's an Ecto repo (module), try to use Ecto.Adapters.SQL.query
+              is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
+                execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
 
-        # If it's a Postgrex connection, use Postgrex.query directly (PostgreSQL backward compatibility)
-        true ->
-          execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
-      end
+              # If it's a Postgrex connection, use Postgrex.query directly (PostgreSQL backward compatibility)
+              true ->
+                execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
+            end
 
-      # Track query execution for monitoring (if SelectoDev.QueryMonitor is available)
-      duration = System.monotonic_time(:millisecond) - start_time
+          # Track query execution for monitoring (if SelectoDev.QueryMonitor is available)
+          duration = System.monotonic_time(:millisecond) - start_time
 
-      # Emit telemetry event for successful query completion
-      :telemetry.execute(
-        [:selecto, :query, :complete],
-        %{
-          duration: duration,
-          execution_time: duration
-        },
-        %{
-          query_id: query_id,
-          query: query,
-          row_count: case result do
-            {:ok, {rows, _, _}} -> length(rows)
-            _ -> 0
+          # Emit telemetry event for successful query completion
+          :telemetry.execute(
+            [:selecto, :query, :complete],
+            %{
+              duration: duration,
+              execution_time: duration
+            },
+            %{
+              query_id: query_id,
+              query: query,
+              row_count:
+                case result do
+                  {:ok, {rows, _, _}} -> length(rows)
+                  _ -> 0
+                end
+            }
+          )
+
+          track_query_execution(query, duration, result)
+
+          # Apply output format transformation if specified
+          case result do
+            {:ok, {rows, columns, aliases}} ->
+              format = Keyword.get(opts, :format, :raw)
+              format_options = Keyword.get(opts, :format_options, [])
+
+              case Selecto.Output.Formats.transform(
+                     {rows, columns, aliases},
+                     format,
+                     format_options
+                   ) do
+                {:ok, transformed_result} ->
+                  {:ok, transformed_result}
+
+                {:error, transform_error} ->
+                  {:error,
+                   Selecto.Error.transformation_error("Output format transformation failed", %{
+                     format: format,
+                     options: format_options,
+                     error: transform_error
+                   })}
+              end
+
+            error_result ->
+              error_result
           end
-        }
-      )
+        rescue
+          error ->
+            duration = System.monotonic_time(:millisecond) - start_time
+            error_result = {:error, Selecto.Error.from_reason(error)}
 
-      track_query_execution(query, duration, result)
+            # Emit telemetry event for query error
+            :telemetry.execute(
+              [:selecto, :query, :error],
+              %{count: 1},
+              %{
+                query_id: query_id,
+                error: error,
+                duration: duration
+              }
+            )
 
-      # Apply output format transformation if specified
-      case result do
-        {:ok, {rows, columns, aliases}} ->
-          format = Keyword.get(opts, :format, :raw)
-          format_options = Keyword.get(opts, :format_options, [])
+            track_query_execution("Query compilation failed", duration, error_result)
+            error_result
+        catch
+          :exit, reason ->
+            duration = System.monotonic_time(:millisecond) - start_time
 
-          case Selecto.Output.Formats.transform({rows, columns, aliases}, format, format_options) do
-            {:ok, transformed_result} -> {:ok, transformed_result}
-            {:error, transform_error} -> {:error, Selecto.Error.transformation_error("Output format transformation failed", %{
-              format: format,
-              options: format_options,
-              error: transform_error
-            })}
-          end
-        error_result -> error_result
-      end
-    rescue
-      error ->
-        duration = System.monotonic_time(:millisecond) - start_time
-        error_result = {:error, Selecto.Error.from_reason(error)}
+            error_result =
+              {:error,
+               Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
 
-        # Emit telemetry event for query error
-        :telemetry.execute(
-          [:selecto, :query, :error],
-          %{count: 1},
-          %{
-            query_id: query_id,
-            error: error,
-            duration: duration
-          }
-        )
+            # Emit telemetry event for connection error
+            :telemetry.execute(
+              [:selecto, :query, :error],
+              %{count: 1},
+              %{
+                query_id: query_id,
+                error: reason,
+                duration: duration
+              }
+            )
 
-        track_query_execution("Query compilation failed", duration, error_result)
-        error_result
-    catch
-      :exit, reason ->
-        duration = System.monotonic_time(:millisecond) - start_time
-        error_result = {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
-
-        # Emit telemetry event for connection error
-        :telemetry.execute(
-          [:selecto, :query, :error],
-          %{count: 1},
-          %{
-            query_id: query_id,
-            error: reason,
-            duration: duration
-          }
-        )
-
-        track_query_execution("Database connection failed", duration, error_result)
-        error_result
-      end
-    end)
+            track_query_execution("Database connection failed", duration, error_result)
+            error_result
+        end
+      end)
 
     # Wait for task with timeout
     case Task.yield(task, timeout) || Task.shutdown(task) do
@@ -275,10 +304,11 @@ defmodule Selecto.Executor do
           %{query_id: query_id}
         )
 
-        {:error, Selecto.Error.timeout_error(
-          "Query exceeded timeout of #{timeout}ms",
-          %{timeout: timeout, duration: duration}
-        )}
+        {:error,
+         Selecto.Error.timeout_error(
+           "Query exceeded timeout of #{timeout}ms",
+           %{timeout: timeout, duration: duration}
+         )}
     end
   end
 
@@ -311,8 +341,8 @@ defmodule Selecto.Executor do
           Logger.error("Query failed: \#{inspect(error)}")
       end
   """
-  @spec execute_with_metadata(Selecto.Types.t(), Selecto.Types.execute_options()) :: 
-    {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
+  @spec execute_with_metadata(Selecto.Types.t(), Selecto.Types.execute_options()) ::
+          {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
   def execute_with_metadata(selecto, opts \\ []) do
     start_time = System.monotonic_time(:millisecond)
 
@@ -326,23 +356,25 @@ defmodule Selecto.Executor do
       }
 
       # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
-      result = cond do
-        # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
-        selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
-          execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
+      result =
+        cond do
+          # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
+          selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+            execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
 
-        # If it's an Ecto repo (module that has __adapter__ function), try to use Ecto.Adapters.SQL.query
-        is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) && is_ecto_repo?(selecto.postgrex_opts) ->
-          execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
+          # If it's an Ecto repo (module that has __adapter__ function), try to use Ecto.Adapters.SQL.query
+          is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) &&
+              is_ecto_repo?(selecto.postgrex_opts) ->
+            execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
 
-        # If it's a Postgrex connection or registered name, use Postgrex.query directly (PostgreSQL backward compatibility)
-        true ->
-          execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
-      end
+          # If it's a Postgrex connection or registered name, use Postgrex.query directly (PostgreSQL backward compatibility)
+          true ->
+            execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
+        end
 
       # Calculate execution time
       duration = System.monotonic_time(:millisecond) - start_time
-      
+
       # Track query execution for monitoring (if SelectoDev.QueryMonitor is available)
       track_query_execution(query, duration, result)
 
@@ -352,15 +384,20 @@ defmodule Selecto.Executor do
           format = Keyword.get(opts, :format, :raw)
           format_options = Keyword.get(opts, :format_options, [])
 
-          transformed_result = case Selecto.Output.Formats.transform({rows, columns, aliases}, format, format_options) do
-            {:ok, transformed} -> transformed
-            {:error, _transform_error} -> {rows, columns, aliases}
-          end
-          
+          transformed_result =
+            case Selecto.Output.Formats.transform(
+                   {rows, columns, aliases},
+                   format,
+                   format_options
+                 ) do
+              {:ok, transformed} -> transformed
+              {:error, _transform_error} -> {rows, columns, aliases}
+            end
+
           metadata = Map.put(sql_metadata, :execution_time, duration)
           {:ok, transformed_result, metadata}
-          
-        error_result -> 
+
+        error_result ->
           error_result
       end
     rescue
@@ -372,7 +409,11 @@ defmodule Selecto.Executor do
     catch
       :exit, reason ->
         duration = System.monotonic_time(:millisecond) - start_time
-        error_result = {:error, Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
+
+        error_result =
+          {:error,
+           Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
+
         track_query_execution("Database connection failed", duration, error_result)
         error_result
     end
@@ -398,15 +439,19 @@ defmodule Selecto.Executor do
           # Handle database or other errors
       end
   """
-  @spec execute_one(Selecto.Types.t(), Selecto.Types.execute_options()) :: Selecto.Types.safe_execute_one_result()
+  @spec execute_one(Selecto.Types.t(), Selecto.Types.execute_options()) ::
+          Selecto.Types.safe_execute_one_result()
   def execute_one(selecto, opts \\ []) do
     case execute(selecto, opts) do
       {:ok, {[], _columns, _aliases}} ->
         {:error, Selecto.Error.no_results_error()}
+
       {:ok, {[single_row], _columns, aliases}} ->
         {:ok, {single_row, aliases}}
+
       {:ok, {_multiple_rows, _columns, _aliases}} ->
         {:error, Selecto.Error.multiple_results_error()}
+
       {:error, %Selecto.Error{} = error} ->
         {:error, error}
     end
@@ -414,34 +459,37 @@ defmodule Selecto.Executor do
 
   @doc """
   Execute query using a database adapter.
-  
+
   This function delegates to the adapter's execute/4 function, allowing
   for different database types like SQLite, MySQL, etc.
   """
   def execute_with_adapter(adapter, connection, query, params, aliases) do
     try do
       case adapter.execute(connection, query, params, []) do
-        {:ok, result} -> 
+        {:ok, result} ->
           # Ensure consistent result format across adapters
           rows = Map.get(result, :rows, [])
           columns = Map.get(result, :columns, [])
           {:ok, {rows, columns, aliases}}
-        {:error, reason} -> 
+
+        {:error, reason} ->
           {:error, Selecto.Error.from_reason(reason)}
       end
     rescue
       error ->
-        {:error, Selecto.Error.connection_error("Adapter execution failed", %{
-          adapter: adapter,
-          connection: inspect(connection),
-          error: inspect(error)
-        })}
+        {:error,
+         Selecto.Error.connection_error("Adapter execution failed", %{
+           adapter: adapter,
+           connection: inspect(connection),
+           error: inspect(error)
+         })}
     catch
       :exit, reason ->
-        {:error, Selecto.Error.connection_error("Adapter connection failed", %{
-          adapter: adapter, 
-          exit_reason: reason
-        })}
+        {:error,
+         Selecto.Error.connection_error("Adapter connection failed", %{
+           adapter: adapter,
+           exit_reason: reason
+         })}
     end
   end
 
@@ -462,6 +510,7 @@ defmodule Selecto.Executor do
       UndefinedFunctionError ->
         # Ecto.Adapters.SQL not available, fall back to temporary connection
         execute_with_ecto_fallback(repo, query, params, aliases)
+
       error ->
         {:error, Selecto.Error.from_reason(error)}
     end
@@ -481,18 +530,21 @@ defmodule Selecto.Executor do
         case Postgrex.query(conn, query, params) do
           {:ok, result} ->
             {:ok, {result.rows, result.columns, aliases}}
+
           {:error, reason} ->
             require Logger
             alias Selecto.LogSanitizer
             Logger.error("Postgrex query error: #{LogSanitizer.sanitize_error(reason)}")
             Logger.error("Query: #{LogSanitizer.sanitize_query(query, params)}")
             # Note: params are intentionally NOT logged to prevent sensitive data exposure
-            {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
+            {:error,
+             Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
         end
 
       # Handle invalid connection types
       _ ->
-        {:error, Selecto.Error.connection_error("Invalid connection type", %{connection: inspect(conn)})}
+        {:error,
+         Selecto.Error.connection_error("Invalid connection type", %{connection: inspect(conn)})}
     end
   end
 
@@ -502,7 +554,11 @@ defmodule Selecto.Executor do
   def execute_with_connection_pool(pool_ref, query, params, _aliases) do
     case Selecto.ConnectionPool.execute(pool_ref, query, params, prepared: true) do
       # {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-      {:error, reason} -> {:error, Selecto.Error.query_error("Pooled query execution failed", query, params, %{reason: reason})}
+      {:error, reason} ->
+        {:error,
+         Selecto.Error.query_error("Pooled query execution failed", query, params, %{
+           reason: reason
+         })}
     end
   end
 
@@ -513,6 +569,7 @@ defmodule Selecto.Executor do
   """
   def execute_with_ecto_fallback(repo, query, params, aliases) do
     config = apply(repo, :config, [])
+
     postgrex_opts = [
       username: config[:username],
       password: config[:password],
@@ -524,14 +581,24 @@ defmodule Selecto.Executor do
 
     case Postgrex.start_link(postgrex_opts) do
       {:ok, conn} ->
-        result = case Postgrex.query(conn, query, params) do
-          {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-          {:error, reason} -> {:error, Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
-        end
+        result =
+          case Postgrex.query(conn, query, params) do
+            {:ok, result} ->
+              {:ok, {result.rows, result.columns, aliases}}
+
+            {:error, reason} ->
+              {:error,
+               Selecto.Error.query_error("Query execution failed", query, params, %{
+                 reason: reason
+               })}
+          end
+
         GenServer.stop(conn)
         result
+
       {:error, reason} ->
-        {:error, Selecto.Error.connection_error("Failed to connect to database", %{reason: reason})}
+        {:error,
+         Selecto.Error.connection_error("Failed to connect to database", %{reason: reason})}
     end
   end
 
@@ -546,6 +613,7 @@ defmodule Selecto.Executor do
         # For Ecto repos, we assume they're properly configured
         # Could be enhanced to ping the database
         :ok
+
       {:pool, pool_ref} ->
         # For pooled connections, validate pool health
         try do
@@ -556,6 +624,7 @@ defmodule Selecto.Executor do
         catch
           :exit, _ -> {:error, "Connection pool is not available"}
         end
+
       conn when is_pid(conn) ->
         # For Postgrex connections, check if process is alive
         if Process.alive?(conn) do
@@ -563,6 +632,7 @@ defmodule Selecto.Executor do
         else
           {:error, "Postgrex connection process is not alive"}
         end
+
       _ ->
         {:error, "Invalid connection configuration"}
     end
@@ -581,24 +651,29 @@ defmodule Selecto.Executor do
           repo: repo,
           status: :connected
         }
+
       {:pool, pool_ref} ->
-        stats = try do
-          Selecto.ConnectionPool.pool_stats(pool_ref)
-        catch
-          :exit, _ -> %{error: "Pool manager not available"}
-        end
+        stats =
+          try do
+            Selecto.ConnectionPool.pool_stats(pool_ref)
+          catch
+            :exit, _ -> %{error: "Pool manager not available"}
+          end
+
         %{
           type: :connection_pool,
           pool_ref: pool_ref,
           status: :connected,
           pool_stats: stats
         }
+
       conn when is_pid(conn) ->
         %{
           type: :postgrex,
           pid: conn,
           status: if(Process.alive?(conn), do: :connected, else: :disconnected)
         }
+
       other ->
         %{
           type: :unknown,
@@ -617,12 +692,15 @@ defmodule Selecto.Executor do
           {:ok, _} ->
             # SelectoDev.QueryMonitor.track_query(query, duration)
             :ok
+
           {:error, error} ->
-            _error_message = case error do
-              %{message: msg} -> msg
-              error when is_binary(error) -> error
-              error -> inspect(error)
-            end
+            _error_message =
+              case error do
+                %{message: msg} -> msg
+                error when is_binary(error) -> error
+                error -> inspect(error)
+              end
+
             # SelectoDev.QueryMonitor.track_query_error(query, error_message, duration)
             :ok
         end
@@ -645,5 +723,6 @@ defmodule Selecto.Executor do
       _ -> false
     end
   end
+
   defp is_ecto_repo?(_), do: false
 end

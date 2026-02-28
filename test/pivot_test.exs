@@ -83,9 +83,9 @@ defmodule Selecto.PivotTest do
   describe "pivot/3" do
     test "adds pivot configuration to selecto struct" do
       selecto = create_test_selecto()
-      
+
       pivoted = Pivot.pivot(selecto, :orders)
-      
+
       assert Pivot.has_pivot?(pivoted)
       pivot_config = Pivot.get_pivot_config(pivoted)
       assert pivot_config.target_schema == :orders
@@ -95,23 +95,23 @@ defmodule Selecto.PivotTest do
 
     test "calculates join path correctly for direct relationship" do
       selecto = create_test_selecto()
-      
+
       {:ok, path} = Pivot.calculate_join_path(selecto, :attendees)
-      
+
       assert path == [:attendees]
     end
 
     test "calculates join path correctly for nested relationship" do
       selecto = create_test_selecto()
-      
+
       {:ok, path} = Pivot.calculate_join_path(selecto, :orders)
-      
+
       assert path == [:attendees, :orders]
     end
 
     test "fails for non-existent target schema" do
       selecto = create_test_selecto()
-      
+
       assert_raise ArgumentError, ~r/Invalid pivot configuration/, fn ->
         Pivot.pivot(selecto, :non_existent)
       end
@@ -119,12 +119,13 @@ defmodule Selecto.PivotTest do
 
     test "supports custom options" do
       selecto = create_test_selecto()
-      
-      pivoted = Pivot.pivot(selecto, :orders, 
-        preserve_filters: false, 
-        subquery_strategy: :exists
-      )
-      
+
+      pivoted =
+        Pivot.pivot(selecto, :orders,
+          preserve_filters: false,
+          subquery_strategy: :exists
+        )
+
       pivot_config = Pivot.get_pivot_config(pivoted)
       assert pivot_config.preserve_filters == false
       assert pivot_config.subquery_strategy == :exists
@@ -135,14 +136,14 @@ defmodule Selecto.PivotTest do
     test "validates existing join path" do
       selecto = create_test_selecto()
       join_path = [:attendees, :orders]
-      
+
       assert :ok = Pivot.validate_pivot_path(selecto, join_path)
     end
 
     test "fails for invalid join path" do
       selecto = create_test_selecto()
       join_path = [:invalid_join]
-      
+
       assert {:error, _reason} = Pivot.validate_pivot_path(selecto, join_path)
     end
   end
@@ -150,10 +151,10 @@ defmodule Selecto.PivotTest do
   describe "reset_pivot/1" do
     test "removes pivot configuration" do
       selecto = create_test_selecto()
-      
+
       pivoted = Pivot.pivot(selecto, :orders)
       assert Pivot.has_pivot?(pivoted)
-      
+
       reset = Pivot.reset_pivot(pivoted)
       refute Pivot.has_pivot?(reset)
       assert Pivot.get_pivot_config(reset) == nil
@@ -163,27 +164,28 @@ defmodule Selecto.PivotTest do
   describe "has_pivot?/1" do
     test "returns false for non-pivoted query" do
       selecto = create_test_selecto()
-      
+
       refute Pivot.has_pivot?(selecto)
     end
 
     test "returns true for pivoted query" do
       selecto = create_test_selecto()
       pivoted = Pivot.pivot(selecto, :orders)
-      
+
       assert Pivot.has_pivot?(pivoted)
     end
   end
 
   describe "integration with filtering" do
     test "pivot preserves existing filters in configuration" do
-      selecto = create_test_selecto()
-      |> Selecto.filter([{"event_id", 123}])
-      |> Pivot.pivot(:orders)
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.filter([{"event_id", 123}])
+        |> Pivot.pivot(:orders)
+
       pivot_config = Pivot.get_pivot_config(selecto)
       assert pivot_config.preserve_filters == true
-      
+
       # Original filters should still be in the selecto struct
       assert selecto.set.filtered == [{"event_id", 123}]
     end

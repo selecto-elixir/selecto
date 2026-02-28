@@ -54,13 +54,13 @@ defmodule Selecto.Pivot do
   def pivot(selecto, target_schema, opts \\ []) do
     with {:ok, join_path} <- calculate_join_path(selecto, target_schema),
          :ok <- validate_pivot_path(selecto, join_path) do
-      
       pivot_config = %{
         target_schema: target_schema,
         join_path: join_path,
         preserve_filters: Keyword.get(opts, :preserve_filters, true),
         subquery_strategy: Keyword.get(opts, :subquery_strategy, :in),
-        strategy: Keyword.get(opts, :strategy, :subquery)  # :subquery or :cte
+        # :subquery or :cte
+        strategy: Keyword.get(opts, :strategy, :subquery)
       }
 
       put_in(selecto.set[:pivot_state], pivot_config)
@@ -79,7 +79,7 @@ defmodule Selecto.Pivot do
   @spec calculate_join_path(Types.t(), atom()) :: {:ok, [atom()]} | {:error, String.t()}
   def calculate_join_path(selecto, target_schema) do
     source_name = get_source_schema_name(selecto)
-    
+
     case find_join_path(selecto.domain, source_name, target_schema, []) do
       {:ok, path} -> {:ok, path}
       :not_found -> {:error, "No join path found from #{source_name} to #{target_schema}"}
@@ -133,27 +133,29 @@ defmodule Selecto.Pivot do
     cond do
       from_schema == to_schema ->
         {:ok, []}
-        
+
       from_schema in visited ->
         :not_found
-        
+
       true ->
         # First, try looking in the hierarchical joins structure
         case find_path_in_joins_hierarchy(domain, to_schema) do
           {:ok, path} ->
             {:ok, path}
+
           :not_found ->
             # Fall back to the association-based search
-            from_schema_config = case from_schema do
-              :source -> domain.source
-              schema_name -> Map.get(domain.schemas, schema_name)
-            end
-            
+            from_schema_config =
+              case from_schema do
+                :source -> domain.source
+                schema_name -> Map.get(domain.schemas, schema_name)
+              end
+
             if from_schema_config do
               find_path_through_associations(
-                domain, 
-                from_schema_config.associations, 
-                to_schema, 
+                domain,
+                from_schema_config.associations,
+                to_schema,
                 [from_schema | visited]
               )
             else
@@ -162,13 +164,13 @@ defmodule Selecto.Pivot do
         end
     end
   end
-  
+
   defp find_path_in_joins_hierarchy(domain, target) do
     # Search the joins structure hierarchically
     joins = Map.get(domain, :joins, %{})
     find_in_joins_tree(joins, target, [])
   end
-  
+
   defp find_in_joins_tree(joins, target, path) when is_map(joins) do
     Enum.reduce_while(joins, :not_found, fn {join_name, join_config}, _acc ->
       if join_name == target do
@@ -177,8 +179,9 @@ defmodule Selecto.Pivot do
       else
         # Check nested joins
         case Map.get(join_config, :joins) do
-          nil -> 
+          nil ->
             {:cont, :not_found}
+
           nested_joins ->
             case find_in_joins_tree(nested_joins, target, path ++ [join_name]) do
               {:ok, found_path} -> {:halt, {:ok, found_path}}
@@ -188,14 +191,14 @@ defmodule Selecto.Pivot do
       end
     end)
   end
-  
+
   defp find_in_joins_tree(_, _, _), do: :not_found
 
   defp find_path_through_associations(domain, associations, target, visited) do
     associations
     |> Enum.reduce_while(:not_found, fn {assoc_name, assoc_config}, _acc ->
       next_schema = assoc_config.queryable
-      
+
       case find_join_path(domain, next_schema, target, visited) do
         {:ok, path} -> {:halt, {:ok, [assoc_name | path]}}
         :not_found -> {:cont, :not_found}
@@ -214,14 +217,17 @@ defmodule Selecto.Pivot do
   end
 
   defp verify_join_step(domain, current_schema, [next_assoc | remaining_path]) do
-    current_config = case current_schema do
-      :source -> domain.source
-      schema_name -> Map.get(domain.schemas, schema_name)
-    end
+    current_config =
+      case current_schema do
+        :source -> domain.source
+        schema_name -> Map.get(domain.schemas, schema_name)
+      end
 
     if current_config do
       case Map.get(current_config.associations, next_assoc) do
-        nil -> false
+        nil ->
+          false
+
         assoc_config ->
           verify_join_step(domain, assoc_config.queryable, remaining_path)
       end

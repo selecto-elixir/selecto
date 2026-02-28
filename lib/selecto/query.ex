@@ -40,19 +40,22 @@ defmodule Selecto.Query do
     pivot_config = Selecto.Pivot.get_pivot_config(selecto)
 
     # Separate filters into pre-pivot and post-pivot
-    {pre_pivot_filters, post_pivot_filters} = case {has_pivot, pivot_config} do
-      {false, _} ->
-        # No pivot yet, all filters are pre-pivot
-        {selecto.set.filtered ++ filters, []}
-      {true, _} ->
-        # Pivot exists, new filters are post-pivot
-        {selecto.set.filtered, filters}
-    end
+    {pre_pivot_filters, post_pivot_filters} =
+      case {has_pivot, pivot_config} do
+        {false, _} ->
+          # No pivot yet, all filters are pre-pivot
+          {selecto.set.filtered ++ filters, []}
+
+        {true, _} ->
+          # Pivot exists, new filters are post-pivot
+          {selecto.set.filtered, filters}
+      end
 
     # Update the set with new filter lists
-    updated_set = selecto.set
-    |> Map.put(:filtered, pre_pivot_filters)
-    |> Map.put(:post_pivot_filters, post_pivot_filters)
+    updated_set =
+      selecto.set
+      |> Map.put(:filtered, pre_pivot_filters)
+      |> Map.put(:post_pivot_filters, post_pivot_filters)
 
     %{selecto | set: updated_set}
   end
@@ -60,6 +63,95 @@ defmodule Selecto.Query do
   @spec filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
   def filter(selecto, filter) do
     filter(selecto, [filter])
+  end
+
+  @doc """
+  Explicitly append filters to the pre-pivot filter list (`set.filtered`).
+
+  Use this when you want filters to be preserved as source-root constraints even
+  when composing a pivoted query.
+  """
+  @spec pre_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
+  def pre_pivot_filter(selecto, filters) when is_list(filters) do
+    put_in(selecto.set.filtered, selecto.set.filtered ++ filters)
+  end
+
+  @spec pre_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
+  def pre_pivot_filter(selecto, filter) do
+    pre_pivot_filter(selecto, [filter])
+  end
+
+  @doc """
+  Explicitly append filters to the post-pivot filter list (`set.post_pivot_filters`).
+
+  Use this when constraints should apply to the pivoted target root.
+  """
+  @spec post_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
+  def post_pivot_filter(selecto, filters) when is_list(filters) do
+    current = Map.get(selecto.set, :post_pivot_filters, [])
+    put_in(selecto.set[:post_pivot_filters], current ++ filters)
+  end
+
+  @spec post_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
+  def post_pivot_filter(selecto, filter) do
+    post_pivot_filter(selecto, [filter])
+  end
+
+  @doc """
+  Return only pre-pivot filters currently attached to the query.
+
+  This reads `set.filtered` and does not include legacy or post-pivot buckets.
+  """
+  @spec pre_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
+  def pre_pivot_filters(selecto) do
+    Map.get(selecto.set, :filtered, [])
+  end
+
+  @doc """
+  Return only post-pivot filters currently attached to the query.
+  """
+  @spec post_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
+  def post_pivot_filters(selecto) do
+    Map.get(selecto.set, :post_pivot_filters, [])
+  end
+
+  @doc """
+  Return query filters across legacy and current buckets as a flat list.
+
+  This is useful for integrations that need to copy filters between Selecto and
+  other query/update builders.
+
+  ## Options
+
+  - `:include_post_pivot` - include `set.post_pivot_filters` (default: `true`)
+  """
+  @spec query_filters(Selecto.Types.t(), keyword()) :: [Selecto.Types.filter()]
+  def query_filters(selecto, opts \\ []) do
+    include_post_pivot = Keyword.get(opts, :include_post_pivot, true)
+
+    legacy_filters = Map.get(selecto, :filters, [])
+
+    set_filters =
+      case Map.get(selecto, :set) do
+        %{} = set -> Map.get(set, :filtered) || Map.get(set, :filters) || []
+        _ -> []
+      end
+
+    post_pivot_filters =
+      if include_post_pivot do
+        case Map.get(selecto, :set) do
+          %{} = set -> Map.get(set, :post_pivot_filters) || []
+          _ -> []
+        end
+      else
+        []
+      end
+
+    [legacy_filters, set_filters, post_pivot_filters]
+    |> Enum.flat_map(fn
+      filters when is_list(filters) -> filters
+      _ -> []
+    end)
   end
 
   @doc """
@@ -137,10 +229,31 @@ defmodule Selecto.Query do
 
       {sql, params} = Selecto.Query.to_sql(selecto)
       IO.puts(sql)
+
+  ## Options
+
+  - `:pretty` - format SQL for readability
+  - `:highlight` - apply highlighting (`:ansi` or `:markdown`)
+  - `:indent` - indentation string used by pretty formatter
   """
   @spec to_sql(Selecto.Types.t(), keyword()) :: {String.t(), list()}
   def to_sql(selecto, opts \\ []) do
     {query, _aliases, params} = Selecto.gen_sql(selecto, opts)
+
+    query =
+      if Keyword.get(opts, :pretty, false) do
+        Selecto.SQL.Formatter.format(query, opts)
+      else
+        query
+      end
+
+    query =
+      case Keyword.get(opts, :highlight) do
+        nil -> query
+        false -> query
+        style -> Selecto.SQL.Formatter.highlight(query, style)
+      end
+
     {query, params}
   end
 end

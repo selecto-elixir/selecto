@@ -1,13 +1,13 @@
 defmodule Selecto.Subfilter.SQL.InBuilder do
   @moduledoc """
   Builds IN subqueries for subfilters.
-  
+
   This strategy is useful when you need to filter the main query based on a
   set of IDs returned by the subquery. It can be more performant than EXISTS
   in some cases, especially when the subquery returns a small number of rows.
-  
+
   ## Example SQL
-  
+
       film_id IN (
         SELECT fc.film_id
         FROM film_category fc
@@ -15,7 +15,7 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
         WHERE c.name IN ('Action', 'Comedy')
       )
   """
-  
+
   alias Selecto.Subfilter.{Spec, Error}
   alias Selecto.Subfilter.JoinPathResolver.JoinResolution
   alias Selecto.Subfilter.SQL.Helpers, as: SQLHelpers
@@ -23,29 +23,28 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
   @doc """
   Generate IN subquery SQL for a given subfilter.
   """
-  @spec generate(Spec.t(), JoinResolution.t(), any()) :: 
-    {:ok, String.t(), [any()]} | {:error, Error.t()}
+  @spec generate(Spec.t(), JoinResolution.t(), any()) ::
+          {:ok, String.t(), [any()]} | {:error, Error.t()}
   def generate(%Spec{} = spec, %JoinResolution{} = join_resolution, registry) do
     with {:ok, joins_sql, params1} <- build_joins_sql(join_resolution),
          {:ok, where_sql, params2} <- build_where_sql(spec, join_resolution) do
-      
       subquery_sql = """
       SELECT #{build_select_clause(join_resolution)}
       FROM #{build_from_clause(join_resolution)}
       #{joins_sql}
       WHERE #{where_sql}
       """
-      
+
       correlation_key = SQLHelpers.infer_correlation_key(join_resolution)
       main_query_field = SQLHelpers.build_outer_field(join_resolution, registry, correlation_key)
-      
-      final_sql = 
+
+      final_sql =
         if spec.negate do
           "#{main_query_field} NOT IN (#{subquery_sql})"
         else
           "#{main_query_field} IN (#{subquery_sql})"
         end
-      
+
       {:ok, final_sql, params1 ++ params2}
     else
       {:error, reason} -> {:error, reason}
@@ -64,7 +63,7 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
   end
 
   defp build_joins_sql(%JoinResolution{joins: joins}) do
-    join_clauses = 
+    join_clauses =
       joins
       |> Enum.reject(fn join -> join.type == :self end)
       |> Enum.map(fn join ->
@@ -73,7 +72,7 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
           on_clause -> "#{join_type_to_sql(join.type)} JOIN #{join.to} ON #{on_clause}"
         end
       end)
-    
+
     {:ok, Enum.join(join_clauses, "\n"), []}
   end
 
@@ -83,37 +82,41 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
   defp join_type_to_sql(:full), do: "FULL"
   defp join_type_to_sql(:self), do: ""
 
-  defp build_where_sql(%Spec{filter_spec: filter_spec}, %JoinResolution{target_table: target_table, target_field: target_field}) do
+  defp build_where_sql(%Spec{filter_spec: filter_spec}, %JoinResolution{
+         target_table: target_table,
+         target_field: target_field
+       }) do
     build_filter_condition(filter_spec, target_table, target_field)
   end
 
   # Build filter condition based on filter spec type
   defp build_filter_condition(%{type: :temporal} = filter_spec, target_table, target_field) do
     qualified_field = "#{SQLHelpers.table_name(target_table)}.#{target_field}"
-    
+
     case filter_spec.temporal_type do
       :recent_years ->
         sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} years')"
         {:ok, sql, []}
-        
+
       :within_days ->
         sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} days')"
         {:ok, sql, []}
-        
+
       :within_hours ->
         sql = "#{qualified_field} > (NOW() - INTERVAL '#{filter_spec.value} hours')"
         {:ok, sql, []}
-        
+
       :since_date ->
         sql = "#{qualified_field} > ?"
         {:ok, sql, [filter_spec.value]}
-        
+
       _ ->
-        {:error, %Error{
-          type: :unsupported_temporal_type,
-          message: "Unsupported temporal type: #{filter_spec.temporal_type}",
-          details: %{temporal_type: filter_spec.temporal_type}
-        }}
+        {:error,
+         %Error{
+           type: :unsupported_temporal_type,
+           message: "Unsupported temporal type: #{filter_spec.temporal_type}",
+           details: %{temporal_type: filter_spec.temporal_type}
+         }}
     end
   end
 
@@ -138,10 +141,11 @@ defmodule Selecto.Subfilter.SQL.InBuilder do
   end
 
   defp build_filter_condition(filter_spec, _target_table, _target_field) do
-    {:error, %Error{
-      type: :unsupported_filter_for_in_strategy,
-      message: "IN strategy only supports equality, IN list, temporal, and range filters",
-      details: %{filter_type: filter_spec.type}
-    }}
+    {:error,
+     %Error{
+       type: :unsupported_filter_for_in_strategy,
+       message: "IN strategy only supports equality, IN list, temporal, and range filters",
+       details: %{filter_type: filter_spec.type}
+     }}
   end
 end
