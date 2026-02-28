@@ -38,23 +38,23 @@ defmodule Selecto.Error do
   defstruct [:type, :message, :details, :query, :params]
 
   @type t :: %__MODULE__{
-    type: error_type(),
-    message: String.t(),
-    details: map() | nil,
-    query: String.t() | nil,
-    params: [term()] | nil
-  }
+          type: error_type(),
+          message: String.t(),
+          details: map() | nil,
+          query: String.t() | nil,
+          params: [term()] | nil
+        }
 
   @type error_type ::
-    :connection_error |
-    :query_error |
-    :validation_error |
-    :configuration_error |
-    :no_results |
-    :multiple_results |
-    :timeout_error |
-    :field_resolution_error |
-    :transformation_error
+          :connection_error
+          | :query_error
+          | :validation_error
+          | :configuration_error
+          | :no_results
+          | :multiple_results
+          | :timeout_error
+          | :field_resolution_error
+          | :transformation_error
 
   @doc """
   Creates a connection error.

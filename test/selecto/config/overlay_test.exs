@@ -89,7 +89,8 @@ defmodule Selecto.Config.OverlayTest do
       }
 
       overlay = %{
-        redact_fields: [:internal_notes, :password]  # password is duplicate
+        # password is duplicate
+        redact_fields: [:internal_notes, :password]
       }
 
       result = Overlay.merge(base, overlay)

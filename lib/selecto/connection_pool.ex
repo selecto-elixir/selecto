@@ -1,20 +1,20 @@
 defmodule Selecto.ConnectionPool do
   @moduledoc """
   Connection pooling and management for Selecto.
-  
+
   Provides a high-performance connection pool using DBConnection for efficient
   database connection reuse, prepared statement caching, and connection health monitoring.
-  
+
   ## Features
-  
+
   - Connection pooling with configurable pool sizes
   - Prepared statement caching for repeated queries
   - Connection health monitoring and automatic recovery
   - Support for both direct Postgrex and Ecto repository connections
   - Graceful fallback to single connections when pooling is disabled
-  
+
   ## Configuration
-  
+
       # Application config
       config :selecto, Selecto.ConnectionPool,
         pool_size: 10,
@@ -22,9 +22,9 @@ defmodule Selecto.ConnectionPool do
         prepared_statement_cache_size: 1000,
         connection_timeout: 5000,
         checkout_timeout: 5000
-  
+
   ## Usage
-  
+
       # Start a connection pool
       {:ok, pool} = Selecto.ConnectionPool.start_pool(postgrex_opts)
       
@@ -34,10 +34,10 @@ defmodule Selecto.ConnectionPool do
       # Or use default pool management
       selecto = Selecto.configure(domain, postgrex_opts, pool: true)
   """
-  
+
   use GenServer
   require Logger
-  
+
   @default_pool_config [
     pool_size: 10,
     max_overflow: 20,
@@ -45,26 +45,26 @@ defmodule Selecto.ConnectionPool do
     connection_timeout: 5000,
     checkout_timeout: 5000
   ]
-  
+
   @type pool_ref :: pid() | atom()
   @type connection_config :: Keyword.t() | map()
   @type pool_options :: Keyword.t()
-  
+
   @doc """
   Start a connection pool with the given configuration.
-  
+
   ## Parameters
-  
+
   - `connection_config` - Database connection configuration
   - `pool_options` - Pool-specific options (optional)
-  
+
   ## Returns
-  
+
   - `{:ok, pool_ref}` - Pool started successfully
   - `{:error, reason}` - Pool startup failed
-  
+
   ## Examples
-  
+
       # Start pool with Postgrex config (default adapter)
       config = [
         hostname: "localhost",
@@ -84,10 +84,10 @@ defmodule Selecto.ConnectionPool do
   def start_pool(connection_config, pool_options \\ []) do
     pool_config = Keyword.merge(@default_pool_config, pool_options)
     adapter = Keyword.get(pool_options, :adapter, Selecto.Adapters.PostgreSQL)
-    
+
     # Create unique pool name based on connection config
     pool_name = generate_pool_name(connection_config)
-    
+
     # Check if adapter supports pooling
     if adapter == Selecto.Adapters.PostgreSQL do
       # Use DBConnection pooling for PostgreSQL
@@ -98,7 +98,7 @@ defmodule Selecto.ConnectionPool do
       start_generic_pool(adapter, connection_config, pool_config, pool_name)
     end
   end
-  
+
   defp start_postgrex_pool(connection_config, pool_config, pool_name) do
     # Prepare DBConnection configuration
     dbconnection_opts = [
@@ -110,10 +110,10 @@ defmodule Selecto.ConnectionPool do
       queue_target: pool_config[:checkout_timeout],
       queue_interval: 1000
     ]
-    
+
     # Merge with Postgrex-specific options
     postgrex_opts = Keyword.merge(connection_config, dbconnection_opts)
-    
+
     case Postgrex.start_link(postgrex_opts) do
       {:ok, pool_pid} ->
         # Start pool manager
@@ -124,19 +124,27 @@ defmodule Selecto.ConnectionPool do
           pool_config: pool_config,
           connection_config: connection_config
         ]
-        
+
         case GenServer.start_link(__MODULE__, manager_opts, name: :"#{pool_name}_manager") do
           {:ok, manager_pid} ->
-            {:ok, %{adapter: Selecto.Adapters.PostgreSQL, pool: pool_pid, manager: manager_pid, name: pool_name}}
+            {:ok,
+             %{
+               adapter: Selecto.Adapters.PostgreSQL,
+               pool: pool_pid,
+               manager: manager_pid,
+               name: pool_name
+             }}
+
           {:error, reason} ->
             GenServer.stop(pool_pid)
             {:error, reason}
         end
+
       {:error, reason} ->
         {:error, reason}
     end
   end
-  
+
   defp start_generic_pool(adapter, connection_config, pool_config, pool_name) do
     # For non-PostgreSQL adapters, create a simple connection manager
     # The adapter itself may handle pooling internally
@@ -146,18 +154,19 @@ defmodule Selecto.ConnectionPool do
       pool_config: pool_config,
       connection_config: connection_config
     ]
-    
+
     case GenServer.start_link(__MODULE__, manager_opts, name: :"#{pool_name}_manager") do
       {:ok, manager_pid} ->
         {:ok, %{adapter: adapter, manager: manager_pid, name: pool_name}}
+
       {:error, reason} ->
         {:error, reason}
     end
   end
-  
+
   @doc """
   Stop a connection pool.
-  
+
   Gracefully shuts down the pool and all its connections.
   """
   @spec stop_pool(pool_ref()) :: :ok
@@ -165,31 +174,34 @@ defmodule Selecto.ConnectionPool do
     GenServer.stop(manager_pid)
     GenServer.stop(pool_pid)
   end
+
   def stop_pool(pool_pid) when is_pid(pool_pid) do
     GenServer.stop(pool_pid)
   end
-  
+
   @doc """
   Execute a query using a pooled connection.
-  
+
   Automatically handles connection checkout/checkin and prepared statement caching.
   """
-  @spec execute(pool_ref(), String.t(), list(), Keyword.t()) :: {:ok, Postgrex.Result.t()} | {:error, term()}
+  @spec execute(pool_ref(), String.t(), list(), Keyword.t()) ::
+          {:ok, Postgrex.Result.t()} | {:error, term()}
   def execute(pool_ref, query, params, opts \\ []) do
     use_prepared = Keyword.get(opts, :prepared, true)
     cache_key = if use_prepared, do: generate_cache_key(query), else: nil
-    
+
     case get_pool_pid(pool_ref) do
       {:ok, pool_pid} ->
         execute_with_pool(pool_pid, query, params, cache_key, opts)
+
       {:error, reason} ->
         {:error, reason}
     end
   end
-  
+
   @doc """
   Get pool statistics for monitoring.
-  
+
   Returns information about pool health, connection counts, and cache statistics.
   """
   @spec pool_stats(pool_ref()) :: map()
@@ -197,11 +209,12 @@ defmodule Selecto.ConnectionPool do
     case get_manager_pid(pool_ref) do
       {:ok, manager_pid} ->
         GenServer.call(manager_pid, :get_stats)
+
       {:error, _reason} ->
         %{error: "Pool manager not available"}
     end
   end
-  
+
   @doc """
   Clear prepared statement cache for a pool.
   """
@@ -210,24 +223,25 @@ defmodule Selecto.ConnectionPool do
     case get_manager_pid(pool_ref) do
       {:ok, manager_pid} ->
         GenServer.cast(manager_pid, :clear_cache)
+
       {:error, _reason} ->
         :ok
     end
   end
-  
+
   # GenServer Implementation
-  
+
   @impl GenServer
   def init(opts) do
     pool_pid = Keyword.fetch!(opts, :pool_pid)
     pool_name = Keyword.fetch!(opts, :pool_name)
     pool_config = Keyword.fetch!(opts, :pool_config)
     connection_config = Keyword.fetch!(opts, :connection_config)
-    
+
     # Initialize prepared statement cache
     cache_size = pool_config[:prepared_statement_cache_size]
     cache = :ets.new(:"#{pool_name}_prepared_cache", [:set, :private])
-    
+
     state = %{
       pool_pid: pool_pid,
       pool_name: pool_name,
@@ -243,37 +257,39 @@ defmodule Selecto.ConnectionPool do
         errors: 0
       }
     }
-    
+
     # Setup periodic health checks
     schedule_health_check()
-    
+
     {:ok, state}
   end
-  
+
   @impl GenServer
   def handle_call(:get_stats, _from, state) do
-    pool_info = try do
-      # Get DBConnection pool info if available
-      DBConnection.status(state.pool_pid)
-    rescue
-      _ -> %{available: 0, size: 0}
-    end
-    
-    stats = Map.merge(state.stats, %{
-      pool_info: pool_info,
-      cache_size: :ets.info(state.prepared_cache, :size),
-      uptime: System.system_time(:second)
-    })
-    
+    pool_info =
+      try do
+        # Get DBConnection pool info if available
+        DBConnection.status(state.pool_pid)
+      rescue
+        _ -> %{available: 0, size: 0}
+      end
+
+    stats =
+      Map.merge(state.stats, %{
+        pool_info: pool_info,
+        cache_size: :ets.info(state.prepared_cache, :size),
+        uptime: System.system_time(:second)
+      })
+
     {:reply, stats, state}
   end
-  
+
   @impl GenServer
   def handle_cast(:clear_cache, state) do
     :ets.delete_all_objects(state.prepared_cache)
     {:noreply, state}
   end
-  
+
   @impl GenServer
   def handle_info(:health_check, state) do
     # Perform health check
@@ -281,21 +297,22 @@ defmodule Selecto.ConnectionPool do
       :ok ->
         schedule_health_check()
         {:noreply, state}
+
       {:error, reason} ->
         Logger.warning("Pool health check failed: #{inspect(reason)}")
         schedule_health_check()
         {:noreply, update_in(state.stats.errors, &(&1 + 1))}
     end
   end
-  
+
   @impl GenServer
   def terminate(_reason, state) do
     :ets.delete(state.prepared_cache)
     :ok
   end
-  
+
   # Private Functions
-  
+
   defp execute_with_pool(pool_pid, query, params, cache_key, opts) do
     # DBConnection pools work by passing the pool pid directly to query functions
     # The pool handles checkout/checkin internally and transparently
@@ -311,8 +328,10 @@ defmodule Selecto.ConnectionPool do
     rescue
       e in DBConnection.ConnectionError ->
         {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
+
       e in Postgrex.Error ->
         {:error, Selecto.Error.query_error(Exception.message(e), query, params, %{exception: e})}
+
       e ->
         {:error, Selecto.Error.query_error(Exception.message(e), query, params, %{exception: e})}
     end
@@ -395,6 +414,7 @@ defmodule Selecto.ConnectionPool do
     Process.delete({:selecto_checkout, ref})
     :ok
   end
+
   def checkin(_pool_ref, _conn), do: :ok
 
   @doc """
@@ -409,7 +429,9 @@ defmodule Selecto.ConnectionPool do
         Postgrex.query!(conn, "SELECT * FROM users", [])
       end)
   """
-  @spec with_connection(pool_ref(), (DBConnection.conn() -> result)) :: {:ok, result} | {:error, term()} when result: term()
+  @spec with_connection(pool_ref(), (DBConnection.conn() -> result)) ::
+          {:ok, result} | {:error, term()}
+        when result: term()
   def with_connection(pool_ref, fun) when is_function(fun, 1) do
     case get_pool_pid(pool_ref) do
       {:ok, pool_pid} ->
@@ -420,6 +442,7 @@ defmodule Selecto.ConnectionPool do
         rescue
           e in DBConnection.ConnectionError ->
             {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
+
           e ->
             {:error, Selecto.Error.query_error(Exception.message(e), nil, [], %{exception: e})}
         end
@@ -441,7 +464,9 @@ defmodule Selecto.ConnectionPool do
         Postgrex.query!(conn, "UPDATE inventory ...", [...])
       end)
   """
-  @spec transaction(pool_ref(), (DBConnection.conn() -> result), Keyword.t()) :: {:ok, result} | {:error, term()} when result: term()
+  @spec transaction(pool_ref(), (DBConnection.conn() -> result), Keyword.t()) ::
+          {:ok, result} | {:error, term()}
+        when result: term()
   def transaction(pool_ref, fun, opts \\ []) when is_function(fun, 1) do
     case get_pool_pid(pool_ref) do
       {:ok, pool_pid} ->
@@ -451,7 +476,7 @@ defmodule Selecto.ConnectionPool do
         {:error, reason}
     end
   end
-  
+
   defp validate_pool_health(pool_pid) do
     try do
       if Process.alive?(pool_pid) do
@@ -463,30 +488,30 @@ defmodule Selecto.ConnectionPool do
       error -> {:error, error}
     end
   end
-  
+
   defp schedule_health_check() do
     Process.send_after(self(), :health_check, 30_000)
   end
-  
-  
+
   # Make these public for testing
   def get_pool_pid(%{pool: pool_pid}), do: {:ok, pool_pid}
   def get_pool_pid(pool_pid) when is_pid(pool_pid), do: {:ok, pool_pid}
   def get_pool_pid(_), do: {:error, "Invalid pool reference"}
-  
+
   def get_manager_pid(%{manager: manager_pid}), do: {:ok, manager_pid}
   def get_manager_pid(_), do: {:error, "Invalid pool reference"}
-  
+
   # Expose for testing
   def generate_pool_name(connection_config) do
     # Create a unique pool name based on connection parameters
-    hash = :crypto.hash(:md5, inspect(connection_config))
-    |> Base.encode16(case: :lower)
-    |> String.slice(0, 8)
-    
+    hash =
+      :crypto.hash(:md5, inspect(connection_config))
+      |> Base.encode16(case: :lower)
+      |> String.slice(0, 8)
+
     :"selecto_pool_#{hash}"
   end
-  
+
   def generate_cache_key(query) do
     :crypto.hash(:md5, query) |> Base.encode16(case: :lower)
   end

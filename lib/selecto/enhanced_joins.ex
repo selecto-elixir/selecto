@@ -72,27 +72,45 @@ defmodule Selecto.EnhancedJoins do
   ```
   """
 
-  @type join_type :: :self_join | :lateral_join | :cross_join | :full_outer_join | :conditional_join
+  @type join_type ::
+          :self_join | :lateral_join | :cross_join | :full_outer_join | :conditional_join
   @type condition_type :: :inner | :left | :right | :full
-  @type join_condition :: {:field_comparison, String.t(), atom(), String.t()} |
-                          {:date_range, String.t(), String.t(), String.t()} |
-                          {:custom_sql, String.t()}
+  @type join_condition ::
+          {:field_comparison, String.t(), atom(), String.t()}
+          | {:date_range, String.t(), String.t(), String.t()}
+          | {:custom_sql, String.t()}
 
   @doc """
   Configure an enhanced join based on its type.
   """
-  def configure_enhanced_join(id, association, %{type: join_type} = config, parent, from_source, queryable)
-      when join_type in [:self_join, :lateral_join, :cross_join, :full_outer_join, :conditional_join] do
-
+  def configure_enhanced_join(
+        id,
+        association,
+        %{type: join_type} = config,
+        parent,
+        from_source,
+        queryable
+      )
+      when join_type in [
+             :self_join,
+             :lateral_join,
+             :cross_join,
+             :full_outer_join,
+             :conditional_join
+           ] do
     case join_type do
       :self_join ->
         configure_self_join(id, association, config, parent, from_source, queryable)
+
       :lateral_join ->
         configure_lateral_join(id, association, config, parent, from_source, queryable)
+
       :cross_join ->
         configure_cross_join(id, association, config, parent, from_source, queryable)
+
       :full_outer_join ->
         configure_full_outer_join(id, association, config, parent, from_source, queryable)
+
       :conditional_join ->
         configure_conditional_join(id, association, config, parent, from_source, queryable)
     end
@@ -105,14 +123,19 @@ defmodule Selecto.EnhancedJoins do
     case join_config.join_type do
       :self_join ->
         build_self_join_sql(join_config, selecto)
+
       :lateral_join ->
         build_lateral_join_sql(join_config, selecto)
+
       :cross_join ->
         build_cross_join_sql(join_config, selecto)
+
       :full_outer_join ->
         build_full_outer_join_sql(join_config, selecto)
+
       :conditional_join ->
         build_conditional_join_sql(join_config, selecto)
+
       _ ->
         # Fallback to standard join building
         nil
@@ -128,15 +151,22 @@ defmodule Selecto.EnhancedJoins do
     condition_type = Map.get(config, :condition_type, :left)
 
     # Configure custom columns for self-reference access
-    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
-        "#{id}_reference", %{
-          name: "#{name} Reference",
-          select: "#{join_alias}.name",  # Use the alias for field references
-          group_by_format: fn {a, _id}, _def -> a end,
-          filterable: true
-        }
+    config =
+      Map.put(
+        config,
+        :custom_columns,
+        Map.get(config, :custom_columns, %{})
+        |> Map.put(
+          "#{id}_reference",
+          %{
+            name: "#{name} Reference",
+            # Use the alias for field references
+            select: "#{join_alias}.name",
+            group_by_format: fn {a, _id}, _def -> a end,
+            filterable: true
+          }
+        )
       )
-    )
 
     base_join_config(id, config, parent, from_source, queryable, name)
     |> Map.merge(%{
@@ -145,7 +175,8 @@ defmodule Selecto.EnhancedJoins do
       target_key: target_key,
       join_alias: join_alias,
       condition_type: condition_type,
-      source_table: queryable.source_table  # Self-join uses same table
+      # Self-join uses same table
+      source_table: queryable.source_table
     })
   end
 
@@ -160,15 +191,23 @@ defmodule Selecto.EnhancedJoins do
     end
 
     # Configure custom columns for lateral query results
-    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
-        "#{id}_result", %{
-          name: "#{name} Result",
-          select: "#{join_alias}.*",  # Select all from lateral query
-          group_by_format: fn {a, _id}, _def -> a end,
-          filterable: false  # Lateral results typically aren't directly filterable
-        }
+    config =
+      Map.put(
+        config,
+        :custom_columns,
+        Map.get(config, :custom_columns, %{})
+        |> Map.put(
+          "#{id}_result",
+          %{
+            name: "#{name} Result",
+            # Select all from lateral query
+            select: "#{join_alias}.*",
+            group_by_format: fn {a, _id}, _def -> a end,
+            # Lateral results typically aren't directly filterable
+            filterable: false
+          }
+        )
       )
-    )
 
     base_join_config(id, config, parent, from_source, queryable, name)
     |> Map.merge(%{
@@ -184,16 +223,22 @@ defmodule Selecto.EnhancedJoins do
     join_alias = Map.get(config, :alias, "#{id}_cross")
 
     # Add warning for performance considerations
-    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
-        "#{id}_combination", %{
-          name: "#{name} Combination",
-          select: "#{join_alias}.id",
-          group_by_format: fn {a, _id}, _def -> a end,
-          filterable: true,
-          performance_warning: "Cross joins can produce large result sets"
-        }
+    config =
+      Map.put(
+        config,
+        :custom_columns,
+        Map.get(config, :custom_columns, %{})
+        |> Map.put(
+          "#{id}_combination",
+          %{
+            name: "#{name} Combination",
+            select: "#{join_alias}.id",
+            group_by_format: fn {a, _id}, _def -> a end,
+            filterable: true,
+            performance_warning: "Cross joins can produce large result sets"
+          }
+        )
       )
-    )
 
     base_join_config(id, config, parent, from_source, queryable, name)
     |> Map.merge(%{
@@ -210,16 +255,22 @@ defmodule Selecto.EnhancedJoins do
     join_alias = Map.get(config, :alias, "#{id}_full")
 
     # Configure columns with null handling for outer join
-    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
-        "#{id}_coalesced", %{
-          name: "#{name} (with nulls)",
-          select: "COALESCE(#{join_alias}.name, 'No match')",
-          group_by_format: fn {a, _id}, _def -> a end,
-          filterable: true,
-          handles_nulls: true
-        }
+    config =
+      Map.put(
+        config,
+        :custom_columns,
+        Map.get(config, :custom_columns, %{})
+        |> Map.put(
+          "#{id}_coalesced",
+          %{
+            name: "#{name} (with nulls)",
+            select: "COALESCE(#{join_alias}.name, 'No match')",
+            group_by_format: fn {a, _id}, _def -> a end,
+            filterable: true,
+            handles_nulls: true
+          }
+        )
       )
-    )
 
     base_join_config(id, config, parent, from_source, queryable, name)
     |> Map.merge(%{
@@ -242,16 +293,22 @@ defmodule Selecto.EnhancedJoins do
     end
 
     # Configure columns for conditional results
-    config = Map.put(config, :custom_columns, Map.get(config, :custom_columns, %{}) |> Map.put(
-        "#{id}_conditional", %{
-          name: "#{name} (conditional)",
-          select: "#{join_alias}.name",
-          group_by_format: fn {a, _id}, _def -> a end,
-          filterable: true,
-          is_conditional: true
-        }
+    config =
+      Map.put(
+        config,
+        :custom_columns,
+        Map.get(config, :custom_columns, %{})
+        |> Map.put(
+          "#{id}_conditional",
+          %{
+            name: "#{name} (conditional)",
+            select: "#{join_alias}.name",
+            group_by_format: fn {a, _id}, _def -> a end,
+            filterable: true,
+            is_conditional: true
+          }
+        )
       )
-    )
 
     base_join_config(id, config, parent, from_source, queryable, name)
     |> Map.merge(%{
@@ -271,17 +328,28 @@ defmodule Selecto.EnhancedJoins do
     target_key = join_config.target_key
     condition_type = join_config.condition_type
 
-    join_type_sql = case condition_type do
-      :inner -> "INNER JOIN"
-      :left -> "LEFT JOIN"
-      :right -> "RIGHT JOIN"
-      :full -> "FULL OUTER JOIN"
-    end
+    join_type_sql =
+      case condition_type do
+        :inner -> "INNER JOIN"
+        :left -> "LEFT JOIN"
+        :right -> "RIGHT JOIN"
+        :full -> "FULL OUTER JOIN"
+      end
 
     [
-      " ", join_type_sql, " ", table, " ", alias_name,
-      " ON ", "selecto_root.", Atom.to_string(self_key),
-      " = ", alias_name, ".", Atom.to_string(target_key)
+      " ",
+      join_type_sql,
+      " ",
+      table,
+      " ",
+      alias_name,
+      " ON ",
+      "selecto_root.",
+      Atom.to_string(self_key),
+      " = ",
+      alias_name,
+      ".",
+      Atom.to_string(target_key)
     ]
   end
 
@@ -292,7 +360,9 @@ defmodule Selecto.EnhancedJoins do
     [
       " LEFT JOIN LATERAL (",
       lateral_query,
-      ") ", alias_name, " ON true"
+      ") ",
+      alias_name,
+      " ON true"
     ]
   end
 
@@ -301,7 +371,10 @@ defmodule Selecto.EnhancedJoins do
     alias_name = join_config.join_alias
 
     [
-      " CROSS JOIN ", table, " ", alias_name
+      " CROSS JOIN ",
+      table,
+      " ",
+      alias_name
     ]
   end
 
@@ -312,9 +385,17 @@ defmodule Selecto.EnhancedJoins do
     right_key = join_config.right_key
 
     [
-      " FULL OUTER JOIN ", table, " ", alias_name,
-      " ON ", "selecto_root.", Atom.to_string(left_key),
-      " = ", alias_name, ".", Atom.to_string(right_key)
+      " FULL OUTER JOIN ",
+      table,
+      " ",
+      alias_name,
+      " ON ",
+      "selecto_root.",
+      Atom.to_string(left_key),
+      " = ",
+      alias_name,
+      ".",
+      Atom.to_string(right_key)
     ]
   end
 
@@ -324,18 +405,25 @@ defmodule Selecto.EnhancedJoins do
     conditions = join_config.conditions
     condition_type = join_config.condition_type
 
-    join_type_sql = case condition_type do
-      :inner -> "INNER JOIN"
-      :left -> "LEFT JOIN"
-      :right -> "RIGHT JOIN"
-      :full -> "FULL OUTER JOIN"
-    end
+    join_type_sql =
+      case condition_type do
+        :inner -> "INNER JOIN"
+        :left -> "LEFT JOIN"
+        :right -> "RIGHT JOIN"
+        :full -> "FULL OUTER JOIN"
+      end
 
     condition_sql = build_condition_sql(conditions, alias_name)
 
     [
-      " ", join_type_sql, " ", table, " ", alias_name,
-      " ON ", condition_sql
+      " ",
+      join_type_sql,
+      " ",
+      table,
+      " ",
+      alias_name,
+      " ON ",
+      condition_sql
     ]
   end
 
@@ -344,14 +432,16 @@ defmodule Selecto.EnhancedJoins do
     |> Enum.map(fn condition ->
       case condition do
         {:field_comparison, left_field, operator, right_field} ->
-          op_sql = case operator do
-            :eq -> "="
-            :ne -> "!="
-            :gt -> ">"
-            :gte -> ">="
-            :lt -> "<"
-            :lte -> "<="
-          end
+          op_sql =
+            case operator do
+              :eq -> "="
+              :ne -> "!="
+              :gt -> ">"
+              :gte -> ">="
+              :lt -> "<"
+              :lte -> "<="
+            end
+
           "#{left_field} #{op_sql} #{right_field}"
 
         {:date_range, date_field, from_field, to_field} ->
@@ -389,10 +479,11 @@ defmodule Selecto.EnhancedJoins do
     custom_fields = Map.get(config, :additional_fields, [])
 
     # Ensure alias is an atom
-    alias_atom = case Map.get(config, :alias, :enhanced_join) do
-      alias_name when is_binary(alias_name) -> String.to_atom(alias_name)
-      alias_name when is_atom(alias_name) -> alias_name
-    end
+    alias_atom =
+      case Map.get(config, :alias, :enhanced_join) do
+        alias_name when is_binary(alias_name) -> String.to_atom(alias_name)
+        alias_name when is_atom(alias_name) -> alias_name
+      end
 
     Selecto.Schema.Column.configure_columns(
       alias_atom,

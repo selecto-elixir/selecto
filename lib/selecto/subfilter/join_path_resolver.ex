@@ -14,28 +14,33 @@ defmodule Selecto.Subfilter.JoinPathResolver do
     Structure representing a resolved join path with all necessary join information.
     """
     defstruct [
-      :joins,           # List of join configurations
-      :target_table,    # Final target table
-      :target_field,    # Target field (nil for aggregations)
-      :path_segments,   # Original path segments for debugging
-      :is_aggregation   # Whether this is an aggregation subfilter
+      # List of join configurations
+      :joins,
+      # Final target table
+      :target_table,
+      # Target field (nil for aggregations)
+      :target_field,
+      # Original path segments for debugging
+      :path_segments,
+      # Whether this is an aggregation subfilter
+      :is_aggregation
     ]
 
     @type t :: %__MODULE__{
-      joins: [join_config()],
-      target_table: atom(),
-      target_field: String.t() | nil,
-      path_segments: [String.t()],
-      is_aggregation: boolean()
-    }
+            joins: [join_config()],
+            target_table: atom(),
+            target_field: String.t() | nil,
+            path_segments: [String.t()],
+            is_aggregation: boolean()
+          }
 
     @type join_config :: %{
-      from: atom(),
-      to: atom(),
-      type: :inner | :left | :right | :full | :self,
-      on: String.t() | nil,
-      field: atom() | nil
-    }
+            from: atom(),
+            to: atom(),
+            type: :inner | :left | :right | :full | :self,
+            on: String.t() | nil,
+            field: atom() | nil
+          }
   end
 
   @doc """
@@ -52,12 +57,11 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   {:ok, JoinResolution.t()} | {:error, Subfilter.Error.t()}
   """
   @spec resolve(RelationshipPath.t(), atom() | map(), atom() | nil) ::
-    {:ok, JoinResolution.t()} | {:error, Error.t()}
+          {:ok, JoinResolution.t()} | {:error, Error.t()}
   def resolve(%RelationshipPath{} = path, domain_name, base_table \\ nil) do
     with {:ok, domain_config} <- get_domain_config(domain_name),
          {:ok, resolved_base_table} <- resolve_base_table(path, base_table),
          {:ok, joins} <- build_join_sequence(path, domain_config, resolved_base_table) do
-
       resolution = %JoinResolution{
         joins: joins,
         target_table: determine_target_table(path, joins),
@@ -80,13 +84,14 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   join sequences.
   """
   @spec resolve_multiple([RelationshipPath.t()], atom() | map(), atom() | nil) ::
-    {:ok, [JoinResolution.t()]} | {:error, Error.t()}
+          {:ok, [JoinResolution.t()]} | {:error, Error.t()}
   def resolve_multiple(paths, domain_name, base_table \\ nil) do
     case resolve_all_paths(paths, domain_name, base_table, []) do
       {:ok, resolutions} ->
         # Optimize by detecting common join patterns
         optimized_resolutions = optimize_join_sequences(resolutions)
         {:ok, optimized_resolutions}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -112,19 +117,21 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   end
 
   defp get_domain_config(domain_name) when is_atom(domain_name) do
-    {:error, %Error{
-      type: :unknown_domain,
-      message: "Domain configuration not found",
-      details: %{domain: domain_name}
-    }}
+    {:error,
+     %Error{
+       type: :unknown_domain,
+       message: "Domain configuration not found",
+       details: %{domain: domain_name}
+     }}
   end
 
   defp get_domain_config(other) do
-    {:error, %Error{
-      type: :invalid_domain_config,
-      message: "Domain configuration must be an atom or map",
-      details: %{domain: other}
-    }}
+    {:error,
+     %Error{
+       type: :invalid_domain_config,
+       message: "Domain configuration must be an atom or map",
+       details: %{domain: other}
+     }}
   end
 
   defp normalize_domain_config(%{joins: joins} = domain_config) when is_map(joins) do
@@ -133,18 +140,20 @@ defmodule Selecto.Subfilter.JoinPathResolver do
       |> Enum.map(fn {key, value} -> {normalize_join_key(key), value} end)
       |> Map.new()
 
-    {:ok, %{
-      tables: Map.get(domain_config, :tables, []),
-      joins: normalized_joins
-    }}
+    {:ok,
+     %{
+       tables: Map.get(domain_config, :tables, []),
+       joins: normalized_joins
+     }}
   end
 
   defp normalize_domain_config(_domain_config) do
-    {:error, %Error{
-      type: :invalid_domain_config,
-      message: "Domain configuration must include a joins map",
-      details: %{}
-    }}
+    {:error,
+     %Error{
+       type: :invalid_domain_config,
+       message: "Domain configuration must include a joins map",
+       details: %{}
+     }}
   end
 
   defp normalize_join_key(key) when is_binary(key), do: key
@@ -160,19 +169,28 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   end
 
   defp resolve_base_table(_path, base_table) do
-    {:error, %Error{
-      type: :invalid_base_table,
-      message: "Base table must be an atom",
-      details: %{base_table: base_table}
-    }}
+    {:error,
+     %Error{
+       type: :invalid_base_table,
+       message: "Base table must be an atom",
+       details: %{base_table: base_table}
+     }}
   end
 
-  defp build_join_sequence(%RelationshipPath{is_aggregation: true, path_segments: [table]}, _config, base_table) do
+  defp build_join_sequence(
+         %RelationshipPath{is_aggregation: true, path_segments: [table]},
+         _config,
+         base_table
+       ) do
     # Aggregation subfilter - no joins needed, just count/aggregate on the base table
     {:ok, [%{from: base_table, to: String.to_atom(table), type: :self, field: nil}]}
   end
 
-  defp build_join_sequence(%RelationshipPath{path_segments: path_segments, target_field: target_field}, domain_config, base_table) do
+  defp build_join_sequence(
+         %RelationshipPath{path_segments: path_segments, target_field: target_field},
+         domain_config,
+         base_table
+       ) do
     path_key = Enum.join(path_segments ++ [target_field], ".")
 
     case Map.get(domain_config.joins, path_key) do
@@ -229,24 +247,28 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   defp auto_resolve_path(path_segments, target_field, domain_config, base_table) do
     # Attempt to automatically resolve path by looking for intermediate relationships
     case try_step_by_step_resolution(path_segments, target_field, domain_config, base_table) do
-      {:ok, joins} -> {:ok, joins}
+      {:ok, joins} ->
+        {:ok, joins}
+
       {:error, _} ->
-        {:error, %Error{
-          type: :unresolvable_path,
-          message: "Cannot resolve relationship path with available join configurations",
-          details: %{
-            path_segments: path_segments,
-            target_field: target_field,
-            base_table: base_table,
-            available_joins: Map.keys(domain_config.joins)
-          }
-        }}
+        {:error,
+         %Error{
+           type: :unresolvable_path,
+           message: "Cannot resolve relationship path with available join configurations",
+           details: %{
+             path_segments: path_segments,
+             target_field: target_field,
+             base_table: base_table,
+             available_joins: Map.keys(domain_config.joins)
+           }
+         }}
     end
   end
 
   defp try_step_by_step_resolution([single_table], target_field, domain_config, _base_table) do
     # Simple field access
     field_path = "#{single_table}.#{target_field}"
+
     case Map.get(domain_config.joins, field_path) do
       %{} = join_config -> {:ok, [join_config]}
       nil -> {:error, :not_found}
@@ -258,11 +280,12 @@ defmodule Selecto.Subfilter.JoinPathResolver do
 
     with {:error, :not_found} <- infer_join_sequence_from_known_paths(path_prefix, domain_config),
          {:error, :not_found} <- chain_relationship_segments(path_segments, domain_config) do
-      {:error, %Error{
-        type: :unresolvable_path,
-        message: "No join sequence could be inferred for relationship path",
-        details: %{path_segments: path_segments, target_field: target_field}
-      }}
+      {:error,
+       %Error{
+         type: :unresolvable_path,
+         message: "No join sequence could be inferred for relationship path",
+         details: %{path_segments: path_segments, target_field: target_field}
+       }}
     else
       {:ok, joins} -> {:ok, joins}
       {:error, %Error{} = error} -> {:error, error}
@@ -288,7 +311,9 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   end
 
   defp chain_relationship_segments([first_segment | rest_segments], domain_config) do
-    Enum.reduce_while(rest_segments, {:ok, first_segment, []}, fn next_segment, {:ok, current_segment, joins_acc} ->
+    Enum.reduce_while(rest_segments, {:ok, first_segment, []}, fn next_segment,
+                                                                  {:ok, current_segment,
+                                                                   joins_acc} ->
       join_key = "#{current_segment}.#{next_segment}"
 
       case Map.get(domain_config.joins, join_key) do
@@ -335,7 +360,8 @@ defmodule Selecto.Subfilter.JoinPathResolver do
     end)
   end
 
-  defp determine_target_table(%RelationshipPath{target_table: target_table}, _joins) when is_binary(target_table) do
+  defp determine_target_table(%RelationshipPath{target_table: target_table}, _joins)
+       when is_binary(target_table) do
     String.to_atom(target_table)
   end
 
@@ -356,6 +382,7 @@ defmodule Selecto.Subfilter.JoinPathResolver do
     case resolve(path, domain_name, base_table) do
       {:ok, resolution} ->
         resolve_all_paths(rest, domain_name, base_table, [resolution | acc])
+
       {:error, reason} ->
         {:error, reason}
     end

@@ -1,13 +1,13 @@
 defmodule Selecto.Advanced.JsonOperations do
   @moduledoc """
   JSON operations support for PostgreSQL JSON and JSONB functionality.
-  
+
   Provides comprehensive support for JSON path queries, aggregation, manipulation,
   and testing functions. Works with both JSON and JSONB column types with 
   automatic type detection and optimization.
-  
+
   ## Examples
-  
+
       # JSON path extraction
       selecto
       |> Selecto.select([
@@ -30,64 +30,94 @@ defmodule Selecto.Advanced.JsonOperations do
           {:json_path_exists, "metadata", "$.specs.warranty"}
         ])
   """
-  
+
   defmodule Spec do
     @moduledoc """
     Specification for JSON operations in SELECT, WHERE, and other clauses.
     """
     defstruct [
-      :id,                    # Unique identifier for the JSON operation
-      :operation,             # JSON operation type (:extract, :agg, :contains, etc.)
-      :column,                # Source column name
-      :path,                  # JSON path (for extraction operations)  
-      :value,                 # Value for comparison/manipulation operations
-      :key_field,            # Key field for object aggregation
-      :value_field,          # Value field for object aggregation
-      :alias,                # Optional alias for SELECT operations
-      :options,              # Additional options (cast_type, etc.)
-      :validated             # Boolean indicating if operation has been validated
+      # Unique identifier for the JSON operation
+      :id,
+      # JSON operation type (:extract, :agg, :contains, etc.)
+      :operation,
+      # Source column name
+      :column,
+      # JSON path (for extraction operations)  
+      :path,
+      # Value for comparison/manipulation operations
+      :value,
+      # Key field for object aggregation
+      :key_field,
+      # Value field for object aggregation
+      :value_field,
+      # Optional alias for SELECT operations
+      :alias,
+      # Additional options (cast_type, etc.)
+      :options,
+      # Boolean indicating if operation has been validated
+      :validated
     ]
-    
-    @type operation_type :: 
-      # Extraction operations
-      :json_extract | :json_extract_text | :json_extract_path | :json_extract_path_text |
-      # Testing operations  
-      :json_contains | :json_contained | :json_exists | :json_path_exists |
-      # Aggregation operations
-      :json_agg | :json_object_agg | :jsonb_agg | :jsonb_object_agg |
-      # Construction operations
-      :json_build_object | :json_build_array | :jsonb_build_object | :jsonb_build_array |
-      # Manipulation operations
-      :json_set | :jsonb_set | :json_insert | :jsonb_insert | 
-      :json_remove | :jsonb_delete | :jsonb_delete_path |
-      # Type operations
-      :json_typeof | :jsonb_typeof | :json_array_length | :jsonb_array_length
-      
+
+    # Extraction operations
+    @type operation_type ::
+            :json_extract
+            | :json_extract_text
+            | :json_extract_path
+            | :json_extract_path_text
+            # Testing operations  
+            | :json_contains
+            | :json_contained
+            | :json_exists
+            | :json_path_exists
+            # Aggregation operations
+            | :json_agg
+            | :json_object_agg
+            | :jsonb_agg
+            | :jsonb_object_agg
+            # Construction operations
+            | :json_build_object
+            | :json_build_array
+            | :jsonb_build_object
+            | :jsonb_build_array
+            # Manipulation operations
+            | :json_set
+            | :jsonb_set
+            | :json_insert
+            | :jsonb_insert
+            | :json_remove
+            | :jsonb_delete
+            | :jsonb_delete_path
+            # Type operations
+            | :json_typeof
+            | :jsonb_typeof
+            | :json_array_length
+            | :jsonb_array_length
+
     @type t :: %__MODULE__{
-      id: String.t(),
-      operation: operation_type(),
-      column: String.t(),
-      path: String.t() | nil,
-      value: term() | nil,
-      key_field: String.t() | nil,
-      value_field: String.t() | nil,
-      alias: String.t() | nil,
-      options: map(),
-      validated: boolean()
-    }
+            id: String.t(),
+            operation: operation_type(),
+            column: String.t(),
+            path: String.t() | nil,
+            value: term() | nil,
+            key_field: String.t() | nil,
+            value_field: String.t() | nil,
+            alias: String.t() | nil,
+            options: map(),
+            validated: boolean()
+          }
   end
-  
+
   defmodule ValidationError do
     @moduledoc """
     Error raised when JSON operation specification is invalid.
     """
     defexception [:type, :message, :details]
-    
+
     @type t :: %__MODULE__{
-      type: :invalid_operation | :invalid_path | :invalid_column | :invalid_arguments,
-      message: String.t(),
-      details: map()
-    }
+            type: :invalid_operation | :invalid_path | :invalid_column | :invalid_arguments,
+            message: String.t(),
+            details: map()
+          }
   end
 
   @doc """
@@ -106,7 +136,7 @@ defmodule Selecto.Advanced.JsonOperations do
       options: extract_options(opts),
       validated: false
     }
-    
+
     case validate_json_operation(spec) do
       {:ok, validated_spec} -> validated_spec
       {:error, validation_error} -> raise validation_error
@@ -121,34 +151,54 @@ defmodule Selecto.Advanced.JsonOperations do
          :ok <- validate_required_params(spec),
          :ok <- validate_json_path(spec),
          :ok <- validate_operation_compatibility(spec) do
-      
       validated_spec = %{spec | validated: true}
       {:ok, validated_spec}
     else
       {:error, reason} -> {:error, reason}
     end
   end
-  
+
   # Validate that the operation type is supported
   defp validate_operation_type(operation) do
     supported_operations = [
-      :json_extract, :json_extract_text, :json_extract_path, :json_extract_path_text,
-      :json_contains, :json_contained, :json_exists, :json_path_exists,
-      :json_agg, :json_object_agg, :jsonb_agg, :jsonb_object_agg,
-      :json_build_object, :json_build_array, :jsonb_build_object, :jsonb_build_array,
-      :json_set, :jsonb_set, :json_insert, :jsonb_insert,
-      :json_remove, :jsonb_delete, :jsonb_delete_path,
-      :json_typeof, :jsonb_typeof, :json_array_length, :jsonb_array_length
+      :json_extract,
+      :json_extract_text,
+      :json_extract_path,
+      :json_extract_path_text,
+      :json_contains,
+      :json_contained,
+      :json_exists,
+      :json_path_exists,
+      :json_agg,
+      :json_object_agg,
+      :jsonb_agg,
+      :jsonb_object_agg,
+      :json_build_object,
+      :json_build_array,
+      :jsonb_build_object,
+      :jsonb_build_array,
+      :json_set,
+      :jsonb_set,
+      :json_insert,
+      :jsonb_insert,
+      :json_remove,
+      :jsonb_delete,
+      :jsonb_delete_path,
+      :json_typeof,
+      :jsonb_typeof,
+      :json_array_length,
+      :jsonb_array_length
     ]
-    
+
     if operation in supported_operations do
       :ok
     else
-      {:error, %ValidationError{
-        type: :invalid_operation,
-        message: "Unsupported JSON operation: #{operation}",
-        details: %{operation: operation}
-      }}
+      {:error,
+       %ValidationError{
+         type: :invalid_operation,
+         message: "Unsupported JSON operation: #{operation}",
+         details: %{operation: operation}
+       }}
     end
   end
 
@@ -160,18 +210,28 @@ defmodule Selecto.Advanced.JsonOperations do
 
   # Validate JSON path syntax (basic validation)
   defp validate_json_path(%Spec{path: nil}), do: :ok
+
   defp validate_json_path(%Spec{path: path}) when is_binary(path) do
     # Basic JSONPath validation - should start with $ or be array index
     cond do
-      String.starts_with?(path, "$") -> :ok
-      String.match?(path, ~r/^\\[\\d+\\]$/) -> :ok  # Array index like [0]
-      String.match?(path, ~r/^[a-zA-Z_][a-zA-Z0-9_]*$/) -> :ok  # Simple key
+      String.starts_with?(path, "$") ->
+        :ok
+
+      # Array index like [0]
+      String.match?(path, ~r/^\\[\\d+\\]$/) ->
+        :ok
+
+      # Simple key
+      String.match?(path, ~r/^[a-zA-Z_][a-zA-Z0-9_]*$/) ->
+        :ok
+
       true ->
-        {:error, %ValidationError{
-          type: :invalid_path,
-          message: "Invalid JSON path format: #{path}",
-          details: %{path: path, expected: "JSONPath starting with $ or simple key/index"}
-        }}
+        {:error,
+         %ValidationError{
+           type: :invalid_path,
+           message: "Invalid JSON path format: #{path}",
+           details: %{path: path, expected: "JSONPath starting with $ or simple key/index"}
+         }}
     end
   end
 
@@ -196,11 +256,26 @@ defmodule Selecto.Advanced.JsonOperations do
   """
   def select_operation?(operation) do
     operation in [
-      :json_extract, :json_extract_text, :json_extract_path, :json_extract_path_text,
-      :json_agg, :json_object_agg, :jsonb_agg, :jsonb_object_agg,
-      :json_build_object, :json_build_array, :jsonb_build_object, :jsonb_build_array,
-      :json_set, :jsonb_set, :json_insert, :jsonb_insert,
-      :json_typeof, :jsonb_typeof, :json_array_length, :jsonb_array_length
+      :json_extract,
+      :json_extract_text,
+      :json_extract_path,
+      :json_extract_path_text,
+      :json_agg,
+      :json_object_agg,
+      :jsonb_agg,
+      :jsonb_object_agg,
+      :json_build_object,
+      :json_build_array,
+      :jsonb_build_object,
+      :jsonb_build_array,
+      :json_set,
+      :jsonb_set,
+      :json_insert,
+      :jsonb_insert,
+      :json_typeof,
+      :jsonb_typeof,
+      :json_array_length,
+      :jsonb_array_length
     ]
   end
 
@@ -209,8 +284,13 @@ defmodule Selecto.Advanced.JsonOperations do
   """
   def filter_operation?(operation) do
     operation in [
-      :json_contains, :json_contained, :json_exists, :json_path_exists,
-      :json_extract, :json_extract_text  # Can be used in WHERE with comparisons
+      :json_contains,
+      :json_contained,
+      :json_exists,
+      :json_path_exists,
+      # Can be used in WHERE with comparisons
+      :json_extract,
+      :json_extract_text
     ]
   end
 end

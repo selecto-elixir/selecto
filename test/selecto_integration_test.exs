@@ -17,7 +17,8 @@ defmodule Selecto.IntegrationTest do
         associations: %{}
       },
       schemas: %{},
-      joins: %{},  # Add required joins field
+      # Add required joins field
+      joins: %{},
       name: "User",
       required_filters: [{"name", "test"}]
     }
@@ -55,6 +56,7 @@ defmodule Selecto.IntegrationTest do
 
     # Verify aliases structure
     assert is_list(aliases)
-    assert length(aliases) == 2  # name, email
+    # name, email
+    assert length(aliases) == 2
   end
 end

@@ -1,7 +1,7 @@
 defmodule Selecto.Schema.ParameterizedJoin do
   @moduledoc """
   Processing and configuration for parameterized joins.
-  
+
   This module handles the creation and management of parameterized joins,
   including parameter validation, SQL generation context, and join condition resolution.
   """
@@ -10,45 +10,45 @@ defmodule Selecto.Schema.ParameterizedJoin do
   require Logger
 
   @type parameter_definition :: %{
-    name: atom(),
-    type: atom(),
-    required: boolean(),
-    default: any(),
-    description: String.t() | nil
-  }
+          name: atom(),
+          type: atom(),
+          required: boolean(),
+          default: any(),
+          description: String.t() | nil
+        }
 
   @type validated_parameter :: %{
-    name: atom(),
-    value: any(),
-    type: atom()
-  }
+          name: atom(),
+          value: any(),
+          type: atom()
+        }
 
   @type parameterized_join_config :: %{
-    base_config: map(),
-    parameters: [validated_parameter()],
-    parameter_context: map(),
-    join_condition: String.t() | nil,
-    parameter_signature: String.t()
-  }
+          base_config: map(),
+          parameters: [validated_parameter()],
+          parameter_context: map(),
+          join_condition: String.t() | nil,
+          parameter_signature: String.t()
+        }
 
   @doc """
   Process a parameterized join configuration by validating parameters and building context.
   """
   @spec process_parameterized_join(
-    join_id :: atom(),
-    join_config :: map(),
-    parameters :: [ParameterizedParser.parameter()],
-    parent :: atom(),
-    from_source :: module(),
-    queryable :: map()
-  ) :: parameterized_join_config()
+          join_id :: atom(),
+          join_config :: map(),
+          parameters :: [ParameterizedParser.parameter()],
+          parent :: atom(),
+          from_source :: module(),
+          queryable :: map()
+        ) :: parameterized_join_config()
   def process_parameterized_join(join_id, join_config, parameters, parent, from_source, queryable) do
     # Validate parameters against join definition
     validated_params = validate_parameters(join_config.parameters || [], parameters)
-    
+
     # Build join with parameter context
     base_join = configure_base_join(join_id, join_config, parent, from_source, queryable)
-    
+
     parameter_context = build_parameter_context(validated_params)
     parameter_signature = build_parameter_signature(parameters)
     join_condition = resolve_parameterized_condition(join_config, validated_params)
@@ -65,28 +65,35 @@ defmodule Selecto.Schema.ParameterizedJoin do
   @doc """
   Validate provided parameters against parameter definitions from join configuration.
   """
-  @spec validate_parameters([parameter_definition()], [ParameterizedParser.parameter()]) :: [validated_parameter()]
+  @spec validate_parameters([parameter_definition()], [ParameterizedParser.parameter()]) :: [
+          validated_parameter()
+        ]
   def validate_parameters(param_definitions, provided_params) do
     # Match provided parameters with definitions, apply defaults, validate types
     param_definitions
     |> Enum.with_index()
     |> Enum.map(fn {definition, index} ->
       case Enum.at(provided_params, index) do
-        nil -> 
+        nil ->
           # Use default value if provided
           default_value = Map.get(definition, :default)
           required = Map.get(definition, :required, false)
+
           case {default_value, required} do
             {nil, true} ->
               raise "Required parameter '#{definition.name}' missing at position #{index + 1}"
+
             {default_value, _} ->
               %{name: definition.name, value: default_value, type: definition.type}
           end
+
         {provided_type, provided_value} ->
           expected_type = definition.type
+
           case validate_parameter_type(provided_type, provided_value, expected_type) do
             {:ok, validated_value} ->
               %{name: definition.name, value: validated_value, type: expected_type}
+
             {:error, reason} ->
               raise "Parameter '#{definition.name}' at position #{index + 1}: #{reason}"
           end
@@ -111,7 +118,7 @@ defmodule Selecto.Schema.ParameterizedJoin do
   @spec build_parameter_signature([ParameterizedParser.parameter()]) :: String.t()
   def build_parameter_signature(parameters) when is_list(parameters) and parameters != [] do
     parameters
-    |> Enum.map(fn 
+    |> Enum.map(fn
       {_type, value} when is_binary(value) -> value
       {_type, value} -> to_string(value)
     end)
@@ -126,7 +133,9 @@ defmodule Selecto.Schema.ParameterizedJoin do
   @spec resolve_parameterized_condition(map(), [validated_parameter()]) :: String.t() | nil
   def resolve_parameterized_condition(join_config, validated_params) do
     case Map.get(join_config, :join_condition) do
-      nil -> nil
+      nil ->
+        nil
+
       condition_template when is_binary(condition_template) ->
         # Replace parameter placeholders with actual values
         Enum.reduce(validated_params, condition_template, fn param, acc ->
@@ -134,7 +143,9 @@ defmodule Selecto.Schema.ParameterizedJoin do
           replacement = format_parameter_for_sql(param.value, param.type)
           String.replace(acc, placeholder, replacement)
         end)
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
 
@@ -170,28 +181,31 @@ defmodule Selecto.Schema.ParameterizedJoin do
   defp validate_parameter_type(provided_type, provided_value, expected_type) do
     case {provided_type, expected_type} do
       # Exact type match
-      {type, type} -> {:ok, provided_value}
-      
+      {type, type} ->
+        {:ok, provided_value}
+
       # String can be converted to atom
-      {:string, :atom} -> {:ok, String.to_atom(provided_value)}
-      
+      {:string, :atom} ->
+        {:ok, String.to_atom(provided_value)}
+
       # Integer can be converted to float
-      {:integer, :float} -> {:ok, provided_value * 1.0}
-      
+      {:integer, :float} ->
+        {:ok, provided_value * 1.0}
+
       # String can be parsed as integer
       {:string, :integer} ->
         case Integer.parse(provided_value) do
           {int_val, ""} -> {:ok, int_val}
           _ -> {:error, "Cannot parse '#{provided_value}' as integer"}
         end
-      
+
       # String can be parsed as float
       {:string, :float} ->
         case Float.parse(provided_value) do
           {float_val, ""} -> {:ok, float_val}
           _ -> {:error, "Cannot parse '#{provided_value}' as float"}
         end
-      
+
       # String can be parsed as boolean
       {:string, :boolean} ->
         case String.downcase(provided_value) do
@@ -201,9 +215,10 @@ defmodule Selecto.Schema.ParameterizedJoin do
           "0" -> {:ok, false}
           _ -> {:error, "Cannot parse '#{provided_value}' as boolean"}
         end
-      
+
       # Type mismatch
-      _ -> {:error, "Expected #{expected_type}, got #{provided_type} '#{provided_value}'"}
+      _ ->
+        {:error, "Expected #{expected_type}, got #{provided_type} '#{provided_value}'"}
     end
   end
 

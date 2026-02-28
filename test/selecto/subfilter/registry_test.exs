@@ -11,8 +11,18 @@ defmodule Selecto.Subfilter.RegistryTest do
         "film.rating" => %{from: :film, to: :film, type: :self, field: :rating},
         "film.release_year" => %{from: :film, to: :film, type: :self, field: :release_year},
         "film.category.name" => [
-          %{from: :film, to: :film_category, type: :inner, on: "film.film_id = film_category.film_id"},
-          %{from: :film_category, to: :category, type: :inner, on: "film_category.category_id = category.category_id"}
+          %{
+            from: :film,
+            to: :film_category,
+            type: :inner,
+            on: "film.film_id = film_category.film_id"
+          },
+          %{
+            from: :film_category,
+            to: :category,
+            type: :inner,
+            on: "film_category.category_id = category.category_id"
+          }
         ]
       }
     }
@@ -33,7 +43,9 @@ defmodule Selecto.Subfilter.RegistryTest do
 
     test "returns an error for a duplicate subfilter ID", %{registry: registry} do
       {:ok, registry} = Registry.add_subfilter(registry, "film.rating", "R", id: "rating_filter")
-      {:error, %Error{type: :duplicate_subfilter_id}} = Registry.add_subfilter(registry, "film.rating", "PG", id: "rating_filter")
+
+      {:error, %Error{type: :duplicate_subfilter_id}} =
+        Registry.add_subfilter(registry, "film.rating", "PG", id: "rating_filter")
     end
 
     test "adds a compound AND subfilter", %{registry: registry} do
@@ -41,6 +53,7 @@ defmodule Selecto.Subfilter.RegistryTest do
         {"film.rating", "R"},
         {"film.release_year", {">", 2000}}
       ]
+
       {:ok, updated_registry} = Registry.add_compound(registry, :and, subfilters)
 
       assert map_size(updated_registry.subfilters) == 2
@@ -81,7 +94,9 @@ defmodule Selecto.Subfilter.RegistryTest do
       assert params == []
     end
 
-    test "generate_sql appends generated subfilter where clause to base query", %{registry: registry} do
+    test "generate_sql appends generated subfilter where clause to base query", %{
+      registry: registry
+    } do
       {:ok, registry} = Registry.add_subfilter(registry, "film.rating", "R")
       base_query = "SELECT * FROM film"
 

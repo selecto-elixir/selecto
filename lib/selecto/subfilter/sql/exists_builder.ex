@@ -25,11 +25,10 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
   Generate EXISTS subquery SQL for a given subfilter.
   """
   @spec generate(Spec.t(), JoinResolution.t(), any()) ::
-    {:ok, String.t(), [any()]} | {:error, Error.t()}
+          {:ok, String.t(), [any()]} | {:error, Error.t()}
   def generate(%Spec{} = spec, %JoinResolution{} = join_resolution, registry) do
     with {:ok, joins_sql, params1} <- build_joins_sql(join_resolution),
          {:ok, where_sql, params2} <- build_where_sql(spec, join_resolution, registry) do
-
       subquery_sql = """
       SELECT 1
       FROM #{build_from_clause(join_resolution)}
@@ -75,7 +74,8 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
   defp join_type_to_sql(:left), do: "LEFT"
   defp join_type_to_sql(:right), do: "RIGHT"
   defp join_type_to_sql(:full), do: "FULL"
-  defp join_type_to_sql(:self), do: "" # Self joins are handled in WHERE
+  # Self joins are handled in WHERE
+  defp join_type_to_sql(:self), do: ""
 
   defp build_where_sql(
          %Spec{filter_spec: filter_spec},
@@ -86,7 +86,8 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
     correlation_sql = SQLHelpers.build_correlation_condition(join_resolution, registry)
 
     # Build the filter SQL based on filter spec type
-    with {:ok, filter_sql, params} <- build_filter_condition(filter_spec, target_table, target_field) do
+    with {:ok, filter_sql, params} <-
+           build_filter_condition(filter_spec, target_table, target_field) do
       {:ok, "#{correlation_sql} AND #{filter_sql}", params}
     end
   end
@@ -94,24 +95,24 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
   # Build filter condition based on filter spec type
   defp build_filter_condition(%{type: :temporal} = filter_spec, target_table, target_field) do
     qualified_field = "#{SQLHelpers.table_name(target_table)}.#{target_field}"
-    
+
     case filter_spec.temporal_type do
       :recent_years ->
         sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} years')"
         {:ok, sql, []}
-        
+
       :within_days ->
         sql = "#{qualified_field} > (CURRENT_DATE - INTERVAL '#{filter_spec.value} days')"
         {:ok, sql, []}
-        
+
       :within_hours ->
         sql = "#{qualified_field} > (NOW() - INTERVAL '#{filter_spec.value} hours')"
         {:ok, sql, []}
-        
+
       :since_date ->
         sql = "#{qualified_field} > ?"
         {:ok, sql, [filter_spec.value]}
-        
+
       _ ->
         {:error, "Unsupported temporal type: #{filter_spec.temporal_type}"}
     end

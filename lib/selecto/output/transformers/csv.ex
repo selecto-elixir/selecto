@@ -39,7 +39,6 @@ defmodule Selecto.Output.Transformers.CSV do
   alias Selecto.Output.TypeCoercion
   alias Selecto.Error
 
-
   @default_options [
     headers: true,
     delimiter: ",",
@@ -64,18 +63,21 @@ defmodule Selecto.Output.Transformers.CSV do
             headers = resolve_header_names(columns, aliases)
             csv_content = build_csv(coerced_rows, headers, opts)
             {:ok, csv_content}
+
           {:error, error} ->
             {:error, error}
         end
+
       {:error, error} ->
         {:error, error}
     end
   rescue
     error ->
-      {:error, Error.transformation_error(
-        "CSV transformation failed: #{Exception.message(error)}",
-        %{rows: length(rows), columns: length(columns)}
-      )}
+      {:error,
+       Error.transformation_error(
+         "CSV transformation failed: #{Exception.message(error)}",
+         %{rows: length(rows), columns: length(columns)}
+       )}
   end
 
   @doc """
@@ -98,10 +100,11 @@ defmodule Selecto.Output.Transformers.CSV do
     end
   rescue
     error ->
-      {:error, Error.transformation_error(
-        "CSV stream transformation failed: #{Exception.message(error)}",
-        %{columns: length(columns)}
-      )}
+      {:error,
+       Error.transformation_error(
+         "CSV stream transformation failed: #{Exception.message(error)}",
+         %{columns: length(columns)}
+       )}
   end
 
   # Build complete CSV content
@@ -109,23 +112,26 @@ defmodule Selecto.Output.Transformers.CSV do
     lines = []
 
     # Add header if requested
-    lines = if opts[:headers] do
-      header_line = build_csv_line(headers, opts)
-      [header_line | lines]
-    else
-      lines
-    end
+    lines =
+      if opts[:headers] do
+        header_line = build_csv_line(headers, opts)
+        [header_line | lines]
+      else
+        lines
+      end
 
     # Add data rows
-    lines = Enum.reduce(rows, lines, fn row, acc ->
-      row_line = build_csv_line(row, opts)
-      [row_line | acc]
-    end)
+    lines =
+      Enum.reduce(rows, lines, fn row, acc ->
+        row_line = build_csv_line(row, opts)
+        [row_line | acc]
+      end)
 
     # Join all lines with line ending
-    result = lines
-    |> Enum.reverse()
-    |> Enum.join(opts[:line_ending])
+    result =
+      lines
+      |> Enum.reverse()
+      |> Enum.join(opts[:line_ending])
 
     # Add final line ending only if there's content
     if result == "" do
@@ -230,12 +236,13 @@ defmodule Selecto.Output.Transformers.CSV do
   # Coerce all rows
   defp coerce_rows(rows, columns) do
     try do
-      coerced_rows = Enum.map(rows, fn row ->
-        case coerce_row(row, columns) do
-          {:ok, coerced_row} -> coerced_row
-          {:error, reason} -> raise RuntimeError, message: "Row coercion failed: #{reason}"
-        end
-      end)
+      coerced_rows =
+        Enum.map(rows, fn row ->
+          case coerce_row(row, columns) do
+            {:ok, coerced_row} -> coerced_row
+            {:error, reason} -> raise RuntimeError, message: "Row coercion failed: #{reason}"
+          end
+        end)
 
       {:ok, coerced_rows}
     rescue
@@ -290,9 +297,12 @@ defmodule Selecto.Output.Transformers.CSV do
 
   defp resolve_display_name(column, aliases, idx) when is_list(aliases) do
     case Enum.at(aliases, idx) do
-      nil -> column
+      nil ->
+        column
+
       alias_name when is_binary(alias_name) ->
         if looks_like_uuid?(alias_name), do: column, else: alias_name
+
       alias_name ->
         alias_name
     end
@@ -301,32 +311,52 @@ defmodule Selecto.Output.Transformers.CSV do
   defp resolve_display_name(column, _aliases, _idx), do: column
 
   defp looks_like_uuid?(value) when is_binary(value) do
-    Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, value)
+    Regex.match?(
+      ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      value
+    )
   end
 
   # Validate transformation options
   defp validate_options(opts, columns) do
     cond do
       not is_boolean(opts[:headers]) ->
-        {:error, Error.transformation_error("headers option must be a boolean", %{columns: length(columns)})}
+        {:error,
+         Error.transformation_error("headers option must be a boolean", %{
+           columns: length(columns)
+         })}
 
       not is_binary(opts[:delimiter]) or String.length(opts[:delimiter]) != 1 ->
-        {:error, Error.transformation_error("delimiter must be a single character string", %{columns: length(columns)})}
+        {:error,
+         Error.transformation_error("delimiter must be a single character string", %{
+           columns: length(columns)
+         })}
 
       not is_binary(opts[:quote_char]) or String.length(opts[:quote_char]) != 1 ->
-        {:error, Error.transformation_error("quote_char must be a single character string", %{columns: length(columns)})}
+        {:error,
+         Error.transformation_error("quote_char must be a single character string", %{
+           columns: length(columns)
+         })}
 
       not is_binary(opts[:null_value]) ->
-        {:error, Error.transformation_error("null_value must be a string", %{columns: length(columns)})}
+        {:error,
+         Error.transformation_error("null_value must be a string", %{columns: length(columns)})}
 
       not is_boolean(opts[:force_quotes]) ->
-        {:error, Error.transformation_error("force_quotes option must be a boolean", %{columns: length(columns)})}
+        {:error,
+         Error.transformation_error("force_quotes option must be a boolean", %{
+           columns: length(columns)
+         })}
 
       not is_binary(opts[:line_ending]) ->
-        {:error, Error.transformation_error("line_ending must be a string", %{columns: length(columns)})}
+        {:error,
+         Error.transformation_error("line_ending must be a string", %{columns: length(columns)})}
 
       opts[:delimiter] == opts[:quote_char] ->
-        {:error, Error.transformation_error("delimiter and quote_char cannot be the same", %{columns: length(columns)})}
+        {:error,
+         Error.transformation_error("delimiter and quote_char cannot be the same", %{
+           columns: length(columns)
+         })}
 
       true ->
         :ok

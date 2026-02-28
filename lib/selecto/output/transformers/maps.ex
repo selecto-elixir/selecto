@@ -41,23 +41,25 @@ defmodule Selecto.Output.Transformers.Maps do
   def transform(rows, columns, aliases, options \\ []) do
     try do
       # Validate and set defaults for options
-      opts = Keyword.validate!(options,
-        keys: :strings,
-        transform: :none,
-        coerce_types: false,
-        null_handling: :preserve
-      )
+      opts =
+        Keyword.validate!(options,
+          keys: :strings,
+          transform: :none,
+          coerce_types: false,
+          null_handling: :preserve
+        )
 
       # Transform column names based on options
       transformed_columns = transform_column_names(columns, aliases, opts)
 
       # Convert rows to maps
-      maps = Enum.map(rows, fn row ->
-        transformed_columns
-        |> Enum.zip(row)
-        |> handle_null_values(opts[:null_handling])
-        |> Enum.into(%{})
-      end)
+      maps =
+        Enum.map(rows, fn row ->
+          transformed_columns
+          |> Enum.zip(row)
+          |> handle_null_values(opts[:null_handling])
+          |> Enum.into(%{})
+        end)
 
       {:ok, maps}
     rescue
@@ -71,30 +73,33 @@ defmodule Selecto.Output.Transformers.Maps do
   This is a more advanced version that can coerce database types to proper Elixir types
   based on PostgreSQL column type information.
   """
-  @spec transform_with_types(list(), list(), map(), keyword()) :: {:ok, list(map())} | {:error, term()}
+  @spec transform_with_types(list(), list(), map(), keyword()) ::
+          {:ok, list(map())} | {:error, term()}
   def transform_with_types(rows, columns, aliases, options \\ []) do
     try do
       # For now, we'll implement basic type coercion
       # In a full implementation, this would use column type metadata
       # from the database query result
-      opts = Keyword.validate!(options,
-        keys: :strings,
-        transform: :none,
-        coerce: :safe,
-        preserve: [],
-        custom_coercions: %{}
-      )
+      opts =
+        Keyword.validate!(options,
+          keys: :strings,
+          transform: :none,
+          coerce: :safe,
+          preserve: [],
+          custom_coercions: %{}
+        )
 
       # Transform column names
       transformed_columns = transform_column_names(columns, aliases, opts)
 
       # Convert rows with type coercion
-      maps = Enum.map(rows, fn row ->
-        transformed_columns
-        |> Enum.zip(row)
-        |> Enum.map(fn {key, value} -> {key, coerce_value(value, opts)} end)
-        |> Enum.into(%{})
-      end)
+      maps =
+        Enum.map(rows, fn row ->
+          transformed_columns
+          |> Enum.zip(row)
+          |> Enum.map(fn {key, value} -> {key, coerce_value(value, opts)} end)
+          |> Enum.into(%{})
+        end)
 
       {:ok, maps}
     rescue
@@ -127,9 +132,12 @@ defmodule Selecto.Output.Transformers.Maps do
 
   defp resolve_display_name(column, aliases, idx) when is_list(aliases) do
     case Enum.at(aliases, idx) do
-      nil -> column
+      nil ->
+        column
+
       alias_name when is_binary(alias_name) ->
         if looks_like_uuid?(alias_name), do: column, else: alias_name
+
       alias_name ->
         alias_name
     end
@@ -138,10 +146,14 @@ defmodule Selecto.Output.Transformers.Maps do
   defp resolve_display_name(column, _aliases, _idx), do: column
 
   defp looks_like_uuid?(value) when is_binary(value) do
-    Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, value)
+    Regex.match?(
+      ~r/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      value
+    )
   end
 
   defp apply_name_transform(name, :none), do: name
+
   defp apply_name_transform(name, :camelCase) do
     name
     |> String.split(~r/[_\s-]+/)
@@ -152,6 +164,7 @@ defmodule Selecto.Output.Transformers.Maps do
     end)
     |> Enum.join("")
   end
+
   defp apply_name_transform(name, :snake_case) do
     name
     |> String.replace(~r/([A-Z])/, "_\\1")
@@ -161,21 +174,25 @@ defmodule Selecto.Output.Transformers.Maps do
 
   defp convert_to_key_type(name, :strings), do: name
   defp convert_to_key_type(name, :atoms), do: String.to_atom(name)
+
   defp convert_to_key_type(name, :existing_atoms) do
     try do
       String.to_existing_atom(name)
     rescue
-      ArgumentError -> name  # Fallback to string if atom doesn't exist
+      # Fallback to string if atom doesn't exist
+      ArgumentError -> name
     end
   end
 
   defp handle_null_values(key_value_pairs, :preserve), do: key_value_pairs
+
   defp handle_null_values(key_value_pairs, :remove) do
     Enum.reject(key_value_pairs, fn {_key, value} -> is_nil(value) end)
   end
 
   # Basic type coercion - this would be expanded with proper PostgreSQL type mapping
   defp coerce_value(value, _opts) when is_nil(value), do: value
+
   defp coerce_value(value, opts) do
     case opts[:coerce] do
       :none -> value
@@ -203,8 +220,11 @@ defmodule Selecto.Output.Transformers.Maps do
         end
 
       # Try to parse boolean-like strings
-      String.downcase(value) in ["true", "t", "yes", "y", "1"] -> true
-      String.downcase(value) in ["false", "f", "no", "n", "0"] -> false
+      String.downcase(value) in ["true", "t", "yes", "y", "1"] ->
+        true
+
+      String.downcase(value) in ["false", "f", "no", "n", "0"] ->
+        false
 
       # Try to parse ISO datetime strings
       String.match?(value, ~r/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/) ->
@@ -214,9 +234,11 @@ defmodule Selecto.Output.Transformers.Maps do
         end
 
       # Leave other strings as-is
-      true -> value
+      true ->
+        value
     end
   end
+
   defp safe_coerce(value), do: value
 
   # Aggressive coercion - attempt more transformations
@@ -233,12 +255,13 @@ defmodule Selecto.Output.Transformers.Maps do
   all data into memory at once.
   """
   def stream_transform(rows_stream, columns, aliases, options \\ []) do
-    opts = Keyword.validate!(options,
-      keys: :strings,
-      transform: :none,
-      coerce_types: false,
-      batch_size: 1000
-    )
+    opts =
+      Keyword.validate!(options,
+        keys: :strings,
+        transform: :none,
+        coerce_types: false,
+        batch_size: 1000
+      )
 
     transformed_columns = transform_column_names(columns, aliases, opts)
 

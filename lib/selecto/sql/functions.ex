@@ -237,13 +237,21 @@ defmodule Selecto.SQL.Functions do
         prep_array_function(selecto, "array_remove", [array, {:literal, element}])
 
       {:array_replace, array, from_elem, to_elem} ->
-        prep_array_function(selecto, "array_replace", [array, {:literal, from_elem}, {:literal, to_elem}])
+        prep_array_function(selecto, "array_replace", [
+          array,
+          {:literal, from_elem},
+          {:literal, to_elem}
+        ])
 
       {:array_position, array, element} ->
         prep_array_function(selecto, "array_position", [array, {:literal, element}])
 
       {:array_position, array, element, start} ->
-        prep_array_function(selecto, "array_position", [array, {:literal, element}, {:literal, start}])
+        prep_array_function(selecto, "array_position", [
+          array,
+          {:literal, element},
+          {:literal, start}
+        ])
 
       {:array_positions, array, element} ->
         prep_array_function(selecto, "array_positions", [array, {:literal, element}])
@@ -296,45 +304,59 @@ defmodule Selecto.SQL.Functions do
   # Window function helpers
   defp prep_window_function(selecto, func, opts) do
     # Process the base function
-    {func_iodata, func_joins, func_params} = case func do
-      {:row_number} ->
-        {["row_number()"], [], []}
-      {:rank} ->
-        {["rank()"], [], []}
-      {:dense_rank} ->
-        {["dense_rank()"], [], []}
-      {:lag, field} ->
-        {field_iodata, joins, params} = prep_function_args(selecto, [field])
-        {["lag(", field_iodata, ")"], joins, params}
-      {:lag, field, offset} ->
-        {args_iodata, joins, params} = prep_function_args(selecto, [field, {:literal, offset}])
-        {["lag(", Enum.intersperse(args_iodata, ", "), ")"], joins, params}
-      {:lead, field} ->
-        {field_iodata, joins, params} = prep_function_args(selecto, [field])
-        {["lead(", field_iodata, ")"], joins, params}
-      {:lead, field, offset} ->
-        {args_iodata, joins, params} = prep_function_args(selecto, [field, {:literal, offset}])
-        {["lead(", Enum.intersperse(args_iodata, ", "), ")"], joins, params}
-      {:first_value, field} ->
-        {field_iodata, joins, params} = prep_function_args(selecto, [field])
-        {["first_value(", field_iodata, ")"], joins, params}
-      {:last_value, field} ->
-        {field_iodata, joins, params} = prep_function_args(selecto, [field])
-        {["last_value(", field_iodata, ")"], joins, params}
-      {:ntile, buckets} ->
-        {["ntile(", Integer.to_string(buckets), ")"], [], []}
-      {:nth_value, field, n} ->
-        {field_iodata, joins, params} = prep_function_args(selecto, [field])
-        {["nth_value(", field_iodata, ", ", Integer.to_string(n), ")"], joins, params}
-      {:cume_dist} ->
-        {["cume_dist()"], [], []}
-      {:percent_rank} ->
-        {["percent_rank()"], [], []}
-      {agg_func, field} when agg_func in [:sum, :count, :avg, :min, :max] ->
-        {field_iodata, joins, params} = prep_function_args(selecto, [field])
-        func_name = Atom.to_string(agg_func)
-        {[func_name, "(", field_iodata, ")"], joins, params}
-    end
+    {func_iodata, func_joins, func_params} =
+      case func do
+        {:row_number} ->
+          {["row_number()"], [], []}
+
+        {:rank} ->
+          {["rank()"], [], []}
+
+        {:dense_rank} ->
+          {["dense_rank()"], [], []}
+
+        {:lag, field} ->
+          {field_iodata, joins, params} = prep_function_args(selecto, [field])
+          {["lag(", field_iodata, ")"], joins, params}
+
+        {:lag, field, offset} ->
+          {args_iodata, joins, params} = prep_function_args(selecto, [field, {:literal, offset}])
+          {["lag(", Enum.intersperse(args_iodata, ", "), ")"], joins, params}
+
+        {:lead, field} ->
+          {field_iodata, joins, params} = prep_function_args(selecto, [field])
+          {["lead(", field_iodata, ")"], joins, params}
+
+        {:lead, field, offset} ->
+          {args_iodata, joins, params} = prep_function_args(selecto, [field, {:literal, offset}])
+          {["lead(", Enum.intersperse(args_iodata, ", "), ")"], joins, params}
+
+        {:first_value, field} ->
+          {field_iodata, joins, params} = prep_function_args(selecto, [field])
+          {["first_value(", field_iodata, ")"], joins, params}
+
+        {:last_value, field} ->
+          {field_iodata, joins, params} = prep_function_args(selecto, [field])
+          {["last_value(", field_iodata, ")"], joins, params}
+
+        {:ntile, buckets} ->
+          {["ntile(", Integer.to_string(buckets), ")"], [], []}
+
+        {:nth_value, field, n} ->
+          {field_iodata, joins, params} = prep_function_args(selecto, [field])
+          {["nth_value(", field_iodata, ", ", Integer.to_string(n), ")"], joins, params}
+
+        {:cume_dist} ->
+          {["cume_dist()"], [], []}
+
+        {:percent_rank} ->
+          {["percent_rank()"], [], []}
+
+        {agg_func, field} when agg_func in [:sum, :count, :avg, :min, :max] ->
+          {field_iodata, joins, params} = prep_function_args(selecto, [field])
+          func_name = Atom.to_string(agg_func)
+          {[func_name, "(", field_iodata, ")"], joins, params}
+      end
 
     # Build OVER clause
     {over_iodata, over_joins, over_params} = build_over_clause(selecto, opts)
@@ -349,34 +371,45 @@ defmodule Selecto.SQL.Functions do
 
   # Build OVER clause for window functions
   defp build_over_clause(selecto, opts) do
-    partition_clause = case Keyword.get(opts, :partition_by) do
-      nil -> []
-      fields when is_list(fields) ->
-        {part_args, part_joins, part_params} = prep_function_args(selecto, fields)
-        {["partition by ", Enum.intersperse(part_args, ", ")], part_joins, part_params}
-      field ->
-        {part_args, part_joins, part_params} = prep_function_args(selecto, [field])
-        {["partition by ", part_args], part_joins, part_params}
-    end
+    partition_clause =
+      case Keyword.get(opts, :partition_by) do
+        nil ->
+          []
 
-    order_clause = case Keyword.get(opts, :order_by) do
-      nil -> []
-      fields when is_list(fields) ->
-        {order_args, order_joins, order_params} = prep_function_args(selecto, fields)
-        {["order by ", Enum.intersperse(order_args, ", ")], order_joins, order_params}
-      field ->
-        {order_args, order_joins, order_params} = prep_function_args(selecto, [field])
-        {["order by ", order_args], order_joins, order_params}
-    end
+        fields when is_list(fields) ->
+          {part_args, part_joins, part_params} = prep_function_args(selecto, fields)
+          {["partition by ", Enum.intersperse(part_args, ", ")], part_joins, part_params}
+
+        field ->
+          {part_args, part_joins, part_params} = prep_function_args(selecto, [field])
+          {["partition by ", part_args], part_joins, part_params}
+      end
+
+    order_clause =
+      case Keyword.get(opts, :order_by) do
+        nil ->
+          []
+
+        fields when is_list(fields) ->
+          {order_args, order_joins, order_params} = prep_function_args(selecto, fields)
+          {["order by ", Enum.intersperse(order_args, ", ")], order_joins, order_params}
+
+        field ->
+          {order_args, order_joins, order_params} = prep_function_args(selecto, [field])
+          {["order by ", order_args], order_joins, order_params}
+      end
 
     # Combine clauses
     case {partition_clause, order_clause} do
       {[], []} ->
         {[], [], []}
+
       {{part_iodata, part_joins, part_params}, []} ->
         {part_iodata, part_joins, part_params}
+
       {[], {order_iodata, order_joins, order_params}} ->
         {order_iodata, order_joins, order_params}
+
       {{part_iodata, part_joins, part_params}, {order_iodata, order_joins, order_params}} ->
         combined_iodata = [part_iodata, " ", order_iodata]
         combined_joins = part_joins ++ order_joins
@@ -403,7 +436,8 @@ defmodule Selecto.SQL.Functions do
     {field_iodata, field_joins, field_params} = prep_function_args(selecto, [field])
 
     {mapping_parts, mapping_joins, mapping_params} =
-      Enum.reduce(mappings, {[], [], []}, fn {match_value, return_value}, {parts, joins, params} ->
+      Enum.reduce(mappings, {[], [], []}, fn {match_value, return_value},
+                                             {parts, joins, params} ->
         {match_iodata, match_joins, match_params} = prep_function_args(selecto, [match_value])
         {return_iodata, return_joins, return_params} = prep_function_args(selecto, [return_value])
 
@@ -433,8 +467,13 @@ defmodule Selecto.SQL.Functions do
     {false_iodata, false_joins, false_params} = prep_function_args(selecto, [false_value])
 
     case_iodata = [
-      "case when ", cond_iodata, " then ", true_iodata,
-      " else ", false_iodata, " end"
+      "case when ",
+      cond_iodata,
+      " then ",
+      true_iodata,
+      " else ",
+      false_iodata,
+      " end"
     ]
 
     all_joins = cond_joins ++ true_joins ++ false_joins
@@ -462,7 +501,8 @@ defmodule Selecto.SQL.Functions do
 
       # Add more condition types as needed
       _ ->
-        {["true"], [], []}  # Fallback
+        # Fallback
+        {["true"], [], []}
     end
   end
 
@@ -505,7 +545,9 @@ defmodule Selecto.SQL.Functions do
             rescue
               _ -> {[inspect(complex_expr)], :selecto_root, []}
             end
-          result -> result
+
+          result ->
+            result
         end
     end
   end
@@ -531,22 +573,28 @@ defmodule Selecto.SQL.Functions do
     distinct = if Keyword.get(opts, :distinct, false), do: "DISTINCT ", else: ""
 
     # Handle ORDER BY within the aggregate
-    {order_clause, order_joins, order_params} = case Keyword.get(opts, :order_by) do
-      nil ->
-        {[], [], []}
+    {order_clause, order_joins, order_params} =
+      case Keyword.get(opts, :order_by) do
+        nil ->
+          {[], [], []}
 
-      fields when is_list(fields) ->
-        {order_parts, o_joins, o_params} = prep_function_args(selecto, fields)
-        {[" ORDER BY ", Enum.intersperse(order_parts, ", ")], o_joins, o_params}
+        fields when is_list(fields) ->
+          {order_parts, o_joins, o_params} = prep_function_args(selecto, fields)
+          {[" ORDER BY ", Enum.intersperse(order_parts, ", ")], o_joins, o_params}
 
-      field_spec ->
-        {order_parts, o_joins, o_params} = prep_function_args(selecto, [field_spec])
-        {[" ORDER BY ", order_parts], o_joins, o_params}
-    end
+        field_spec ->
+          {order_parts, o_joins, o_params} = prep_function_args(selecto, [field_spec])
+          {[" ORDER BY ", order_parts], o_joins, o_params}
+      end
 
     func_iodata = [
-      "string_agg(", distinct, field_iodata, ", ", {:param, delimiter_str},
-      order_clause, ")"
+      "string_agg(",
+      distinct,
+      field_iodata,
+      ", ",
+      {:param, delimiter_str},
+      order_clause,
+      ")"
     ]
 
     all_joins = field_joins ++ order_joins
@@ -563,18 +611,19 @@ defmodule Selecto.SQL.Functions do
     distinct = if Keyword.get(opts, :distinct, false), do: "DISTINCT ", else: ""
 
     # Handle ORDER BY within the aggregate
-    {order_clause, order_joins, order_params} = case Keyword.get(opts, :order_by) do
-      nil ->
-        {[], [], []}
+    {order_clause, order_joins, order_params} =
+      case Keyword.get(opts, :order_by) do
+        nil ->
+          {[], [], []}
 
-      fields when is_list(fields) ->
-        {order_parts, o_joins, o_params} = prep_function_args(selecto, fields)
-        {[" ORDER BY ", Enum.intersperse(order_parts, ", ")], o_joins, o_params}
+        fields when is_list(fields) ->
+          {order_parts, o_joins, o_params} = prep_function_args(selecto, fields)
+          {[" ORDER BY ", Enum.intersperse(order_parts, ", ")], o_joins, o_params}
 
-      field_spec ->
-        {order_parts, o_joins, o_params} = prep_function_args(selecto, [field_spec])
-        {[" ORDER BY ", order_parts], o_joins, o_params}
-    end
+        field_spec ->
+          {order_parts, o_joins, o_params} = prep_function_args(selecto, [field_spec])
+          {[" ORDER BY ", order_parts], o_joins, o_params}
+      end
 
     func_iodata = ["array_agg(", distinct, field_iodata, order_clause, ")"]
 

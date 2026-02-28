@@ -13,7 +13,12 @@ defmodule Selecto.FieldResolverParameterizedTest do
         redact_fields: [],
         columns: %{id: %{type: :integer}, name: %{type: :string}, email: %{type: :string}},
         associations: %{
-          products: %{queryable: :products, field: :products, owner_key: :id, related_key: :category_id}
+          products: %{
+            queryable: :products,
+            field: :products,
+            owner_key: :id,
+            related_key: :category_id
+          }
         }
       },
       schemas: %{
@@ -22,7 +27,12 @@ defmodule Selecto.FieldResolverParameterizedTest do
           primary_key: :id,
           fields: [:id, :name, :price, :category_id],
           redact_fields: [],
-          columns: %{id: %{type: :integer}, name: %{type: :string}, price: %{type: :float}, category_id: %{type: :integer}},
+          columns: %{
+            id: %{type: :integer},
+            name: %{type: :string},
+            price: %{type: :float},
+            category_id: %{type: :integer}
+          },
           associations: %{}
         }
       },

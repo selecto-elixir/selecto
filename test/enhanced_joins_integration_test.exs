@@ -13,7 +13,12 @@ defmodule Selecto.EnhancedJoinsIntegrationTest do
         redact_fields: [],
         columns: %{id: %{type: :integer}, name: %{type: :string}},
         associations: %{
-          recent_orders: %{queryable: :orders, field: :recent_orders, owner_key: :id, related_key: :customer_id}
+          recent_orders: %{
+            queryable: :orders,
+            field: :recent_orders,
+            owner_key: :id,
+            related_key: :customer_id
+          }
         }
       },
       schemas: %{
@@ -22,12 +27,20 @@ defmodule Selecto.EnhancedJoinsIntegrationTest do
           primary_key: :id,
           fields: [:id, :customer_id, :total],
           redact_fields: [],
-          columns: %{id: %{type: :integer}, customer_id: %{type: :integer}, total: %{type: :decimal}},
+          columns: %{
+            id: %{type: :integer},
+            customer_id: %{type: :integer},
+            total: %{type: :decimal}
+          },
           associations: %{}
         }
       },
       joins: %{
-        recent_orders: %{type: :lateral_join, lateral_query: "SELECT * FROM orders o WHERE o.customer_id = customers.id", alias: "recent"}
+        recent_orders: %{
+          type: :lateral_join,
+          lateral_query: "SELECT * FROM orders o WHERE o.customer_id = customers.id",
+          alias: "recent"
+        }
       }
     }
 

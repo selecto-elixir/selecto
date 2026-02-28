@@ -73,21 +73,22 @@ defmodule Selecto.Subselect do
   @spec subselect(Types.t(), [String.t() | Types.subselect_selector()], keyword()) :: Types.t()
   def subselect(selecto, field_specs, opts \\ []) do
     subselect_configs = normalize_field_specs(field_specs, opts)
-    
+
     # Validate all subselect configurations
     Enum.each(subselect_configs, &validate_subselect_config(selecto, &1))
-    
+
     # Add to selecto state
     current_subselects = Map.get(selecto.set, :subselected, [])
     updated_subselects = current_subselects ++ subselect_configs
-    
+
     put_in(selecto.set[:subselected], updated_subselects)
   end
 
   @doc """
   Validate that a subselect configuration is valid for the given domain.
   """
-  @spec validate_subselect_config(Types.t(), Types.subselect_selector()) :: :ok | {:error, String.t()}
+  @spec validate_subselect_config(Types.t(), Types.subselect_selector()) ::
+          :ok | {:error, String.t()}
   def validate_subselect_config(selecto, subselect_config) do
     with :ok <- validate_target_schema(selecto, subselect_config.target_schema),
          :ok <- validate_fields_exist(selecto, subselect_config),
@@ -104,7 +105,7 @@ defmodule Selecto.Subselect do
   @spec group_subselects_by_table(Types.t()) :: %{atom() => [Types.subselect_selector()]}
   def group_subselects_by_table(selecto) do
     subselects = Map.get(selecto.set, :subselected, [])
-    
+
     Enum.group_by(subselects, fn config ->
       config.target_schema
     end)
@@ -172,13 +173,14 @@ defmodule Selecto.Subselect do
         if from_schema_config && from_schema_config.associations do
           # Try to find a path that goes through another table and back
           case find_self_referential_path(
-            domain,
-            from_schema_config.associations,
-            to_schema,
-            [from_schema]
-          ) do
+                 domain,
+                 from_schema_config.associations,
+                 to_schema,
+                 [from_schema]
+               ) do
             {:ok, path} -> {:ok, path}
-            :not_found -> {:ok, []}  # Fallback to direct (same table)
+            # Fallback to direct (same table)
+            :not_found -> {:ok, []}
           end
         else
           {:ok, []}
@@ -213,7 +215,9 @@ defmodule Selecto.Subselect do
   defp find_self_referential_path(domain, associations, target_schema, _visited) do
     # First try: Look through direct associations
     case find_through_direct_associations(domain, associations, target_schema) do
-      {:ok, path} -> {:ok, path}
+      {:ok, path} ->
+        {:ok, path}
+
       :not_found ->
         # Second try: Search all schemas for junction tables that connect to target
         find_through_junction_inference(domain, target_schema)
@@ -234,9 +238,10 @@ defmodule Selecto.Subselect do
         junction_config = Map.get(domain.schemas, queryable_schema)
 
         if junction_config && junction_config.associations do
-          back_assoc = Enum.find(junction_config.associations, fn {_name, assoc} ->
-            assoc.queryable == target_schema
-          end)
+          back_assoc =
+            Enum.find(junction_config.associations, fn {_name, assoc} ->
+              assoc.queryable == target_schema
+            end)
 
           if back_assoc do
             # Found a path: target → junction → target (many-to-many)
@@ -261,10 +266,11 @@ defmodule Selecto.Subselect do
     # Search all schemas for junction tables that connect to our target twice
     Enum.reduce_while(domain.schemas, :not_found, fn {schema_name, schema_config}, _acc ->
       # Check if this schema's associations point to our target
-      target_associations = Enum.filter(schema_config.associations, fn {_name, assoc} ->
-        target_sch = Map.get(domain.schemas, assoc.queryable)
-        target_sch && target_sch.source_table == target_table
-      end)
+      target_associations =
+        Enum.filter(schema_config.associations, fn {_name, assoc} ->
+          target_sch = Map.get(domain.schemas, assoc.queryable)
+          target_sch && target_sch.source_table == target_table
+        end)
 
       # If we found at least one association to our target, this could be a junction
       if length(target_associations) >= 1 do
@@ -295,15 +301,15 @@ defmodule Selecto.Subselect do
     default_format = Keyword.get(opts, :format, :json_agg)
     alias_prefix = Keyword.get(opts, :alias_prefix, "")
     default_order_by = Keyword.get(opts, :order_by, [])
-    
+
     Enum.map(field_specs, fn spec ->
       case spec do
         field when is_binary(field) ->
           parse_field_string(field, default_format, alias_prefix, default_order_by)
-          
+
         %{} = config ->
           normalize_config_map(config, default_format, alias_prefix, default_order_by)
-          
+
         _ ->
           raise ArgumentError, "Invalid field specification: #{inspect(spec)}"
       end
@@ -318,7 +324,7 @@ defmodule Selecto.Subselect do
         [_, table_part, field_part] = match
         target_schema = String.to_atom(table_part)
         fields = String.split(field_part, ",") |> Enum.map(&String.trim/1)
-        
+
         %{
           fields: fields,
           target_schema: target_schema,
@@ -327,13 +333,13 @@ defmodule Selecto.Subselect do
           order_by: default_order_by,
           filters: []
         }
-      
+
       # Try dot notation
       match = Regex.run(~r/^([^.]+)\.([^.]+)$/, field_string) ->
         [_, table_part, field_part] = match
         target_schema = String.to_atom(table_part)
         fields = [field_part]
-        
+
         %{
           fields: fields,
           target_schema: target_schema,
@@ -342,9 +348,10 @@ defmodule Selecto.Subselect do
           order_by: default_order_by,
           filters: []
         }
-      
+
       true ->
-        raise ArgumentError, "Invalid field format: #{field_string}. Expected 'table[field]' or 'table.field' format."
+        raise ArgumentError,
+              "Invalid field format: #{field_string}. Expected 'table[field]' or 'table.field' format."
     end
   end
 
@@ -374,15 +381,20 @@ defmodule Selecto.Subselect do
 
   defp validate_fields_exist(selecto, subselect_config) do
     target_schema_config = Map.get(selecto.domain.schemas, subselect_config.target_schema)
-    
-    invalid_fields = Enum.filter(subselect_config.fields, fn field_name ->
-      field_atom = if is_binary(field_name), do: String.to_atom(field_name), else: field_name
-      not Enum.member?(target_schema_config.fields, field_atom)
-    end)
-    
+
+    invalid_fields =
+      Enum.filter(subselect_config.fields, fn field_name ->
+        field_atom = if is_binary(field_name), do: String.to_atom(field_name), else: field_name
+        not Enum.member?(target_schema_config.fields, field_atom)
+      end)
+
     case invalid_fields do
-      [] -> :ok
-      fields -> {:error, "Fields #{inspect(fields)} not found in schema #{subselect_config.target_schema}"}
+      [] ->
+        :ok
+
+      fields ->
+        {:error,
+         "Fields #{inspect(fields)} not found in schema #{subselect_config.target_schema}"}
     end
   end
 

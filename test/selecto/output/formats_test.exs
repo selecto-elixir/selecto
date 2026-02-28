@@ -10,7 +10,9 @@ defmodule Selecto.Output.FormatsTest do
         ["John Doe", "john@example.com", 25, true],
         ["Jane Smith", "jane@example.com", 30, false]
       ]
+
       columns = ["name", "email", "age", "active"]
+
       aliases = %{
         "name" => "full_name",
         "email" => "email_address",
@@ -21,7 +23,11 @@ defmodule Selecto.Output.FormatsTest do
       {:ok, rows: rows, columns: columns, aliases: aliases}
     end
 
-    test "transforms to raw format (no transformation)", %{rows: rows, columns: columns, aliases: aliases} do
+    test "transforms to raw format (no transformation)", %{
+      rows: rows,
+      columns: columns,
+      aliases: aliases
+    } do
       {:ok, result} = Formats.transform({rows, columns, aliases}, :raw)
       assert result == {rows, columns, aliases}
     end
@@ -30,24 +36,26 @@ defmodule Selecto.Output.FormatsTest do
       {:ok, maps} = Formats.transform({rows, columns, aliases}, :maps)
 
       assert length(maps) == 2
+
       assert List.first(maps) == %{
-        "full_name" => "John Doe",
-        "email_address" => "john@example.com",
-        "user_age" => 25,
-        "is_active" => true
-      }
+               "full_name" => "John Doe",
+               "email_address" => "john@example.com",
+               "user_age" => 25,
+               "is_active" => true
+             }
     end
 
     test "transforms to maps with atom keys", %{rows: rows, columns: columns, aliases: aliases} do
       {:ok, maps} = Formats.transform({rows, columns, aliases}, {:maps, keys: :atoms})
 
       assert length(maps) == 2
+
       assert List.first(maps) == %{
-        full_name: "John Doe",
-        email_address: "john@example.com",
-        user_age: 25,
-        is_active: true
-      }
+               full_name: "John Doe",
+               email_address: "john@example.com",
+               user_age: 25,
+               is_active: true
+             }
     end
 
     test "returns error for unknown format", %{rows: rows, columns: columns, aliases: aliases} do
@@ -68,7 +76,7 @@ defmodule Selecto.Output.FormatsTest do
 
     test "returns error for invalid format" do
       assert {:error, {:invalid_format, :bad_format}} ==
-        Formats.validate_format(:bad_format)
+               Formats.validate_format(:bad_format)
     end
 
     test "returns error for invalid map options" do

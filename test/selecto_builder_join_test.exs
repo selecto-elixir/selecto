@@ -9,11 +9,11 @@ defmodule Selecto.Builder.JoinTest do
         "category_name" => %{requires_join: :categories},
         "id" => %{requires_join: nil}
       }
-      
+
       selected = ["user_name", "category_name", "id"]
-      
+
       result = Join.from_selects(fields, selected)
-      
+
       assert :users in result
       assert :categories in result
       # nil may be included for fields that don't require joins
@@ -25,11 +25,11 @@ defmodule Selecto.Builder.JoinTest do
         "user_name" => %{requires_join: :users},
         "tag_name" => %{requires_join: :tags}
       }
-      
+
       selected = [{:array, "tags", ["user_name", "tag_name"]}]
-      
+
       result = Join.from_selects(fields, selected)
-      
+
       assert :users in result
       assert :tags in result
     end
@@ -39,11 +39,11 @@ defmodule Selecto.Builder.JoinTest do
         "user_name" => %{requires_join: :users},
         "backup_name" => %{requires_join: :backups}
       }
-      
+
       selected = [{:coalesce, "name", ["user_name", "backup_name"]}]
-      
+
       result = Join.from_selects(fields, selected)
-      
+
       assert :users in result
       assert :backups in result
     end
@@ -53,15 +53,16 @@ defmodule Selecto.Builder.JoinTest do
         "user_name" => %{requires_join: :users},
         "admin_name" => %{requires_join: :admins}
       }
-      
+
       case_map = %{
         "when_user" => ["user_name"],
         "when_admin" => ["admin_name"]
       }
+
       selected = [{:case, "display_name", case_map}]
-      
+
       result = Join.from_selects(fields, selected)
-      
+
       assert :users in result
       assert :admins in result
     end
@@ -70,14 +71,14 @@ defmodule Selecto.Builder.JoinTest do
       fields = %{
         "user_name" => %{requires_join: :users}
       }
-      
+
       selected = [
         "user_name",
         {:literal, "constant_value"}
       ]
-      
+
       result = Join.from_selects(fields, selected)
-      
+
       assert :users in result
       assert length(result) == 1
     end
@@ -87,16 +88,16 @@ defmodule Selecto.Builder.JoinTest do
         "field1" => %{requires_join: :table1},
         "field2" => %{requires_join: :table2}
       }
-      
+
       selected = [
         {"func", {"field1", "desc"}, "param"},
         {"func", "field2", "param"},
         {"func", "field1"},
         {"func"}
       ]
-      
+
       result = Join.from_selects(fields, selected)
-      
+
       assert :table1 in result
       assert :table2 in result
     end
@@ -106,11 +107,11 @@ defmodule Selecto.Builder.JoinTest do
         "id" => %{requires_join: nil},
         "name" => %{requires_join: nil}
       }
-      
+
       selected = ["id", "name"]
-      
+
       result = Join.from_selects(fields, selected)
-      
+
       # When there are no joins needed, returns [nil]
       assert result == [nil]
     end
@@ -122,11 +123,11 @@ defmodule Selecto.Builder.JoinTest do
         :users => %{},
         :categories => %{}
       }
-      
+
       requested_joins = [:users, :categories]
-      
+
       result = Join.get_join_order(joins, requested_joins)
-      
+
       assert :users in result
       assert :categories in result
       assert length(result) == 2
@@ -138,16 +139,16 @@ defmodule Selecto.Builder.JoinTest do
         :departments => %{},
         :categories => %{}
       }
-      
+
       requested_joins = [:users, :categories]
-      
+
       result = Join.get_join_order(joins, requested_joins)
-      
+
       # Should include dependencies
       assert :departments in result
       assert :users in result
       assert :categories in result
-      
+
       # Dependencies should come before dependent joins
       dept_index = Enum.find_index(result, &(&1 == :departments))
       users_index = Enum.find_index(result, &(&1 == :users))
@@ -160,20 +161,20 @@ defmodule Selecto.Builder.JoinTest do
         :departments => %{requires_join: :companies},
         :companies => %{}
       }
-      
+
       requested_joins = [:users]
-      
+
       result = Join.get_join_order(joins, requested_joins)
-      
+
       assert :companies in result
-      assert :departments in result  
+      assert :departments in result
       assert :users in result
-      
+
       # Check proper ordering
       company_index = Enum.find_index(result, &(&1 == :companies))
       dept_index = Enum.find_index(result, &(&1 == :departments))
       users_index = Enum.find_index(result, &(&1 == :users))
-      
+
       assert company_index < dept_index
       assert dept_index < users_index
     end
@@ -184,15 +185,15 @@ defmodule Selecto.Builder.JoinTest do
         :profiles => %{requires_join: :departments},
         :departments => %{}
       }
-      
+
       requested_joins = [:users, :profiles]
-      
+
       result = Join.get_join_order(joins, requested_joins)
-      
+
       # Should have each join only once
       dept_count = Enum.count(result, &(&1 == :departments))
       assert dept_count == 1
-      
+
       assert :departments in result
       assert :users in result
       assert :profiles in result
@@ -208,14 +209,14 @@ defmodule Selecto.Builder.JoinTest do
           "status" => %{requires_join: nil}
         }
       }
-      
+
       filters = [
         {"user_name", "John"},
         {"category_id", 1}
       ]
-      
+
       result = Join.from_filters(config, filters)
-      
+
       assert :users in result
       assert :categories in result
     end
@@ -227,16 +228,17 @@ defmodule Selecto.Builder.JoinTest do
           "admin_name" => %{requires_join: :admins}
         }
       }
-      
+
       filters = [
-        {:or, [
-          {"user_name", "John"},
-          {"admin_name", "Jane"}
-        ]}
+        {:or,
+         [
+           {"user_name", "John"},
+           {"admin_name", "Jane"}
+         ]}
       ]
-      
+
       result = Join.from_filters(config, filters)
-      
+
       assert :users in result
       assert :admins in result
     end
@@ -248,16 +250,17 @@ defmodule Selecto.Builder.JoinTest do
           "category_name" => %{requires_join: :categories}
         }
       }
-      
+
       filters = [
-        {:and, [
-          {"user_name", "John"},
-          {"category_name", "Tech"}
-        ]}
+        {:and,
+         [
+           {"user_name", "John"},
+           {"category_name", "Tech"}
+         ]}
       ]
-      
+
       result = Join.from_filters(config, filters)
-      
+
       assert :users in result
       assert :categories in result
     end
@@ -270,19 +273,21 @@ defmodule Selecto.Builder.JoinTest do
           "category_name" => %{requires_join: :categories}
         }
       }
-      
+
       filters = [
-        {:or, [
-          {:and, [
-            {"user_name", "John"},
-            {"category_name", "Tech"}
-          ]},
-          {"admin_name", "Jane"}
-        ]}
+        {:or,
+         [
+           {:and,
+            [
+              {"user_name", "John"},
+              {"category_name", "Tech"}
+            ]},
+           {"admin_name", "Jane"}
+         ]}
       ]
-      
+
       result = Join.from_filters(config, filters)
-      
+
       assert :users in result
       assert :admins in result
       assert :categories in result
@@ -295,14 +300,14 @@ defmodule Selecto.Builder.JoinTest do
           "status" => %{requires_join: nil}
         }
       }
-      
+
       filters = [
         {"id", 1},
         {"status", "active"}
       ]
-      
+
       result = Join.from_filters(config, filters)
-      
+
       assert result == [nil]
     end
   end

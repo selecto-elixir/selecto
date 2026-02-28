@@ -9,7 +9,12 @@ defmodule Selecto.Integration.LateralJoinTest do
         primary_key: :film_id,
         fields: [:film_id, :title, :rating, :special_features],
         redact_fields: [],
-        columns: %{film_id: %{type: :integer}, title: %{type: :string}, rating: %{type: :string}, special_features: %{type: :array}},
+        columns: %{
+          film_id: %{type: :integer},
+          title: %{type: :string},
+          rating: %{type: :string},
+          special_features: %{type: :array}
+        },
         associations: %{}
       },
       schemas: %{},

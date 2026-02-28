@@ -25,7 +25,7 @@ defmodule Selecto.GroupOrderTest do
     selecto = Selecto.configure(domain, :mock_connection)
 
     # Test with GROUP BY and ORDER BY
-    selecto = 
+    selecto =
       selecto
       |> Selecto.select([{:count}])
       |> Selecto.group_by(["age"])
@@ -40,23 +40,24 @@ defmodule Selecto.GroupOrderTest do
     assert String.contains?(sql, "order by")
     assert String.contains?(sql, "selecto_root.age")
     assert String.contains?(sql, "desc")
-    
+
     # Verify no legacy sentinel remains
     refute String.contains?(sql, "^SelectoParam^")
-    
+
     # Verify params structure (should be empty for this query)
     assert is_list(params)
-    
+
     # Verify aliases structure  
     assert is_list(aliases)
-    assert length(aliases) == 1  # count(*)
+    # count(*)
+    assert length(aliases) == 1
   end
 
   test "ROLLUP functionality preserves special handling" do
     domain = %{
       source: %{
         source_table: "sales",
-        primary_key: :id, 
+        primary_key: :id,
         fields: [:id, :region, :amount],
         redact_fields: [],
         columns: %{
@@ -74,10 +75,10 @@ defmodule Selecto.GroupOrderTest do
     selecto = Selecto.configure(domain, :mock_connection)
 
     # Test with ROLLUP - this should trigger the special case handling
-    selecto = 
+    selecto =
       selecto
       |> Selecto.select([{:sum, "amount"}])
-      |> Selecto.group_by([rollup: ["region"]])
+      |> Selecto.group_by(rollup: ["region"])
       |> Selecto.order_by([{"region", :asc}])
 
     {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
@@ -86,7 +87,7 @@ defmodule Selecto.GroupOrderTest do
     assert String.contains?(sql, "rollup")
     assert String.contains?(sql, "select * from (")
     assert String.contains?(sql, ") as rollupfix")
-    
+
     # Verify no legacy sentinel remains
     refute String.contains?(sql, "^SelectoParam^")
   end

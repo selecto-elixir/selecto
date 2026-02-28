@@ -12,6 +12,7 @@ defmodule Selecto.SQL.Params do
   @spec finalize(iodata() | [fragment], Keyword.t()) :: {String.t(), [any()]}
   def finalize(fragments, opts \\ []) do
     adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
+
     {iodata, params, _idx} =
       traverse(List.wrap(fragments), {[], [], 0}, adapter)
 
@@ -26,7 +27,8 @@ defmodule Selecto.SQL.Params do
 
   Returns: {processed_ctes, main_sql, final_params}
   """
-  @spec finalize_with_ctes(iodata() | [fragment], Keyword.t()) :: {[{String.t(), String.t()}], String.t(), [any()]}
+  @spec finalize_with_ctes(iodata() | [fragment], Keyword.t()) ::
+          {[{String.t(), String.t()}], String.t(), [any()]}
   def finalize_with_ctes(iodata_with_ctes, opts \\ []) do
     adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
     {cte_sections, main_iodata, extracted_params} = extract_ctes(List.wrap(iodata_with_ctes))
@@ -90,11 +92,19 @@ defmodule Selecto.SQL.Params do
       {:param, v} ->
         placeholder = get_param_placeholder(adapter, idx + 1)
         traverse_with_offset(t, {acc_io ++ [placeholder], acc_params ++ [v], idx + 1}, adapter)
+
       list when is_list(list) ->
         {inner_io, inner_params, inner_idx} = traverse_with_offset(list, {[], [], idx}, adapter)
-        traverse_with_offset(t, {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx}, adapter)
+
+        traverse_with_offset(
+          t,
+          {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx},
+          adapter
+        )
+
       bin when is_binary(bin) ->
         traverse_with_offset(t, {acc_io ++ [bin], acc_params, idx}, adapter)
+
       other ->
         traverse_with_offset(t, {acc_io ++ [to_string(other)], acc_params, idx}, adapter)
     end
@@ -107,11 +117,14 @@ defmodule Selecto.SQL.Params do
       {:param, v} ->
         placeholder = get_param_placeholder(adapter, idx + 1)
         traverse(t, {acc_io ++ [placeholder], acc_params ++ [v], idx + 1}, adapter)
+
       list when is_list(list) ->
         {inner_io, inner_params, inner_idx} = traverse(list, {[], [], idx}, adapter)
         traverse(t, {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx}, adapter)
+
       bin when is_binary(bin) ->
         traverse(t, {acc_io ++ [bin], acc_params, idx}, adapter)
+
       other ->
         # Allow numbers/atoms to be coerced; they should rarely appear directly.
         traverse(t, {acc_io ++ [to_string(other)], acc_params, idx}, adapter)

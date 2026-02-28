@@ -30,20 +30,23 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
       selecto = build_selecto_with_joins(5)
 
       # With low threshold, should block
-      assert {:error, :too_complex, _analysis} = ComplexityAnalyzer.analyze(selecto, max_complexity: 30)
+      assert {:error, :too_complex, _analysis} =
+               ComplexityAnalyzer.analyze(selecto, max_complexity: 30)
 
       # With high threshold, should pass
       assert {:ok, _analysis} = ComplexityAnalyzer.analyze(selecto, max_complexity: 100)
     end
 
     test "warns on missing filters" do
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: ["id", "name"],
-        filtered: [],  # No filters
-        order_by: [],
-        group_by: []
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: ["id", "name"],
+          # No filters
+          filtered: [],
+          order_by: [],
+          group_by: []
+        })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       assert Enum.any?(analysis.warnings, &String.contains?(&1, "full table scan"))
@@ -51,26 +54,33 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
 
     test "detects subselects and adds complexity" do
       selecto = build_simple_selecto()
-      selecto = %{selecto | set: Map.put(selecto.set, :subselected, [
-        %{fields: ["id"], format: :json_agg},
-        %{fields: ["name"], format: :array_agg}
-      ])}
+
+      selecto = %{
+        selecto
+        | set:
+            Map.put(selecto.set, :subselected, [
+              %{fields: ["id"], format: :json_agg},
+              %{fields: ["name"], format: :array_agg}
+            ])
+      }
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       assert analysis.details.subselect_count == 2
-      assert analysis.score >= 30  # 15 points per subselect
+      # 15 points per subselect
+      assert analysis.score >= 30
     end
 
     test "warns on large IN clauses" do
       large_list = Enum.to_list(1..150)
 
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: ["id", "name"],
-        filtered: [{"id", {:in, large_list}}],
-        order_by: [],
-        group_by: []
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: ["id", "name"],
+          filtered: [{"id", {:in, large_list}}],
+          order_by: [],
+          group_by: []
+        })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       assert Enum.any?(analysis.warnings, &String.contains?(&1, "IN clause"))
@@ -80,13 +90,14 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
     test "accepts IN clauses under threshold" do
       small_list = Enum.to_list(1..50)
 
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: ["id", "name"],
-        filtered: [{"id", {:in, small_list}}],
-        order_by: [],
-        group_by: []
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: ["id", "name"],
+          filtered: [{"id", {:in, small_list}}],
+          order_by: [],
+          group_by: []
+        })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       assert analysis.details.max_in_clause_size == 50
@@ -95,16 +106,17 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
     end
 
     test "detects LIKE patterns with leading wildcards" do
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: ["id", "name"],
-        filtered: [
-          {"name", {:like, "%smith"}},
-          {"email", {:like, "%@example.com"}}
-        ],
-        order_by: [],
-        group_by: []
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: ["id", "name"],
+          filtered: [
+            {"name", {:like, "%smith"}},
+            {"email", {:like, "%@example.com"}}
+          ],
+          order_by: [],
+          group_by: []
+        })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       assert Enum.any?(analysis.warnings, &String.contains?(&1, "leading wildcard"))
@@ -112,29 +124,31 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
     end
 
     test "accepts LIKE patterns without leading wildcards" do
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: ["id", "name"],
-        filtered: [{"name", {:like, "smith%"}}],
-        order_by: [],
-        group_by: []
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: ["id", "name"],
+          filtered: [{"name", {:like, "smith%"}}],
+          order_by: [],
+          group_by: []
+        })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       assert analysis.details.leading_wildcard_count == 0
     end
 
     test "detects post-pivot filters" do
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: ["id", "name"],
-        filtered: [{"status", "active"}],
-        post_pivot_filters: [
-          {"aggregated_total", {:gt, 1000}}
-        ],
-        order_by: [],
-        group_by: []
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: ["id", "name"],
+          filtered: [{"status", "active"}],
+          post_pivot_filters: [
+            {"aggregated_total", {:gt, 1000}}
+          ],
+          order_by: [],
+          group_by: []
+        })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       assert Enum.any?(analysis.warnings, &String.contains?(&1, "post-pivot"))
@@ -142,16 +156,22 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
     end
 
     test "warns on high GROUP BY count" do
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: [
-          {:func, "SUM", ["amount"]},
-          "category", "subcategory", "region", "country", "city", "year"
-        ],
-        filtered: [],
-        order_by: [],
-        group_by: ["category", "subcategory", "region", "country", "city", "year"]
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: [
+            {:func, "SUM", ["amount"]},
+            "category",
+            "subcategory",
+            "region",
+            "country",
+            "city",
+            "year"
+          ],
+          filtered: [],
+          order_by: [],
+          group_by: ["category", "subcategory", "region", "country", "city", "year"]
+        })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       assert Enum.any?(analysis.warnings, &String.contains?(&1, "GROUP BY"))
@@ -159,16 +179,17 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
     end
 
     test "handles map-style filters (from form submissions)" do
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: ["id", "name"],
-        filtered: [
-          %{"filter" => "status", "comp" => "IN", "value" => Enum.to_list(1..150)},
-          %{"filter" => "name", "comp" => "LIKE", "value" => "%smith"}
-        ],
-        order_by: [],
-        group_by: []
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: ["id", "name"],
+          filtered: [
+            %{"filter" => "status", "comp" => "IN", "value" => Enum.to_list(1..150)},
+            %{"filter" => "name", "comp" => "LIKE", "value" => "%smith"}
+          ],
+          order_by: [],
+          group_by: []
+        })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
       # Should detect large IN clause
@@ -181,14 +202,18 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
       large_list = Enum.to_list(1..150)
 
       selecto = build_selecto_with_joins(7)
-      selecto = %{selecto | set: selecto.set
-        |> Map.put(:subselected, [%{fields: ["id"], format: :json_agg}])
-        |> Map.put(:filtered, [
-          {"id", {:in, large_list}},
-          {"name", {:like, "%smith"}}
-        ])
-        |> Map.put(:post_pivot_filters, [{"total", {:gt, 100}}])
-        |> Map.put(:group_by, ["cat1", "cat2", "cat3", "cat4", "cat5", "cat6"])
+
+      selecto = %{
+        selecto
+        | set:
+            selecto.set
+            |> Map.put(:subselected, [%{fields: ["id"], format: :json_agg}])
+            |> Map.put(:filtered, [
+              {"id", {:in, large_list}},
+              {"name", {:like, "%smith"}}
+            ])
+            |> Map.put(:post_pivot_filters, [{"total", {:gt, 100}}])
+            |> Map.put(:group_by, ["cat1", "cat2", "cat3", "cat4", "cat5", "cat6"])
       }
 
       # Should be blocked due to high complexity score
@@ -200,13 +225,15 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
     end
 
     test "block_on_warnings option treats warnings as blocking" do
-      selecto = build_simple_selecto()
-      |> Map.put(:set, %{
-        selected: ["id", "name"],
-        filtered: [{"name", {:like, "%smith"}}],  # Leading wildcard warning
-        order_by: [],
-        group_by: []
-      })
+      selecto =
+        build_simple_selecto()
+        |> Map.put(:set, %{
+          selected: ["id", "name"],
+          # Leading wildcard warning
+          filtered: [{"name", {:like, "%smith"}}],
+          order_by: [],
+          group_by: []
+        })
 
       # Without block_on_warnings, should pass with warning
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
@@ -214,7 +241,7 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
 
       # With block_on_warnings, should be blocked
       assert {:error, :too_complex, _analysis} =
-        ComplexityAnalyzer.analyze(selecto, block_on_warnings: true)
+               ComplexityAnalyzer.analyze(selecto, block_on_warnings: true)
     end
   end
 
@@ -237,6 +264,7 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
 
       {:error, :too_complex, analysis} =
         ComplexityAnalyzer.analyze(selecto, max_joins: 10)
+
       summary = ComplexityAnalyzer.format_summary(analysis)
 
       assert summary =~ "Blocking Issues:"
@@ -309,14 +337,17 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
   end
 
   defp build_selecto_with_joins(count) do
-    joins = for i <- 1..count, into: %{} do
-      join_name = :"join_#{i}"
-      {join_name, %{
-        type: :left,
-        name: "table_#{i}",
-        source: "table_#{i}"
-      }}
-    end
+    joins =
+      for i <- 1..count, into: %{} do
+        join_name = :"join_#{i}"
+
+        {join_name,
+         %{
+           type: :left,
+           name: "table_#{i}",
+           source: "table_#{i}"
+         }}
+      end
 
     selecto = build_simple_selecto()
     %{selecto | config: %{selecto.config | joins: joins}}

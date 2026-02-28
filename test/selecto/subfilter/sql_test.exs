@@ -12,8 +12,18 @@ defmodule Selecto.Subfilter.SQLTest do
         "film.release_year" => %{from: :film, to: :film, type: :self, field: :release_year},
         "film.rental_rate" => %{from: :film, to: :film, type: :self, field: :rental_rate},
         "film.category.name" => [
-          %{from: :film, to: :film_category, type: :inner, on: "film.film_id = film_category.film_id"},
-          %{from: :film_category, to: :category, type: :inner, on: "film_category.category_id = category.category_id"}
+          %{
+            from: :film,
+            to: :film_category,
+            type: :inner,
+            on: "film.film_id = film_category.film_id"
+          },
+          %{
+            from: :film_category,
+            to: :category,
+            type: :inner,
+            on: "film_category.category_id = category.category_id"
+          }
         ],
         "film.actors" => %{
           from: :film,
@@ -42,7 +52,11 @@ defmodule Selecto.Subfilter.SQLTest do
 
     test "generates SQL for a single IN subfilter" do
       registry = Registry.new(film_domain_config(), base_table: :film)
-      {:ok, registry} = Registry.add_subfilter(registry, "film.category.name", ["Action", "Comedy"], strategy: :in)
+
+      {:ok, registry} =
+        Registry.add_subfilter(registry, "film.category.name", ["Action", "Comedy"],
+          strategy: :in
+        )
 
       {:ok, sql, params} = SQL.generate(registry)
 
@@ -69,10 +83,12 @@ defmodule Selecto.Subfilter.SQLTest do
 
     test "generates SQL for compound AND subfilters" do
       registry = Registry.new(film_domain_config(), base_table: :film)
+
       subfilters = [
         {"film.rating", "R"},
         {"film.release_year", {">", 2000}}
       ]
+
       {:ok, registry} = Registry.add_compound(registry, :and, subfilters)
 
       {:ok, sql, _params} = SQL.generate(registry)
@@ -117,7 +133,9 @@ defmodule Selecto.Subfilter.SQLTest do
 
     test "generates SQL for range subfilter" do
       registry = Registry.new(film_domain_config(), base_table: :film)
-      {:ok, registry} = Registry.add_subfilter(registry, "film.rental_rate", {"between", 2.99, 4.99})
+
+      {:ok, registry} =
+        Registry.add_subfilter(registry, "film.rental_rate", {"between", 2.99, 4.99})
 
       {:ok, sql, params} = SQL.generate(registry)
 
@@ -128,7 +146,9 @@ defmodule Selecto.Subfilter.SQLTest do
 
     test "generates SQL for temporal subfilter with IN strategy" do
       registry = Registry.new(film_domain_config(), base_table: :film)
-      {:ok, registry} = Registry.add_subfilter(registry, "film.release_year", {:within_days, 7}, strategy: :in)
+
+      {:ok, registry} =
+        Registry.add_subfilter(registry, "film.release_year", {:within_days, 7}, strategy: :in)
 
       {:ok, sql, params} = SQL.generate(registry)
 
@@ -139,7 +159,11 @@ defmodule Selecto.Subfilter.SQLTest do
 
     test "generates SQL for range subfilter with IN strategy" do
       registry = Registry.new(film_domain_config(), base_table: :film)
-      {:ok, registry} = Registry.add_subfilter(registry, "film.rental_rate", {"between", 2.99, 4.99}, strategy: :in)
+
+      {:ok, registry} =
+        Registry.add_subfilter(registry, "film.rental_rate", {"between", 2.99, 4.99},
+          strategy: :in
+        )
 
       {:ok, sql, params} = SQL.generate(registry)
 

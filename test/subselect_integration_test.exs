@@ -58,16 +58,17 @@ defmodule Selecto.SubselectIntegrationTest do
 
   describe "build_subselect_clauses/1" do
     test "builds JSON aggregation subselect" do
-      selecto = create_test_selecto()
-      |> Selecto.subselect([
-           %{
-             fields: ["product_name", "quantity"],
-             target_schema: :orders,
-             format: :json_agg,
-             alias: "order_items"
-           }
-         ])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name", "quantity"],
+            target_schema: :orders,
+            format: :json_agg,
+            alias: "order_items"
+          }
+        ])
+
       {clauses, params} = Subselect.build_subselect_clauses(selecto)
 
       {clause_sql, finalized_params} = Params.finalize(clauses)
@@ -81,16 +82,17 @@ defmodule Selecto.SubselectIntegrationTest do
     end
 
     test "builds array aggregation subselect" do
-      selecto = create_test_selecto()
-      |> Selecto.subselect([
-           %{
-             fields: ["product_name"],
-             target_schema: :orders,
-             format: :array_agg,
-             alias: "product_names"
-           }
-         ])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :array_agg,
+            alias: "product_names"
+          }
+        ])
+
       {clauses, _params} = Subselect.build_subselect_clauses(selecto)
       {clause_sql, _finalized_params} = Params.finalize(clauses)
 
@@ -99,17 +101,18 @@ defmodule Selecto.SubselectIntegrationTest do
     end
 
     test "builds string aggregation subselect" do
-      selecto = create_test_selecto()
-      |> Selecto.subselect([
-           %{
-             fields: ["product_name"],
-             target_schema: :orders,
-             format: :string_agg,
-             alias: "product_list",
-             separator: "; "
-           }
-         ])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :string_agg,
+            alias: "product_list",
+            separator: "; "
+          }
+        ])
+
       {clauses, params} = Subselect.build_subselect_clauses(selecto)
       {clause_sql, _finalized_params} = Params.finalize(clauses)
 
@@ -119,16 +122,18 @@ defmodule Selecto.SubselectIntegrationTest do
     end
 
     test "builds count subselect" do
-      selecto = create_test_selecto()
-      |> Selecto.subselect([
-           %{
-             fields: ["product_name"],  # Field doesn't matter for count
-             target_schema: :orders,
-             format: :count,
-             alias: "order_count"
-           }
-         ])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.subselect([
+          %{
+            # Field doesn't matter for count
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :count,
+            alias: "order_count"
+          }
+        ])
+
       {clauses, _params} = Subselect.build_subselect_clauses(selecto)
       {clause_sql, _finalized_params} = Params.finalize(clauses)
 
@@ -137,22 +142,23 @@ defmodule Selecto.SubselectIntegrationTest do
     end
 
     test "builds multiple subselects" do
-      selecto = create_test_selecto()
-      |> Selecto.subselect([
-           %{
-             fields: ["product_name"],
-             target_schema: :orders,
-             format: :json_agg,
-             alias: "products"
-           },
-           %{
-             fields: ["quantity"],
-             target_schema: :orders,
-             format: :array_agg,
-             alias: "quantities"
-           }
-         ])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :json_agg,
+            alias: "products"
+          },
+          %{
+            fields: ["quantity"],
+            target_schema: :orders,
+            format: :array_agg,
+            alias: "quantities"
+          }
+        ])
+
       {clauses, _params} = Subselect.build_subselect_clauses(selecto)
       {clauses_sql, _finalized_params} = Params.finalize(clauses)
 
@@ -166,7 +172,7 @@ defmodule Selecto.SubselectIntegrationTest do
   describe "build_single_subselect/2" do
     test "creates proper correlation condition" do
       selecto = create_test_selecto()
-      
+
       config = %{
         fields: ["product_name"],
         target_schema: :orders,
@@ -175,11 +181,11 @@ defmodule Selecto.SubselectIntegrationTest do
         order_by: [],
         filters: []
       }
-      
+
       {subselect, _params} = Subselect.build_single_subselect(selecto, config)
-      
+
       subselect_sql = IO.iodata_to_binary(subselect)
-      
+
       # Should have correlation condition
       assert subselect_sql =~ "WHERE"
       assert subselect_sql =~ "sub_orders"
@@ -188,7 +194,7 @@ defmodule Selecto.SubselectIntegrationTest do
 
     test "includes ORDER BY when specified" do
       selecto = create_test_selecto()
-      
+
       config = %{
         fields: ["product_name"],
         target_schema: :orders,
@@ -197,17 +203,17 @@ defmodule Selecto.SubselectIntegrationTest do
         order_by: [{:desc, :product_name}],
         filters: []
       }
-      
+
       {subselect, _params} = Subselect.build_single_subselect(selecto, config)
-      
+
       subselect_sql = IO.iodata_to_binary(subselect)
-      
+
       refute subselect_sql =~ ~r/order by/i
     end
 
     test "includes additional filters when specified" do
       selecto = create_test_selecto()
-      
+
       config = %{
         fields: ["product_name"],
         target_schema: :orders,
@@ -216,11 +222,12 @@ defmodule Selecto.SubselectIntegrationTest do
         order_by: [],
         filters: [{"quantity", {:gt, 1}}]
       }
-      
+
       {subselect, params} = Subselect.build_single_subselect(selecto, config)
       {subselect_sql, _finalized_params} = Params.finalize(subselect)
-      
-      assert subselect_sql =~ "AND"  # Additional filter joined with correlation
+
+      # Additional filter joined with correlation
+      assert subselect_sql =~ "AND"
       assert {:gt, 1} in params
     end
   end
@@ -228,9 +235,9 @@ defmodule Selecto.SubselectIntegrationTest do
   describe "resolve_join_condition/2" do
     test "resolves simple join condition" do
       selecto = create_test_selecto()
-      
+
       {:ok, {source_field, target_field}} = Subselect.resolve_join_condition(selecto, :orders)
-      
+
       assert is_binary(source_field)
       assert is_binary(target_field)
     end
@@ -238,40 +245,42 @@ defmodule Selecto.SubselectIntegrationTest do
 
   describe "full SQL generation integration" do
     test "generates complete query with subselects" do
-      selecto = create_test_selecto()
-      |> Selecto.select(["name", "email"])
-      |> Selecto.subselect(["orders[product_name, quantity]"])
-      |> Selecto.filter([{"event_id", 123}])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.select(["name", "email"])
+        |> Selecto.subselect(["orders[product_name, quantity]"])
+        |> Selecto.filter([{"event_id", 123}])
+
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
-      
+
       # Should have main SELECT fields and subselects
       assert sql =~ ~r/select/i
       assert sql =~ "name"
       assert sql =~ "email"
       assert sql =~ "json_agg"
       assert sql =~ "json_build_object"
-      
+
       # Should have main FROM clause
       assert sql =~ ~r/from\s+attendees/i
-      
+
       # Should have main WHERE clause for filters
       assert sql =~ ~r/where/i
-      
+
       # Should have correlated subquery
       assert sql =~ ~r/from\s+orders/i
-      
+
       # Parameters should include filter values
       assert 123 in params
     end
 
     test "handles subselects with string field syntax" do
-      selecto = create_test_selecto()
-      |> Selecto.select(["name"])
-      |> Selecto.subselect(["orders[product_name]"])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.select(["name"])
+        |> Selecto.subselect(["orders[product_name]"])
+
       {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
-      
+
       assert sql =~ ~r/select/i
       assert sql =~ "name"
       assert sql =~ "json_agg"
@@ -279,25 +288,26 @@ defmodule Selecto.SubselectIntegrationTest do
     end
 
     test "handles multiple subselects with different formats" do
-      selecto = create_test_selecto()
-      |> Selecto.select(["name"])
-      |> Selecto.subselect([
-           %{
-             fields: ["product_name"],
-             target_schema: :orders,
-             format: :json_agg,
-             alias: "products"
-           },
-           %{
-             fields: ["quantity"],
-             target_schema: :orders,
-             format: :count,
-             alias: "order_count"
-           }
-         ])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.select(["name"])
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :json_agg,
+            alias: "products"
+          },
+          %{
+            fields: ["quantity"],
+            target_schema: :orders,
+            format: :count,
+            alias: "order_count"
+          }
+        ])
+
       {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
-      
+
       assert sql =~ "json_agg"
       assert sql =~ "count"
       assert sql =~ ~r/as\s+"products"/i
@@ -305,14 +315,15 @@ defmodule Selecto.SubselectIntegrationTest do
     end
 
     test "combines with filtering and ordering" do
-      selecto = create_test_selecto()
-      |> Selecto.select(["name"])
-      |> Selecto.subselect(["orders[product_name]"])
-      |> Selecto.filter([{"event_id", 123}])
-      |> Selecto.order_by(["name"])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.select(["name"])
+        |> Selecto.subselect(["orders[product_name]"])
+        |> Selecto.filter([{"event_id", 123}])
+        |> Selecto.order_by(["name"])
+
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
-      
+
       assert sql =~ ~r/select/i
       assert sql =~ "json_agg"
       assert sql =~ ~r/where/i
@@ -321,11 +332,12 @@ defmodule Selecto.SubselectIntegrationTest do
     end
 
     test "works without regular SELECT fields" do
-      selecto = create_test_selecto()
-      |> Selecto.subselect(["orders[product_name]"])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.subselect(["orders[product_name]"])
+
       {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
-      
+
       # Should still generate valid SQL with just subselects
       assert sql =~ ~r/select/i
       assert sql =~ "json_agg"
@@ -334,12 +346,13 @@ defmodule Selecto.SubselectIntegrationTest do
 
   describe "error handling in SQL generation" do
     test "handles empty subselect configurations gracefully" do
-      selecto = create_test_selecto()
-      |> Selecto.select(["name"])
-      
+      selecto =
+        create_test_selecto()
+        |> Selecto.select(["name"])
+
       # Should not have any subselects
       {clauses, params} = Subselect.build_subselect_clauses(selecto)
-      
+
       assert clauses == []
       assert params == []
     end

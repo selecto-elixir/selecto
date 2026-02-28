@@ -81,25 +81,31 @@ defmodule Selecto.Subfilter.ParserTest do
       {:ok, spec} = Parser.parse("film.category.name", "Action")
 
       assert %RelationshipPath{
-        path_segments: ["film", "category"],
-        target_table: "category",
-        target_field: "name",
-        is_aggregation: false
-      } = spec.relationship_path
+               path_segments: ["film", "category"],
+               target_table: "category",
+               target_field: "name",
+               is_aggregation: false
+             } = spec.relationship_path
     end
 
     test "returns an error for an invalid relationship path" do
-      {:error, %Error{type: :invalid_relationship_path, message: message}} = Parser.parse(123, "R")
+      {:error, %Error{type: :invalid_relationship_path, message: message}} =
+        Parser.parse(123, "R")
+
       assert message == "Relationship path must be a string"
     end
 
     test "returns an error for an unsupported filter specification" do
-      {:error, %Error{type: :invalid_filter_spec, message: message}} = Parser.parse("film.rating", %{})
+      {:error, %Error{type: :invalid_filter_spec, message: message}} =
+        Parser.parse("film.rating", %{})
+
       assert message == "Unsupported filter specification"
     end
 
     test "returns an error for an invalid strategy option" do
-      {:error, %Error{type: :invalid_filter_spec, message: message}} = Parser.parse("film.rating", "R", strategy: :invalid)
+      {:error, %Error{type: :invalid_filter_spec, message: message}} =
+        Parser.parse("film.rating", "R", strategy: :invalid)
+
       assert message == "Invalid strategy option"
     end
   end
@@ -120,6 +126,7 @@ defmodule Selecto.Subfilter.ParserTest do
                  %Spec{relationship_path: %RelationshipPath{target_field: "release_year"}}
                ]
              } = compound_spec
+
       assert length(compound_spec.subfilters) == 2
     end
 

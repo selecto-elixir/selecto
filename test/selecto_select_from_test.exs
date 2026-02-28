@@ -18,7 +18,12 @@ defmodule Selecto.SelectFromTest do
   end
 
   test "basic select/from SQL renders" do
-    d = domain("users", [:id, :name, :email], %{id: %{type: :integer}, name: %{type: :string}, email: %{type: :string}})
+    d =
+      domain("users", [:id, :name, :email], %{
+        id: %{type: :integer},
+        name: %{type: :string},
+        email: %{type: :string}
+      })
 
     selecto = Selecto.configure(d, :mock_connection) |> Selecto.select(["name", "email"])
     {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
@@ -29,7 +34,12 @@ defmodule Selecto.SelectFromTest do
   end
 
   test "function selectors compile" do
-    d = domain("orders", [:id, :amount, :status], %{id: %{type: :integer}, amount: %{type: :decimal}, status: %{type: :string}})
+    d =
+      domain("orders", [:id, :amount, :status], %{
+        id: %{type: :integer},
+        amount: %{type: :decimal},
+        status: %{type: :string}
+      })
 
     selecto =
       Selecto.configure(d, :mock_connection)

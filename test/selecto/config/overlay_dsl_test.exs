@@ -7,13 +7,13 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :price do
-          label "Product Price"
-          format :currency
+          label("Product Price")
+          format(:currency)
         end
 
         deffilter "status" do
-          name "Status Filter"
-          type :string
+          name("Status Filter")
+          type(:string)
         end
       end
 
@@ -42,19 +42,19 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :price do
-          label "Price"
-          format :currency
-          precision 2
+          label("Price")
+          format(:currency)
+          precision(2)
         end
 
         defcolumn :quantity do
-          label "Quantity"
-          aggregate_functions [:sum, :count]
+          label("Quantity")
+          aggregate_functions([:sum, :count])
         end
 
         defcolumn :active do
-          label "Active Status"
-          format :yes_no
+          label("Active Status")
+          format(:yes_no)
         end
       end
 
@@ -71,15 +71,15 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         deffilter "price_range" do
-          name "Price Range"
-          type :string
-          description "Filter by price range"
+          name("Price Range")
+          type(:string)
+          description("Filter by price range")
         end
 
         deffilter "in_stock" do
-          name "In Stock"
-          type :boolean
-          default true
+          name("In Stock")
+          type(:boolean)
+          default(true)
         end
       end
 
@@ -97,7 +97,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :field1 do
-          label "Custom Label"
+          label("Custom Label")
         end
       end
 
@@ -109,7 +109,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :field1 do
-          format :currency
+          format(:currency)
         end
       end
 
@@ -121,7 +121,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :field1 do
-          aggregate_functions [:sum, :avg, :max]
+          aggregate_functions([:sum, :avg, :max])
         end
       end
 
@@ -137,7 +137,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :field1 do
-          precision 2
+          precision(2)
         end
       end
 
@@ -149,7 +149,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :field1 do
-          max_length 100
+          max_length(100)
         end
       end
 
@@ -161,7 +161,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :field1 do
-          sortable false
+          sortable(false)
         end
       end
 
@@ -173,7 +173,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :field1 do
-          filterable true
+          filterable(true)
         end
       end
 
@@ -185,7 +185,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :field1 do
-          computed true
+          computed(true)
         end
       end
 
@@ -197,12 +197,12 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         defcolumn :price do
-          label "Product Price"
-          format :currency
-          precision 2
-          aggregate_functions [:sum, :avg]
-          sortable true
-          filterable true
+          label("Product Price")
+          format(:currency)
+          precision(2)
+          aggregate_functions([:sum, :avg])
+          sortable(true)
+          filterable(true)
         end
       end
 
@@ -223,7 +223,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         deffilter "test_filter" do
-          name "Test Filter"
+          name("Test Filter")
         end
       end
 
@@ -235,7 +235,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         deffilter "test_filter" do
-          type :boolean
+          type(:boolean)
         end
       end
 
@@ -247,7 +247,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         deffilter "test_filter" do
-          description "This is a test filter"
+          description("This is a test filter")
         end
       end
 
@@ -260,7 +260,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         deffilter "test_filter" do
-          required true
+          required(true)
         end
       end
 
@@ -272,7 +272,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         deffilter "test_filter" do
-          default "active"
+          default("active")
         end
       end
 
@@ -284,7 +284,7 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         deffilter "test_filter" do
-          options ["option1", "option2", "option3"]
+          options(["option1", "option2", "option3"])
         end
       end
 
@@ -300,12 +300,12 @@ defmodule Selecto.Config.OverlayDSLTest do
         use Selecto.Config.OverlayDSL
 
         deffilter "status" do
-          name "Status Filter"
-          type :string
-          description "Filter by status"
-          required false
-          default "active"
-          options ["active", "inactive", "pending"]
+          name("Status Filter")
+          type(:string)
+          description("Filter by status")
+          required(false)
+          default("active")
+          options(["active", "inactive", "pending"])
         end
       end
 
@@ -329,13 +329,13 @@ defmodule Selecto.Config.OverlayDSLTest do
         @redactions [:password]
 
         defcolumn :price do
-          label "Product Price"
-          format :currency
+          label("Product Price")
+          format(:currency)
         end
 
         deffilter "active" do
-          name "Active Items"
-          type :boolean
+          name("Active Items")
+          type(:boolean)
         end
       end
 
@@ -385,34 +385,34 @@ defmodule Selecto.Config.OverlayDSLTest do
         @redactions [:cost_price, :supplier_id]
 
         defcolumn :price do
-          label "Retail Price"
-          format :currency
-          precision 2
-          aggregate_functions [:sum, :avg, :min, :max]
-          sortable true
+          label("Retail Price")
+          format(:currency)
+          precision(2)
+          aggregate_functions([:sum, :avg, :min, :max])
+          sortable(true)
         end
 
         defcolumn :stock_quantity do
-          label "Stock"
-          aggregate_functions [:sum, :count]
+          label("Stock")
+          aggregate_functions([:sum, :count])
         end
 
         defcolumn :is_active do
-          label "Active"
-          format :yes_no
+          label("Active")
+          format(:yes_no)
         end
 
         deffilter "price_range" do
-          name "Price Range"
-          type :string
-          description "Filter by price range (e.g., '10.00-50.00')"
+          name("Price Range")
+          type(:string)
+          description("Filter by price range (e.g., '10.00-50.00')")
         end
 
         deffilter "in_stock" do
-          name "In Stock"
-          type :boolean
-          description "Show only items with stock > 0"
-          default true
+          name("In Stock")
+          type(:boolean)
+          description("Show only items with stock > 0")
+          default(true)
         end
       end
 

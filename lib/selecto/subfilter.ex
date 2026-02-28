@@ -23,23 +23,29 @@ defmodule Selecto.Subfilter do
     Specification for a single subfilter operation.
     """
     defstruct [
-      :id,                 # Unique identifier for the subfilter
-      :relationship_path,  # Parsed relationship path information
-      :filter_spec,        # Filter specification (value, operator, etc.)
-      :strategy,           # :exists, :in, :any, :all
-      :negate,             # boolean - whether to negate the condition
-      :opts                # additional options
+      # Unique identifier for the subfilter
+      :id,
+      # Parsed relationship path information
+      :relationship_path,
+      # Filter specification (value, operator, etc.)
+      :filter_spec,
+      # :exists, :in, :any, :all
+      :strategy,
+      # boolean - whether to negate the condition
+      :negate,
+      # additional options
+      :opts
     ]
 
     @type strategy :: :exists | :in | :any | :all
 
     @type t :: %__MODULE__{
-      relationship_path: RelationshipPath.t(),
-      filter_spec: FilterSpec.t(),
-      strategy: strategy(),
-      negate: boolean(),
-      opts: keyword()
-    }
+            relationship_path: RelationshipPath.t(),
+            filter_spec: FilterSpec.t(),
+            strategy: strategy(),
+            negate: boolean(),
+            opts: keyword()
+          }
   end
 
   defmodule RelationshipPath do
@@ -47,18 +53,22 @@ defmodule Selecto.Subfilter do
     Parsed relationship path information.
     """
     defstruct [
-      :path_segments,      # ["film"] or ["film", "category"]
-      :target_table,       # final table in the path
-      :target_field,       # field name on target table (optional for aggregations)
-      :is_aggregation      # boolean - whether this is an aggregation subfilter
+      # ["film"] or ["film", "category"]
+      :path_segments,
+      # final table in the path
+      :target_table,
+      # field name on target table (optional for aggregations)
+      :target_field,
+      # boolean - whether this is an aggregation subfilter
+      :is_aggregation
     ]
 
     @type t :: %__MODULE__{
-      path_segments: [String.t()],
-      target_table: String.t(),
-      target_field: String.t() | nil,
-      is_aggregation: boolean()
-    }
+            path_segments: [String.t()],
+            target_table: String.t(),
+            target_field: String.t() | nil,
+            is_aggregation: boolean()
+          }
   end
 
   defmodule FilterSpec do
@@ -66,14 +76,22 @@ defmodule Selecto.Subfilter do
     Filter specification for subfilter conditions.
     """
     defstruct [
-      :type,       # :equality, :comparison, :in_list, :range, :aggregation, :temporal
-      :operator,   # SQL operator string
-      :value,      # single value
-      :values,     # multiple values for IN lists
-      :min_value,  # for range filters
-      :max_value,  # for range filters
-      :agg_function, # :count, :sum, :avg, :min, :max
-      :temporal_type # :recent_years, :within_days, :within_hours, :since_date
+      # :equality, :comparison, :in_list, :range, :aggregation, :temporal
+      :type,
+      # SQL operator string
+      :operator,
+      # single value
+      :value,
+      # multiple values for IN lists
+      :values,
+      # for range filters
+      :min_value,
+      # for range filters
+      :max_value,
+      # :count, :sum, :avg, :min, :max
+      :agg_function,
+      # :recent_years, :within_days, :within_hours, :since_date
+      :temporal_type
     ]
 
     @type filter_type :: :equality | :comparison | :in_list | :range | :aggregation | :temporal
@@ -81,15 +99,15 @@ defmodule Selecto.Subfilter do
     @type temporal_type :: :recent_years | :within_days | :within_hours | :since_date
 
     @type t :: %__MODULE__{
-      type: filter_type(),
-      operator: String.t() | nil,
-      value: any(),
-      values: [any()] | nil,
-      min_value: any() | nil,
-      max_value: any() | nil,
-      agg_function: agg_function() | nil,
-      temporal_type: temporal_type() | nil
-    }
+            type: filter_type(),
+            operator: String.t() | nil,
+            value: any(),
+            values: [any()] | nil,
+            min_value: any() | nil,
+            max_value: any() | nil,
+            agg_function: agg_function() | nil,
+            temporal_type: temporal_type() | nil
+          }
   end
 
   defmodule CompoundSpec do
@@ -97,16 +115,18 @@ defmodule Selecto.Subfilter do
     Specification for compound subfilter operations (AND/OR).
     """
     defstruct [
-      :type,        # :and, :or
-      :subfilters   # list of Spec structs
+      # :and, :or
+      :type,
+      # list of Spec structs
+      :subfilters
     ]
 
     @type compound_type :: :and | :or
 
     @type t :: %__MODULE__{
-      type: compound_type(),
-      subfilters: [Spec.t()]
-    }
+            type: compound_type(),
+            subfilters: [Spec.t()]
+          }
   end
 
   defmodule Error do

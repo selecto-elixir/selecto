@@ -39,30 +39,37 @@ defmodule Selecto.SetOperations do
     Specification for a set operation between two or more queries.
     """
     defstruct [
-      :id,                    # Unique identifier for the set operation
-      :operation,             # :union, :intersect, or :except
-      :left_query,            # Left side query (Selecto struct)
-      :right_query,           # Right side query (Selecto struct)
-      :options,               # Operation options (all: true/false, etc.)
-      :column_mapping,        # Optional column mapping for incompatible schemas
-      :validated              # Boolean indicating if schemas have been validated
+      # Unique identifier for the set operation
+      :id,
+      # :union, :intersect, or :except
+      :operation,
+      # Left side query (Selecto struct)
+      :left_query,
+      # Right side query (Selecto struct)
+      :right_query,
+      # Operation options (all: true/false, etc.)
+      :options,
+      # Optional column mapping for incompatible schemas
+      :column_mapping,
+      # Boolean indicating if schemas have been validated
+      :validated
     ]
 
     @type set_operation :: :union | :intersect | :except
     @type operation_options :: %{
-      all: boolean(),
-      column_mapping: [{String.t(), String.t()}] | nil
-    }
+            all: boolean(),
+            column_mapping: [{String.t(), String.t()}] | nil
+          }
 
     @type t :: %__MODULE__{
-      id: String.t(),
-      operation: set_operation(),
-      left_query: Selecto.t(),
-      right_query: Selecto.t(),
-      options: operation_options(),
-      column_mapping: [{String.t(), String.t()}] | nil,
-      validated: boolean()
-    }
+            id: String.t(),
+            operation: set_operation(),
+            left_query: Selecto.t(),
+            right_query: Selecto.t(),
+            options: operation_options(),
+            column_mapping: [{String.t(), String.t()}] | nil,
+            validated: boolean()
+          }
   end
 
   defmodule Validation do
@@ -74,11 +81,11 @@ defmodule Selecto.SetOperations do
       defexception [:type, :message, :query1_info, :query2_info]
 
       @type t :: %__MODULE__{
-        type: :column_count_mismatch | :type_incompatibility | :mapping_error,
-        message: String.t(),
-        query1_info: map(),
-        query2_info: map()
-      }
+              type: :column_count_mismatch | :type_incompatibility | :mapping_error,
+              message: String.t(),
+              query1_info: map(),
+              query2_info: map()
+            }
     end
 
     @doc """
@@ -102,12 +109,13 @@ defmodule Selecto.SetOperations do
       selected = Map.get(selecto.set, :selected, [])
 
       if Enum.empty?(selected) do
-        {:error, %SchemaError{
-          type: :validation_error,
-          message: "Query has no selected columns",
-          query1_info: %{selected: selected},
-          query2_info: %{}
-        }}
+        {:error,
+         %SchemaError{
+           type: :validation_error,
+           message: "Query has no selected columns",
+           query1_info: %{selected: selected},
+           query2_info: %{}
+         }}
       else
         columns = Enum.map(selected, &normalize_column_info(selecto, &1))
         {:ok, columns}
@@ -126,6 +134,7 @@ defmodule Selecto.SetOperations do
                 type: Map.get(field_info, :type, :unknown),
                 source: :field
               }
+
             {:error, _} ->
               %{
                 name: column,
@@ -171,8 +180,10 @@ defmodule Selecto.SetOperations do
     defp infer_function_return_type("COUNT"), do: :integer
     defp infer_function_return_type("SUM"), do: :decimal
     defp infer_function_return_type("AVG"), do: :decimal
-    defp infer_function_return_type("MIN"), do: :unknown  # Depends on input
-    defp infer_function_return_type("MAX"), do: :unknown  # Depends on input
+    # Depends on input
+    defp infer_function_return_type("MIN"), do: :unknown
+    # Depends on input
+    defp infer_function_return_type("MAX"), do: :unknown
     defp infer_function_return_type("CONCAT"), do: :string
     defp infer_function_return_type(_), do: :unknown
 
@@ -184,12 +195,13 @@ defmodule Selecto.SetOperations do
       if left_count == right_count do
         :ok
       else
-        {:error, %SchemaError{
-          type: :column_count_mismatch,
-          message: "Query 1 has #{left_count} columns, Query 2 has #{right_count} columns",
-          query1_info: %{column_count: left_count, columns: Enum.map(left_columns, & &1.name)},
-          query2_info: %{column_count: right_count, columns: Enum.map(right_columns, & &1.name)}
-        }}
+        {:error,
+         %SchemaError{
+           type: :column_count_mismatch,
+           message: "Query 1 has #{left_count} columns, Query 2 has #{right_count} columns",
+           query1_info: %{column_count: left_count, columns: Enum.map(left_columns, & &1.name)},
+           query2_info: %{column_count: right_count, columns: Enum.map(right_columns, & &1.name)}
+         }}
       end
     end
 
@@ -207,15 +219,18 @@ defmodule Selecto.SetOperations do
       if Enum.empty?(incompatible) do
         :ok
       else
-        [{_columns, index}] = Enum.take(incompatible, 1)  # Show first incompatible pair
+        # Show first incompatible pair
+        [{_columns, index}] = Enum.take(incompatible, 1)
         {{left_col, right_col}, _} = Enum.at(paired_columns, index)
 
-        {:error, %SchemaError{
-          type: :type_incompatibility,
-          message: "Column #{index + 1}: '#{left_col.name}' (#{left_col.type}) incompatible with '#{right_col.name}' (#{right_col.type})",
-          query1_info: %{column: left_col.name, type: left_col.type},
-          query2_info: %{column: right_col.name, type: right_col.type}
-        }}
+        {:error,
+         %SchemaError{
+           type: :type_incompatibility,
+           message:
+             "Column #{index + 1}: '#{left_col.name}' (#{left_col.type}) incompatible with '#{right_col.name}' (#{right_col.type})",
+           query1_info: %{column: left_col.name, type: left_col.type},
+           query2_info: %{column: right_col.name, type: right_col.type}
+         }}
       end
     end
 
@@ -231,9 +246,10 @@ defmodule Selecto.SetOperations do
     defp apply_column_mapping(left_columns, right_columns, mapping) when is_list(mapping) do
       # Explicit column mapping provided: [{left_name, right_name}, ...]
       # Build a lookup map from left column names to right column names
-      mapping_lookup = Map.new(mapping, fn {left_name, right_name} ->
-        {normalize_name(left_name), normalize_name(right_name)}
-      end)
+      mapping_lookup =
+        Map.new(mapping, fn {left_name, right_name} ->
+          {normalize_name(left_name), normalize_name(right_name)}
+        end)
 
       # Create paired columns based on the mapping
       Enum.map(left_columns, fn left_col ->
@@ -246,9 +262,10 @@ defmodule Selecto.SetOperations do
 
           right_name ->
             # Find the right column with the mapped name
-            right_col = Enum.find(right_columns, fn rc ->
-              normalize_name(rc.name) == right_name
-            end)
+            right_col =
+              Enum.find(right_columns, fn rc ->
+                normalize_name(rc.name) == right_name
+              end)
 
             if right_col do
               {left_col, right_col}
@@ -268,30 +285,32 @@ defmodule Selecto.SetOperations do
     # Try to match columns by name (exact or similar)
     defp try_name_based_mapping(left_columns, right_columns) do
       # Build a lookup of normalized right column names
-      right_lookup = Map.new(right_columns, fn col ->
-        {normalize_name(col.name), col}
-      end)
+      right_lookup =
+        Map.new(right_columns, fn col ->
+          {normalize_name(col.name), col}
+        end)
 
       # Also create a list of alternative name mappings (common patterns)
       alternatives = build_alternative_names(right_columns)
 
       # Try to pair each left column with a right column by name
-      paired = Enum.map(left_columns, fn left_col ->
-        left_name = normalize_name(left_col.name)
+      paired =
+        Enum.map(left_columns, fn left_col ->
+          left_name = normalize_name(left_col.name)
 
-        cond do
-          # Exact name match
-          Map.has_key?(right_lookup, left_name) ->
-            {left_col, Map.get(right_lookup, left_name)}
+          cond do
+            # Exact name match
+            Map.has_key?(right_lookup, left_name) ->
+              {left_col, Map.get(right_lookup, left_name)}
 
-          # Alternative name match (e.g., full_name -> name, email_address -> email)
-          Map.has_key?(alternatives, left_name) ->
-            {left_col, Map.get(alternatives, left_name)}
+            # Alternative name match (e.g., full_name -> name, email_address -> email)
+            Map.has_key?(alternatives, left_name) ->
+              {left_col, Map.get(alternatives, left_name)}
 
-          true ->
-            nil
-        end
-      end)
+            true ->
+              nil
+          end
+        end)
 
       # Check if we matched all columns
       if Enum.all?(paired, & &1) do
@@ -341,6 +360,7 @@ defmodule Selecto.SetOperations do
 
     # Normalize column name for comparison
     defp normalize_name(name) when is_atom(name), do: Atom.to_string(name) |> normalize_name()
+
     defp normalize_name(name) when is_binary(name) do
       name
       |> String.downcase()
@@ -357,9 +377,10 @@ defmodule Selecto.SetOperations do
         nil ->
           # Fall back to position-based (use the first unmatched column)
           # This handles cases where columns are in different orders
-          index = Enum.find_index(right_columns, fn rc ->
-            normalize_name(rc.name) == left_name
-          end) || 0
+          index =
+            Enum.find_index(right_columns, fn rc ->
+              normalize_name(rc.name) == left_name
+            end) || 0
 
           {left_col, Enum.at(right_columns, index, List.first(right_columns))}
 
@@ -374,13 +395,18 @@ defmodule Selecto.SetOperations do
     defp types_compatible?(type, type), do: true
 
     # String-like types
-    defp types_compatible?(type1, type2) when type1 in [:string, :text] and type2 in [:string, :text], do: true
+    defp types_compatible?(type1, type2)
+         when type1 in [:string, :text] and type2 in [:string, :text], do: true
 
     # Numeric types
-    defp types_compatible?(type1, type2) when type1 in [:integer, :decimal, :float] and type2 in [:integer, :decimal, :float], do: true
+    defp types_compatible?(type1, type2)
+         when type1 in [:integer, :decimal, :float] and type2 in [:integer, :decimal, :float],
+         do: true
 
     # Date/time types
-    defp types_compatible?(type1, type2) when type1 in [:date, :utc_datetime, :naive_datetime] and type2 in [:date, :utc_datetime, :naive_datetime], do: true
+    defp types_compatible?(type1, type2)
+         when type1 in [:date, :utc_datetime, :naive_datetime] and
+                type2 in [:date, :utc_datetime, :naive_datetime], do: true
 
     # Default: incompatible
     defp types_compatible?(_, _), do: false

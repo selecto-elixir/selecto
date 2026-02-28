@@ -29,7 +29,8 @@ defmodule Selecto.Builder.Pivot do
   @doc """
   Extract pivot conditions from existing filters to construct the subquery.
   """
-  @spec extract_pivot_conditions(Types.t(), Types.pivot_config(), String.t()) :: {Types.iodata_with_markers(), Types.sql_params()}
+  @spec extract_pivot_conditions(Types.t(), Types.pivot_config(), String.t()) ::
+          {Types.iodata_with_markers(), Types.sql_params()}
   def extract_pivot_conditions(selecto, pivot_config, source_alias) do
     if pivot_config.preserve_filters do
       # Build WHERE conditions from the original query context
@@ -44,7 +45,8 @@ defmodule Selecto.Builder.Pivot do
   @doc """
   Build the join chain subquery for connecting source to target.
   """
-  @spec build_join_chain_subquery(Types.t(), Types.pivot_config(), [atom()]) :: {Types.iodata_with_markers(), Types.sql_params()}
+  @spec build_join_chain_subquery(Types.t(), Types.pivot_config(), [atom()]) ::
+          {Types.iodata_with_markers(), Types.sql_params()}
   def build_join_chain_subquery(selecto, pivot_config, join_path) do
     # Get the actual source table name from domain
     source_table = get_source_table_name(selecto)
@@ -54,9 +56,11 @@ defmodule Selecto.Builder.Pivot do
       [] ->
         # No path means we're already at the target
         {[], []}
+
       [single_assoc] ->
         # Single association - might be direct or need traversal
         build_single_hop_subquery(selecto, pivot_config, single_assoc, source_table)
+
       multiple_assocs ->
         # Multiple associations in path - need to follow the chain
         build_multi_hop_subquery(selecto, pivot_config, multiple_assocs, source_table)
@@ -86,6 +90,7 @@ defmodule Selecto.Builder.Pivot do
 
     # Look up the target schema configuration to get its table
     target_config = Map.get(selecto.domain.schemas, target_schema)
+
     if target_config == nil do
       raise ArgumentError, "Schema #{target_schema} not found in domain"
     end
@@ -102,17 +107,25 @@ defmodule Selecto.Builder.Pivot do
     # Build subquery: SELECT target.pk FROM source JOIN target WHERE filters
     # Note: for single hop, we don't need the intermediate join, just directly get the FK
     subquery_iodata = [
-      "SELECT DISTINCT t.", escape_identifier(to_string(target_pk)),
-      " FROM ", source_table, " s",
-      " JOIN ", target_table, " t ON s.", escape_identifier(to_string(owner_key)),
-      " = t.", escape_identifier(to_string(related_key))
+      "SELECT DISTINCT t.",
+      escape_identifier(to_string(target_pk)),
+      " FROM ",
+      source_table,
+      " s",
+      " JOIN ",
+      target_table,
+      " t ON s.",
+      escape_identifier(to_string(owner_key)),
+      " = t.",
+      escape_identifier(to_string(related_key))
     ]
 
-    subquery_iodata = if where_clause != [] do
-      subquery_iodata ++ [" WHERE ", where_clause]
-    else
-      subquery_iodata
-    end
+    subquery_iodata =
+      if where_clause != [] do
+        subquery_iodata ++ [" WHERE ", where_clause]
+      else
+        subquery_iodata
+      end
 
     {subquery_iodata, where_params}
   end
@@ -124,23 +137,30 @@ defmodule Selecto.Builder.Pivot do
     {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, "s")
 
     # Build the join chain by walking the path
-    {join_clauses, join_params, final_table_info} = build_hierarchical_join_chain(selecto, join_path)
+    {join_clauses, join_params, final_table_info} =
+      build_hierarchical_join_chain(selecto, join_path)
 
     # Extract final table info
     {final_alias, final_pk} = final_table_info
 
     # Build the subquery - use the final alias to qualify the field
     subquery_iodata = [
-      "SELECT DISTINCT ", final_alias, ".", escape_identifier(to_string(final_pk)),
-      " FROM ", source_table, " s",
+      "SELECT DISTINCT ",
+      final_alias,
+      ".",
+      escape_identifier(to_string(final_pk)),
+      " FROM ",
+      source_table,
+      " s",
       join_clauses
     ]
 
-    subquery_iodata = if where_clause != [] do
-      subquery_iodata ++ [" WHERE ", where_clause]
-    else
-      subquery_iodata
-    end
+    subquery_iodata =
+      if where_clause != [] do
+        subquery_iodata ++ [" WHERE ", where_clause]
+      else
+        subquery_iodata
+      end
 
     {subquery_iodata, join_params ++ where_params}
   end
@@ -148,8 +168,9 @@ defmodule Selecto.Builder.Pivot do
   defp build_hierarchical_join_chain(selecto, join_path) do
     # Walk the hierarchical path building proper joins
     {join_clauses, params, current_position, _counter} =
-      Enum.reduce(join_path, {[], [], :source, 1}, fn assoc_name, {acc_joins, acc_params, current_pos, counter} ->
-
+      Enum.reduce(join_path, {[], [], :source, 1}, fn assoc_name,
+                                                      {acc_joins, acc_params, current_pos,
+                                                       counter} ->
         # Get the association from the current position
         assoc_config = get_association_from_position(selecto, assoc_name, current_pos)
 
@@ -176,9 +197,18 @@ defmodule Selecto.Builder.Pivot do
         related_key = Map.get(assoc_config, :related_key, target_pk)
 
         join_clause = [
-          " JOIN ", target_table, " ", next_alias,
-          " ON ", current_alias, ".", escape_identifier(to_string(owner_key)),
-          " = ", next_alias, ".", escape_identifier(to_string(related_key))
+          " JOIN ",
+          target_table,
+          " ",
+          next_alias,
+          " ON ",
+          current_alias,
+          ".",
+          escape_identifier(to_string(owner_key)),
+          " = ",
+          next_alias,
+          ".",
+          escape_identifier(to_string(related_key))
         ]
 
         {acc_joins ++ join_clause, acc_params, target_schema, counter + 1}
@@ -189,11 +219,12 @@ defmodule Selecto.Builder.Pivot do
     last_position = current_position
 
     # Look up the final schema to get its primary key
-    final_schema_config = if last_position == :source do
-      selecto.domain.source
-    else
-      Map.get(selecto.domain.schemas, last_position)
-    end
+    final_schema_config =
+      if last_position == :source do
+        selecto.domain.source
+      else
+        Map.get(selecto.domain.schemas, last_position)
+      end
 
     final_pk = Map.get(final_schema_config, :primary_key, :id)
     final_alias = "j#{length(join_path)}"
@@ -210,52 +241,62 @@ defmodule Selecto.Builder.Pivot do
     target_alias = get_target_alias()
 
     # Build the subquery that will select IDs from the original query context
-    {subquery_iodata, subquery_params} = build_join_chain_subquery(
-      selecto,
-      pivot_config,
-      pivot_config.join_path
-    )
+    {subquery_iodata, subquery_params} =
+      build_join_chain_subquery(
+        selecto,
+        pivot_config,
+        pivot_config.join_path
+      )
 
     # Get the primary key of the target table
     connection_field = get_target_primary_key(selecto, target_schema)
 
     # Build the IN condition
-    in_condition = if subquery_iodata != [] do
-      [target_alias, ".", escape_identifier(connection_field), " IN (", subquery_iodata, ")"]
-    else
-      # No subquery needed - we're already at the target
-      []
-    end
+    in_condition =
+      if subquery_iodata != [] do
+        [target_alias, ".", escape_identifier(connection_field), " IN (", subquery_iodata, ")"]
+      else
+        # No subquery needed - we're already at the target
+        []
+      end
 
     # Get post-pivot filters and build additional conditions
     post_pivot_filters = Map.get(selecto.set, :post_pivot_filters, [])
-    {post_pivot_conditions, post_pivot_params} = if post_pivot_filters != [] do
-      conditions = Enum.map(post_pivot_filters, fn {field, value} ->
-        field_name = escape_identifier(to_string(field))
-        [target_alias, ".", field_name, " = ", {:param, value}]
-      end)
 
-      where_clause = case conditions do
-        [single] -> single
-        multiple -> Enum.intersperse(multiple, [" AND "])
+    {post_pivot_conditions, post_pivot_params} =
+      if post_pivot_filters != [] do
+        conditions =
+          Enum.map(post_pivot_filters, fn {field, value} ->
+            field_name = escape_identifier(to_string(field))
+            [target_alias, ".", field_name, " = ", {:param, value}]
+          end)
+
+        where_clause =
+          case conditions do
+            [single] -> single
+            multiple -> Enum.intersperse(multiple, [" AND "])
+          end
+
+        {where_clause, Enum.map(post_pivot_filters, fn {_field, value} -> value end)}
+      else
+        {[], []}
       end
 
-      {where_clause, Enum.map(post_pivot_filters, fn {_field, value} -> value end)}
-    else
-      {[], []}
-    end
-
     # Combine IN condition with post-pivot filters
-    where_conditions = cond do
-      in_condition == [] and post_pivot_conditions != [] ->
-        post_pivot_conditions
-      in_condition != [] and post_pivot_conditions != [] ->
-        [in_condition, " AND ", post_pivot_conditions]
-      in_condition != [] ->
-        in_condition
-      true ->
-        []
-    end
+    where_conditions =
+      cond do
+        in_condition == [] and post_pivot_conditions != [] ->
+          post_pivot_conditions
+
+        in_condition != [] and post_pivot_conditions != [] ->
+          [in_condition, " AND ", post_pivot_conditions]
+
+        in_condition != [] ->
+          in_condition
+
+        true ->
+          []
+      end
 
     # Return FROM clause, WHERE conditions, and params
     from_iodata = [target_table, " ", target_alias]
@@ -268,6 +309,7 @@ defmodule Selecto.Builder.Pivot do
     case Map.get(selecto.domain.schemas, target_schema) do
       %{source_table: table} when not is_nil(table) ->
         to_string(table)
+
       _ ->
         # Fallback to using the schema name as table name
         to_string(target_schema)
@@ -279,6 +321,7 @@ defmodule Selecto.Builder.Pivot do
     case Map.get(selecto.domain.schemas, target_schema) do
       %{primary_key: pk} when not is_nil(pk) ->
         to_string(pk)
+
       _ ->
         # Default to "id" if not specified
         "id"
@@ -289,39 +332,45 @@ defmodule Selecto.Builder.Pivot do
     target_table = get_target_table(selecto, pivot_config.target_schema)
     target_alias = get_target_alias()
 
-    {subquery_iodata, subquery_params} = build_correlation_subquery(
-      selecto,
-      pivot_config,
-      target_alias
-    )
+    {subquery_iodata, subquery_params} =
+      build_correlation_subquery(
+        selecto,
+        pivot_config,
+        target_alias
+      )
 
     # Build the EXISTS condition
     exists_condition = ["EXISTS (", subquery_iodata, ")"]
 
     # Get post-pivot filters and build additional conditions
     post_pivot_filters = Map.get(selecto.set, :post_pivot_filters, [])
-    {post_pivot_conditions, post_pivot_params} = if post_pivot_filters != [] do
-      conditions = Enum.map(post_pivot_filters, fn {field, value} ->
-        field_name = escape_identifier(to_string(field))
-        [target_alias, ".", field_name, " = ", {:param, value}]
-      end)
 
-      where_clause = case conditions do
-        [single] -> single
-        multiple -> Enum.intersperse(multiple, [" AND "])
+    {post_pivot_conditions, post_pivot_params} =
+      if post_pivot_filters != [] do
+        conditions =
+          Enum.map(post_pivot_filters, fn {field, value} ->
+            field_name = escape_identifier(to_string(field))
+            [target_alias, ".", field_name, " = ", {:param, value}]
+          end)
+
+        where_clause =
+          case conditions do
+            [single] -> single
+            multiple -> Enum.intersperse(multiple, [" AND "])
+          end
+
+        {where_clause, Enum.map(post_pivot_filters, fn {_field, value} -> value end)}
+      else
+        {[], []}
       end
 
-      {where_clause, Enum.map(post_pivot_filters, fn {_field, value} -> value end)}
-    else
-      {[], []}
-    end
-
     # Combine EXISTS condition with post-pivot filters
-    where_conditions = if post_pivot_conditions != [] do
-      [exists_condition, " AND ", post_pivot_conditions]
-    else
-      exists_condition
-    end
+    where_conditions =
+      if post_pivot_conditions != [] do
+        [exists_condition, " AND ", post_pivot_conditions]
+      else
+        exists_condition
+      end
 
     # Return FROM clause, WHERE conditions, and params
     from_iodata = [target_table, " ", target_alias]
@@ -335,7 +384,9 @@ defmodule Selecto.Builder.Pivot do
     target_alias = get_target_alias()
 
     {join_clauses, join_params} = build_explicit_joins(selecto, pivot_config)
-    {filter_conditions, filter_params} = extract_pivot_conditions(selecto, pivot_config, get_source_alias())
+
+    {filter_conditions, filter_params} =
+      extract_pivot_conditions(selecto, pivot_config, get_source_alias())
 
     from_iodata = [target_table, " ", target_alias, join_clauses]
 
@@ -358,15 +409,28 @@ defmodule Selecto.Builder.Pivot do
       name: "pivot_source",
       query: cte_query,
       params: cte_params,
-      columns: [maybe_quote_identifier(to_string(get_target_primary_key(selecto, pivot_config.target_schema)))]
+      columns: [
+        maybe_quote_identifier(
+          to_string(get_target_primary_key(selecto, pivot_config.target_schema))
+        )
+      ]
     }
 
     # Build the main FROM clause that joins with the CTE
     from_iodata = [
-      target_table, " ", target_alias,
+      target_table,
+      " ",
+      target_alias,
       " INNER JOIN pivot_source ps ON ",
-      target_alias, ".", maybe_quote_identifier(to_string(get_target_primary_key(selecto, pivot_config.target_schema))),
-      " = ps.", maybe_quote_identifier(to_string(get_target_primary_key(selecto, pivot_config.target_schema)))
+      target_alias,
+      ".",
+      maybe_quote_identifier(
+        to_string(get_target_primary_key(selecto, pivot_config.target_schema))
+      ),
+      " = ps.",
+      maybe_quote_identifier(
+        to_string(get_target_primary_key(selecto, pivot_config.target_schema))
+      )
     ]
 
     # Return FROM clause, empty WHERE (filtering is in CTE), params, and CTE spec
@@ -384,37 +448,50 @@ defmodule Selecto.Builder.Pivot do
         {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, "s")
 
         query_iodata = [
-          "SELECT DISTINCT s.", maybe_quote_identifier(to_string(pivot_config.target_schema)), "_id",
-          " FROM ", source_table, " s"
+          "SELECT DISTINCT s.",
+          maybe_quote_identifier(to_string(pivot_config.target_schema)),
+          "_id",
+          " FROM ",
+          source_table,
+          " s"
         ]
 
-        query_iodata = if where_clause != [] do
-          query_iodata ++ [" WHERE ", where_clause]
-        else
-          query_iodata
-        end
+        query_iodata =
+          if where_clause != [] do
+            query_iodata ++ [" WHERE ", where_clause]
+          else
+            query_iodata
+          end
 
         {query_iodata, where_params}
 
       join_path ->
         # Need to walk the join path
-        {join_clauses, join_params, final_table_info} = build_hierarchical_join_chain(selecto, join_path)
+        {join_clauses, join_params, final_table_info} =
+          build_hierarchical_join_chain(selecto, join_path)
+
         {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, "s")
 
         # Extract final table info
         {final_alias, final_pk} = final_table_info
 
         query_iodata = [
-          "SELECT DISTINCT ", final_alias, ".", maybe_quote_identifier(to_string(final_pk)),
-          " FROM ", source_table, " s",
+          "SELECT DISTINCT ",
+          final_alias,
+          ".",
+          maybe_quote_identifier(to_string(final_pk)),
+          " FROM ",
+          source_table,
+          " s",
           join_clauses
         ]
 
-        query_iodata = if where_clause != [] do
-          query_iodata ++ [" WHERE ", where_clause]
-        else
-          query_iodata
-        end
+        query_iodata =
+          if where_clause != [] do
+            query_iodata ++ [" WHERE ", where_clause]
+          else
+            query_iodata
+          end
 
         {query_iodata, join_params ++ where_params}
     end
@@ -443,11 +520,18 @@ defmodule Selecto.Builder.Pivot do
     join_table = get_join_table(selecto, join_name, current_position)
 
     # Build ON clause based on association configuration
-    {on_clause, on_params} = build_join_condition(selecto, join_name, current_alias, next_alias, current_position)
+    {on_clause, on_params} =
+      build_join_condition(selecto, join_name, current_alias, next_alias, current_position)
 
     join_clause = [
-      " ", sql_join_type(join_type), " JOIN ", join_table, " ", next_alias,
-      " ON ", on_clause
+      " ",
+      sql_join_type(join_type),
+      " JOIN ",
+      join_table,
+      " ",
+      next_alias,
+      " ON ",
+      on_clause
     ]
 
     {join_clause, on_params, next_alias, Map.get(association, :queryable, join_name)}
@@ -458,26 +542,34 @@ defmodule Selecto.Builder.Pivot do
     source_table = get_source_table_name(selecto)
     source_alias = "sub_" <> get_source_alias()
 
-    {join_clauses, join_params} = build_reverse_joins(selecto, pivot_config.join_path, source_alias, target_alias)
+    {join_clauses, join_params} =
+      build_reverse_joins(selecto, pivot_config.join_path, source_alias, target_alias)
+
     {where_clause, where_params} = extract_pivot_conditions(selecto, pivot_config, source_alias)
 
     _correlation_field = get_target_connection_field(selecto, pivot_config)
 
     subquery_iodata = [
-      "SELECT 1 FROM ", source_table, " ", source_alias,
+      "SELECT 1 FROM ",
+      source_table,
+      " ",
+      source_alias,
       join_clauses
     ]
 
     # Add correlation condition
-    correlation_condition = get_correlation_condition(selecto, pivot_config, source_alias, target_alias)
+    correlation_condition =
+      get_correlation_condition(selecto, pivot_config, source_alias, target_alias)
+
     subquery_iodata = subquery_iodata ++ [" WHERE ", correlation_condition]
 
     # Add additional filters
-    subquery_iodata = if where_clause != [] do
-      subquery_iodata ++ [" AND ", where_clause]
-    else
-      subquery_iodata
-    end
+    subquery_iodata =
+      if where_clause != [] do
+        subquery_iodata ++ [" AND ", where_clause]
+      else
+        subquery_iodata
+      end
 
     {subquery_iodata, join_params ++ where_params}
   end
@@ -487,7 +579,10 @@ defmodule Selecto.Builder.Pivot do
     source_alias = get_source_alias()
 
     Enum.reduce(pivot_config.join_path, {[], [], source_alias, :source}, fn join_name,
-                                                                             {acc_clauses, acc_params, current_alias, current_position} ->
+                                                                            {acc_clauses,
+                                                                             acc_params,
+                                                                             current_alias,
+                                                                             current_position} ->
       {join_clause, join_params, next_alias, next_position} =
         build_single_join(selecto, join_name, current_alias, current_position)
 
@@ -531,16 +626,26 @@ defmodule Selecto.Builder.Pivot do
     owner_key = Map.get(association, :owner_key)
     related_key = Map.get(association, :related_key)
 
-    on_clause = [current_alias, ".", to_string(owner_key), " = ", next_alias, ".", to_string(related_key)]
+    on_clause = [
+      current_alias,
+      ".",
+      to_string(owner_key),
+      " = ",
+      next_alias,
+      ".",
+      to_string(related_key)
+    ]
+
     {on_clause, []}
   end
 
   defp get_association_from_position(selecto, target_name, current_position) do
     # Navigate the hierarchical domain structure based on current position
-    current_schema = case current_position do
-      :source -> selecto.domain.source
-      schema_name -> Map.get(selecto.domain.schemas, schema_name)
-    end
+    current_schema =
+      case current_position do
+        :source -> selecto.domain.source
+        schema_name -> Map.get(selecto.domain.schemas, schema_name)
+      end
 
     if current_schema do
       # Look for the association in the current schema
@@ -551,6 +656,7 @@ defmodule Selecto.Builder.Pivot do
           # Not found at this level, need to look in joins structure if available
           joins = Map.get(selecto.domain, :joins, %{})
           find_in_joins_structure(joins, target_name)
+
         assoc_config ->
           assoc_config
       end
@@ -583,22 +689,24 @@ defmodule Selecto.Builder.Pivot do
     |> Map.put_new(:field, join_name)
   end
 
-
   defp build_filter_conditions(_selecto, [], _source_alias), do: {[], []}
+
   defp build_filter_conditions(_selecto, filters, source_alias) do
     # Build simple WHERE conditions for pivot subqueries
     if length(filters) == 0 do
       {[], []}
     else
-      conditions = Enum.map(filters, fn {field, value} ->
-        field_name = escape_identifier(to_string(field))
-        [source_alias, ".", field_name, " = ", {:param, value}]
-      end)
+      conditions =
+        Enum.map(filters, fn {field, value} ->
+          field_name = escape_identifier(to_string(field))
+          [source_alias, ".", field_name, " = ", {:param, value}]
+        end)
 
-      where_clause = case conditions do
-        [single] -> single
-        multiple -> Enum.intersperse(multiple, [" AND "])
-      end
+      where_clause =
+        case conditions do
+          [single] -> single
+          multiple -> Enum.intersperse(multiple, [" AND "])
+        end
 
       # Extract parameters
       params = Enum.map(filters, fn {_field, value} -> value end)
@@ -610,6 +718,7 @@ defmodule Selecto.Builder.Pivot do
   defp get_target_connection_field(selecto, pivot_config) do
     # Return the field on the target table that connects back to the source
     target_config = Map.get(selecto.domain.schemas, pivot_config.target_schema)
+
     if target_config do
       to_string(target_config.primary_key || :id)
     else
@@ -617,12 +726,12 @@ defmodule Selecto.Builder.Pivot do
     end
   end
 
-
   defp build_reverse_joins(selecto, join_path, source_alias, _target_alias) do
     # Build joins from source to target for correlation subquery
     {join_clauses, params, _last_alias, _last_position} =
       Enum.reduce(join_path, {[], [], source_alias, :source}, fn join_name,
-                                                                 {acc_clauses, acc_params, current_alias, current_position} ->
+                                                                 {acc_clauses, acc_params,
+                                                                  current_alias, current_position} ->
         {join_clause, join_params, next_alias, next_position} =
           build_single_join(selecto, join_name, current_alias, current_position)
 
@@ -641,13 +750,16 @@ defmodule Selecto.Builder.Pivot do
       target_pk = to_string(target_config.primary_key || :id)
 
       # Find the final join alias
-      final_alias = case pivot_config.join_path do
-        [] -> source_alias
-        joins ->
-          Enum.reduce(joins, source_alias, fn join_name, _ ->
-            generate_join_alias(join_name)
-          end)
-      end
+      final_alias =
+        case pivot_config.join_path do
+          [] ->
+            source_alias
+
+          joins ->
+            Enum.reduce(joins, source_alias, fn join_name, _ ->
+              generate_join_alias(join_name)
+            end)
+        end
 
       [final_alias, ".", target_pk, " = ", target_alias, ".", target_pk]
     else
@@ -659,7 +771,8 @@ defmodule Selecto.Builder.Pivot do
   defp sql_join_type(:right), do: "RIGHT"
   defp sql_join_type(:inner), do: "INNER"
   defp sql_join_type(:full), do: "FULL"
-  defp sql_join_type(_), do: "LEFT"  # Default
+  # Default
+  defp sql_join_type(_), do: "LEFT"
 
   # Use escape_identifier as alias for maybe_quote_identifier
   defp escape_identifier(identifier) do

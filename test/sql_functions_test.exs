@@ -54,7 +54,9 @@ defmodule Selecto.SQLFunctionsTest do
     test "replace emits params", %{selecto: selecto} do
       {sql, params} =
         selecto
-        |> Functions.prep_advanced_selector({:replace, "description", {:literal, "old"}, {:literal, "new"}})
+        |> Functions.prep_advanced_selector(
+          {:replace, "description", {:literal, "old"}, {:literal, "new"}}
+        )
         |> render()
 
       assert sql =~ ~r/replace\(/i

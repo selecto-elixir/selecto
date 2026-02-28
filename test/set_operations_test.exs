@@ -8,7 +8,12 @@ defmodule SetOperationsTest do
         primary_key: :film_id,
         fields: [:film_id, :title, :rental_rate, :rating],
         redact_fields: [],
-        columns: %{film_id: %{type: :integer}, title: %{type: :string}, rental_rate: %{type: :decimal}, rating: %{type: :string}},
+        columns: %{
+          film_id: %{type: :integer},
+          title: %{type: :string},
+          rental_rate: %{type: :decimal},
+          rating: %{type: :string}
+        },
         associations: %{}
       },
       schemas: %{},

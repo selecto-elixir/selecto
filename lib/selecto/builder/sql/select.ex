@@ -894,9 +894,7 @@ defmodule Selecto.Builder.Sql.Select do
 
     # Handle case where field configuration doesn't exist
     if conf == nil do
-      available_fields = Map.keys(selecto.config.columns || %{}) ++ Map.keys(dynamic_columns)
-
-      raise "Field '#{selector}' not found in selecto configuration. Available fields: #{inspect(available_fields)}"
+      raise build_missing_field_error(selecto, selector, dynamic_columns)
     end
 
     case Map.get(conf, :select) do
@@ -924,6 +922,75 @@ defmodule Selecto.Builder.Sql.Select do
         # For other selector types, process recursively
         prep_selector(selecto, sub, pivot_aliases)
     end
+  end
+
+  defp build_missing_field_error(selecto, selector, dynamic_columns) do
+    selector_str = to_string(selector)
+
+    available_fields =
+      (Map.keys(selecto.config.columns || %{}) ++ Map.keys(dynamic_columns))
+      |> Enum.map(&to_string/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    suggestions =
+      case Selecto.field_suggestions(selecto, selector_str) do
+        [] -> fuzzy_suggestions(selector_str, available_fields, 5)
+        list -> list
+      end
+
+    computed_aliases = computed_aliases(selecto)
+    computed_alias_hint? = selector_str in computed_aliases
+
+    suggestion_text =
+      case suggestions do
+        [] -> "No close field suggestions found."
+        list -> "Did you mean: #{Enum.join(list, ", ")}"
+      end
+
+    computed_hint_text =
+      if computed_alias_hint? do
+        "\nHint: '#{selector_str}' matches a computed alias. In selectors/shapes use explicit source expressions (for example {:field, \"metadata.some_path\", \"#{selector_str}\"})."
+      else
+        ""
+      end
+
+    "Field '#{selector_str}' not found in selecto configuration. " <>
+      suggestion_text <>
+      computed_hint_text <>
+      "\nAvailable fields: #{inspect(available_fields)}"
+  end
+
+  defp fuzzy_suggestions(term, candidates, limit) do
+    candidates
+    |> Enum.map(fn candidate ->
+      {candidate, String.jaro_distance(String.downcase(candidate), String.downcase(term))}
+    end)
+    |> Enum.sort_by(fn {_candidate, score} -> score end, :desc)
+    |> Enum.filter(fn {_candidate, score} -> score >= 0.72 end)
+    |> Enum.take(limit)
+    |> Enum.map(fn {candidate, _score} -> candidate end)
+  end
+
+  defp computed_aliases(selecto) do
+    json_aliases =
+      selecto.set
+      |> Map.get(:json_selects, [])
+      |> Enum.map(&Map.get(&1, :alias))
+
+    array_aliases =
+      selecto.set
+      |> Map.get(:array_operations, [])
+      |> Enum.map(&Map.get(&1, :alias))
+
+    window_aliases =
+      selecto.set
+      |> Map.get(:window_functions, [])
+      |> Enum.map(&Map.get(&1, :alias))
+
+    (json_aliases ++ array_aliases ++ window_aliases)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
   end
 
   # Get the string representation of a table alias for JSONB extraction
