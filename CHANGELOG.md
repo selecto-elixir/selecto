@@ -1,6 +1,22 @@
 
 # Selecto Library Changelog
 
+## V 0.3.4 - Structured Selection Shapes
+---------------------------------------------------------
+
+#### Added
+- Added `Selecto.select_shape/2` to compile nested list/tuple selection shapes
+  into regular selectors plus correlated subselects.
+- Added `Selecto.execute_shape/2` to execute shaped queries and materialize each
+  row back into the original nested list/tuple structure.
+- Added `Selecto.SelectionShape` with shape parsing, subselect inference for
+  single-join nested containers, and row materialization helpers.
+- Added focused coverage for shape compilation, SQL generation, and nested
+  materialization behavior.
+
+#### Changed
+- Bumped package version to `0.3.4`.
+
 ## V 0.3.3 - Extension Framework & PostGIS Package Extraction
 ---------------------------------------------------------
 
@@ -14,7 +30,8 @@
   extension DSL imports, compile-time setup callbacks, and overlay fragment
   merging.
 - Added extension callback surfaces for companion packages
-  (`components_views/2`, `updato_domain/2`) to support ecosystem integration.
+  (`components_views/2`, `updato_domain/2`, `ecto_type_to_selecto_type/2`) to
+  support ecosystem integration.
 - Added/expanded tests for extension normalization, callback dispatch, and
   overlay integration behavior.
 
@@ -22,6 +39,9 @@
 - Extracted PostGIS extension implementation from `selecto` core into the
   dedicated `selecto_postgis` package while keeping the runtime module contract
   as `Selecto.Extensions.PostGIS`.
+- Moved PostGIS-specific Ecto custom type mapping out of `Selecto.EctoAdapter`
+  core matching and into extension callback dispatch
+  (`ecto_type_to_selecto_type/2`).
 - Updated extension-related docs and examples to clarify package boundaries and
   extension loading patterns.
 

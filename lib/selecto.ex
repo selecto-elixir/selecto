@@ -449,6 +449,27 @@ defmodule Selecto do
   defdelegate select(selecto, fields_or_field), to: Selecto.Query
 
   @doc """
+  Compile a nested selection shape and attach it to the query.
+
+  This is an opt-in structured selection API. Use `execute_shape/2` to
+  materialize results into the same list/tuple structure.
+
+  Nested lists/tuples that only reference a single joined schema are treated as
+  subselect nodes.
+  """
+  @spec select_shape(t(), list() | tuple()) :: t()
+  defdelegate select_shape(selecto, shape), to: Selecto.SelectionShape
+
+  @doc """
+  Execute a query configured with `select_shape/2` and return shaped rows.
+
+  Returns `{:ok, shaped_rows}` where each row mirrors the selection shape.
+  """
+  @spec execute_shape(t(), Selecto.Types.execute_options()) ::
+          {:ok, list()} | {:error, Selecto.Error.t()}
+  defdelegate execute_shape(selecto, opts \\ []), to: Selecto.SelectionShape
+
+  @doc """
   Add a filter to selecto. Send in a tuple with field name and filter value.
   """
   @spec filter(t(), [Selecto.Types.filter()]) :: t()
