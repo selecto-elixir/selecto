@@ -1,6 +1,22 @@
 
 # Selecto Library Changelog
 
+## V 0.3.4 - Structured Selection Shapes
+---------------------------------------------------------
+
+#### Added
+- Added `Selecto.select_shape/2` to compile nested list/tuple selection shapes
+  into regular selectors plus correlated subselects.
+- Added `Selecto.execute_shape/2` to execute shaped queries and materialize each
+  row back into the original nested list/tuple structure.
+- Added `Selecto.SelectionShape` with shape parsing, subselect inference for
+  single-join nested containers, and row materialization helpers.
+- Added focused coverage for shape compilation, SQL generation, and nested
+  materialization behavior.
+
+#### Changed
+- Bumped package version to `0.3.4`.
+
 ## V 0.3.3 - Extension Framework & PostGIS Package Extraction
 ---------------------------------------------------------
 
