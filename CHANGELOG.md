@@ -1,6 +1,40 @@
 
 # Selecto Library Changelog
 
+## V 0.3.5 - Query Tooling, Diagnostics, and Livebook Ergonomics
+---------------------------------------------------------
+
+#### Added
+- Added explicit pre/post pivot filter APIs:
+  - `Selecto.pre_pivot_filter/2`
+  - `Selecto.post_pivot_filter/2`
+- Added query filter introspection helpers:
+  - `Selecto.pre_pivot_filters/1`
+  - `Selecto.post_pivot_filters/1`
+  - `Selecto.query_filters/2`
+- Added SQL output utilities:
+  - `Selecto.SQL.Formatter`
+  - `Selecto.format_sql/2`
+  - `Selecto.highlight_sql/2`
+- Added SQL generation options to `Selecto.to_sql/2`:
+  - `pretty: true`
+  - `highlight: :ansi | :markdown`
+- Added query diagnostics helpers via `Selecto.Diagnostics`:
+  - `Selecto.explain/2`
+  - `Selecto.explain_analyze/2`
+- Added notebook execution helper module `Selecto.Livebook` with shared
+  explain/run helpers for demos and livebooks.
+- Added tests for query enhancement APIs and diagnostics SQL generation.
+
+#### Changed
+- Improved selection-shape handling so known JSON computed aliases can be used
+  in `select_shape/2` and resolved into explicit field selectors.
+- Improved missing-field errors to provide better guidance when a selection
+  references a computed alias.
+- Updated livebook examples to use shared filter extraction through
+  `Selecto.query_filters/1` where read-query filters are reused in write flows.
+- Bumped package version to `0.3.5`.
+
 ## V 0.3.4 - Structured Selection Shapes
 ---------------------------------------------------------
 
