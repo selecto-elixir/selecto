@@ -26,6 +26,15 @@
 - Added stream-contract coverage for unsupported contexts (`:pool`,
   `:ecto_repo`, and adapters without `stream/4`) and receive-timeout behavior
   for stalled cursor producers.
+- Added/expanded subfilter join-path resilience for via joins, including
+  top-level case-insensitive `AND` parsing, reordered predicate selection, and
+  deduplication of duplicate join steps.
+- Added compound subfilter join-path batch resolution in registry flows to
+  reduce repeated resolution overhead and improve consistency.
+- Added first-class multi-arg function selector support via `{:func, ...}` DSL,
+  including distinct/filter options and alias handling in select builder paths.
+- Added explicit adapter stream capability contract expectations in execution
+  paths (`supports?(:stream)` + `stream/4`) with validation coverage.
 
 #### Changed
 - Clarified tenant-isolation recommendations for shared-table, schema-prefix,
@@ -51,6 +60,8 @@
 - Improved Ecto `has_through` association introspection to derive
   `owner_key`/`related_key` from through-path metadata instead of `:id`
   fallbacks.
+- Added PostgreSQL stream support for pooled connection references when a
+  streamable pool connection handle is available.
 
 ## V 0.3.5 - Query Tooling, Diagnostics, and Livebook Ergonomics
 ---------------------------------------------------------
