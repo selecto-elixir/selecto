@@ -92,7 +92,7 @@ defmodule Selecto.MixProject do
       {:uuid, "~> 1.1"},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false},
       {:timex, "~> 3.7.9"},
-      {:mneme, ">= 0.0.0", only: :test},
+      {:mneme, ">= 0.0.0", only: [:dev, :test]},
       {:benchee, "~> 1.0", only: [:dev, :test], optional: true},
       {:benchee_html, "~> 1.0", only: [:dev, :test], optional: true},
       {:dialyxir, "~> 1.3", only: [:dev], runtime: false},
