@@ -5,6 +5,9 @@ defmodule Selecto.StreamTest do
     def stream(:ok, _query, _params, _opts) do
       {:ok, Stream.map([[1, "Alpha"], [2, "Beta"]], & &1), ["id", "name"]}
     end
+
+    def supports?(:stream), do: true
+    def supports?(_feature), do: false
   end
 
   defp domain do
