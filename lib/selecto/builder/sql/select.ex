@@ -85,6 +85,18 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, {:subquery, dynamic, params}, %{})
   end
 
+  def prep_selector(selecto, {:func, func_name}) do
+    prep_selector(selecto, {:func, func_name, []}, %{})
+  end
+
+  def prep_selector(selecto, {:func, func_name, args}) do
+    prep_selector(selecto, {:func, func_name, args}, %{})
+  end
+
+  def prep_selector(selecto, {:func, func_name, args, opts}) when is_list(opts) do
+    prep_selector(selecto, {:func, func_name, args, opts}, %{})
+  end
+
   def prep_selector(selecto, {:case, pairs}) when is_list(pairs) do
     prep_selector(selecto, {:case, pairs}, %{})
   end
@@ -628,6 +640,39 @@ defmodule Selecto.Builder.Sql.Select do
     {case_sql, join, param}
   end
 
+  def prep_selector(selecto, {:func, func_name}, pivot_aliases) do
+    prep_selector(selecto, {:func, func_name, []}, pivot_aliases)
+  end
+
+  def prep_selector(selecto, {:func, func_name, args}, pivot_aliases) do
+    {distinct, normalized_args} = normalize_function_args(args, false)
+
+    build_function_selector(
+      selecto,
+      func_name,
+      normalized_args,
+      distinct,
+      nil,
+      pivot_aliases
+    )
+  end
+
+  def prep_selector(selecto, {:func, func_name, args, opts}, pivot_aliases) when is_list(opts) do
+    distinct_opt = Keyword.get(opts, :distinct, false)
+    filter = Keyword.get(opts, :filter)
+
+    {distinct, normalized_args} = normalize_function_args(args, distinct_opt)
+
+    build_function_selector(
+      selecto,
+      func_name,
+      normalized_args,
+      distinct,
+      filter,
+      pivot_aliases
+    )
+  end
+
   def prep_selector(selecto, {func, field, filter}, pivot_aliases) when is_atom(func) do
     {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
 
@@ -1049,6 +1094,15 @@ defmodule Selecto.Builder.Sql.Select do
     {select_iodata, join, param, as}
   end
 
+  def build(selecto, {:func, func_name, args, opts}, pivot_aliases) when is_list(opts) do
+    as = Keyword.get(opts, :as, UUID.uuid4())
+
+    {select_iodata, join, param} =
+      prep_selector(selecto, {:func, func_name, args, opts}, pivot_aliases)
+
+    {select_iodata, join, param, as}
+  end
+
   def build(selecto, field, pivot_aliases) do
     {select_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
     {select_iodata, join, param, UUID.uuid4()}
@@ -1071,6 +1125,69 @@ defmodule Selecto.Builder.Sql.Select do
 
     source_fields ++ join_fields ++ cte_fields
   end
+
+  defp normalize_function_args(args, distinct_opt) do
+    args_list = List.wrap(args)
+
+    {distinct, normalized} =
+      case args_list do
+        [head | tail] when is_binary(head) ->
+          if String.upcase(head) == "DISTINCT" do
+            {true, tail}
+          else
+            {to_boolean(distinct_opt), args_list}
+          end
+
+        _ ->
+          {to_boolean(distinct_opt), args_list}
+      end
+
+    normalized_args =
+      Enum.map(normalized, fn
+        "*" -> {:literal, "*"}
+        arg -> arg
+      end)
+
+    {distinct, normalized_args}
+  end
+
+  defp build_function_selector(selecto, func_name, args, distinct, filter, pivot_aliases) do
+    {arg_iodata_parts, join, param} =
+      Enum.reduce(args, {[], [], []}, fn arg, {select_acc, join_acc, param_acc} ->
+        {s_iodata, j, p} = prep_selector(selecto, arg, pivot_aliases)
+        {select_acc ++ [s_iodata], join_acc ++ List.wrap(j), param_acc ++ p}
+      end)
+
+    function_name = func_name |> to_string() |> check_string()
+
+    args_iodata =
+      case arg_iodata_parts do
+        [] -> []
+        parts -> Enum.intersperse(parts, ", ")
+      end
+
+    function_args =
+      if distinct and arg_iodata_parts != [] do
+        ["DISTINCT ", args_iodata]
+      else
+        args_iodata
+      end
+
+    function_call_iodata = [function_name, "(", function_args, ")"]
+
+    if is_nil(filter) do
+      {function_call_iodata, join, param}
+    else
+      {join_w, filters_iodata, param_w} =
+        Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
+
+      filter_iodata = [function_call_iodata, " FILTER (where ", filters_iodata, ")"]
+      {filter_iodata, List.wrap(join) ++ List.wrap(join_w), param ++ param_w}
+    end
+  end
+
+  defp to_boolean(value) when value in [true, false], do: value
+  defp to_boolean(_value), do: false
 
   defp get_join_fields(joins) do
     Enum.flat_map(joins, fn {join_id, join_config} ->
