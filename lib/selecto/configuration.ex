@@ -150,9 +150,15 @@ defmodule Selecto.Configuration do
   defp fetch_server_version_num(connection)
 
   defp fetch_server_version_num({:pool, pool_ref}) do
-    case Selecto.ConnectionPool.execute(pool_ref, @server_version_num_query, [], prepared: false) do
-      {:ok, result} -> extract_server_version_num(result)
-      {:error, _reason} = error -> error
+    try do
+      case Selecto.ConnectionPool.execute(pool_ref, @server_version_num_query, [],
+             prepared: false
+           ) do
+        {:ok, result} -> extract_server_version_num(result)
+        {:error, _reason} = error -> error
+      end
+    catch
+      :exit, _reason -> {:error, :pool_unavailable}
     end
   end
 

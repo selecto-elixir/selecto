@@ -809,7 +809,12 @@ defmodule Selecto.Executor do
         {:error,
          Selecto.Error.validation_error(
            "Streaming requires adapter.supports?(:stream) capability",
-           %{adapter: adapter, stream_context: :adapter, adapter_contract: :supports_stream}
+           %{
+             adapter: adapter,
+             stream_context: :adapter,
+             adapter_contract: :supports_stream,
+             unsupported_feature: :stream
+           }
          )}
 
       not function_exported?(adapter, :stream, 4) ->

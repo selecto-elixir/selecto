@@ -7,6 +7,8 @@
 #### Added
 - Added `test/cross_db_baseline_test.exs` with adapter-tagged baseline
   execution checks for PostgreSQL, MySQL, MariaDB, MSSQL, and SQLite.
+- Expanded cross-DB baseline checks with adapter-executed query-shape coverage
+  for select/filter/order/group/pagination paths.
 - Added dedicated cross-database CI baseline jobs in
   `.github/workflows/ci.yml` for PostgreSQL, MySQL, MariaDB, MSSQL, and
   SQLite.
@@ -23,6 +25,9 @@
   `mix format --check-formatted` works in CI when formatter imports dep rules.
 - Added test-only adapter driver dependencies (`myxql`, `tds`, `exqlite`) to
   support cross-database baseline integration runs.
+- Updated adapter stream capability errors to include structured
+  `unsupported_feature: :stream` details when adapters do not support
+  streaming.
 - Updated ROLLUP ORDER BY compatibility behavior to auto-disable `rollupfix`
   wrapping on PostgreSQL 18+ while preserving wrapper safety for older
   PostgreSQL versions.

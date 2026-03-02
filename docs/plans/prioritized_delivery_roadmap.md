@@ -88,6 +88,12 @@ the next delivery cycles.
   for PostgreSQL, MySQL, MariaDB, MSSQL, and SQLite smoke execution paths.
 - In progress: P2.2 expansion from adapter execute smoke tests to broader
   query-shape parity assertions across adapters.
+- Completed (incremental): P2.2 baseline suite now exercises
+  select/filter/order/group/pagination query-shape checks across adapter-tagged
+  runs.
+- Completed (incremental): P2.2 adapter stream capability checks now emit
+  structured unsupported-feature details (`unsupported_feature: :stream`) for
+  non-stream adapters.
 - Completed (docs baseline): P2.3 release docs/changelog parity for adapter,
   tenant, and streaming features.
 
