@@ -219,14 +219,65 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   end
 
   defp decompose_via_join(%{from: from, to: to, via: via, on: on_clause}, _base_table) do
-    # Parse the compound ON clause to create individual join steps
-    # For example: "film.film_id = film_category.film_id AND film_category.category_id = category.category_id"
-    # becomes two separate joins
+    {first_on, second_on} = extract_via_join_conditions(on_clause, from, via, to)
 
     [
-      %{from: from, to: via, type: :inner, on: extract_first_join_condition(on_clause)},
-      %{from: via, to: to, type: :inner, on: extract_second_join_condition(on_clause)}
+      %{from: from, to: via, type: :inner, on: first_on},
+      %{from: via, to: to, type: :inner, on: second_on}
     ]
+  end
+
+  defp extract_via_join_conditions(on_clause, from, via, to) do
+    conditions = split_top_level_conditions(on_clause)
+
+    from_via = find_join_condition(conditions, from, via)
+    via_to = find_join_condition(conditions, via, to)
+
+    first_fallback = extract_first_join_condition(on_clause)
+    second_fallback = extract_second_join_condition(on_clause)
+
+    {
+      from_via || first_fallback,
+      via_to || second_fallback
+    }
+  end
+
+  defp split_top_level_conditions(on_clause) when is_binary(on_clause) do
+    do_split_top_level_conditions(String.trim(on_clause), [])
+  end
+
+  defp split_top_level_conditions(other), do: [to_string(other)]
+
+  defp do_split_top_level_conditions("", acc), do: Enum.reverse(acc)
+
+  defp do_split_top_level_conditions(clause, acc) do
+    case split_first_top_level_and(clause) do
+      {left, nil} ->
+        Enum.reverse([left | acc])
+
+      {left, right} ->
+        do_split_top_level_conditions(right, [left | acc])
+    end
+  end
+
+  defp find_join_condition(conditions, left_table, right_table) do
+    left = Atom.to_string(left_table)
+    right = Atom.to_string(right_table)
+
+    Enum.find(conditions, fn condition ->
+      references_tables?(condition, left, right)
+    end)
+  end
+
+  defp references_tables?(condition, left, right) when is_binary(condition) do
+    references_table?(condition, left) and references_table?(condition, right)
+  end
+
+  defp references_tables?(_condition, _left, _right), do: false
+
+  defp references_table?(condition, table_name) do
+    pattern = ~r/(^|[^A-Za-z0-9_])#{Regex.escape(table_name)}\./i
+    Regex.match?(pattern, condition)
   end
 
   defp extract_first_join_condition(on_clause) do
