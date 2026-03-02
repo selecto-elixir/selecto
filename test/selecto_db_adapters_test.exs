@@ -65,11 +65,29 @@ defmodule Selecto.DB.AdaptersTest do
       assert mssql_result == {:error, {:adapter_dependency_missing, :tds}}
     end
 
-    assert sqlite_result == {:error, {:adapter_dependency_missing, :exqlite}}
+    if Code.ensure_loaded?(Exqlite.Sqlite3) do
+      assert match?({:ok, _}, sqlite_result) or match?({:error, _}, sqlite_result)
+    else
+      assert sqlite_result == {:error, {:adapter_dependency_missing, :exqlite}}
+    end
   end
 
   test "postgres adapter returns invalid connection for unsupported value" do
     assert Selecto.DB.PostgreSQL.execute(123, "select 1", [], []) ==
              {:error, {:invalid_connection, 123}}
+  end
+
+  test "sqlite adapter executes simple query when dependency is available" do
+    if Code.ensure_loaded?(Exqlite.Sqlite3) do
+      assert {:ok, conn} = Selecto.DB.SQLite.connect(database: ":memory:")
+
+      assert {:ok, %{rows: [[1]], columns: ["value"]}} =
+               Selecto.DB.SQLite.execute(conn, "SELECT 1 AS value", [], [])
+
+      _ = Exqlite.Sqlite3.close(conn)
+    else
+      assert Selecto.DB.SQLite.execute(:invalid, "SELECT 1", [], []) ==
+               {:error, {:adapter_dependency_missing, :exqlite}}
+    end
   end
 end

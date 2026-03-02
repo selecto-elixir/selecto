@@ -203,9 +203,11 @@ defmodule Selecto.Builder.Sql do
       end
 
     # Build base query iodata
+    rollup_sort_fix_enabled? = rollup_sort_fix_enabled?(selecto)
+
     base_query_iodata =
       if group_by_section != "" and String.contains?(group_by_section, "rollup") and
-           order_by_section != "" do
+           order_by_section != "" and rollup_sort_fix_enabled? do
         # Rollup case: wrap in subquery
         [
           "select * from (",
@@ -247,6 +249,12 @@ defmodule Selecto.Builder.Sql do
     # Don't double-count parameters
     {sql, aliases, final_params}
   end
+
+  defp rollup_sort_fix_enabled?(%{config: config}) when is_map(config) do
+    Map.get(config, :rollup_sort_fix, true)
+  end
+
+  defp rollup_sort_fix_enabled?(_), do: true
 
   defp build_pivot_query(selecto, _opts) do
     # Use Pivot builder to construct the entire query
