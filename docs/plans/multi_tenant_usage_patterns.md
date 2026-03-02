@@ -98,13 +98,123 @@ Capture recommended multi-tenant patterns for `selecto`, `selecto_updato`, and r
 - Backups and restore:
   - Define tenant-level restore strategy for each model.
 
-## Suggested Next Implementation Steps (When Revisited)
+## Implementation Blueprint (Detailed)
 
-1. Add first-class tenant context support to Selecto execution options.
-2. Add read-path support for schema prefixes (parity with Updato write-path options).
-3. Add helper API to inject tenant required filters safely.
-4. Add cache-key extension point including tenant identity.
-5. Add docs/examples for all four major models with security checklists.
+### Phase 1: Tenant Context Contract
+
+Deliver a consistent tenant context shape for read paths:
+
+```elixir
+%{
+  tenant_id: "acme",
+  tenant_mode: :shared_rls | :shared_column | :schema | :dedicated_db,
+  repo_or_conn: MyApp.Repo,
+  prefix: "tenant_acme",
+  cache_namespace: "tenant:acme"
+}
+```
+
+Planned API surface:
+
+1. `Selecto.with_tenant/2` to attach tenant context to query state.
+2. `Selecto.tenant/1` to inspect tenant context during execution/debugging.
+3. `Selecto.apply_tenant_scope/2` helper for server-enforced required filters.
+
+Acceptance criteria:
+
+- Tenant context persists through `select`, `filter`, `pivot`, `subselect`, and
+  `select_shape` query flows.
+- Tenant context is available to diagnostics and explain helpers.
+
+### Phase 2: Read Prefix Support
+
+Add read-path prefix support for schema-per-tenant parity with write-path
+prefix options in companion packages.
+
+Planned behavior:
+
+1. For `tenant_mode: :schema`, execute read SQL with prefix-aware table
+   references or connection-level search path setup.
+2. Preserve backward compatibility for existing non-prefix usage.
+3. Return explicit error messages when prefix mode is requested but unsupported
+   by execution backend.
+
+Acceptance criteria:
+
+- Prefix-scoped read queries produce SQL/exec behavior isolated to tenant
+  schema.
+- Prefix mode is no-op in dedicated-db mode.
+
+### Phase 3: Enforced Tenant Filters
+
+Provide a first-class helper for required tenant filters in shared-table models.
+
+Planned API sketch:
+
+```elixir
+selecto
+|> Selecto.with_tenant(%{tenant_id: "acme", tenant_mode: :shared_column})
+|> Selecto.require_tenant_filter("tenant_id")
+```
+
+Expected semantics:
+
+- Required tenant filters are non-removable by user-provided filters.
+- Missing tenant values fail early with structured validation errors.
+
+Acceptance criteria:
+
+- Update/delete style query derivations cannot be executed without tenant scope.
+- `query_filters/1` includes required tenant filters so downstream write tools
+  can reuse them safely.
+
+### Phase 4: Tenant-Aware Caching and Telemetry
+
+Add tenant identity into query cache and telemetry metadata to prevent
+cross-tenant bleed.
+
+Planned behavior:
+
+1. Include tenant namespace in generated cache keys.
+2. Include tenant identity metadata in telemetry events (without sensitive
+   payloads).
+3. Document redaction guidance for tenant metadata logging.
+
+Acceptance criteria:
+
+- Same SQL + params under two tenants produces different cache keys.
+- Cache hits never cross tenant boundaries in shared process tests.
+
+### Phase 5: Ecosystem Coordination and Docs
+
+Coordinate tenant behavior with companion packages:
+
+- `selecto_updato`: read/write tenant parity and prefix propagation.
+- `selecto_components`: tenant-scoped saved views/filter sets and UI context.
+- `selecto_mix`: generated templates with tenant-aware defaults.
+- `selecto_absinthe` / `selecto_ash` / `selecto_phoenix`: explicit tenant
+  context handoff patterns.
+
+Acceptance criteria:
+
+- Each ecosystem package has a multi-tenant usage plan document and
+  package-specific recommendations.
+- End-to-end sample demonstrates tenant-safe read + write workflow.
+
+## Test Matrix
+
+Run matrix scenarios for each tenant mode:
+
+1. Shared table + required `tenant_id` filter.
+2. Shared table + RLS session context.
+3. Schema prefix read/write parity.
+4. Dedicated database per tenant.
+
+Minimum checks per mode:
+
+- Correct SQL generation and parameterization.
+- Isolation between tenant A and tenant B under concurrent execution.
+- Safe failure modes for missing/invalid tenant context.
 
 ## Decision Guidance
 
@@ -115,4 +225,5 @@ Capture recommended multi-tenant patterns for `selecto`, `selecto_updato`, and r
 
 ---
 
-This document is intentionally a planning snapshot for later implementation.
+This document is now a concrete implementation blueprint and should be updated
+as phases are delivered.
