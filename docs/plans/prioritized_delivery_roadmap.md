@@ -76,3 +76,26 @@ the next delivery cycles.
   in default execute path.
 - Completed (core): P0.3 tenant enforcement parity for read execution and
   query-filter derivation fail-fast validation in `selecto`.
+- Completed: P1.1 subfilter path resolution hardening (multi-path merge,
+  duplicate join de-dupe, and top-level conjunction handling improvements).
+- Completed: P1.2 selector/function DSL extension for richer `{:func, ...}`
+  signatures.
+- Completed: P1.3 Ecto `through` association key introspection without `:id`
+  fallback assumptions.
+- Completed (core): P2.1 stream execution API added via
+  `Selecto.execute_stream/2` with direct PostgreSQL cursor-backed path.
+- Completed (initial): P2.2 baseline cross-DB integration coverage and CI jobs
+  for PostgreSQL, MySQL, MariaDB, MSSQL, and SQLite smoke execution paths.
+- In progress: P2.2 expansion from adapter execute smoke tests to broader
+  query-shape parity assertions across adapters.
+- Completed (docs baseline): P2.3 release docs/changelog parity for adapter,
+  tenant, and streaming features.
+
+## Immediate Next Steps (P2.2)
+
+1. Add expanded cross-DB query-shape tests (select/filter/order/group/pagination)
+   on top of the current adapter execute smoke checks.
+2. Add capability-gated expectation coverage so PostgreSQL-only features return
+   structured `unsupported_feature` errors on other adapters.
+3. Add optional service-level setup probes and fixture tables for richer
+   integration assertions while keeping CI runtime bounded.

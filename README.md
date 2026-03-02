@@ -32,6 +32,17 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
   part of `selecto` and are provided by companion packages (`selecto_mix`,
   `selecto_components`).
 
+## ✅ Adapter, Tenant, and Streaming Status (0.3.6)
+
+- **Adapter foundation**: First-class adapters are available under
+  `Selecto.DB.*` (`PostgreSQL`, `MySQL`, `MariaDB`, `MSSQL`, `SQLite`) with
+  adapter-driven placeholders and identifier quoting.
+- **Tenant enforcement**: Query execution and filter derivation now enforce
+  required tenant scope with explicit validation helpers.
+- **Streaming API**: `Selecto.execute_stream/2` is available. Direct PostgreSQL
+  connections use cursor-backed streaming; adapter-backed streaming requires
+  adapter `stream/4` support.
+
 ## ⚠️ Known Limitations (Advanced Subfilters)
 
 - Multi-hop subfilter paths must be explicit or unambiguous in domain join config; complex paths can return `:unresolvable_path`.
@@ -401,6 +412,27 @@ domain = %{
 - **Safe parameterization goals**: SQL generation is designed around
   parameterized query construction.
 
+### Cross-DB Baseline Checks
+
+Run adapter baseline execute checks with explicit DB tags:
+
+```bash
+# PostgreSQL baseline (with service running)
+SELECTO_RUN_DB_TESTS=true mix test test/cross_db_baseline_test.exs --only postgres
+
+# MySQL baseline
+SELECTO_RUN_DB_TESTS=true mix test test/cross_db_baseline_test.exs --only mysql
+
+# MariaDB baseline
+SELECTO_RUN_DB_TESTS=true mix test test/cross_db_baseline_test.exs --only mariadb
+
+# MSSQL baseline
+SELECTO_RUN_DB_TESTS=true mix test test/cross_db_baseline_test.exs --only mssql
+
+# SQLite baseline
+SELECTO_RUN_DB_TESTS=true mix test test/cross_db_baseline_test.exs --only sqlite
+```
+
 ## 📚 Documentation
 
 - [Join Patterns Guide](guides/joins.md) - Comprehensive database join patterns
@@ -410,16 +442,27 @@ domain = %{
 
 ## 🚦 System Requirements
 
-- Elixir 1.10+  
-- PostgreSQL 12+ (for advanced features like CTEs and window functions)
-- Postgrex connection
+- Elixir 1.14+
+- PostgreSQL 12+ with `postgrex` for full first-party integration coverage
+- Optional adapter client libraries for non-PostgreSQL execution paths
+  (`myxql`, `tds`, `exqlite`), depending on adapter selection
+
+## 🧱 Adapter Support Matrix
+
+| Adapter | SQL generation | Execute | Stream |
+| --- | --- | --- | --- |
+| PostgreSQL (`Selecto.DB.PostgreSQL`) | Yes | Yes | Yes (cursor-backed for direct Postgrex connections) |
+| MySQL (`Selecto.DB.MySQL`) | Yes | Yes (with `myxql`) | Adapter-defined (`supports?(:stream)`) |
+| MariaDB (`Selecto.DB.MariaDB`) | Yes | Yes (with `myxql`) | Adapter-defined (`supports?(:stream)`) |
+| MSSQL (`Selecto.DB.MSSQL`) | Yes | Yes (with `tds`) | Adapter-defined (`supports?(:stream)`) |
+| SQLite (`Selecto.DB.SQLite`) | Yes | Yes (with `exqlite`) | Adapter-defined (`supports?(:stream)`) |
 
 ## 📦 Installation
 
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.3"}
+    {:selecto, "~> 0.3.6"}
   ]
 end
 ```

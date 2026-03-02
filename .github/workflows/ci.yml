@@ -105,3 +105,226 @@ jobs:
 
     - name: Run Dialyzer
       run: mix dialyzer
+
+  cross_db_postgresql:
+    name: Cross-DB Baseline (PostgreSQL)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: selecto_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.16'
+        otp-version: '26'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          deps
+          _build
+        key: crossdb-postgres-${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Run PostgreSQL cross-db baseline
+      run: mix test test/cross_db_baseline_test.exs --only postgres
+      env:
+        SELECTO_RUN_DB_TESTS: true
+        SELECTO_POSTGRES_HOST: localhost
+        SELECTO_POSTGRES_PORT: 5432
+        SELECTO_POSTGRES_USER: postgres
+        SELECTO_POSTGRES_PASSWORD: postgres
+        SELECTO_POSTGRES_DATABASE: selecto_test
+
+  cross_db_mysql:
+    name: Cross-DB Baseline (MySQL)
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: selecto_test
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 3306:3306
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.16'
+        otp-version: '26'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          deps
+          _build
+        key: crossdb-mysql-${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Run MySQL cross-db baseline
+      run: mix test test/cross_db_baseline_test.exs --only mysql
+      env:
+        SELECTO_RUN_DB_TESTS: true
+        SELECTO_MYSQL_HOST: localhost
+        SELECTO_MYSQL_PORT: 3306
+        SELECTO_MYSQL_USER: root
+        SELECTO_MYSQL_PASSWORD: root
+        SELECTO_MYSQL_DATABASE: selecto_test
+
+  cross_db_mariadb:
+    name: Cross-DB Baseline (MariaDB)
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_ROOT_HOST: '%'
+          MARIADB_DATABASE: selecto_test
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 3306:3306
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.16'
+        otp-version: '26'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          deps
+          _build
+        key: crossdb-mariadb-${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Run MariaDB cross-db baseline
+      run: mix test test/cross_db_baseline_test.exs --only mariadb
+      env:
+        SELECTO_RUN_DB_TESTS: true
+        SELECTO_MARIADB_HOST: localhost
+        SELECTO_MARIADB_PORT: 3306
+        SELECTO_MARIADB_USER: root
+        SELECTO_MARIADB_PASSWORD: root
+        SELECTO_MARIADB_DATABASE: selecto_test
+
+  cross_db_mssql:
+    name: Cross-DB Baseline (MSSQL)
+    runs-on: ubuntu-latest
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: StrongPass123!
+        ports:
+          - 1433:1433
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.16'
+        otp-version: '26'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          deps
+          _build
+        key: crossdb-mssql-${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Run MSSQL cross-db baseline
+      run: mix test test/cross_db_baseline_test.exs --only mssql
+      env:
+        SELECTO_RUN_DB_TESTS: true
+        SELECTO_MSSQL_HOST: localhost
+        SELECTO_MSSQL_PORT: 1433
+        SELECTO_MSSQL_USER: sa
+        SELECTO_MSSQL_PASSWORD: StrongPass123!
+        SELECTO_MSSQL_DATABASE: master
+
+  cross_db_sqlite:
+    name: Cross-DB Baseline (SQLite)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.16'
+        otp-version: '26'
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          deps
+          _build
+        key: crossdb-sqlite-${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+
+    - name: Install dependencies
+      run: mix deps.get
+
+    - name: Run SQLite cross-db baseline
+      run: mix test test/cross_db_baseline_test.exs --only sqlite
+      env:
+        SELECTO_RUN_DB_TESTS: true

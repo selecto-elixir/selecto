@@ -4,6 +4,15 @@
 ## V NEXT
 ---------------------------------------------------------
 
+#### Added
+- Added `test/cross_db_baseline_test.exs` with adapter-tagged baseline
+  execution checks for PostgreSQL, MySQL, MariaDB, MSSQL, and SQLite.
+- Added dedicated cross-database CI baseline jobs in
+  `.github/workflows/ci.yml` for PostgreSQL, MySQL, MariaDB, MSSQL, and
+  SQLite.
+- Added concrete `Exqlite`-backed connect/execute support in
+  `Selecto.DB.SQLite` (with structured fallback when dependency is unavailable).
+
 #### Changed
 - Updated CI dialyzer invocation to use current Dialyxir CLI behavior
   (`mix dialyzer` without deprecated `--halt-exit-status`).
@@ -12,6 +21,11 @@
   PLTs per runtime.
 - Updated `mneme` dependency to be available in `:dev` and `:test` so
   `mix format --check-formatted` works in CI when formatter imports dep rules.
+- Added test-only adapter driver dependencies (`myxql`, `tds`, `exqlite`) to
+  support cross-database baseline integration runs.
+- Updated ROLLUP ORDER BY compatibility behavior to auto-disable `rollupfix`
+  wrapping on PostgreSQL 18+ while preserving wrapper safety for older
+  PostgreSQL versions.
 
 ## V 0.3.6 - Usage Rules and Multi-Tenant Plan Expansion
 ---------------------------------------------------------
