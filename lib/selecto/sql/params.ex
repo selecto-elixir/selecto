@@ -133,7 +133,13 @@ defmodule Selecto.SQL.Params do
 
   defp traverse([], state, _adapter), do: state
 
-  defp get_param_placeholder(Selecto.DB.MySQL, _idx), do: "?"
-  defp get_param_placeholder(Selecto.DB.MariaDB, _idx), do: "?"
+  defp get_param_placeholder(adapter, idx) when is_atom(adapter) do
+    if function_exported?(adapter, :placeholder, 1) do
+      adapter.placeholder(idx)
+    else
+      ["$", Integer.to_string(idx)]
+    end
+  end
+
   defp get_param_placeholder(_adapter, idx), do: ["$", Integer.to_string(idx)]
 end

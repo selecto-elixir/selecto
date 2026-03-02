@@ -2,7 +2,7 @@
 
 ## Context
 
-Selecto currently contains partial adapter branching in SQL builders and execution paths, but the adapter layer is incomplete in the current tree. There are references to modules like `Selecto.DB.PostgreSQL`, `Selecto.DB.MySQL`, and `Selecto.Adapters.PostgreSQL` without a consistent implemented adapter contract.
+Selecto currently contains partial adapter branching in SQL builders and execution paths. The first pass of concrete `Selecto.DB.*` modules now exists, but execution and pooling parity across non-PostgreSQL backends is still incomplete.
 
 This plan restores a clean adapter foundation and delivers practical cross-database support in phases, starting with core query functionality.
 

@@ -344,4 +344,25 @@ defmodule Selecto.SQL.ParamsTest do
       assert params == ["value1", "value2"]
     end
   end
+
+  describe "adapter placeholders" do
+    test "uses adapter-specific placeholders" do
+      fragments = ["where id = ", {:param, 10}, " and status = ", {:param, "active"}]
+
+      assert Params.finalize(fragments, adapter: Selecto.DB.PostgreSQL) ==
+               {"where id = $1 and status = $2", [10, "active"]}
+
+      assert Params.finalize(fragments, adapter: Selecto.DB.MySQL) ==
+               {"where id = ? and status = ?", [10, "active"]}
+
+      assert Params.finalize(fragments, adapter: Selecto.DB.MariaDB) ==
+               {"where id = ? and status = ?", [10, "active"]}
+
+      assert Params.finalize(fragments, adapter: Selecto.DB.SQLite) ==
+               {"where id = ? and status = ?", [10, "active"]}
+
+      assert Params.finalize(fragments, adapter: Selecto.DB.MSSQL) ==
+               {"where id = @p1 and status = @p2", [10, "active"]}
+    end
+  end
 end
