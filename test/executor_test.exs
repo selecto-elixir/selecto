@@ -33,6 +33,10 @@ defmodule Selecto.ExecutorTest do
     def stream(:stream_error, _query, _params, _opts), do: {:error, "stream failed"}
   end
 
+  defmodule FakeRepo do
+    def __adapter__, do: :fake
+  end
+
   defp domain do
     %{
       name: "Executor test",
@@ -57,6 +61,13 @@ defmodule Selecto.ExecutorTest do
     |> Selecto.select(["id"])
     |> Map.put(:adapter, Adapter)
     |> Map.put(:connection, connection)
+  end
+
+  defp postgrex_stream_selecto(connection) do
+    Selecto.configure(domain(), connection)
+    |> Selecto.select(["id"])
+    |> Map.put(:adapter, Selecto.DB.PostgreSQL)
+    |> Map.put(:postgrex_opts, connection)
   end
 
   test "execute_with_adapter normalizes successful results" do
@@ -118,6 +129,56 @@ defmodule Selecto.ExecutorTest do
   test "execute_stream returns validation error when adapter lacks stream support" do
     assert {:error, %Selecto.Error{type: :validation_error}} =
              Executor.execute_stream(selecto_for(:single), analyze_complexity: false)
+  end
+
+  test "execute_stream returns explicit contract error for pooled postgres" do
+    assert {:error, %Selecto.Error{type: :validation_error, details: details}} =
+             Executor.execute_stream(postgrex_stream_selecto({:pool, %{}}),
+               analyze_complexity: false
+             )
+
+    assert details[:stream_context] == :pool
+  end
+
+  test "execute_stream returns explicit contract error for ecto repo context" do
+    assert {:error, %Selecto.Error{type: :validation_error, details: details}} =
+             Executor.execute_stream(postgrex_stream_selecto(FakeRepo), analyze_complexity: false)
+
+    assert details[:stream_context] == :ecto_repo
+  end
+
+  test "execute_stream receive_timeout errors when producer stalls" do
+    assert {:ok, stream} =
+             Executor.execute_stream(
+               postgrex_stream_selecto(:fake_conn),
+               analyze_complexity: false,
+               receive_timeout: 5,
+               queue_timeout: 1,
+               stream_producer: fn _send_chunk ->
+                 Process.sleep(30)
+                 {:ok, :done}
+               end
+             )
+
+    assert_raise RuntimeError, ~r/Timed out waiting for streamed rows/, fn ->
+      Enum.to_list(stream)
+    end
+  end
+
+  test "execute_stream consumes custom postgrex producer chunks" do
+    assert {:ok, stream} =
+             Executor.execute_stream(
+               postgrex_stream_selecto(:fake_conn),
+               analyze_complexity: false,
+               stream_producer: fn send_chunk ->
+                 send_chunk.([[10], [20]], ["id"])
+                 {:ok, :done}
+               end
+             )
+
+    assert [{[10], ["id"], aliases_1}, {[20], ["id"], aliases_2}] = Enum.to_list(stream)
+    assert aliases_1 == aliases_2
+    assert is_binary(hd(aliases_1))
   end
 
   test "execute returns timeout error for long-running adapter" do
