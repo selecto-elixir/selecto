@@ -406,7 +406,8 @@ defmodule Selecto.SetOperations do
     # Date/time types
     defp types_compatible?(type1, type2)
          when type1 in [:date, :utc_datetime, :naive_datetime] and
-                type2 in [:date, :utc_datetime, :naive_datetime], do: true
+                type2 in [:date, :utc_datetime, :naive_datetime],
+         do: true
 
     # Default: incompatible
     defp types_compatible?(_, _), do: false
