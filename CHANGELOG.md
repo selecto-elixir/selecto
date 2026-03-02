@@ -4,6 +4,15 @@
 ## V NEXT
 ---------------------------------------------------------
 
+#### Changed
+- Updated CI dialyzer invocation to use current Dialyxir CLI behavior
+  (`mix dialyzer` without deprecated `--halt-exit-status`).
+- Stopped tracking generated Dialyzer PLT artifacts under `priv/plts/` and
+  updated gitignore rules so CI/build environments generate fresh compatible
+  PLTs per runtime.
+- Updated `mneme` dependency to be available in `:dev` and `:test` so
+  `mix format --check-formatted` works in CI when formatter imports dep rules.
+
 ## V 0.3.6 - Usage Rules and Multi-Tenant Plan Expansion
 ---------------------------------------------------------
 
