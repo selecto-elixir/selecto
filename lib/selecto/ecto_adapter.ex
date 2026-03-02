@@ -252,10 +252,11 @@ defmodule Selecto.EctoAdapter do
 
   defp get_association_owner_key(%{owner_key: owner_key}), do: owner_key
 
-  defp get_association_owner_key(%{through: [_through_assoc, _]}) do
-    # For has_through, the owner_key comes from the first association in the path
-    # We'll use a default for now, but this might need schema introspection
-    :id
+  defp get_association_owner_key(%{owner: owner_schema, through: [first_assoc | _]}) do
+    case fetch_association(owner_schema, first_assoc) do
+      %{owner_key: owner_key} -> owner_key
+      _ -> schema_primary_key(owner_schema)
+    end
   end
 
   defp get_association_related_key(%{related_key: related_key}), do: related_key
@@ -263,10 +264,17 @@ defmodule Selecto.EctoAdapter do
   # For introspection, fall back to the related schema primary key semantics.
   defp get_association_related_key(%{__struct__: Ecto.Association.ManyToMany}), do: :id
 
-  defp get_association_related_key(%{through: [_, _related_assoc]}) do
-    # For has_through, the related_key comes from the second association in the path
-    # We'll use a default for now, but this might need schema introspection
-    :id
+  defp get_association_related_key(%{owner: owner_schema, through: through_path})
+       when is_list(through_path) do
+    case resolve_through_associations(owner_schema, through_path) do
+      {:ok, associations} ->
+        associations
+        |> List.last()
+        |> through_related_key(owner_schema)
+
+      :error ->
+        schema_primary_key(owner_schema)
+    end
   end
 
   defp get_association_type(%{__struct__: Ecto.Association.Has}), do: :has_many
@@ -274,6 +282,61 @@ defmodule Selecto.EctoAdapter do
   defp get_association_type(%{__struct__: Ecto.Association.ManyToMany}), do: :many_to_many
   defp get_association_type(%{__struct__: Ecto.Association.HasThrough}), do: :has_many_through
   defp get_association_type(_), do: :unknown
+
+  defp fetch_association(schema, assoc_name) when is_atom(schema) and is_atom(assoc_name) do
+    try do
+      schema.__schema__(:association, assoc_name)
+    rescue
+      _ -> nil
+    end
+  end
+
+  defp fetch_association(_schema, _assoc_name), do: nil
+
+  defp resolve_through_associations(owner_schema, through_path) do
+    Enum.reduce_while(through_path, {:ok, owner_schema, []}, fn assoc_name, {:ok, schema, acc} ->
+      case fetch_association(schema, assoc_name) do
+        nil ->
+          {:halt, :error}
+
+        assoc ->
+          next_schema = Map.get(assoc, :related)
+          {:cont, {:ok, next_schema, acc ++ [assoc]}}
+      end
+    end)
+    |> case do
+      {:ok, _schema, associations} -> {:ok, associations}
+      _ -> :error
+    end
+  end
+
+  defp through_related_key(nil, owner_schema), do: schema_primary_key(owner_schema)
+
+  defp through_related_key(assoc, owner_schema) do
+    cond do
+      Map.has_key?(assoc, :related_key) and not is_nil(Map.get(assoc, :related_key)) ->
+        Map.get(assoc, :related_key)
+
+      Map.has_key?(assoc, :related) and is_atom(Map.get(assoc, :related)) ->
+        schema_primary_key(Map.get(assoc, :related))
+
+      true ->
+        schema_primary_key(owner_schema)
+    end
+  end
+
+  defp schema_primary_key(schema) when is_atom(schema) do
+    try do
+      case schema.__schema__(:primary_key) do
+        [primary_key | _] -> primary_key
+        _ -> :id
+      end
+    rescue
+      _ -> :id
+    end
+  end
+
+  defp schema_primary_key(_schema), do: :id
 
   defp build_associations(associations_info, joins_config) do
     joins_config
