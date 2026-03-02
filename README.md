@@ -32,7 +32,7 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
   part of `selecto` and are provided by companion packages (`selecto_mix`,
   `selecto_components`).
 
-## ✅ Adapter, Tenant, and Streaming Status (0.3.6)
+## ✅ Adapter, Tenant, and Streaming Status (0.3.7)
 
 - **Adapter foundation**: First-class adapters are available under
   `Selecto.DB.*` (`PostgreSQL`, `MySQL`, `MariaDB`, `MSSQL`, `SQLite`) with
@@ -83,7 +83,7 @@ your domain config.
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.3"},
+    {:selecto, "~> 0.3.7"},
     # Optional extension package for spatial/map support
     {:selecto_postgis, "~> 0.1"}
   ]
@@ -462,7 +462,7 @@ SELECTO_RUN_DB_TESTS=true mix test test/cross_db_baseline_test.exs --only sqlite
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.6"}
+    {:selecto, "~> 0.3.7"}
   ]
 end
 ```

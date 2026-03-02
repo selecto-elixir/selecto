@@ -4,6 +4,9 @@
 ## V NEXT
 ---------------------------------------------------------
 
+## V 0.3.7 - Cross-DB Baseline Expansion and PG18 Rollup Gating
+---------------------------------------------------------
+
 #### Added
 - Added `test/cross_db_baseline_test.exs` with adapter-tagged baseline
   execution checks for PostgreSQL, MySQL, MariaDB, MSSQL, and SQLite.
@@ -31,6 +34,7 @@
 - Updated ROLLUP ORDER BY compatibility behavior to auto-disable `rollupfix`
   wrapping on PostgreSQL 18+ while preserving wrapper safety for older
   PostgreSQL versions.
+- Bumped package version to `0.3.7`.
 
 ## V 0.3.6 - Usage Rules and Multi-Tenant Plan Expansion
 ---------------------------------------------------------
