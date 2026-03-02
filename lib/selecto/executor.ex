@@ -839,12 +839,18 @@ defmodule Selecto.Executor do
 
   defp execute_with_postgrex_stream(conn, query, params, aliases, opts) do
     case conn do
-      {:pool, _pool_ref} ->
-        {:error,
-         Selecto.Error.validation_error(
-           "Streaming is not yet implemented for pooled PostgreSQL connections",
-           %{stream_context: :pool}
-         )}
+      {:pool, pool_ref} ->
+        case resolve_stream_pool_connection(pool_ref) do
+          {:ok, pool_conn} ->
+            {:ok, build_postgrex_cursor_stream(pool_conn, query, params, aliases, opts)}
+
+          {:error, details} ->
+            {:error,
+             Selecto.Error.validation_error(
+               "Streaming requires a PostgreSQL pool connection reference",
+               details
+             )}
+        end
 
       conn when is_pid(conn) or is_atom(conn) ->
         {:ok, build_postgrex_cursor_stream(conn, query, params, aliases, opts)}
@@ -853,6 +859,19 @@ defmodule Selecto.Executor do
         {:error,
          Selecto.Error.connection_error("Invalid connection type", %{connection: inspect(conn)})}
     end
+  end
+
+  defp resolve_stream_pool_connection(pool_ref) when is_pid(pool_ref) or is_atom(pool_ref) do
+    {:ok, pool_ref}
+  end
+
+  defp resolve_stream_pool_connection(%{pool: pool_conn})
+       when is_pid(pool_conn) or is_atom(pool_conn) do
+    {:ok, pool_conn}
+  end
+
+  defp resolve_stream_pool_connection(pool_ref) do
+    {:error, %{stream_context: :pool, pool_ref: inspect(pool_ref)}}
   end
 
   defp build_postgrex_cursor_stream(conn, query, params, aliases, opts) do
