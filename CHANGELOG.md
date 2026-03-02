@@ -23,6 +23,9 @@
 - Added `Selecto.execute_stream/2` and `Selecto.Executor.execute_stream/2` for
   incremental row consumption, with PostgreSQL cursor-backed streaming for
   direct connections and adapter `stream/4` integration support.
+- Added stream-contract coverage for unsupported contexts (`:pool`,
+  `:ecto_repo`, and adapters without `stream/4`) and receive-timeout behavior
+  for stalled cursor producers.
 
 #### Changed
 - Clarified tenant-isolation recommendations for shared-table, schema-prefix,
