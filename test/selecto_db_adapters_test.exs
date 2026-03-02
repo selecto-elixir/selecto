@@ -21,6 +21,14 @@ defmodule Selecto.DB.AdaptersTest do
     end)
   end
 
+  test "adapter stream capability contract is explicit" do
+    Enum.each(@adapters, fn adapter ->
+      if adapter.supports?(:stream) do
+        assert function_exported?(adapter, :stream, 4)
+      end
+    end)
+  end
+
   test "adapter placeholder strategies are explicit" do
     assert Selecto.DB.PostgreSQL.placeholder(3) |> IO.iodata_to_binary() == "$3"
     assert Selecto.DB.MySQL.placeholder(3) == "?"
