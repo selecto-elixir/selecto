@@ -153,6 +153,25 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
              } = resolution
     end
 
+    test "decomposes via join ON clauses with reordered join predicates" do
+      domain =
+        put_in(
+          film_domain_config(),
+          [:joins, "film.category", :on],
+          "film_category.category_id = category.category_id AND film.film_id = film_category.film_id AND category.active = true"
+        )
+
+      {:ok, spec} = Parser.parse("film.category", "Action")
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, domain)
+
+      assert %JoinResolution{
+               joins: [
+                 %{on: "film.film_id = film_category.film_id"},
+                 %{on: "film_category.category_id = category.category_id"}
+               ]
+             } = resolution
+    end
+
     test "resolves a pre-configured multi-hop join" do
       {:ok, spec} = Parser.parse("film.category.name", "Action")
       {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, film_domain_config())
