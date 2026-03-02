@@ -230,17 +230,101 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   end
 
   defp extract_first_join_condition(on_clause) do
-    # Simple parsing - in real implementation would be more robust
-    case String.split(on_clause, " AND ") do
-      [first_condition | _] -> String.trim(first_condition)
-      _ -> on_clause
+    case split_first_top_level_and(on_clause) do
+      {first_condition, _second_condition} -> first_condition
+      _ -> String.trim(on_clause)
     end
   end
 
   defp extract_second_join_condition(on_clause) do
-    case String.split(on_clause, " AND ") do
-      [_, second_condition] -> String.trim(second_condition)
-      _ -> on_clause
+    case split_first_top_level_and(on_clause) do
+      {_first_condition, second_condition}
+      when is_binary(second_condition) and second_condition != "" ->
+        second_condition
+
+      _ ->
+        String.trim(on_clause)
+    end
+  end
+
+  defp split_first_top_level_and(on_clause) when is_binary(on_clause) do
+    len = byte_size(on_clause)
+
+    case find_top_level_and(on_clause, len, 0, 0, false, false) do
+      {:ok, and_index} ->
+        left = on_clause |> binary_part(0, and_index) |> String.trim()
+        right_start = skip_whitespace(on_clause, and_index + 3, len)
+        right = on_clause |> binary_part(right_start, len - right_start) |> String.trim()
+        {left, right}
+
+      :error ->
+        {String.trim(on_clause), nil}
+    end
+  end
+
+  defp split_first_top_level_and(other), do: {to_string(other), nil}
+
+  defp find_top_level_and(_clause, len, index, _depth, _single_quote?, _double_quote?)
+       when index + 2 >= len,
+       do: :error
+
+  defp find_top_level_and(clause, len, index, depth, single_quote?, double_quote?) do
+    current = :binary.at(clause, index)
+
+    cond do
+      current == ?' and not double_quote? ->
+        find_top_level_and(clause, len, index + 1, depth, not single_quote?, double_quote?)
+
+      current == ?" and not single_quote? ->
+        find_top_level_and(clause, len, index + 1, depth, single_quote?, not double_quote?)
+
+      single_quote? or double_quote? ->
+        find_top_level_and(clause, len, index + 1, depth, single_quote?, double_quote?)
+
+      current == ?( ->
+        find_top_level_and(clause, len, index + 1, depth + 1, single_quote?, double_quote?)
+
+      current == ?) and depth > 0 ->
+        find_top_level_and(clause, len, index + 1, depth - 1, single_quote?, double_quote?)
+
+      depth == 0 and top_level_and_at?(clause, index, len) ->
+        {:ok, index}
+
+      true ->
+        find_top_level_and(clause, len, index + 1, depth, single_quote?, double_quote?)
+    end
+  end
+
+  defp top_level_and_at?(clause, index, len) do
+    with true <- index > 0,
+         true <- index + 3 < len,
+         true <- whitespace?(:binary.at(clause, index - 1)),
+         true <- whitespace?(:binary.at(clause, index + 3)),
+         true <- and_token_at?(clause, index) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp and_token_at?(clause, index) do
+    ascii_up(:binary.at(clause, index)) == ?A and
+      ascii_up(:binary.at(clause, index + 1)) == ?N and
+      ascii_up(:binary.at(clause, index + 2)) == ?D
+  end
+
+  defp ascii_up(char) when char in ?a..?z, do: char - 32
+  defp ascii_up(char), do: char
+
+  defp whitespace?(char), do: char in [9, 10, 11, 12, 13, 32]
+
+  defp skip_whitespace(_clause, index, len) when index >= len, do: len
+
+  defp skip_whitespace(clause, index, len) do
+    if whitespace?(:binary.at(clause, index)) do
+      skip_whitespace(clause, index + 1, len)
+    else
+      index
     end
   end
 
@@ -389,10 +473,32 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   end
 
   defp optimize_join_sequences(resolutions) do
-    # For now, return as-is. In a full implementation, this would:
-    # 1. Detect common join prefixes across resolutions
-    # 2. Eliminate duplicate joins where possible
-    # 3. Optimize join order for performance
-    resolutions
+    Enum.map(resolutions, fn %JoinResolution{joins: joins} = resolution ->
+      %{resolution | joins: dedupe_join_sequence(joins)}
+    end)
+  end
+
+  defp dedupe_join_sequence(joins) do
+    joins
+    |> Enum.reduce({MapSet.new(), []}, fn join, {seen, acc} ->
+      signature = join_signature(join)
+
+      if MapSet.member?(seen, signature) do
+        {seen, acc}
+      else
+        {MapSet.put(seen, signature), acc ++ [join]}
+      end
+    end)
+    |> elem(1)
+  end
+
+  defp join_signature(join) do
+    {
+      Map.get(join, :from),
+      Map.get(join, :to),
+      Map.get(join, :type),
+      Map.get(join, :on),
+      Map.get(join, :field)
+    }
   end
 end
