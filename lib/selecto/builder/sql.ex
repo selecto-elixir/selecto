@@ -600,7 +600,18 @@ defmodule Selecto.Builder.Sql do
           false
       end)
 
-    regular_filters = Map.get(Selecto.domain(selecto), :required_filters, []) ++ set_filters
+    domain_required_filters = Map.get(Selecto.domain(selecto), :required_filters, [])
+    set_required_filters = Map.get(selecto.set, :required_filters, [])
+
+    regular_filters =
+      (domain_required_filters ++ set_required_filters ++ set_filters)
+      |> Enum.reduce([], fn filter, acc ->
+        if filter in acc do
+          acc
+        else
+          acc ++ [filter]
+        end
+      end)
 
     # Add JSON filters if they exist
     json_filters =

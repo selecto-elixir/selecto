@@ -35,6 +35,8 @@ defmodule Selecto.Query do
   """
   @spec filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def filter(selecto, filters) when is_list(filters) do
+    required_filters = required_filters(selecto)
+
     # Track whether this filter is applied before or after pivot
     has_pivot = Selecto.Pivot.has_pivot?(selecto)
     pivot_config = Selecto.Pivot.get_pivot_config(selecto)
@@ -44,7 +46,7 @@ defmodule Selecto.Query do
       case {has_pivot, pivot_config} do
         {false, _} ->
           # No pivot yet, all filters are pre-pivot
-          {selecto.set.filtered ++ filters, []}
+          {uniq_filters(selecto.set.filtered ++ filters ++ required_filters), []}
 
         {true, _} ->
           # Pivot exists, new filters are post-pivot
@@ -55,6 +57,7 @@ defmodule Selecto.Query do
     updated_set =
       selecto.set
       |> Map.put(:filtered, pre_pivot_filters)
+      |> Map.put(:required_filters, required_filters)
       |> Map.put(:post_pivot_filters, post_pivot_filters)
 
     %{selecto | set: updated_set}
@@ -73,7 +76,12 @@ defmodule Selecto.Query do
   """
   @spec pre_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def pre_pivot_filter(selecto, filters) when is_list(filters) do
-    put_in(selecto.set.filtered, selecto.set.filtered ++ filters)
+    current_required = required_filters(selecto)
+
+    put_in(
+      selecto.set.filtered,
+      uniq_filters(selecto.set.filtered ++ filters ++ current_required)
+    )
   end
 
   @spec pre_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
@@ -116,6 +124,27 @@ defmodule Selecto.Query do
   end
 
   @doc """
+  Return required filters currently attached to the query.
+
+  This includes domain-level required filters and query-level required filters
+  added at runtime.
+  """
+  @spec required_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
+  def required_filters(selecto) do
+    domain_required =
+      selecto
+      |> Selecto.domain()
+      |> Map.get(:required_filters, [])
+
+    set_required =
+      selecto
+      |> Map.get(:set, %{})
+      |> Map.get(:required_filters, [])
+
+    uniq_filters(domain_required ++ set_required)
+  end
+
+  @doc """
   Return query filters across legacy and current buckets as a flat list.
 
   This is useful for integrations that need to copy filters between Selecto and
@@ -147,10 +176,21 @@ defmodule Selecto.Query do
         []
       end
 
-    [legacy_filters, set_filters, post_pivot_filters]
+    [legacy_filters, required_filters(selecto), set_filters, post_pivot_filters]
     |> Enum.flat_map(fn
       filters when is_list(filters) -> filters
       _ -> []
+    end)
+    |> uniq_filters()
+  end
+
+  defp uniq_filters(filters) do
+    Enum.reduce(filters, [], fn filter, acc ->
+      if filter in acc do
+        acc
+      else
+        acc ++ [filter]
+      end
     end)
   end
 

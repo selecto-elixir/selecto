@@ -264,10 +264,21 @@ defmodule Selecto.Types do
   @type query_set :: %{
           required(:selected) => [selector()],
           required(:filtered) => [filter()],
+          optional(:required_filters) => [filter()],
+          optional(:post_pivot_filters) => [filter()],
           required(:order_by) => [order_spec()],
           required(:group_by) => [field_name()],
           optional(:pivot_state) => pivot_config(),
           optional(:subselected) => [subselect_selector()]
+        }
+
+  @type tenant_context :: %{
+          optional(:tenant_id) => term(),
+          optional(:tenant_mode) => atom() | String.t(),
+          optional(:tenant_field) => atom() | String.t(),
+          optional(:prefix) => String.t(),
+          optional(:namespace) => String.t(),
+          optional(:required_filters) => [filter()]
         }
 
   # Main Selecto struct
@@ -278,7 +289,8 @@ defmodule Selecto.Types do
           domain: domain(),
           config: processed_config(),
           set: query_set(),
-          extensions: [{module(), keyword()}]
+          extensions: [{module(), keyword()}],
+          tenant: tenant_context() | nil
         }
 
   # Processed configuration (internal)

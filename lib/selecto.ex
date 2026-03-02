@@ -1,6 +1,6 @@
 defmodule Selecto do
-  @derive {Inspect, only: [:postgrex_opts, :adapter, :connection, :set]}
-  defstruct [:postgrex_opts, :adapter, :connection, :domain, :config, :set, :extensions]
+  @derive {Inspect, only: [:postgrex_opts, :adapter, :connection, :set, :tenant]}
+  defstruct [:postgrex_opts, :adapter, :connection, :domain, :config, :set, :extensions, :tenant]
 
   # import Selecto.Types - removed to avoid circular dependency
 
@@ -477,6 +477,46 @@ defmodule Selecto do
   defdelegate filter(selecto, filters_or_filter), to: Selecto.Query
 
   @doc """
+  Return required filters currently attached to the query.
+
+  This includes domain-level required filters and tenant-scope required filters
+  attached at runtime.
+  """
+  @spec required_filters(t()) :: [Selecto.Types.filter()]
+  defdelegate required_filters(selecto), to: Selecto.Query
+
+  @doc """
+  Attach tenant context to the query state.
+  """
+  @spec with_tenant(t(), map() | keyword() | String.t() | atom() | nil) :: t()
+  defdelegate with_tenant(selecto, tenant_context), to: Selecto.Tenant
+
+  @doc """
+  Read tenant context from query state.
+  """
+  @spec tenant(t()) :: map() | nil
+  defdelegate tenant(selecto), to: Selecto.Tenant
+
+  @doc """
+  Apply tenant scope as required filters.
+  """
+  @spec apply_tenant_scope(t(), keyword()) :: t()
+  defdelegate apply_tenant_scope(selecto, opts \\ []), to: Selecto.Tenant
+
+  @doc """
+  Add a required tenant filter to query state.
+  """
+  @spec require_tenant_filter(t(), Selecto.Types.filter()) :: t()
+  @spec require_tenant_filter(t(), atom() | String.t(), term()) :: t()
+  def require_tenant_filter(selecto, {_, _} = filter) do
+    Selecto.Tenant.require_tenant_filter(selecto, filter)
+  end
+
+  def require_tenant_filter(selecto, tenant_field, tenant_id) do
+    Selecto.Tenant.require_tenant_filter(selecto, tenant_field, tenant_id)
+  end
+
+  @doc """
   Append filters explicitly to the pre-pivot filter list.
 
   These filters stay attached to the original root side when using `pivot/3`.
@@ -643,7 +683,7 @@ defmodule Selecto do
           Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
     # Delegate to the extracted Executor module
-    Selecto.Executor.execute(selecto, opts)
+    Selecto.Executor.execute(selecto, Selecto.Tenant.merge_execution_opts(selecto, opts))
   end
 
   @doc """
@@ -679,7 +719,10 @@ defmodule Selecto do
           {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
   def execute_with_metadata(selecto, opts \\ []) do
     # Delegate to the extracted Executor module
-    Selecto.Executor.execute_with_metadata(selecto, opts)
+    Selecto.Executor.execute_with_metadata(
+      selecto,
+      Selecto.Tenant.merge_execution_opts(selecto, opts)
+    )
   end
 
   @doc """
@@ -706,7 +749,7 @@ defmodule Selecto do
           Selecto.Types.safe_execute_one_result()
   def execute_one(selecto, opts \\ []) do
     # Delegate to the extracted Executor module
-    Selecto.Executor.execute_one(selecto, opts)
+    Selecto.Executor.execute_one(selecto, Selecto.Tenant.merge_execution_opts(selecto, opts))
   end
 
   @doc """

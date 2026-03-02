@@ -94,6 +94,7 @@ defmodule Selecto.Configuration do
       set: %{
         selected: Map.get(domain, :required_selected, []),
         filtered: [],
+        required_filters: Map.get(domain, :required_filters, []),
         post_pivot_filters: [],
         order_by: Map.get(domain, :required_order_by, []),
         group_by: Map.get(domain, :required_group_by, [])
