@@ -804,37 +804,59 @@ defmodule Selecto.Executor do
   end
 
   defp execute_with_adapter_stream(adapter, connection, query, params, aliases, opts) do
-    if function_exported?(adapter, :stream, 4) do
-      try do
-        case adapter.stream(connection, query, params, opts) do
-          {:ok, stream, columns} ->
-            {:ok, Stream.map(stream, &{&1, List.wrap(columns), aliases})}
+    cond do
+      not adapter_supports_stream?(adapter) ->
+        {:error,
+         Selecto.Error.validation_error(
+           "Streaming requires adapter.supports?(:stream) capability",
+           %{adapter: adapter, stream_context: :adapter, adapter_contract: :supports_stream}
+         )}
 
-          {:ok, stream} ->
-            {:ok, Stream.map(stream, &{&1, [], aliases})}
+      not function_exported?(adapter, :stream, 4) ->
+        {:error,
+         Selecto.Error.validation_error(
+           "Adapter declares stream support but does not implement stream/4",
+           %{adapter: adapter, stream_context: :adapter, adapter_contract: :stream_callback}
+         )}
 
-          {:error, reason} ->
+      true ->
+        try do
+          case adapter.stream(connection, query, params, opts) do
+            {:ok, stream, columns} ->
+              {:ok, Stream.map(stream, &{&1, List.wrap(columns), aliases})}
+
+            {:ok, stream} ->
+              {:ok, Stream.map(stream, &{&1, [], aliases})}
+
+            {:error, reason} ->
+              {:error,
+               Selecto.Error.query_error("Adapter stream execution failed", query, params, %{
+                 adapter: adapter,
+                 reason: reason
+               })}
+          end
+        rescue
+          FunctionClauseError ->
             {:error,
-             Selecto.Error.query_error("Adapter stream execution failed", query, params, %{
-               adapter: adapter,
-               reason: reason
-             })}
+             Selecto.Error.validation_error(
+               "Streaming requires adapter stream support for this connection",
+               %{adapter: adapter, connection: inspect(connection)}
+             )}
+
+          UndefinedFunctionError ->
+            {:error,
+             Selecto.Error.validation_error(
+               "Adapter stream callback is unavailable",
+               %{adapter: adapter, stream_context: :adapter, adapter_contract: :stream_callback}
+             )}
         end
-      rescue
-        FunctionClauseError ->
-          {:error,
-           Selecto.Error.validation_error(
-             "Streaming requires adapter stream support for this connection",
-             %{adapter: adapter, connection: inspect(connection)}
-           )}
-      end
-    else
-      {:error,
-       Selecto.Error.validation_error(
-         "Streaming requires adapter.stream/4 support",
-         %{adapter: adapter, stream_context: :adapter}
-       )}
     end
+  end
+
+  defp adapter_supports_stream?(adapter) do
+    function_exported?(adapter, :supports?, 1) and adapter.supports?(:stream)
+  rescue
+    _ -> false
   end
 
   defp execute_with_postgrex_stream(conn, query, params, aliases, opts) do

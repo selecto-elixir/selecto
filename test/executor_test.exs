@@ -31,6 +31,27 @@ defmodule Selecto.ExecutorTest do
     end
 
     def stream(:stream_error, _query, _params, _opts), do: {:error, "stream failed"}
+
+    def supports?(:stream), do: true
+    def supports?(_feature), do: false
+  end
+
+  defmodule NoStreamCapabilityAdapter do
+    def execute(:single_stream, _query, _params, _opts),
+      do: {:ok, %{rows: [[1]], columns: ["id"]}}
+
+    def stream(:single_stream, _query, _params, _opts),
+      do: {:ok, Stream.map([[1]], & &1), ["id"]}
+
+    def supports?(_feature), do: false
+  end
+
+  defmodule DeclaredStreamMissingAdapter do
+    def execute(:single_stream, _query, _params, _opts),
+      do: {:ok, %{rows: [[1]], columns: ["id"]}}
+
+    def supports?(:stream), do: true
+    def supports?(_feature), do: false
   end
 
   defmodule FakeRepo do
@@ -56,10 +77,10 @@ defmodule Selecto.ExecutorTest do
     }
   end
 
-  defp selecto_for(connection) do
+  defp selecto_for(connection, adapter \\ Adapter) do
     Selecto.configure(domain(), nil)
     |> Selecto.select(["id"])
-    |> Map.put(:adapter, Adapter)
+    |> Map.put(:adapter, adapter)
     |> Map.put(:connection, connection)
   end
 
@@ -129,6 +150,26 @@ defmodule Selecto.ExecutorTest do
   test "execute_stream returns validation error when adapter lacks stream support" do
     assert {:error, %Selecto.Error{type: :validation_error}} =
              Executor.execute_stream(selecto_for(:single), analyze_complexity: false)
+  end
+
+  test "execute_stream enforces adapter supports(:stream) contract" do
+    assert {:error, %Selecto.Error{type: :validation_error, details: details}} =
+             Executor.execute_stream(
+               selecto_for(:single_stream, NoStreamCapabilityAdapter),
+               analyze_complexity: false
+             )
+
+    assert details[:adapter_contract] == :supports_stream
+  end
+
+  test "execute_stream validates stream callback when support is declared" do
+    assert {:error, %Selecto.Error{type: :validation_error, details: details}} =
+             Executor.execute_stream(
+               selecto_for(:single_stream, DeclaredStreamMissingAdapter),
+               analyze_complexity: false
+             )
+
+    assert details[:adapter_contract] == :stream_callback
   end
 
   test "execute_stream returns explicit contract error for pooled postgres" do
