@@ -10,10 +10,20 @@
 - Expanded `docs/plans/multi_tenant_usage_patterns.md` with concrete
   implementation phases, API sketches, cross-package coordination points, and
   phase-level acceptance criteria.
+- Added first-class tenant helpers in `Selecto.Tenant` and top-level API
+  delegates (`with_tenant/2`, `tenant/1`, `apply_tenant_scope/2`,
+  `require_tenant_filter/2|3`) for runtime tenant scoping.
+- Added runtime tenant coverage tests for context normalization, required
+  filters, SQL generation, and execution option prefix merging.
 
 #### Changed
 - Clarified tenant-isolation recommendations for shared-table, schema-prefix,
   dedicated database, and hybrid deployment models.
+- Updated query/filter pipelines and SQL WHERE compilation to include runtime
+  `set.required_filters` alongside domain required filters, with deduping.
+- Updated execute paths (`execute/2`, `execute_with_metadata/2`,
+  `execute_one/2`) to inject tenant-derived `:prefix` when no explicit prefix
+  option is provided.
 
 ## V 0.3.5 - Query Tooling, Diagnostics, and Livebook Ergonomics
 ---------------------------------------------------------
