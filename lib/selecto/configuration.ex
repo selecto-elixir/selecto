@@ -39,8 +39,8 @@ defmodule Selecto.Configuration do
   def configure(domain, postgrex_opts, opts \\ []) do
     validate? = Keyword.get(opts, :validate, true)
     use_pool? = Keyword.get(opts, :pool, false)
-    pool_options = Keyword.get(opts, :pool_options, [])
     adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
+    pool_options = opts |> Keyword.get(:pool_options, []) |> Keyword.put_new(:adapter, adapter)
 
     extension_specs = Selecto.Extensions.from_domain(domain)
     domain = Selecto.Extensions.merge_domain_extensions(domain, extension_specs)
@@ -73,13 +73,20 @@ defmodule Selecto.Configuration do
         # Backward compatibility: use postgrex_opts directly for PostgreSQL
         final_postgrex_opts
       else
-        # For other adapters, let them handle their own connection
-        case adapter.connect(postgrex_opts) do
-          {:ok, conn} ->
-            conn
+        # For non-PostgreSQL adapters, reuse pooled adapter reference when available.
+        case final_postgrex_opts do
+          {:pool, %{adapter: ^adapter} = pool_ref} ->
+            pool_ref
 
-          {:error, reason} ->
-            raise "Failed to connect with adapter #{inspect(adapter)}: #{inspect(reason)}"
+          _ ->
+            # Otherwise let the adapter establish its own connection.
+            case adapter.connect(postgrex_opts) do
+              {:ok, conn} ->
+                conn
+
+              {:error, reason} ->
+                raise "Failed to connect with adapter #{inspect(adapter)}: #{inspect(reason)}"
+            end
         end
       end
 
