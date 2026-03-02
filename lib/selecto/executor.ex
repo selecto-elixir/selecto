@@ -366,7 +366,8 @@ defmodule Selecto.Executor do
             :max_rows,
             :receive_timeout,
             :queue_timeout,
-            :stream_timeout
+            :stream_timeout,
+            :stream_producer
           ])
 
         {query, aliases, params} = Selecto.gen_sql(selecto, stream_sql_opts)
@@ -794,7 +795,7 @@ defmodule Selecto.Executor do
         {:error,
          Selecto.Error.validation_error(
            "Streaming is not yet implemented for Ecto repository execution",
-           %{repo: selecto.postgrex_opts}
+           %{repo: selecto.postgrex_opts, stream_context: :ecto_repo}
          )}
 
       true ->
@@ -831,7 +832,7 @@ defmodule Selecto.Executor do
       {:error,
        Selecto.Error.validation_error(
          "Streaming requires adapter.stream/4 support",
-         %{adapter: adapter}
+         %{adapter: adapter, stream_context: :adapter}
        )}
     end
   end
@@ -842,7 +843,7 @@ defmodule Selecto.Executor do
         {:error,
          Selecto.Error.validation_error(
            "Streaming is not yet implemented for pooled PostgreSQL connections",
-           %{}
+           %{stream_context: :pool}
          )}
 
       conn when is_pid(conn) or is_atom(conn) ->
@@ -862,22 +863,29 @@ defmodule Selecto.Executor do
     receive_timeout = Keyword.get(opts, :receive_timeout, 60_000)
     queue_timeout = Keyword.get(opts, :queue_timeout, 100)
 
+    producer =
+      Keyword.get(opts, :stream_producer, fn send_chunk ->
+        Postgrex.transaction(
+          conn,
+          fn tx_conn ->
+            tx_conn
+            |> Postgrex.stream(query, params, max_rows: max_rows)
+            |> Enum.each(fn %Postgrex.Result{rows: rows, columns: columns} ->
+              send_chunk.(rows, columns)
+            end)
+          end,
+          timeout: stream_timeout
+        )
+      end)
+
     Stream.resource(
       fn ->
         task =
           Task.async(fn ->
             tx_result =
-              Postgrex.transaction(
-                conn,
-                fn tx_conn ->
-                  tx_conn
-                  |> Postgrex.stream(query, params, max_rows: max_rows)
-                  |> Enum.each(fn %Postgrex.Result{rows: rows, columns: columns} ->
-                    send(parent, {ref, {:chunk, rows, columns}})
-                  end)
-                end,
-                timeout: stream_timeout
-              )
+              producer.(fn rows, columns ->
+                send(parent, {ref, {:chunk, rows, columns}})
+              end)
 
             send(parent, {ref, {:done, tx_result}})
           end)

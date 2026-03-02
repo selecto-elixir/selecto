@@ -392,7 +392,11 @@ defmodule Selecto.Types do
 
   @type execute_options :: [
           timeout: timeout(),
-          log: boolean()
+          log: boolean(),
+          max_rows: pos_integer(),
+          receive_timeout: timeout(),
+          queue_timeout: timeout(),
+          stream_timeout: timeout()
         ]
 
   @type sql_generation_options :: [
