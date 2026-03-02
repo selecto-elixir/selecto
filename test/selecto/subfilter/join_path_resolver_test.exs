@@ -115,6 +115,44 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
              } = resolution
     end
 
+    test "decomposes via join ON clauses with lowercase and" do
+      domain =
+        put_in(
+          film_domain_config(),
+          [:joins, "film.category", :on],
+          "film.film_id = film_category.film_id and film_category.category_id = category.category_id"
+        )
+
+      {:ok, spec} = Parser.parse("film.category", "Action")
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, domain)
+
+      assert %JoinResolution{
+               joins: [
+                 %{on: "film.film_id = film_category.film_id"},
+                 %{on: "film_category.category_id = category.category_id"}
+               ]
+             } = resolution
+    end
+
+    test "decomposes via join ON clauses without splitting nested AND" do
+      domain =
+        put_in(
+          film_domain_config(),
+          [:joins, "film.category", :on],
+          "film.film_id = film_category.film_id AND (film_category.active = true AND category.active = true)"
+        )
+
+      {:ok, spec} = Parser.parse("film.category", "Action")
+      {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, domain)
+
+      assert %JoinResolution{
+               joins: [
+                 %{on: "film.film_id = film_category.film_id"},
+                 %{on: "(film_category.active = true AND category.active = true)"}
+               ]
+             } = resolution
+    end
+
     test "resolves a pre-configured multi-hop join" do
       {:ok, spec} = Parser.parse("film.category.name", "Action")
       {:ok, resolution} = JoinPathResolver.resolve(spec.relationship_path, film_domain_config())
@@ -166,6 +204,22 @@ defmodule Selecto.Subfilter.JoinPathResolverTest do
                target_table: :actor,
                target_field: "last_name"
              } = resolution
+    end
+
+    test "resolve_multiple removes duplicate join entries in a sequence" do
+      duplicate_domain =
+        update_in(film_domain_config(), [:joins, "film.category.name"], fn joins ->
+          [hd(joins) | joins]
+        end)
+
+      {:ok, spec} = Parser.parse("film.category.name", "Action")
+
+      {:ok, [resolution]} =
+        JoinPathResolver.resolve_multiple([spec.relationship_path], duplicate_domain)
+
+      assert length(resolution.joins) == 2
+      assert Enum.at(resolution.joins, 0).from == :film
+      assert Enum.at(resolution.joins, 1).from == :film_category
     end
   end
 
