@@ -748,6 +748,20 @@ defmodule Selecto do
 
   Returns a stream of `{row, columns, aliases}` tuples for incremental result
   consumption.
+
+  ## Options
+
+  - `:max_rows` - PostgreSQL cursor batch size (default `500`)
+  - `:receive_timeout` - stream consumer wait timeout in ms (default `60000`)
+  - `:queue_timeout` - internal task yield timeout in ms (default `100`)
+  - `:stream_timeout` - transaction timeout for cursor execution (default `30000`)
+
+  ## Notes
+
+  - Direct PostgreSQL connections use cursor-backed streaming.
+  - Adapter-backed streaming requires `adapter.stream/4` support.
+  - Ecto repo and pooled PostgreSQL stream paths currently return structured
+    `:validation_error` responses.
   """
   @spec execute_stream(Selecto.Types.t(), keyword()) :: Selecto.Types.safe_execute_stream_result()
   def execute_stream(selecto, opts \\ []) do
