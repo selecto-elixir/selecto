@@ -25,4 +25,7 @@ selecto-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
+# Dialyzer PLT artifacts are environment-specific.
+/priv/plts/
+
 /.vscode/
