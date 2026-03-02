@@ -59,6 +59,22 @@ defmodule Selecto.Subfilter.RegistryTest do
       assert map_size(updated_registry.subfilters) == 2
       assert length(updated_registry.compound_ops) == 1
       assert %{type: :and, subfilter_ids: _} = List.first(updated_registry.compound_ops)
+
+      ids = List.first(updated_registry.compound_ops).subfilter_ids
+
+      Enum.each(ids, fn id ->
+        assert updated_registry.subfilters[id].id == id
+      end)
+    end
+
+    test "returns duplicate_subfilter_id for repeated compound paths", %{registry: registry} do
+      repeated_subfilters = [
+        {"film.rating", "R"},
+        {"film.rating", "PG"}
+      ]
+
+      assert {:error, %Error{type: :duplicate_subfilter_id}} =
+               Registry.add_compound(registry, :and, repeated_subfilters)
     end
 
     test "removes a subfilter from the registry", %{registry: registry} do

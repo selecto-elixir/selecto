@@ -285,24 +285,76 @@ defmodule Selecto.Subfilter.Registry do
   end
 
   defp add_compound_subfilters(registry, subfilters) do
-    add_compound_subfilters(registry, subfilters, [])
-  end
+    prepared_subfilters =
+      Enum.map(subfilters, fn spec ->
+        subfilter_id = generate_compound_subfilter_id(spec)
+        final_spec = %{spec | id: subfilter_id}
+        {subfilter_id, final_spec}
+      end)
 
-  defp add_compound_subfilters(registry, [], subfilter_ids) do
-    {:ok, registry, Enum.reverse(subfilter_ids)}
-  end
+    subfilter_ids = Enum.map(prepared_subfilters, fn {subfilter_id, _spec} -> subfilter_id end)
 
-  defp add_compound_subfilters(registry, [spec | rest], subfilter_ids) do
-    # Generate a unique ID for this subfilter based on its spec
-    subfilter_id = generate_compound_subfilter_id(spec)
+    with :ok <- ensure_unique_subfilter_ids(subfilter_ids),
+         :ok <- ensure_registry_conflicts(registry, prepared_subfilters),
+         {:ok, resolutions} <- resolve_compound_paths(prepared_subfilters, registry) do
+      updated_registry =
+        Enum.zip(prepared_subfilters, resolutions)
+        |> Enum.reduce(registry, fn {{subfilter_id, spec}, resolved_joins}, acc ->
+          %{
+            acc
+            | subfilters: Map.put(acc.subfilters, subfilter_id, spec),
+              join_resolutions: Map.put(acc.join_resolutions, subfilter_id, resolved_joins)
+          }
+        end)
 
-    case add_parsed_subfilter(registry, subfilter_id, spec) do
-      {:ok, updated_registry} ->
-        add_compound_subfilters(updated_registry, rest, [subfilter_id | subfilter_ids])
-
+      {:ok, optimize_strategies(updated_registry), subfilter_ids}
+    else
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp ensure_unique_subfilter_ids(subfilter_ids) do
+    duplicate_id =
+      subfilter_ids
+      |> Enum.frequencies()
+      |> Enum.find_value(fn
+        {subfilter_id, count} when count > 1 -> subfilter_id
+        _ -> nil
+      end)
+
+    case duplicate_id do
+      nil ->
+        :ok
+
+      subfilter_id ->
+        {:error,
+         %Error{
+           type: :duplicate_subfilter_id,
+           message: "Subfilter ID already exists in registry",
+           details: %{subfilter_id: subfilter_id}
+         }}
+    end
+  end
+
+  defp ensure_registry_conflicts(registry, prepared_subfilters) do
+    Enum.reduce_while(prepared_subfilters, :ok, fn {subfilter_id, spec}, _acc ->
+      case check_for_conflicts(registry, subfilter_id, spec) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp resolve_compound_paths(prepared_subfilters, registry) do
+    relationship_paths =
+      Enum.map(prepared_subfilters, fn {_subfilter_id, spec} -> spec.relationship_path end)
+
+    JoinPathResolver.resolve_multiple(
+      relationship_paths,
+      registry.domain_name,
+      registry.base_table
+    )
   end
 
   defp merge_where_clause(base_query, where_clause) do
@@ -321,31 +373,6 @@ defmodule Selecto.Subfilter.Registry do
     field = spec.relationship_path.target_field || "agg"
 
     "compound_#{path_str}_#{field}"
-  end
-
-  defp add_parsed_subfilter(registry, subfilter_id, spec) do
-    with {:ok, resolved_joins} <-
-           JoinPathResolver.resolve(
-             spec.relationship_path,
-             registry.domain_name,
-             registry.base_table
-           ) do
-      case check_for_conflicts(registry, subfilter_id, spec) do
-        :ok ->
-          updated_registry = %{
-            registry
-            | subfilters: Map.put(registry.subfilters, subfilter_id, spec),
-              join_resolutions: Map.put(registry.join_resolutions, subfilter_id, resolved_joins)
-          }
-
-          {:ok, updated_registry}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   defp remove_from_compound_ops(compound_ops, subfilter_id) do
