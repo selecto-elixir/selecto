@@ -16,6 +16,7 @@ defmodule Selecto.Tenant do
           optional(:tenant_field) => atom() | String.t(),
           optional(:prefix) => String.t(),
           optional(:namespace) => String.t(),
+          optional(:required) => boolean(),
           optional(:required_filters) => [Selecto.Types.filter()]
         }
 
@@ -105,6 +106,76 @@ defmodule Selecto.Tenant do
   end
 
   @doc """
+  Return whether tenant scope is required for this query.
+
+  Precedence:
+
+  1. `opts[:require_tenant]`
+  2. tenant context `:required` / `:require_tenant`
+  3. domain `:tenant_required` / `:require_tenant`
+  4. inferred true for `tenant_mode` in shared-column/shared-rls/schema modes
+  """
+  @spec tenant_required?(Selecto.Types.t(), keyword()) :: boolean()
+  def tenant_required?(selecto, opts \\ []) do
+    context = tenant(selecto) || %{}
+    domain = Map.get(selecto, :domain, %{})
+
+    cond do
+      is_boolean(Keyword.get(opts, :require_tenant)) ->
+        Keyword.get(opts, :require_tenant)
+
+      is_boolean(map_get(context, :required)) ->
+        map_get(context, :required)
+
+      is_boolean(map_get(context, :require_tenant)) ->
+        map_get(context, :require_tenant)
+
+      is_boolean(map_get(domain, :tenant_required)) ->
+        map_get(domain, :tenant_required)
+
+      is_boolean(map_get(domain, :require_tenant)) ->
+        map_get(domain, :require_tenant)
+
+      true ->
+        tenant_mode_requires_scope?(map_get(context, :tenant_mode))
+    end
+  end
+
+  @doc """
+  Validate tenant scope requirements for read and derivation paths.
+
+  Returns `:ok` when tenant scope is optional or present. Returns structured
+  validation error when tenant scope is required but missing.
+  """
+  @spec validate_scope(Selecto.Types.t(), keyword()) :: :ok | {:error, Selecto.Error.t()}
+  def validate_scope(selecto, opts \\ []) do
+    if tenant_required?(selecto, opts) and not has_tenant_scope?(selecto, opts) do
+      tenant_context = tenant(selecto) || %{}
+
+      {:error,
+       Selecto.Error.validation_error("Tenant scope is required but missing", %{
+         tenant_mode: map_get(tenant_context, :tenant_mode),
+         tenant_field: tenant_field(selecto, opts),
+         tenant_id: map_get(tenant_context, :tenant_id),
+         prefix: map_get(tenant_context, :prefix)
+       })}
+    else
+      :ok
+    end
+  end
+
+  @doc """
+  Raise when tenant scope is required and missing.
+  """
+  @spec ensure_scope!(Selecto.Types.t(), keyword()) :: :ok
+  def ensure_scope!(selecto, opts \\ []) do
+    case validate_scope(selecto, opts) do
+      :ok -> :ok
+      {:error, error} -> raise Selecto.Error.to_exception(error)
+    end
+  end
+
+  @doc """
   Merge execution options with tenant-derived defaults.
 
   If no `:prefix` option is provided explicitly and tenant context includes a
@@ -161,6 +232,11 @@ defmodule Selecto.Tenant do
       tenant_field: tenant_field,
       prefix: map_get(tenant_context, :prefix),
       namespace: map_get(tenant_context, :namespace) || @default_namespace,
+      required:
+        case map_get(tenant_context, :required) do
+          nil -> map_get(tenant_context, :require_tenant)
+          value -> value
+        end,
       required_filters: List.wrap(map_get(tenant_context, :required_filters) || [])
     }
   end
@@ -175,6 +251,50 @@ defmodule Selecto.Tenant do
   defp normalize_field(field) when is_atom(field), do: Atom.to_string(field)
   defp normalize_field(field) when is_binary(field), do: field
   defp normalize_field(field), do: to_string(field)
+
+  defp tenant_mode_requires_scope?(mode) do
+    normalized = mode |> to_string() |> String.downcase()
+    normalized in ["shared_column", "shared_rls", "schema"]
+  end
+
+  defp has_tenant_scope?(selecto, opts) do
+    tenant_context = tenant(selecto) || %{}
+    field = tenant_field(selecto, opts)
+    required = required_filter_scope?(selecto, field)
+    has_prefix = map_get(tenant_context, :prefix) |> present_string?()
+    has_id = not is_nil(map_get(tenant_context, :tenant_id))
+
+    required or has_prefix or has_id
+  end
+
+  defp tenant_field(selecto, opts) do
+    tenant_context = tenant(selecto) || %{}
+
+    opts
+    |> Keyword.get(:tenant_field, map_get(tenant_context, :tenant_field) || @default_tenant_field)
+    |> normalize_field()
+  end
+
+  defp required_filter_scope?(selecto, tenant_field) do
+    set_required =
+      selecto
+      |> Map.get(:set, %{})
+      |> Map.get(:required_filters, [])
+
+    domain_required =
+      selecto
+      |> Map.get(:domain, %{})
+      |> Map.get(:required_filters, [])
+
+    (set_required ++ domain_required)
+    |> Enum.any?(fn
+      {field, value} -> normalize_field(field) == tenant_field and not is_nil(value)
+      _ -> false
+    end)
+  end
+
+  defp present_string?(value) when is_binary(value), do: byte_size(value) > 0
+  defp present_string?(_), do: false
 
   defp uniq_filters(filters) do
     Enum.reduce(filters, [], fn filter, acc ->

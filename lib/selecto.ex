@@ -556,6 +556,24 @@ defmodule Selecto do
   defdelegate query_filters(selecto, opts \\ []), to: Selecto.Query
 
   @doc """
+  Return whether tenant scope is required for this query.
+  """
+  @spec tenant_required?(t(), keyword()) :: boolean()
+  defdelegate tenant_required?(selecto, opts \\ []), to: Selecto.Tenant
+
+  @doc """
+  Validate tenant scope and return `:ok` or structured validation error.
+  """
+  @spec validate_tenant_scope(t(), keyword()) :: :ok | {:error, Selecto.Error.t()}
+  defdelegate validate_tenant_scope(selecto, opts \\ []), to: Selecto.Tenant, as: :validate_scope
+
+  @doc """
+  Raise if tenant scope is required and missing.
+  """
+  @spec ensure_tenant_scope!(t(), keyword()) :: :ok
+  defdelegate ensure_tenant_scope!(selecto, opts \\ []), to: Selecto.Tenant, as: :ensure_scope!
+
+  @doc """
   Add to the Order By clause.
   """
   @spec order_by(t(), [Selecto.Types.order_spec()]) :: t()

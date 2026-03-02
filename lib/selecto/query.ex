@@ -157,6 +157,11 @@ defmodule Selecto.Query do
   @spec query_filters(Selecto.Types.t(), keyword()) :: [Selecto.Types.filter()]
   def query_filters(selecto, opts \\ []) do
     include_post_pivot = Keyword.get(opts, :include_post_pivot, true)
+    validate_tenant = Keyword.get(opts, :validate_tenant, true)
+
+    if validate_tenant do
+      Selecto.Tenant.ensure_scope!(selecto, opts)
+    end
 
     legacy_filters = Map.get(selecto, :filters, [])
 
