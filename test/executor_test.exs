@@ -140,6 +140,21 @@ defmodule Selecto.ExecutorTest do
     assert details[:stream_context] == :pool
   end
 
+  test "execute_stream supports pooled postgres when pool connection is available" do
+    assert {:ok, stream} =
+             Executor.execute_stream(
+               postgrex_stream_selecto({:pool, %{pool: :fake_pool}}),
+               analyze_complexity: false,
+               stream_producer: fn send_chunk ->
+                 send_chunk.([[7], [8]], ["id"])
+                 {:ok, :done}
+               end
+             )
+
+    assert [{[7], ["id"], aliases_1}, {[8], ["id"], aliases_2}] = Enum.to_list(stream)
+    assert aliases_1 == aliases_2
+  end
+
   test "execute_stream returns explicit contract error for ecto repo context" do
     assert {:error, %Selecto.Error{type: :validation_error, details: details}} =
              Executor.execute_stream(postgrex_stream_selecto(FakeRepo), analyze_complexity: false)
