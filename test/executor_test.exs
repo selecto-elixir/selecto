@@ -25,6 +25,12 @@ defmodule Selecto.ExecutorTest do
       Process.sleep(50)
       {:ok, %{rows: [[1]], columns: ["id"]}}
     end
+
+    def stream(:single_stream, _query, _params, _opts) do
+      {:ok, Stream.map([[1], [2]], & &1), ["id"]}
+    end
+
+    def stream(:stream_error, _query, _params, _opts), do: {:error, "stream failed"}
   end
 
   defp domain do
@@ -90,6 +96,28 @@ defmodule Selecto.ExecutorTest do
 
     assert {:error, %Selecto.Error{type: :query_error}} =
              Executor.execute_with_connection_pool(pool_ref, "select 1", [], ["id"])
+  end
+
+  test "execute_stream uses adapter stream/4 when available" do
+    assert {:ok, stream} =
+             Executor.execute_stream(selecto_for(:single_stream), analyze_complexity: false)
+
+    rows = Enum.to_list(stream)
+
+    assert [{[1], ["id"], aliases_1}, {[2], ["id"], aliases_2}] = rows
+    assert is_list(aliases_1)
+    assert is_binary(hd(aliases_1))
+    assert aliases_1 == aliases_2
+  end
+
+  test "execute_stream wraps adapter stream errors" do
+    assert {:error, %Selecto.Error{type: :query_error}} =
+             Executor.execute_stream(selecto_for(:stream_error), analyze_complexity: false)
+  end
+
+  test "execute_stream returns validation error when adapter lacks stream support" do
+    assert {:error, %Selecto.Error{type: :validation_error}} =
+             Executor.execute_stream(selecto_for(:single), analyze_complexity: false)
   end
 
   test "execute returns timeout error for long-running adapter" do

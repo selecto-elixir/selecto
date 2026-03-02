@@ -351,6 +351,48 @@ defmodule Selecto.Executor do
   end
 
   @doc """
+  Execute a query as a stream of `{row, columns, aliases}` tuples.
+
+  Current stream support:
+  - PostgreSQL direct connections (`pid` or registered name) via server-side cursors
+  - Custom adapters that implement `stream/4`
+  """
+  @spec execute_stream(Selecto.Types.t(), keyword()) :: Selecto.Types.safe_execute_stream_result()
+  def execute_stream(selecto, opts \\ []) do
+    with :ok <- Selecto.Tenant.validate_scope(selecto, opts) do
+      try do
+        stream_sql_opts =
+          Keyword.drop(opts, [
+            :max_rows,
+            :receive_timeout,
+            :queue_timeout,
+            :stream_timeout
+          ])
+
+        {query, aliases, params} = Selecto.gen_sql(selecto, stream_sql_opts)
+
+        case execute_stream_for_context(selecto, query, params, aliases, opts) do
+          {:ok, stream} -> {:ok, stream}
+          {:error, %Selecto.Error{} = error} -> {:error, error}
+          {:error, reason} -> {:error, Selecto.Error.from_reason(reason)}
+        end
+      rescue
+        error ->
+          {:error, Selecto.Error.from_reason(error)}
+      catch
+        :exit, reason ->
+          {:error,
+           Selecto.Error.connection_error("Database stream execution failed", %{
+             exit_reason: reason
+           })}
+      end
+    else
+      {:error, %Selecto.Error{} = error} ->
+        {:error, error}
+    end
+  end
+
+  @doc """
   Execute a query expecting exactly one row, returning {:ok, row} or {:error, reason}.
 
   Useful for queries that should return a single record (e.g., with LIMIT 1 or aggregate functions).
@@ -733,6 +775,155 @@ defmodule Selecto.Executor do
       true ->
         execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
     end
+  end
+
+  defp execute_stream_for_context(selecto, query, params, aliases, opts) do
+    cond do
+      selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+        execute_with_adapter_stream(
+          selecto.adapter,
+          selecto.connection,
+          query,
+          params,
+          aliases,
+          opts
+        )
+
+      is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) &&
+          is_ecto_repo?(selecto.postgrex_opts) ->
+        {:error,
+         Selecto.Error.validation_error(
+           "Streaming is not yet implemented for Ecto repository execution",
+           %{repo: selecto.postgrex_opts}
+         )}
+
+      true ->
+        execute_with_postgrex_stream(selecto.postgrex_opts, query, params, aliases, opts)
+    end
+  end
+
+  defp execute_with_adapter_stream(adapter, connection, query, params, aliases, opts) do
+    if function_exported?(adapter, :stream, 4) do
+      try do
+        case adapter.stream(connection, query, params, opts) do
+          {:ok, stream, columns} ->
+            {:ok, Stream.map(stream, &{&1, List.wrap(columns), aliases})}
+
+          {:ok, stream} ->
+            {:ok, Stream.map(stream, &{&1, [], aliases})}
+
+          {:error, reason} ->
+            {:error,
+             Selecto.Error.query_error("Adapter stream execution failed", query, params, %{
+               adapter: adapter,
+               reason: reason
+             })}
+        end
+      rescue
+        FunctionClauseError ->
+          {:error,
+           Selecto.Error.validation_error(
+             "Streaming requires adapter stream support for this connection",
+             %{adapter: adapter, connection: inspect(connection)}
+           )}
+      end
+    else
+      {:error,
+       Selecto.Error.validation_error(
+         "Streaming requires adapter.stream/4 support",
+         %{adapter: adapter}
+       )}
+    end
+  end
+
+  defp execute_with_postgrex_stream(conn, query, params, aliases, opts) do
+    case conn do
+      {:pool, _pool_ref} ->
+        {:error,
+         Selecto.Error.validation_error(
+           "Streaming is not yet implemented for pooled PostgreSQL connections",
+           %{}
+         )}
+
+      conn when is_pid(conn) or is_atom(conn) ->
+        {:ok, build_postgrex_cursor_stream(conn, query, params, aliases, opts)}
+
+      _ ->
+        {:error,
+         Selecto.Error.connection_error("Invalid connection type", %{connection: inspect(conn)})}
+    end
+  end
+
+  defp build_postgrex_cursor_stream(conn, query, params, aliases, opts) do
+    parent = self()
+    ref = make_ref()
+    max_rows = Keyword.get(opts, :max_rows, 500)
+    stream_timeout = Keyword.get(opts, :stream_timeout, 30_000)
+    receive_timeout = Keyword.get(opts, :receive_timeout, 60_000)
+    queue_timeout = Keyword.get(opts, :queue_timeout, 100)
+
+    Stream.resource(
+      fn ->
+        task =
+          Task.async(fn ->
+            tx_result =
+              Postgrex.transaction(
+                conn,
+                fn tx_conn ->
+                  tx_conn
+                  |> Postgrex.stream(query, params, max_rows: max_rows)
+                  |> Enum.each(fn %Postgrex.Result{rows: rows, columns: columns} ->
+                    send(parent, {ref, {:chunk, rows, columns}})
+                  end)
+                end,
+                timeout: stream_timeout
+              )
+
+            send(parent, {ref, {:done, tx_result}})
+          end)
+
+        %{task: task, ref: ref}
+      end,
+      fn state ->
+        ref = state.ref
+
+        receive do
+          {^ref, {:chunk, rows, columns}} ->
+            stream_rows = Enum.map(rows, &{&1, columns || [], aliases})
+            {stream_rows, state}
+
+          {^ref, {:done, {:ok, _result}}} ->
+            {:halt, state}
+
+          {^ref, {:done, {:error, reason}}} ->
+            raise Selecto.Error.to_exception(
+                    Selecto.Error.query_error(
+                      "PostgreSQL stream query failed",
+                      query,
+                      params,
+                      %{reason: reason}
+                    )
+                  )
+        after
+          receive_timeout ->
+            case Task.yield(state.task, queue_timeout) do
+              {:ok, _} ->
+                {:halt, state}
+
+              nil ->
+                raise Selecto.Error.to_exception(
+                        Selecto.Error.timeout_error(
+                          "Timed out waiting for streamed rows",
+                          %{timeout: receive_timeout}
+                        )
+                      )
+            end
+        end
+      end,
+      fn state ->
+        Task.shutdown(state.task, :brutal_kill)
+      end
+    )
   end
 
   defp result_row_count({:ok, {rows, _columns, _aliases}}) when is_list(rows), do: length(rows)

@@ -744,6 +744,17 @@ defmodule Selecto do
   end
 
   @doc """
+  Execute a query as a database-backed stream.
+
+  Returns a stream of `{row, columns, aliases}` tuples for incremental result
+  consumption.
+  """
+  @spec execute_stream(Selecto.Types.t(), keyword()) :: Selecto.Types.safe_execute_stream_result()
+  def execute_stream(selecto, opts \\ []) do
+    Selecto.Executor.execute_stream(selecto, Selecto.Tenant.merge_execution_opts(selecto, opts))
+  end
+
+  @doc """
     Execute a query expecting exactly one row, returning {:ok, row} or {:error, reason}.
 
     Useful for queries that should return a single record (e.g., with LIMIT 1 or aggregate functions).

@@ -353,6 +353,16 @@ defmodule Selecto.Types do
   @type execute_result_error :: {:error, Selecto.Error.t()}
   @type safe_execute_result :: execute_result_ok() | execute_result_error()
 
+  @type stream_row_result :: {
+          row :: [term()],
+          columns :: [String.t()],
+          aliases :: [String.t()]
+        }
+
+  @type execute_stream_result_ok :: {:ok, Enumerable.t()}
+  @type execute_stream_result_error :: {:error, Selecto.Error.t()}
+  @type safe_execute_stream_result :: execute_stream_result_ok() | execute_stream_result_error()
+
   # Single row execution results
   @type single_row_result :: {row :: [term()], aliases :: %{String.t() => String.t()}}
   @type execute_one_result_ok :: {:ok, single_row_result()}
