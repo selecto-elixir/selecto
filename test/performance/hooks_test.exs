@@ -82,6 +82,23 @@ defmodule Selecto.Performance.HooksTest do
     assert_received {:after_execution, _execution_time}
   end
 
+  test "with_hooks supports arity-4 execution functions and alias metadata" do
+    result =
+      Hooks.with_hooks(
+        selecto(),
+        fn _sel, _sql, _params, context ->
+          send(self(), {:aliases, context.aliases})
+          {:ok, %{rows: []}}
+        end,
+        include_aliases: true
+      )
+
+    assert {:ok, %{rows: []}} = result
+    assert_received {:aliases, aliases}
+    assert is_list(aliases)
+    assert length(aliases) == 1
+  end
+
   test "with_hooks runs error hooks and reraises" do
     Hooks.register(:on_error, fn ctx ->
       send(self(), {:hook_error, ctx.error.__struct__})
@@ -133,6 +150,45 @@ defmodule Selecto.Performance.HooksTest do
 
     assert {:ok, %{cached: "value"}} = second
     assert_received {:cache, :hit, _qid2}
+  end
+
+  test "cache key includes tenant namespace to avoid cross-tenant cache bleed" do
+    {:ok, _pid} = QueryCache.start_link(default_ttl: 60_000)
+
+    tenant_a = Selecto.with_tenant(selecto(), %{tenant_id: "a"})
+    tenant_b = Selecto.with_tenant(selecto(), %{tenant_id: "b"})
+
+    assert {:ok, %{tenant: "a"}} =
+             Hooks.with_hooks(
+               tenant_a,
+               fn _sel, _sql, _params ->
+                 send(self(), {:executed, :a})
+                 {:ok, %{tenant: "a"}}
+               end,
+               cache: true
+             )
+
+    assert {:ok, %{tenant: "b"}} =
+             Hooks.with_hooks(
+               tenant_b,
+               fn _sel, _sql, _params ->
+                 send(self(), {:executed, :b})
+                 {:ok, %{tenant: "b"}}
+               end,
+               cache: true
+             )
+
+    assert {:ok, %{tenant: "a"}} =
+             Hooks.with_hooks(
+               tenant_a,
+               fn _sel, _sql, _params ->
+                 flunk("tenant a should read from cache")
+               end,
+               cache: true
+             )
+
+    assert_received {:executed, :a}
+    assert_received {:executed, :b}
   end
 
   test "hook composition helpers" do

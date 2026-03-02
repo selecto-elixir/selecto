@@ -2,6 +2,7 @@ defmodule Selecto.ExecutorTest do
   use ExUnit.Case
 
   alias Selecto.Executor
+  alias Selecto.Performance.Hooks
 
   defmodule Adapter do
     def execute(:single, _query, _params, _opts), do: {:ok, %{rows: [[1]], columns: ["id"]}}
@@ -77,9 +78,41 @@ defmodule Selecto.ExecutorTest do
              Executor.execute_with_postgrex(123, "select 1", [], ["id"])
   end
 
+  test "execute_with_connection_pool returns normalized pooled result" do
+    pool_ref = %{adapter: Adapter, connection: :single}
+
+    assert {:ok, {[[1]], ["id"], ["id"]}} =
+             Executor.execute_with_connection_pool(pool_ref, "select 1", [], ["id"])
+  end
+
+  test "execute_with_connection_pool wraps pooled execution errors" do
+    pool_ref = %{adapter: Adapter, connection: :error}
+
+    assert {:error, %Selecto.Error{type: :query_error}} =
+             Executor.execute_with_connection_pool(pool_ref, "select 1", [], ["id"])
+  end
+
   test "execute returns timeout error for long-running adapter" do
     result = Executor.execute(selecto_for(:sleep), analyze_complexity: false, timeout: 1)
     assert {:error, %Selecto.Error{type: :timeout_error}} = result
+  end
+
+  test "execute routes through performance hook orchestration" do
+    Hooks.unregister(:before_query_build)
+    parent = self()
+
+    Hooks.register(:before_query_build, fn context ->
+      send(parent, {:before_query_build, context.query_id})
+      context
+    end)
+
+    assert {:ok, {[[1]], ["id"], _aliases}} =
+             Executor.execute(selecto_for(:single), analyze_complexity: false)
+
+    assert_received {:before_query_build, query_id}
+    assert is_binary(query_id)
+
+    Hooks.unregister(:before_query_build)
   end
 
   test "execute_one returns row, no_results, and multiple_results variants" do
