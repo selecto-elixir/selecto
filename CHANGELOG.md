@@ -1,6 +1,20 @@
 
 # Selecto Library Changelog
 
+## V NEXT - Usage Rules and Multi-Tenant Plan Expansion
+---------------------------------------------------------
+
+#### Added
+- Added `usage-rules.md` with concise guidance for agentic workflows and
+  automated rule aggregation tooling.
+- Expanded `docs/plans/multi_tenant_usage_patterns.md` with concrete
+  implementation phases, API sketches, cross-package coordination points, and
+  phase-level acceptance criteria.
+
+#### Changed
+- Clarified tenant-isolation recommendations for shared-table, schema-prefix,
+  dedicated database, and hybrid deployment models.
+
 ## V 0.3.5 - Query Tooling, Diagnostics, and Livebook Ergonomics
 ---------------------------------------------------------
 
