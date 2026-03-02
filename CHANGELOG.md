@@ -15,6 +15,11 @@
   `require_tenant_filter/2|3`) for runtime tenant scoping.
 - Added runtime tenant coverage tests for context normalization, required
   filters, SQL generation, and execution option prefix merging.
+- Added explicit database adapter modules under `Selecto.DB.*`
+  (`PostgreSQL`, `MySQL`, `MariaDB`, `MSSQL`, `SQLite`) plus shared
+  `Selecto.DB.Adapter` behavior.
+- Added prioritized delivery roadmap at
+  `docs/plans/prioritized_delivery_roadmap.md`.
 
 #### Changed
 - Clarified tenant-isolation recommendations for shared-table, schema-prefix,
@@ -24,6 +29,19 @@
 - Updated execute paths (`execute/2`, `execute_with_metadata/2`,
   `execute_one/2`) to inject tenant-derived `:prefix` when no explicit prefix
   option is provided.
+- Updated SQL param placeholder resolution to use adapter module
+  `placeholder/1` when available.
+- Replaced legacy `Selecto.Adapters.PostgreSQL` references in connection pool
+  setup with `Selecto.DB.PostgreSQL`.
+- Completed pooled execution success handling in `Selecto.Executor` for
+  connection-pool execution paths and improved generic adapter pool startup
+  behavior to fail safely for unsupported adapters.
+- Updated default `execute/2` path to route through
+  `Selecto.Performance.Hooks.with_hooks/3`, including hook propagation across
+  timeout task boundaries and tenant-aware cache key namespacing.
+- Added tenant scope policy helpers (`tenant_required?/2`,
+  `validate_scope/2`, `ensure_scope!/2`) and wired fail-fast validation into
+  execute paths and `query_filters/2` derivation by default.
 
 ## V 0.3.5 - Query Tooling, Diagnostics, and Livebook Ergonomics
 ---------------------------------------------------------
