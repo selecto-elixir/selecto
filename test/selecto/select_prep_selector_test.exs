@@ -112,6 +112,18 @@ defmodule Selecto.SelectPrepSelectorTest do
     assert IO.iodata_to_binary(built_sql) == "COUNT(*)"
   end
 
+  test "func selector DSL handles mixed literal and field aggregate args" do
+    {json_obj_sql, _join, []} =
+      Select.prep_selector(selecto(), {:func, "jsonb_object_agg", ["name", {:literal, "x"}]})
+
+    assert IO.iodata_to_binary(json_obj_sql) =~ ~r/jsonb_object_agg\(/i
+
+    {string_agg_sql, _join, []} =
+      Select.prep_selector(selecto(), {:func, "string_agg", ["name", {:literal, ", "}]})
+
+    assert IO.iodata_to_binary(string_agg_sql) =~ ~r/string_agg\(/i
+  end
+
   test "subquery and case selectors" do
     {subquery_sql, _join, subquery_params} =
       Select.prep_selector(selecto(), {:subquery, "SELECT 1", [10]})
