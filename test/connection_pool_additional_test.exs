@@ -6,6 +6,12 @@ defmodule Selecto.ConnectionPoolAdditionalTest do
   defmodule FakeAdapter do
   end
 
+  defmodule GenericAdapter do
+    def connect(_opts), do: {:ok, spawn(fn -> Process.sleep(:infinity) end)}
+    def execute(_conn, _query, _params, _opts), do: {:ok, %{rows: [[1]], columns: ["id"]}}
+    def supports?(_feature), do: true
+  end
+
   test "start_pool returns errors for unavailable backends" do
     postgres_result = ConnectionPool.start_pool(hostname: "invalid.local", database: "missing_db")
 
@@ -18,7 +24,7 @@ defmodule Selecto.ConnectionPoolAdditionalTest do
         assert true
     end
 
-    # Non-PostgreSQL path currently starts the same manager and should error without :pool_pid
+    # Non-PostgreSQL path should fail safely for unsupported adapters
     previous = Process.flag(:trap_exit, true)
 
     result = ConnectionPool.start_pool([], adapter: FakeAdapter)
@@ -30,7 +36,8 @@ defmodule Selecto.ConnectionPoolAdditionalTest do
         0 -> false
       end
 
-    assert match?({:error, _}, result) or exited?
+    assert match?({:error, {:unsupported_adapter, FakeAdapter}}, result)
+    refute exited?
 
     Process.flag(:trap_exit, previous)
   end
@@ -54,6 +61,16 @@ defmodule Selecto.ConnectionPoolAdditionalTest do
     assert :ok = ConnectionPool.clear_cache(pool_ref)
     GenServer.stop(manager_pid)
     Process.exit(pool_pid, :kill)
+  end
+
+  test "generic adapter pool starts and executes without postgres pool pid" do
+    assert {:ok, pool_ref} = ConnectionPool.start_pool([], adapter: GenericAdapter)
+    assert %{adapter: GenericAdapter, manager: _manager, connection: _connection} = pool_ref
+
+    assert {:ok, %{rows: [[1]], columns: ["id"]}} =
+             ConnectionPool.execute(pool_ref, "select 1", [])
+
+    assert :ok = ConnectionPool.stop_pool(pool_ref)
   end
 
   test "checkout and checkin use process dictionary references" do

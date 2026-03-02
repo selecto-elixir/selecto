@@ -61,6 +61,29 @@ defmodule Selecto.Performance.Hooks do
   end
 
   @doc """
+  Snapshot currently registered hooks for the current process.
+
+  Useful when execution is delegated to another process (for example timeout
+  wrappers) and hooks should be propagated.
+  """
+  def snapshot_hooks do
+    Enum.into(@hook_points, %{}, fn hook_point ->
+      {hook_point, get_hooks(hook_point)}
+    end)
+  end
+
+  @doc """
+  Restore a hook snapshot into the current process.
+  """
+  def restore_hooks(snapshot) when is_map(snapshot) do
+    Enum.each(@hook_points, fn hook_point ->
+      put_hooks(hook_point, Map.get(snapshot, hook_point, []))
+    end)
+
+    :ok
+  end
+
+  @doc """
   Unregister all hooks for a specific hook point.
   """
   def unregister(hook_point) when hook_point in @hook_points do
@@ -108,7 +131,7 @@ defmodule Selecto.Performance.Hooks do
     context = run_hooks(:before_query_build, context)
 
     # Generate SQL
-    {sql, params} = Selecto.to_sql(selecto)
+    {sql, params, query_metadata} = build_query_context(selecto, options)
 
     context =
       Map.merge(context, %{
@@ -116,13 +139,14 @@ defmodule Selecto.Performance.Hooks do
         params: params,
         query_built_at: System.monotonic_time(:millisecond)
       })
+      |> Map.merge(query_metadata)
 
     context = run_hooks(:after_query_build, context)
 
     # Check cache if enabled
     context =
       if options[:cache] do
-        cache_key = generate_cache_key(sql, params)
+        cache_key = generate_cache_key(sql, params, context)
 
         case Selecto.Performance.QueryCache.get(cache_key) do
           {:ok, cached_result} ->
@@ -154,7 +178,7 @@ defmodule Selecto.Performance.Hooks do
 
         execution_result =
           try do
-            execution_fn.(selecto, sql, params)
+            invoke_execution_fn(execution_fn, selecto, sql, params, context)
           rescue
             error ->
               error_context = Map.put(context, :error, error)
@@ -368,13 +392,77 @@ defmodule Selecto.Performance.Hooks do
     :"selecto_hooks_#{hook_point}"
   end
 
+  defp invoke_execution_fn(execution_fn, selecto, sql, params, context) do
+    case :erlang.fun_info(execution_fn, :arity) do
+      {:arity, 4} -> execution_fn.(selecto, sql, params, context)
+      {:arity, 3} -> execution_fn.(selecto, sql, params)
+      _ -> raise ArgumentError, "execution function must have arity 3 or 4"
+    end
+  end
+
+  defp build_query_context(selecto, options) do
+    gen_sql_opts = Keyword.get(options, :gen_sql_opts, [])
+
+    if Keyword.get(options, :include_aliases, false) do
+      {sql, aliases, params} = Selecto.gen_sql(selecto, gen_sql_opts)
+      {sql, params, %{aliases: aliases}}
+    else
+      {sql, params} = Selecto.to_sql(selecto, gen_sql_opts)
+      {sql, params, %{}}
+    end
+  end
+
   defp generate_query_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
   end
 
-  defp generate_cache_key(sql, params) do
-    :crypto.hash(:sha256, :erlang.term_to_binary({sql, params}))
+  defp generate_cache_key(sql, params, context) do
+    namespace = cache_namespace(context)
+
+    :crypto.hash(:sha256, :erlang.term_to_binary({namespace, sql, params}))
     |> Base.encode16(case: :lower)
+  end
+
+  defp cache_namespace(context) when is_map(context) do
+    options = Map.get(context, :options, [])
+
+    case Keyword.get(options, :cache_namespace) do
+      namespace when is_binary(namespace) and byte_size(namespace) > 0 ->
+        namespace
+
+      _ ->
+        context
+        |> Map.get(:selecto)
+        |> tenant_cache_namespace()
+    end
+  end
+
+  defp tenant_cache_namespace(%{tenant: tenant}) when is_map(tenant) do
+    cache_namespace = map_get(tenant, :cache_namespace)
+    tenant_id = map_get(tenant, :tenant_id)
+    namespace = map_get(tenant, :namespace)
+    prefix = map_get(tenant, :prefix)
+
+    cond do
+      is_binary(cache_namespace) and byte_size(cache_namespace) > 0 ->
+        cache_namespace
+
+      not is_nil(tenant_id) ->
+        base = if is_binary(namespace) and byte_size(namespace) > 0, do: namespace, else: "tenant"
+        "#{base}:#{tenant_id}"
+
+      is_binary(prefix) and byte_size(prefix) > 0 ->
+        "prefix:#{prefix}"
+
+      true ->
+        nil
+    end
+  end
+
+  defp tenant_cache_namespace(_), do: nil
+
+  defp map_get(map, key) when is_map(map) and is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
   defp extract_metrics(context) do
