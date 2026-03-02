@@ -147,7 +147,7 @@ defmodule Selecto.ExecutorTest do
              Executor.execute_stream(selecto_for(:stream_error), analyze_complexity: false)
   end
 
-  test "execute_stream returns validation error when adapter lacks stream support" do
+  test "execute_stream returns validation error when adapter lacks stream support for connection" do
     assert {:error, %Selecto.Error{type: :validation_error}} =
              Executor.execute_stream(selecto_for(:single), analyze_complexity: false)
   end
@@ -159,6 +159,7 @@ defmodule Selecto.ExecutorTest do
                analyze_complexity: false
              )
 
+    assert details[:unsupported_feature] == :stream
     assert details[:adapter_contract] == :supports_stream
   end
 
