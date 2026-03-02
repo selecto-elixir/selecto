@@ -1,7 +1,10 @@
 
 # Selecto Library Changelog
 
-## V NEXT - Usage Rules and Multi-Tenant Plan Expansion
+## V NEXT
+---------------------------------------------------------
+
+## V 0.3.6 - Usage Rules and Multi-Tenant Plan Expansion
 ---------------------------------------------------------
 
 #### Added
@@ -62,6 +65,7 @@
   fallbacks.
 - Added PostgreSQL stream support for pooled connection references when a
   streamable pool connection handle is available.
+- Bumped package version to `0.3.6`.
 
 ## V 0.3.5 - Query Tooling, Diagnostics, and Livebook Ergonomics
 ---------------------------------------------------------
