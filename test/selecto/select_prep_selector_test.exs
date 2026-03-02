@@ -86,6 +86,32 @@ defmodule Selecto.SelectPrepSelectorTest do
     assert IO.iodata_to_binary(concat_sql) =~ ~r/concat\(/i
   end
 
+  test "func selector DSL supports multi-arg, distinct, filter, and alias options" do
+    {agg_sql, _join, []} =
+      Select.prep_selector(selecto(), {:func, "string_agg", ["name", {:literal, ", "}]})
+
+    assert IO.iodata_to_binary(agg_sql) =~ ~r/string_agg\(/i
+
+    {distinct_sql, _join, []} =
+      Select.prep_selector(selecto(), {:func, "COUNT", ["DISTINCT", "name"]})
+
+    assert IO.iodata_to_binary(distinct_sql) =~ ~r/COUNT\(DISTINCT/i
+
+    {filter_sql, _join, filter_params} =
+      Select.prep_selector(selecto(), {:func, "COUNT", ["*"], filter: [{"active", true}]})
+
+    {filter_sql_text, finalized_filter_params} = finalize(filter_sql)
+    assert filter_sql_text =~ ~r/FILTER \(where/i
+    assert is_list(filter_params)
+    assert true in finalized_filter_params
+
+    {built_sql, _join, _params, as_alias} =
+      Select.build(selecto(), {:func, "COUNT", ["*"], as: "total_count"}, %{})
+
+    assert as_alias == "total_count"
+    assert IO.iodata_to_binary(built_sql) == "COUNT(*)"
+  end
+
   test "subquery and case selectors" do
     {subquery_sql, _join, subquery_params} =
       Select.prep_selector(selecto(), {:subquery, "SELECT 1", [10]})
