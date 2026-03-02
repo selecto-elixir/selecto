@@ -79,7 +79,8 @@ defmodule Selecto.Subfilter.SQL.ExistsBuilder do
 
   defp build_where_sql(
          %Spec{filter_spec: filter_spec},
-         %JoinResolution{target_table: target_table, target_field: target_field} = join_resolution,
+         %JoinResolution{target_table: target_table, target_field: target_field} =
+           join_resolution,
          registry
        ) do
     # Build the WHERE clause for the subquery

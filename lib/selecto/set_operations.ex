@@ -396,7 +396,8 @@ defmodule Selecto.SetOperations do
 
     # String-like types
     defp types_compatible?(type1, type2)
-         when type1 in [:string, :text] and type2 in [:string, :text], do: true
+         when type1 in [:string, :text] and type2 in [:string, :text],
+         do: true
 
     # Numeric types
     defp types_compatible?(type1, type2)

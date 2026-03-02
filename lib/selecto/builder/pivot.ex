@@ -729,9 +729,9 @@ defmodule Selecto.Builder.Pivot do
   defp build_reverse_joins(selecto, join_path, source_alias, _target_alias) do
     # Build joins from source to target for correlation subquery
     {join_clauses, params, _last_alias, _last_position} =
-      Enum.reduce(join_path, {[], [], source_alias, :source}, fn join_name,
-                                                                 {acc_clauses, acc_params,
-                                                                  current_alias, current_position} ->
+      Enum.reduce(join_path, {[], [], source_alias, :source}, fn join_name, join_state ->
+        {acc_clauses, acc_params, current_alias, current_position} = join_state
+
         {join_clause, join_params, next_alias, next_position} =
           build_single_join(selecto, join_name, current_alias, current_position)
 

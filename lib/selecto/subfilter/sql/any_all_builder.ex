@@ -80,7 +80,8 @@ defmodule Selecto.Subfilter.SQL.AnyAllBuilder do
 
   defp build_where_sql(
          %Spec{filter_spec: filter_spec} = _spec,
-         %JoinResolution{target_table: target_table, target_field: target_field} = join_resolution,
+         %JoinResolution{target_table: target_table, target_field: target_field} =
+           join_resolution,
          registry
        ) do
     correlation_sql = SQLHelpers.build_correlation_condition(join_resolution, registry)

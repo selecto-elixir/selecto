@@ -970,7 +970,8 @@ defmodule Selecto.Builder.Sql do
   defp append_param_filters_to_on_clause(_selecto, _join, base_on, nil), do: base_on
 
   defp append_param_filters_to_on_clause(_selecto, _join, base_on, param_filters)
-       when map_size(param_filters) == 0, do: base_on
+       when map_size(param_filters) == 0,
+       do: base_on
 
   defp append_param_filters_to_on_clause(selecto, join, base_on, param_filters)
        when is_map(param_filters) do

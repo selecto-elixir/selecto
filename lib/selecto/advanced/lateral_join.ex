@@ -272,10 +272,12 @@ defmodule Selecto.Advanced.LateralJoin do
     do: [ref_field]
 
   defp extract_refs_from_filter({_field, {_op, _val1, {:ref, ref_field}}})
-       when is_binary(ref_field), do: [ref_field]
+       when is_binary(ref_field),
+       do: [ref_field]
 
   defp extract_refs_from_filter({_field, {_op, {:ref, ref_field}, _val2}})
-       when is_binary(ref_field), do: [ref_field]
+       when is_binary(ref_field),
+       do: [ref_field]
 
   defp extract_refs_from_filter(_), do: []
 
