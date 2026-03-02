@@ -20,6 +20,9 @@
   `Selecto.DB.Adapter` behavior.
 - Added prioritized delivery roadmap at
   `docs/plans/prioritized_delivery_roadmap.md`.
+- Added `Selecto.execute_stream/2` and `Selecto.Executor.execute_stream/2` for
+  incremental row consumption, with PostgreSQL cursor-backed streaming for
+  direct connections and adapter `stream/4` integration support.
 
 #### Changed
 - Clarified tenant-isolation recommendations for shared-table, schema-prefix,
@@ -42,6 +45,9 @@
 - Added tenant scope policy helpers (`tenant_required?/2`,
   `validate_scope/2`, `ensure_scope!/2`) and wired fail-fast validation into
   execute paths and `query_filters/2` derivation by default.
+- Improved Ecto `has_through` association introspection to derive
+  `owner_key`/`related_key` from through-path metadata instead of `:id`
+  fallbacks.
 
 ## V 0.3.5 - Query Tooling, Diagnostics, and Livebook Ergonomics
 ---------------------------------------------------------
