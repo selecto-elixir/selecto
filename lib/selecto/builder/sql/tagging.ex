@@ -54,35 +54,32 @@ defmodule Selecto.Builder.Sql.Tagging do
   Returns: `{updated_from_clause, updated_params, updated_ctes}`
   """
   def build_tagging_join_with_aggregation(selecto, join, config, fc, p, ctes) do
-    # Extract tagging configuration
-    # Will be used for aggregation columns
     _tag_field = Map.get(config, :tag_field, "name")
-    join_table = get_join_table_name(config, join)
-    main_foreign_key = Map.get(config, :main_foreign_key, "#{extract_main_table(selecto)}_id")
-    tag_foreign_key = Map.get(config, :tag_foreign_key, "tag_id")
 
-    # Build intermediate table alias
+    join_table = get_join_table_name(config)
+    main_foreign_key = get_main_foreign_key(config, selecto)
+    tag_foreign_key = get_tag_foreign_key(config, selecto)
+
+    requires_join = Map.get(config, :requires_join, :selecto_root)
+    owner_key = Map.get(config, :owner_key, :id)
+    related_key = Map.get(config, :my_key, :id)
+
     join_table_alias = "#{join}_jt"
     tag_table_alias = build_join_string(selecto, join)
 
-    # Build the double JOIN pattern
-    # 1. Main table → intermediate join table
     intermediate_join_iodata = [
       " LEFT JOIN ",
       join_table,
       " ",
       join_table_alias,
       " ON ",
-      build_main_table_reference(selecto),
-      ".",
-      source_primary_key(selecto),
+      build_selector_string(selecto, requires_join, owner_key),
       " = ",
       join_table_alias,
       ".",
       main_foreign_key
     ]
 
-    # 2. Intermediate table → tag table  
     tag_join_iodata = [
       " LEFT JOIN ",
       config.source,
@@ -93,14 +90,10 @@ defmodule Selecto.Builder.Sql.Tagging do
       ".",
       tag_foreign_key,
       " = ",
-      tag_table_alias,
-      ".id"
+      build_selector_string(selecto, join, related_key)
     ]
 
-    # Combine both joins
     combined_join_iodata = [intermediate_join_iodata, tag_join_iodata]
-
-    # Add to from clause
     {fc ++ combined_join_iodata, p, ctes}
   end
 
@@ -173,7 +166,7 @@ defmodule Selecto.Builder.Sql.Tagging do
   Returns: `{where_clause_iodata, params}`
   """
   def build_faceted_tag_filter(config, tag_values, match_type \\ :any) do
-    join_table = get_join_table_name(config, :filter)
+    join_table = get_join_table_name(config)
     tag_table = config.source
     tag_field = Map.get(config, :tag_field, "name")
     # Will be dynamically determined
@@ -273,7 +266,7 @@ defmodule Selecto.Builder.Sql.Tagging do
   """
   def build_tag_count_filter(config, {operator, count})
       when operator in [:gte, :gt, :lte, :lt, :eq] do
-    join_table = get_join_table_name(config, :filter)
+    join_table = get_join_table_name(config)
     main_foreign_key = Map.get(config, :main_foreign_key, "post_id")
 
     # Map operators to SQL
@@ -303,7 +296,7 @@ defmodule Selecto.Builder.Sql.Tagging do
   end
 
   def build_tag_count_filter(config, {:between, min_count, max_count}) do
-    join_table = get_join_table_name(config, :filter)
+    join_table = get_join_table_name(config)
     main_foreign_key = Map.get(config, :main_foreign_key, "post_id")
 
     where_iodata = [
@@ -322,17 +315,93 @@ defmodule Selecto.Builder.Sql.Tagging do
 
   # Helper functions
 
-  defp get_join_table_name(config, _context) do
-    # Try to extract join table name from configuration
+  defp get_join_table_name(config) do
     case Map.get(config, :join_table) || Map.get(config, :join_through) do
       nil ->
-        # Fallback: try to infer from association or use default pattern
-        source = config.source
-        # e.g., "tag" + "tags" = "tag_tags"
+        source = to_string(config.source)
         "#{String.trim_trailing(source, "s")}_#{source}"
 
       table_name ->
         table_name
+    end
+  end
+
+  defp get_main_foreign_key(config, selecto) do
+    Map.get(config, :main_foreign_key) || infer_main_foreign_key(config, selecto)
+  end
+
+  defp get_tag_foreign_key(config, selecto) do
+    Map.get(config, :tag_foreign_key) || infer_tag_foreign_key(config, selecto)
+  end
+
+  defp infer_main_foreign_key(config, selecto) do
+    join_keys = extract_join_key_names(config)
+
+    parent_reference =
+      case Map.get(config, :requires_join, :selecto_root) do
+        :selecto_root -> extract_main_table(selecto)
+        parent -> to_string(parent)
+      end
+
+    parent_prefix = singularize(parent_reference)
+
+    find_join_key(join_keys, parent_prefix) || "#{parent_prefix}_id"
+  end
+
+  defp infer_tag_foreign_key(config, _selecto) do
+    join_keys = extract_join_key_names(config)
+
+    source_prefix =
+      config
+      |> Map.get(:source, "tag")
+      |> to_string()
+      |> singularize()
+
+    find_join_key(join_keys, source_prefix) || "#{source_prefix}_id"
+  end
+
+  defp extract_join_key_names(config) do
+    case Map.get(config, :join_keys, []) do
+      join_keys when is_list(join_keys) ->
+        Enum.map(join_keys, fn
+          {key, _value} -> to_string(key)
+          key when is_atom(key) -> to_string(key)
+          key when is_binary(key) -> key
+          other -> to_string(other)
+        end)
+
+      join_keys when is_map(join_keys) ->
+        join_keys
+        |> Map.keys()
+        |> Enum.map(&to_string/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp find_join_key(join_keys, prefix) do
+    exact = Enum.find(join_keys, &(&1 == "#{prefix}_id"))
+
+    exact ||
+      Enum.find(join_keys, fn key ->
+        String.starts_with?(key, "#{prefix}_")
+      end)
+  end
+
+  defp singularize(value) when is_binary(value) do
+    cond do
+      String.ends_with?(value, "ies") ->
+        String.replace_suffix(value, "ies", "y")
+
+      String.ends_with?(value, "sses") ->
+        String.replace_suffix(value, "es", "")
+
+      String.ends_with?(value, "s") and String.length(value) > 1 ->
+        String.trim_trailing(value, "s")
+
+      true ->
+        value
     end
   end
 
@@ -346,19 +415,4 @@ defmodule Selecto.Builder.Sql.Tagging do
       _ -> "main"
     end
   end
-
-  defp build_main_table_reference(selecto) do
-    build_join_string(selecto, "selecto_root")
-  end
-
-  defp source_primary_key(%{config: %{primary_key: primary_key}}) when is_atom(primary_key) do
-    Atom.to_string(primary_key)
-  end
-
-  defp source_primary_key(%{domain: %{source: %{primary_key: primary_key}}})
-       when is_atom(primary_key) do
-    Atom.to_string(primary_key)
-  end
-
-  defp source_primary_key(_selecto), do: "id"
 end
