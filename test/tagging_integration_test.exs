@@ -41,7 +41,7 @@ defmodule Selecto.TaggingIntegrationTest do
       assert String.contains?(from_sql, "LEFT JOIN tags")
 
       # Should properly link the joins
-      assert String.contains?(from_sql, "ON posts.id = tags_jt.post_id")
+      assert String.contains?(from_sql, "ON selecto_root.id = tags_jt.post_id")
       assert String.contains?(from_sql, "ON tags_jt.tag_id =")
 
       # Basic join shouldn't add extra parameters

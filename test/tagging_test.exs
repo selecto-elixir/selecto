@@ -187,7 +187,7 @@ defmodule Selecto.TaggingTest do
       # Should contain double JOIN pattern
       assert String.contains?(join_sql, "LEFT JOIN post_tags tags_jt")
       assert String.contains?(join_sql, "LEFT JOIN tags")
-      assert String.contains?(join_sql, "ON posts.id = tags_jt.post_id")
+      assert String.contains?(join_sql, "ON selecto_root.id = tags_jt.post_id")
       assert String.contains?(join_sql, "ON tags_jt.tag_id =")
 
       # Basic join shouldn't add parameters
@@ -220,6 +220,29 @@ defmodule Selecto.TaggingTest do
       # Default naming fallback
       assert String.contains?(join_sql, "categories_jt") or
                String.contains?(join_sql, "categorie_categories")
+    end
+
+    test "build_tagging_join_with_aggregation uses join_through metadata when join_table is absent" do
+      selecto = %{domain: %{source: %{source_table: "products"}}}
+
+      config = %{
+        source: "tags",
+        join_through: "product_tags",
+        requires_join: :selecto_root,
+        owner_key: :id,
+        my_key: :id
+      }
+
+      {from_clause, _params, _ctes} =
+        Tagging.build_tagging_join_with_aggregation(selecto, :tags, config, [], [], [])
+
+      join_sql = IO.iodata_to_binary(from_clause)
+
+      assert String.contains?(join_sql, "LEFT JOIN product_tags tags_jt")
+      assert String.contains?(join_sql, "ON selecto_root.id = tags_jt.product_id")
+      assert String.contains?(join_sql, "ON tags_jt.tag_id = tags.id")
+      refute String.contains?(join_sql, "tag_tags")
+      refute String.contains?(join_sql, "products_id")
     end
   end
 end
