@@ -433,6 +433,31 @@ SELECTO_RUN_DB_TESTS=true mix test test/cross_db_baseline_test.exs --only mssql
 SELECTO_RUN_DB_TESTS=true mix test test/cross_db_baseline_test.exs --only sqlite
 ```
 
+### Property Testing
+
+Run property tests (non-DB) for deterministic SQL generation and query-builder
+invariants:
+
+```bash
+mix test test/property/property_test.exs
+```
+
+Run the PostgreSQL-backed property suite (tagged with `:requires_db`):
+
+```bash
+SELECTO_RUN_DB_TESTS=true mix test test/property/property_test.exs --include requires_db
+```
+
+Optional DB connection overrides for the DB-backed property suite:
+
+```bash
+SELECTO_POSTGRES_HOST=localhost
+SELECTO_POSTGRES_PORT=5432
+SELECTO_POSTGRES_USER=postgres
+SELECTO_POSTGRES_PASSWORD=password
+SELECTO_POSTGRES_DATABASE=selecto_test
+```
+
 ## 📚 Documentation
 
 - [Join Patterns Guide](guides/joins.md) - Comprehensive database join patterns
