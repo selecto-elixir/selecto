@@ -30,6 +30,25 @@ None currently.
 2. Execute with DB tests enabled:
 - `SELECTO_RUN_DB_TESTS=1 mix test test/selecto_test.exs --include requires_db`
 
+### `test/property/property_test.exs` (DB subset)
+- Property suite includes both non-DB and DB-backed properties.
+- Safety model: DB-backed module is tagged with `@moduletag :requires_db`, and excluded by default in `test/test_helper.exs`.
+- Default behavior: `mix test test/property/property_test.exs` runs only non-DB properties.
+- To run DB-backed properties intentionally:
+1. Ensure PostgreSQL is reachable (defaults):
+- host: `localhost`
+- port: `5432`
+- database: `selecto_test`
+- username/password: `postgres` / `password`
+2. Execute with DB tests enabled:
+- `SELECTO_RUN_DB_TESTS=1 mix test test/property/property_test.exs --include requires_db`
+3. Optional connection overrides (if defaults do not match):
+- `SELECTO_POSTGRES_HOST`
+- `SELECTO_POSTGRES_PORT`
+- `SELECTO_POSTGRES_USER`
+- `SELECTO_POSTGRES_PASSWORD`
+- `SELECTO_POSTGRES_DATABASE`
+
 ## Policy
 
 When disabled files are re-enabled, they must use explicit tags:
