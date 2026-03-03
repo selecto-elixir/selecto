@@ -74,7 +74,9 @@ defmodule Selecto.Builder.Sql.Tagging do
       join_table_alias,
       " ON ",
       build_main_table_reference(selecto),
-      ".id = ",
+      ".",
+      source_primary_key(selecto),
+      " = ",
       join_table_alias,
       ".",
       main_foreign_key
@@ -322,7 +324,7 @@ defmodule Selecto.Builder.Sql.Tagging do
 
   defp get_join_table_name(config, _context) do
     # Try to extract join table name from configuration
-    case Map.get(config, :join_table) do
+    case Map.get(config, :join_table) || Map.get(config, :join_through) do
       nil ->
         # Fallback: try to infer from association or use default pattern
         source = config.source
@@ -346,11 +348,17 @@ defmodule Selecto.Builder.Sql.Tagging do
   end
 
   defp build_main_table_reference(selecto) do
-    # In a real query, this would be the main table alias or name
-    # For now, using "main" as a placeholder
-    case extract_main_table(selecto) do
-      "main" -> "main"
-      table -> table
-    end
+    build_join_string(selecto, "selecto_root")
   end
+
+  defp source_primary_key(%{config: %{primary_key: primary_key}}) when is_atom(primary_key) do
+    Atom.to_string(primary_key)
+  end
+
+  defp source_primary_key(%{domain: %{source: %{primary_key: primary_key}}})
+       when is_atom(primary_key) do
+    Atom.to_string(primary_key)
+  end
+
+  defp source_primary_key(_selecto), do: "id"
 end

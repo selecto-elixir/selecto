@@ -301,6 +301,37 @@ defmodule Selecto.Schema.Join do
           "#{id}_join"
       end
 
+    join_keys = Map.get(association, :join_keys, [])
+
+    {derived_main_foreign_key, derived_tag_foreign_key} =
+      case join_keys do
+        [{main_fk, _owner_key}, {tag_fk, _related_key} | _] ->
+          {to_string(main_fk), to_string(tag_fk)}
+
+        _ ->
+          {
+            foreign_key_from_table(Map.get(from_source, :source_table, to_string(id))),
+            foreign_key_from_table(Map.get(queryable, :source_table, to_string(id)))
+          }
+      end
+
+    final_join_table =
+      case Map.get(config, :join_table) do
+        nil -> join_through_table
+        value when is_atom(value) -> Atom.to_string(value)
+        value -> value
+      end
+
+    final_main_foreign_key =
+      config
+      |> Map.get(:main_foreign_key, derived_main_foreign_key)
+      |> to_string()
+
+    final_tag_foreign_key =
+      config
+      |> Map.get(:tag_foreign_key, derived_tag_foreign_key)
+      |> to_string()
+
     %{
       config: config,
       from_source: from_source,
@@ -311,8 +342,11 @@ defmodule Selecto.Schema.Join do
       name: name,
       requires_join: parent,
       join_type: :many_to_many,
+      join_table: final_join_table,
+      main_foreign_key: final_main_foreign_key,
+      tag_foreign_key: final_tag_foreign_key,
       join_through: join_through_table,
-      join_keys: Map.get(association, :join_keys, []),
+      join_keys: join_keys,
       filters: Map.get(config, :filters, %{}),
       fields:
         Selecto.Schema.Column.configure_columns(
@@ -323,6 +357,17 @@ defmodule Selecto.Schema.Join do
         )
     }
     |> parameterize()
+  end
+
+  defp foreign_key_from_table(table) when is_atom(table),
+    do: table |> Atom.to_string() |> foreign_key_from_table()
+
+  defp foreign_key_from_table(table) when is_binary(table) do
+    table
+    |> String.split(".")
+    |> List.last()
+    |> String.trim_trailing("s")
+    |> Kernel.<>("_id")
   end
 
   ### id, the id of this join in the joins map on parent
