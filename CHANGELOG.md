@@ -4,6 +4,25 @@
 ## V NEXT
 ---------------------------------------------------------
 
+## V 0.3.8 - Property Testing and Tagging Hardening
+---------------------------------------------------------
+
+#### Added
+- Added StreamData-backed property testing scaffolding under
+  `test/property/`, including deterministic SQL generation checks,
+  builder immutability checks, invalid-field failure-path checks, and an
+  opt-in PostgreSQL-backed property suite.
+- Added property-testing run documentation to the README, including
+  `:requires_db` execution guidance and optional PostgreSQL env overrides.
+
+#### Changed
+- Updated tagging SQL builder paths to preserve many-to-many join metadata,
+  improving compatibility for domains that rely on relationship metadata
+  during tagging resolution.
+- Updated tagging behavior/tests for Northwind-oriented scenarios in
+  `Selecto.Builder.Sql.Tagging`.
+- Bumped package version to `0.3.8`.
+
 ## V 0.3.7 - Cross-DB Baseline Expansion and PG18 Rollup Gating
 ---------------------------------------------------------
 
