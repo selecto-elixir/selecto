@@ -387,7 +387,11 @@ defmodule Selecto.Types do
 
   # Configuration options
   @type configure_options :: [
-          validate: boolean()
+          validate: boolean(),
+          pool: boolean(),
+          pool_options: keyword(),
+          adapter: module(),
+          rollup_sort_fix: boolean() | :auto
         ]
 
   @type execute_options :: [
@@ -396,7 +400,14 @@ defmodule Selecto.Types do
           max_rows: pos_integer(),
           receive_timeout: timeout(),
           queue_timeout: timeout(),
-          stream_timeout: timeout()
+          stream_timeout: timeout(),
+          analyze_complexity: boolean(),
+          format: term(),
+          format_options: keyword() | map(),
+          cache: boolean(),
+          cache_ttl: pos_integer(),
+          cache_namespace: String.t(),
+          stream_producer: function()
         ]
 
   @type sql_generation_options :: [

@@ -40,6 +40,8 @@ defmodule Selecto.Configuration do
   """
   @spec configure(Selecto.Types.domain(), Postgrex.conn(), keyword()) :: Selecto.Types.t()
   def configure(domain, postgrex_opts, opts \\ []) do
+    Selecto.OptionsValidator.validate_configure_opts!(opts)
+
     validate? = Keyword.get(opts, :validate, true)
     use_pool? = Keyword.get(opts, :pool, false)
     adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
