@@ -107,8 +107,8 @@ defmodule Selecto.ConnectionPool do
     pool_config = Keyword.merge(@default_pool_config, pool_options)
     adapter = Keyword.get(pool_options, :adapter, Selecto.DB.PostgreSQL)
 
-    # Create unique pool name based on connection config
-    pool_name = generate_pool_name(connection_config)
+    # Create unique pool name based on connection config and adapter
+    pool_name = generate_pool_name(%{adapter: adapter, connection_config: connection_config})
 
     with :ok <- ensure_runtime_started() do
       # Check if adapter supports pooling
