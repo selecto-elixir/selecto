@@ -8,7 +8,7 @@ defmodule Selecto.Performance.QueryCache do
   - Size-based eviction (LRU)
   - Cache invalidation strategies
   - Cache statistics and monitoring
-  - Multi-level caching (memory + optional Redis/ETS)
+  - ETS-backed low-latency reads
   """
 
   use GenServer
@@ -47,16 +47,16 @@ defmodule Selecto.Performance.QueryCache do
   - `:max_size` - Maximum number of cached queries (default: 1000)
   - `:default_ttl` - Default TTL in milliseconds (default: 5 minutes)
   - `:eviction_policy` - :lru, :lfu, or :ttl (default: :lru)
-  - `:cache_backend` - :ets, :persistent_term, or :redis (default: :ets)
+  - `:cache_backend` - :ets (default: :ets)
   - `:track_stats` - Enable cache statistics (default: true)
   - `:compression` - Enable result compression (default: false)
   """
   def start_link(opts \\ []) do
-    if Process.whereis(__MODULE__) do
-      GenServer.stop(__MODULE__)
+    case GenServer.start_link(__MODULE__, opts, name: __MODULE__) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+      other -> other
     end
-
-    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @doc """
@@ -65,7 +65,13 @@ defmodule Selecto.Performance.QueryCache do
   Returns {:ok, result} if found, :miss if not in cache.
   """
   def get(cache_key) do
-    GenServer.call(__MODULE__, {:get, cache_key})
+    case fast_get(cache_key) do
+      :no_fast_path ->
+        call_if_running({:get, cache_key}, :miss)
+
+      result ->
+        result
+    end
   end
 
   @doc """
@@ -78,7 +84,7 @@ defmodule Selecto.Performance.QueryCache do
   - `:compress` - Force compression for this entry
   """
   def put(cache_key, result, options \\ []) do
-    GenServer.cast(__MODULE__, {:put, cache_key, result, options})
+    cast_if_running({:put, cache_key, result, options})
   end
 
   @doc """
@@ -107,35 +113,35 @@ defmodule Selecto.Performance.QueryCache do
   Invalidate cache entries by key or pattern.
   """
   def invalidate(key_or_pattern) do
-    GenServer.call(__MODULE__, {:invalidate, key_or_pattern})
+    call_if_running({:invalidate, key_or_pattern}, {:ok, 0})
   end
 
   @doc """
   Invalidate cache entries by tags.
   """
   def invalidate_by_tags(tags) when is_list(tags) do
-    GenServer.call(__MODULE__, {:invalidate_by_tags, tags})
+    call_if_running({:invalidate_by_tags, tags}, {:ok, 0})
   end
 
   @doc """
   Clear entire cache.
   """
   def clear do
-    GenServer.call(__MODULE__, :clear)
+    call_if_running(:clear, :ok)
   end
 
   @doc """
   Get cache statistics.
   """
   def stats do
-    GenServer.call(__MODULE__, :stats)
+    call_if_running(:stats, %{status: :not_started})
   end
 
   @doc """
   Warm up cache with frequently used queries.
   """
   def warmup(queries) when is_list(queries) do
-    GenServer.call(__MODULE__, {:warmup, queries})
+    call_if_running({:warmup, queries}, {:ok, 0})
   end
 
   @doc """
@@ -168,11 +174,78 @@ defmodule Selecto.Performance.QueryCache do
     end
   end
 
+  defp fast_get(cache_key) do
+    case :ets.whereis(@cache_table) do
+      :undefined ->
+        :no_fast_path
+
+      table ->
+        case :ets.lookup(table, cache_key) do
+          [{^cache_key, entry}] ->
+            if expired?(entry) do
+              :no_fast_path
+            else
+              cast_if_running({:touch, cache_key})
+              update_stats_fast(:hits)
+
+              result =
+                if entry.compressed do
+                  decompress_result(entry.result)
+                else
+                  entry.result
+                end
+
+              {:ok, result}
+            end
+
+          [] ->
+            update_stats_fast(:misses)
+            :miss
+        end
+    end
+  end
+
+  defp call_if_running(request, fallback) do
+    case Process.whereis(__MODULE__) do
+      nil -> fallback
+      _pid -> GenServer.call(__MODULE__, request)
+    end
+  end
+
+  defp cast_if_running(request) do
+    case Process.whereis(__MODULE__) do
+      nil -> :ok
+      _pid -> GenServer.cast(__MODULE__, request)
+    end
+  end
+
+  defp update_stats_fast(key) do
+    case :ets.whereis(@stats_table) do
+      :undefined -> :ok
+      table -> :ets.update_counter(table, key, 1, {key, 0})
+    end
+  end
+
+  defp normalize_config(opts) do
+    config = Map.merge(@default_config, Map.new(opts))
+    %{config | cache_backend: normalize_cache_backend(Map.get(config, :cache_backend, :ets))}
+  end
+
+  defp normalize_cache_backend(:ets), do: :ets
+
+  defp normalize_cache_backend(other) do
+    Logger.warning(
+      "[Selecto.QueryCache] Unsupported cache backend #{inspect(other)}; falling back to :ets"
+    )
+
+    :ets
+  end
+
   # Server Callbacks
 
   @impl true
   def init(opts) do
-    config = Map.merge(@default_config, Map.new(opts))
+    config = normalize_config(opts)
 
     # Create cache table
     cache_table = create_cache_table(config.cache_backend)
@@ -230,6 +303,8 @@ defmodule Selecto.Performance.QueryCache do
             else
               state
             end
+
+          touch_entry(state.cache_table, cache_key)
 
           update_stats(state, :hits)
 
@@ -309,66 +384,31 @@ defmodule Selecto.Performance.QueryCache do
   @impl true
   def handle_call({:warmup, queries}, _from, state) do
     # Warm up cache with pre-computed queries
-    warmed =
-      Enum.reduce(queries, 0, fn {selecto, result}, count ->
+    {warmed, new_state} =
+      Enum.reduce(queries, {0, state}, fn {selecto, result}, {count, acc_state} ->
         cache_key = generate_key(selecto)
-        handle_cast({:put, cache_key, result, []}, state)
-        count + 1
+        {count + 1, do_put(cache_key, result, [], acc_state)}
       end)
 
-    {:reply, {:ok, warmed}, state}
+    {:reply, {:ok, warmed}, new_state}
   end
 
   @impl true
   def handle_cast({:put, cache_key, result, options}, state) do
-    ttl = Keyword.get(options, :ttl, state.config.default_ttl)
-    tags = Keyword.get(options, :tags, [])
+    {:noreply, do_put(cache_key, result, options, state)}
+  end
 
-    # Calculate size
-    result_size = :erlang.external_size(result)
-
-    # Compress if needed
-    {final_result, compressed} =
-      if should_compress?(result_size, options, state.config) do
-        {compress_result(result), true}
-      else
-        {result, false}
-      end
-
-    entry = %{
-      result: final_result,
-      inserted_at: System.monotonic_time(:millisecond),
-      ttl: ttl,
-      tags: tags,
-      size: result_size,
-      compressed: compressed,
-      access_count: 0,
-      last_accessed: System.monotonic_time(:millisecond)
-    }
-
-    # Check if we need to evict
-    new_state =
-      if state.item_count >= state.config.max_size do
-        evict_entry(state)
+  @impl true
+  def handle_cast({:touch, cache_key}, state) do
+    touched_state =
+      if state.config.eviction_policy == :lru do
+        update_lru(state, cache_key)
       else
         state
       end
 
-    # Insert into cache
-    insert_into_cache(new_state.cache_table, cache_key, entry)
-
-    # Update state
-    new_state = %{
-      new_state
-      | item_count: new_state.item_count + 1,
-        size_bytes: new_state.size_bytes + result_size,
-        lru_list: [cache_key | new_state.lru_list] |> Enum.take(state.config.max_size)
-    }
-
-    update_stats(new_state, :item_count, new_state.item_count)
-    update_stats(new_state, :size_bytes, new_state.size_bytes)
-
-    {:noreply, new_state}
+    touch_entry(state.cache_table, cache_key)
+    {:noreply, touched_state}
   end
 
   @impl true
@@ -386,6 +426,65 @@ defmodule Selecto.Performance.QueryCache do
 
   # Private functions - Cache Operations
 
+  defp do_put(cache_key, result, options, state) do
+    ttl = Keyword.get(options, :ttl, state.config.default_ttl)
+    tags = Keyword.get(options, :tags, [])
+
+    result_size = :erlang.external_size(result)
+
+    {final_result, compressed} =
+      if should_compress?(result_size, options, state.config) do
+        {compress_result(result), true}
+      else
+        {result, false}
+      end
+
+    now = System.monotonic_time(:millisecond)
+
+    entry = %{
+      result: final_result,
+      inserted_at: now,
+      ttl: ttl,
+      tags: tags,
+      size: result_size,
+      compressed: compressed,
+      access_count: 0,
+      last_accessed: now
+    }
+
+    existing_entry =
+      case lookup_cache(state.cache_table, cache_key) do
+        {:ok, existing} -> existing
+        :miss -> nil
+      end
+
+    state_after_evict =
+      if is_nil(existing_entry) and state.item_count >= state.config.max_size do
+        evict_entry(state)
+      else
+        state
+      end
+
+    insert_into_cache(state_after_evict.cache_table, cache_key, entry)
+
+    item_count_delta = if is_nil(existing_entry), do: 1, else: 0
+    previous_size = if is_nil(existing_entry), do: 0, else: existing_entry.size
+
+    new_state = %{
+      state_after_evict
+      | item_count: state_after_evict.item_count + item_count_delta,
+        size_bytes: max(0, state_after_evict.size_bytes + result_size - previous_size),
+        lru_list:
+          [cache_key | List.delete(state_after_evict.lru_list, cache_key)]
+          |> Enum.take(state.config.max_size)
+    }
+
+    update_stats(new_state, :item_count, new_state.item_count)
+    update_stats(new_state, :size_bytes, new_state.size_bytes)
+
+    new_state
+  end
+
   defp create_cache_table(:ets) do
     :ets.new(@cache_table, [
       :set,
@@ -396,11 +495,7 @@ defmodule Selecto.Performance.QueryCache do
     ])
   end
 
-  defp create_cache_table(:persistent_term) do
-    # For persistent_term, we'll use a map stored in persistent_term
-    :persistent_term.put({__MODULE__, :cache}, %{})
-    :persistent_term
-  end
+  defp create_cache_table(_backend), do: create_cache_table(:ets)
 
   defp lookup_cache(table, key) when is_reference(table) or is_atom(table) do
     case :ets.lookup(table, key) do
@@ -409,41 +504,33 @@ defmodule Selecto.Performance.QueryCache do
     end
   end
 
-  defp lookup_cache(:persistent_term, key) do
-    cache = :persistent_term.get({__MODULE__, :cache}, %{})
-
-    case Map.get(cache, key) do
-      nil -> :miss
-      entry -> {:ok, entry}
-    end
-  end
-
   defp insert_into_cache(table, key, entry) when is_reference(table) or is_atom(table) do
     :ets.insert(table, {key, entry})
-  end
-
-  defp insert_into_cache(:persistent_term, key, entry) do
-    cache = :persistent_term.get({__MODULE__, :cache}, %{})
-    new_cache = Map.put(cache, key, entry)
-    :persistent_term.put({__MODULE__, :cache}, new_cache)
   end
 
   defp delete_from_cache(table, key) when is_reference(table) or is_atom(table) do
     :ets.delete(table, key)
   end
 
-  defp delete_from_cache(:persistent_term, key) do
-    cache = :persistent_term.get({__MODULE__, :cache}, %{})
-    new_cache = Map.delete(cache, key)
-    :persistent_term.put({__MODULE__, :cache}, new_cache)
-  end
-
   defp clear_cache(table) when is_reference(table) or is_atom(table) do
     :ets.delete_all_objects(table)
   end
 
-  defp clear_cache(:persistent_term) do
-    :persistent_term.put({__MODULE__, :cache}, %{})
+  defp touch_entry(table, key) when is_reference(table) or is_atom(table) do
+    case :ets.lookup(table, key) do
+      [{^key, entry}] ->
+        updated = %{
+          entry
+          | access_count: Map.get(entry, :access_count, 0) + 1,
+            last_accessed: System.monotonic_time(:millisecond)
+        }
+
+        :ets.insert(table, {key, updated})
+        :ok
+
+      [] ->
+        :miss
+    end
   end
 
   # Private functions - Eviction

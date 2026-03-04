@@ -33,4 +33,35 @@ defmodule Selecto.Performance.QueryCacheTest do
     assert :ok = QueryCache.clear()
     assert :miss = QueryCache.get("k2")
   end
+
+  test "start_link is idempotent" do
+    pid = Process.whereis(QueryCache)
+    assert is_pid(pid)
+
+    assert {:ok, same_pid} = QueryCache.start_link(max_size: 20)
+    assert same_pid == pid
+  end
+
+  test "warmup stores entries" do
+    key_source = %{query: "warmup"}
+    result = %{rows: [[42]]}
+
+    assert {:ok, 1} = QueryCache.warmup([{key_source, result}])
+
+    key = QueryCache.generate_key(key_source)
+    assert {:ok, ^result} = QueryCache.get(key)
+  end
+
+  test "api is safe when cache is not running" do
+    assert is_pid(Process.whereis(QueryCache))
+    :ok = GenServer.stop(QueryCache)
+
+    assert :miss = QueryCache.get("missing")
+    assert :ok = QueryCache.put("k", "v")
+    assert {:ok, 0} = QueryCache.invalidate("k")
+    assert {:ok, 0} = QueryCache.invalidate_by_tags(["tag"])
+    assert :ok = QueryCache.clear()
+    assert %{status: :not_started} = QueryCache.stats()
+    assert {:ok, 0} = QueryCache.warmup([])
+  end
 end
