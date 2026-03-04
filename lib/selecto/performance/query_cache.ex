@@ -26,12 +26,19 @@ defmodule Selecto.Performance.QueryCache do
   }
 
   @cache_table :selecto_query_cache
-  @stats_table :selecto_cache_stats
+  @stats_ref_table :selecto_cache_stats_ref
+
+  @counter_hits 1
+  @counter_misses 2
+  @counter_evictions 3
+  @counter_invalidations 4
+  @counter_item_count 5
+  @counter_size_bytes 6
 
   defstruct [
     :config,
     :cache_table,
-    :stats_table,
+    :stats_counter,
     :lru_list,
     :size_bytes,
     :item_count
@@ -220,9 +227,13 @@ defmodule Selecto.Performance.QueryCache do
   end
 
   defp update_stats_fast(key) do
-    case :ets.whereis(@stats_table) do
-      :undefined -> :ok
-      table -> :ets.update_counter(table, key, 1, {key, 0})
+    case current_stats_counter() do
+      {:ok, counter} ->
+        :counters.add(counter, counter_index(key), 1)
+        :ok
+
+      :error ->
+        :ok
     end
   end
 
@@ -250,25 +261,15 @@ defmodule Selecto.Performance.QueryCache do
     # Create cache table
     cache_table = create_cache_table(config.cache_backend)
 
-    # Create stats table if tracking enabled
-    stats_table =
+    stats_counter =
       if config.track_stats do
-        :ets.new(@stats_table, [:set, :public, :named_table])
+        counter = :counters.new(6, [:write_concurrency])
+        register_stats_counter(counter)
+        counter
       else
+        unregister_stats_counter()
         nil
       end
-
-    # Initialize stats
-    if stats_table do
-      :ets.insert(stats_table, [
-        {:hits, 0},
-        {:misses, 0},
-        {:evictions, 0},
-        {:invalidations, 0},
-        {:size_bytes, 0},
-        {:item_count, 0}
-      ])
-    end
 
     # Schedule TTL cleanup
     if config.eviction_policy == :ttl do
@@ -279,7 +280,7 @@ defmodule Selecto.Performance.QueryCache do
      %__MODULE__{
        config: config,
        cache_table: cache_table,
-       stats_table: stats_table,
+       stats_counter: stats_counter,
        lru_list: [],
        size_bytes: 0,
        item_count: 0
@@ -293,7 +294,7 @@ defmodule Selecto.Performance.QueryCache do
         # Check TTL
         if expired?(entry) do
           delete_from_cache(state.cache_table, cache_key)
-          update_stats(state, :misses)
+          increment_stat(state, :misses)
           {:reply, :miss, state}
         else
           # Update LRU if needed
@@ -306,7 +307,7 @@ defmodule Selecto.Performance.QueryCache do
 
           touch_entry(state.cache_table, cache_key)
 
-          update_stats(state, :hits)
+          increment_stat(state, :hits)
 
           # Decompress if needed
           result =
@@ -320,7 +321,7 @@ defmodule Selecto.Performance.QueryCache do
         end
 
       :miss ->
-        update_stats(state, :misses)
+        increment_stat(state, :misses)
         {:reply, :miss, state}
     end
   end
@@ -336,7 +337,8 @@ defmodule Selecto.Performance.QueryCache do
 
     new_state = %{state | item_count: max(0, state.item_count - count)}
 
-    update_stats(new_state, :invalidations, count)
+    increment_stat(new_state, :invalidations, count)
+    set_stat(new_state, :item_count, new_state.item_count)
 
     {:reply, {:ok, count}, new_state}
   end
@@ -347,7 +349,8 @@ defmodule Selecto.Performance.QueryCache do
 
     new_state = %{state | item_count: max(0, state.item_count - count)}
 
-    update_stats(new_state, :invalidations, count)
+    increment_stat(new_state, :invalidations, count)
+    set_stat(new_state, :item_count, new_state.item_count)
 
     {:reply, {:ok, count}, new_state}
   end
@@ -358,9 +361,8 @@ defmodule Selecto.Performance.QueryCache do
 
     new_state = %{state | item_count: 0, size_bytes: 0, lru_list: []}
 
-    if state.stats_table do
-      :ets.insert(state.stats_table, [{:item_count, 0}, {:size_bytes, 0}])
-    end
+    set_stat(new_state, :item_count, 0)
+    set_stat(new_state, :size_bytes, 0)
 
     {:reply, :ok, new_state}
   end
@@ -368,11 +370,17 @@ defmodule Selecto.Performance.QueryCache do
   @impl true
   def handle_call(:stats, _from, state) do
     stats =
-      if state.stats_table do
-        :ets.tab2list(state.stats_table)
-        |> Map.new()
+      if state.stats_counter do
+        %{
+          hits: get_stat(state.stats_counter, :hits),
+          misses: get_stat(state.stats_counter, :misses),
+          evictions: get_stat(state.stats_counter, :evictions),
+          invalidations: get_stat(state.stats_counter, :invalidations),
+          size_bytes: get_stat(state.stats_counter, :size_bytes),
+          item_count: get_stat(state.stats_counter, :item_count)
+        }
         |> Map.merge(%{
-          hit_rate: calculate_hit_rate(state.stats_table),
+          hit_rate: calculate_hit_rate(state.stats_counter),
           avg_entry_size:
             if(state.item_count > 0, do: state.size_bytes / state.item_count, else: 0),
           memory_usage: state.size_bytes,
@@ -422,6 +430,11 @@ defmodule Selecto.Performance.QueryCache do
     expired_count = cleanup_expired(state.cache_table)
 
     new_state = %{state | item_count: max(0, state.item_count - expired_count)}
+
+    if expired_count > 0 do
+      increment_stat(new_state, :invalidations, expired_count)
+      set_stat(new_state, :item_count, new_state.item_count)
+    end
 
     # Schedule next cleanup
     schedule_ttl_cleanup()
@@ -484,8 +497,8 @@ defmodule Selecto.Performance.QueryCache do
           |> Enum.take(state.config.max_size)
     }
 
-    update_stats(new_state, :item_count, new_state.item_count)
-    update_stats(new_state, :size_bytes, new_state.size_bytes)
+    set_stat(new_state, :item_count, new_state.item_count)
+    set_stat(new_state, :size_bytes, new_state.size_bytes)
 
     new_state
   end
@@ -548,7 +561,7 @@ defmodule Selecto.Performance.QueryCache do
 
       oldest_key ->
         delete_from_cache(state.cache_table, oldest_key)
-        update_stats(state, :evictions)
+        increment_stat(state, :evictions)
 
         %{
           state
@@ -577,7 +590,7 @@ defmodule Selecto.Performance.QueryCache do
 
       {key, _entry} ->
         delete_from_cache(state.cache_table, key)
-        update_stats(state, :evictions)
+        increment_stat(state, :evictions)
 
         %{state | lru_list: List.delete(state.lru_list, key), item_count: state.item_count - 1}
     end
@@ -610,7 +623,7 @@ defmodule Selecto.Performance.QueryCache do
 
       {key, _entry} ->
         delete_from_cache(state.cache_table, key)
-        update_stats(state, :evictions)
+        increment_stat(state, :evictions)
 
         %{state | lru_list: List.delete(state.lru_list, key), item_count: state.item_count - 1}
     end
@@ -761,24 +774,37 @@ defmodule Selecto.Performance.QueryCache do
     |> :erlang.binary_to_term()
   end
 
+  @impl true
+  def terminate(_reason, _state) do
+    unregister_stats_counter()
+    :ok
+  end
+
   # Private functions - Statistics
 
-  defp update_stats(%{stats_table: nil}, _key, _value), do: :ok
+  defp increment_stat(%{stats_counter: nil}, _key, _value), do: :ok
 
-  defp update_stats(%{stats_table: table}, key, value) do
-    :ets.update_counter(table, key, value, {key, 0})
+  defp increment_stat(%{stats_counter: counter}, key, value) when is_integer(value) do
+    :counters.add(counter, counter_index(key), value)
+    :ok
   end
 
-  defp update_stats(%{stats_table: nil}, _key), do: :ok
+  defp increment_stat(state, key), do: increment_stat(state, key, 1)
 
-  defp update_stats(%{stats_table: table}, key) do
-    :ets.update_counter(table, key, 1, {key, 0})
+  defp set_stat(%{stats_counter: nil}, _key, _value), do: :ok
+
+  defp set_stat(%{stats_counter: counter}, key, value) when is_integer(value) and value >= 0 do
+    :counters.put(counter, counter_index(key), value)
+    :ok
   end
 
-  defp calculate_hit_rate(stats_table) do
-    [{:hits, hits}] = :ets.lookup(stats_table, :hits)
-    [{:misses, misses}] = :ets.lookup(stats_table, :misses)
+  defp get_stat(counter, key) do
+    :counters.get(counter, counter_index(key))
+  end
 
+  defp calculate_hit_rate(counter) do
+    hits = get_stat(counter, :hits)
+    misses = get_stat(counter, :misses)
     total = hits + misses
 
     if total > 0 do
@@ -787,6 +813,59 @@ defmodule Selecto.Performance.QueryCache do
       0.0
     end
   end
+
+  defp current_stats_counter do
+    case :ets.whereis(@stats_ref_table) do
+      :undefined ->
+        :error
+
+      table ->
+        case :ets.lookup(table, :counter) do
+          [{:counter, counter}] -> {:ok, counter}
+          [] -> :error
+        end
+    end
+  end
+
+  defp register_stats_counter(counter) do
+    table = ensure_stats_ref_table()
+    :ets.insert(table, {:counter, counter})
+    :ok
+  end
+
+  defp unregister_stats_counter do
+    case :ets.whereis(@stats_ref_table) do
+      :undefined -> :ok
+      table -> :ets.delete(table, :counter)
+    end
+  end
+
+  defp ensure_stats_ref_table do
+    case :ets.whereis(@stats_ref_table) do
+      :undefined ->
+        try do
+          :ets.new(@stats_ref_table, [
+            :set,
+            :public,
+            :named_table,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+        rescue
+          ArgumentError -> :ets.whereis(@stats_ref_table)
+        end
+
+      table ->
+        table
+    end
+  end
+
+  defp counter_index(:hits), do: @counter_hits
+  defp counter_index(:misses), do: @counter_misses
+  defp counter_index(:evictions), do: @counter_evictions
+  defp counter_index(:invalidations), do: @counter_invalidations
+  defp counter_index(:item_count), do: @counter_item_count
+  defp counter_index(:size_bytes), do: @counter_size_bytes
 
   defp record_hit(cache_key) do
     :telemetry.execute([:selecto, :cache, :hit], %{count: 1}, %{key: cache_key})
