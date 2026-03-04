@@ -90,6 +90,7 @@ defmodule Selecto.MixProject do
     [
       {:postgrex, ">= 0.0.0"},
       {:jason, "~> 1.2"},
+      {:nimble_options, "~> 1.0"},
       {:uuid, "~> 1.1"},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false},
       {:timex, "~> 3.7.9"},

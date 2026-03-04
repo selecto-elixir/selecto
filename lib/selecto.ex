@@ -209,6 +209,7 @@ defmodule Selecto do
   """
   @spec configure(Selecto.Types.domain(), Postgrex.conn(), keyword()) :: t()
   def configure(domain, postgrex_opts, opts \\ []) do
+    Selecto.OptionsValidator.validate_configure_opts!(opts)
     Selecto.Configuration.configure(domain, postgrex_opts, opts)
   end
 
@@ -700,6 +701,8 @@ defmodule Selecto do
   @spec execute(Selecto.Types.t(), Selecto.Types.execute_options()) ::
           Selecto.Types.safe_execute_result()
   def execute(selecto, opts \\ []) do
+    Selecto.OptionsValidator.validate_execute_opts!(opts)
+
     # Delegate to the extracted Executor module
     Selecto.Executor.execute(selecto, Selecto.Tenant.merge_execution_opts(selecto, opts))
   end
@@ -736,6 +739,8 @@ defmodule Selecto do
   @spec execute_with_metadata(Selecto.Types.t(), Selecto.Types.execute_options()) ::
           {:ok, Selecto.Types.execute_result(), map()} | {:error, Selecto.Error.t()}
   def execute_with_metadata(selecto, opts \\ []) do
+    Selecto.OptionsValidator.validate_execute_opts!(opts)
+
     # Delegate to the extracted Executor module
     Selecto.Executor.execute_with_metadata(
       selecto,
@@ -765,6 +770,7 @@ defmodule Selecto do
   """
   @spec execute_stream(Selecto.Types.t(), keyword()) :: Selecto.Types.safe_execute_stream_result()
   def execute_stream(selecto, opts \\ []) do
+    Selecto.OptionsValidator.validate_execute_opts!(opts)
     Selecto.Executor.execute_stream(selecto, Selecto.Tenant.merge_execution_opts(selecto, opts))
   end
 
@@ -791,6 +797,8 @@ defmodule Selecto do
   @spec execute_one(Selecto.Types.t(), Selecto.Types.execute_options()) ::
           Selecto.Types.safe_execute_one_result()
   def execute_one(selecto, opts \\ []) do
+    Selecto.OptionsValidator.validate_execute_opts!(opts)
+
     # Delegate to the extracted Executor module
     Selecto.Executor.execute_one(selecto, Selecto.Tenant.merge_execution_opts(selecto, opts))
   end
@@ -803,7 +811,10 @@ defmodule Selecto do
   - `highlight: :ansi | :markdown`
   """
   @spec to_sql(t(), keyword()) :: {String.t(), list()}
-  defdelegate to_sql(selecto, opts \\ []), to: Selecto.Query
+  def to_sql(selecto, opts \\ []) do
+    Selecto.OptionsValidator.validate_to_sql_opts!(opts)
+    Selecto.Query.to_sql(selecto, opts)
+  end
 
   @doc """
   Format SQL output for readability.
@@ -821,13 +832,19 @@ defmodule Selecto do
   Run EXPLAIN for a query and return plan details.
   """
   @spec explain(t(), keyword()) :: {:ok, map()} | {:error, Selecto.Error.t()}
-  defdelegate explain(selecto, opts \\ []), to: Selecto.Diagnostics
+  def explain(selecto, opts \\ []) do
+    Selecto.OptionsValidator.validate_diagnostic_opts!(opts)
+    Selecto.Diagnostics.explain(selecto, opts)
+  end
 
   @doc """
   Run EXPLAIN ANALYZE for a query and return plan details.
   """
   @spec explain_analyze(t(), keyword()) :: {:ok, map()} | {:error, Selecto.Error.t()}
-  defdelegate explain_analyze(selecto, opts \\ []), to: Selecto.Diagnostics
+  def explain_analyze(selecto, opts \\ []) do
+    Selecto.OptionsValidator.validate_diagnostic_opts!(opts)
+    Selecto.Diagnostics.explain_analyze(selecto, opts)
+  end
 
   @doc """
   Add a window function to the query.
