@@ -208,4 +208,30 @@ defmodule Selecto.Performance.HooksTest do
                {:ok, %{ok: true}}
              end)
   end
+
+  test "hook registrations are isolated per process" do
+    Hooks.register(:before_execution, fn ctx -> Map.put(ctx, :parent_hook, true) end)
+
+    assert %{parent_hook: true} = Hooks.run_hooks(:before_execution, %{})
+
+    task =
+      Task.async(fn ->
+        Hooks.run_hooks(:before_execution, %{})
+      end)
+
+    assert %{} = Task.await(task)
+  end
+
+  test "hook snapshots can be restored in another process" do
+    Hooks.register(:before_execution, fn ctx -> Map.put(ctx, :restored, true) end)
+    snapshot = Hooks.snapshot_hooks()
+
+    task =
+      Task.async(fn ->
+        :ok = Hooks.restore_hooks(snapshot)
+        Hooks.run_hooks(:before_execution, %{})
+      end)
+
+    assert %{restored: true} = Task.await(task)
+  end
 end

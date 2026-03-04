@@ -28,6 +28,8 @@ defmodule Selecto.Performance.Hooks do
     on_cache_miss
   )a
 
+  @hooks_table :selecto_hooks_store
+
   @doc """
   Register a hook function for a specific hook point.
 
@@ -380,17 +382,45 @@ defmodule Selecto.Performance.Hooks do
   # Private functions
 
   defp get_hooks(hook_point) do
-    key = hook_key(hook_point)
-    Process.get(key, [])
+    table = ensure_hooks_table()
+
+    case :ets.lookup(table, {self(), hook_point}) do
+      [{{_pid, ^hook_point}, hooks}] when is_list(hooks) -> hooks
+      _ -> []
+    end
   end
 
   defp put_hooks(hook_point, hooks) do
-    key = hook_key(hook_point)
-    Process.put(key, hooks)
+    table = ensure_hooks_table()
+    key = {self(), hook_point}
+
+    if hooks == [] do
+      :ets.delete(table, key)
+    else
+      :ets.insert(table, {key, hooks})
+    end
+
+    :ok
   end
 
-  defp hook_key(hook_point) do
-    :"selecto_hooks_#{hook_point}"
+  defp ensure_hooks_table do
+    case :ets.whereis(@hooks_table) do
+      :undefined ->
+        try do
+          :ets.new(@hooks_table, [
+            :set,
+            :public,
+            :named_table,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+        rescue
+          ArgumentError -> :ets.whereis(@hooks_table)
+        end
+
+      table ->
+        table
+    end
   end
 
   defp invoke_execution_fn(execution_fn, selecto, sql, params, context) do
