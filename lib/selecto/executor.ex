@@ -178,7 +178,7 @@ defmodule Selecto.Executor do
 
     # Wrap execution in Task.async for timeout enforcement
     task =
-      Task.async(fn ->
+      Selecto.TaskSupervisor.async(fn ->
         Selecto.Performance.Hooks.restore_hooks(hook_snapshot)
 
         try do
@@ -927,7 +927,7 @@ defmodule Selecto.Executor do
     Stream.resource(
       fn ->
         task =
-          Task.async(fn ->
+          Selecto.TaskSupervisor.async(fn ->
             tx_result =
               producer.(fn rows, columns ->
                 send(parent, {ref, {:chunk, rows, columns}})

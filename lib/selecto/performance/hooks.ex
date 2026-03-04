@@ -262,17 +262,18 @@ defmodule Selecto.Performance.Hooks do
 
         # Auto-explain very slow queries
         if context.execution_time > auto_explain_threshold && !context[:explained] do
-          spawn(fn ->
-            case Selecto.Performance.QueryAnalyzer.analyze_query(context.selecto) do
-              {:ok, analysis} ->
-                Logger.info(
-                  "Auto-EXPLAIN for slow query #{context.query_id}:\n#{format_analysis(analysis)}"
-                )
+          _ =
+            Selecto.TaskSupervisor.start_child(fn ->
+              case Selecto.Performance.QueryAnalyzer.analyze_query(context.selecto) do
+                {:ok, analysis} ->
+                  Logger.info(
+                    "Auto-EXPLAIN for slow query #{context.query_id}:\n#{format_analysis(analysis)}"
+                  )
 
-              _ ->
-                :ok
-            end
-          end)
+                _ ->
+                  :ok
+              end
+            end)
         end
       end
 
