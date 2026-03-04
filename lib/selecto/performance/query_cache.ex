@@ -84,7 +84,7 @@ defmodule Selecto.Performance.QueryCache do
   - `:compress` - Force compression for this entry
   """
   def put(cache_key, result, options \\ []) do
-    cast_if_running({:put, cache_key, result, options})
+    call_if_running({:put, cache_key, result, options}, :ok)
   end
 
   @doc """
@@ -323,6 +323,11 @@ defmodule Selecto.Performance.QueryCache do
         update_stats(state, :misses)
         {:reply, :miss, state}
     end
+  end
+
+  @impl true
+  def handle_call({:put, cache_key, result, options}, _from, state) do
+    {:reply, :ok, do_put(cache_key, result, options, state)}
   end
 
   @impl true
