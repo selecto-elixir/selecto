@@ -6,6 +6,11 @@ defmodule Selecto.ConnectionPool.Runtime do
   @registry Selecto.ConnectionPool.Registry
   @manager_supervisor Selecto.ConnectionPool.ManagerSupervisor
 
+  @spec start_link(keyword()) :: Supervisor.on_start()
+  def start_link(opts \\ []) do
+    Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
   @spec ensure_started() :: {:ok, pid()} | {:error, term()}
   def ensure_started do
     case Process.whereis(__MODULE__) do
@@ -13,7 +18,7 @@ defmodule Selecto.ConnectionPool.Runtime do
         {:ok, pid}
 
       nil ->
-        case Supervisor.start_link(__MODULE__, [], name: __MODULE__) do
+        case start_link([]) do
           {:ok, pid} -> {:ok, pid}
           {:error, {:already_started, pid}} -> {:ok, pid}
           {:error, _} = error -> error
