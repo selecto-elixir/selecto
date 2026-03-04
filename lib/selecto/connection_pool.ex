@@ -53,6 +53,8 @@ defmodule Selecto.ConnectionPool do
   @runtime Selecto.ConnectionPool.Runtime
   @registry Selecto.ConnectionPool.Registry
   @manager_supervisor Selecto.ConnectionPool.ManagerSupervisor
+  @prepared_statements_table :selecto_prepared_statements
+  @checkout_refs_table :selecto_checkout_refs
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) when is_list(opts) do
@@ -301,6 +303,8 @@ defmodule Selecto.ConnectionPool do
   end
 
   def clear_cache(pool_ref) do
+    maybe_clear_prepared_flags(pool_ref)
+
     case get_manager_pid(pool_ref) do
       {:ok, manager_pid} ->
         GenServer.cast(manager_pid, :clear_cache)
@@ -321,10 +325,6 @@ defmodule Selecto.ConnectionPool do
     pool_config = Keyword.fetch!(opts, :pool_config)
     connection_config = Keyword.fetch!(opts, :connection_config)
 
-    # Initialize prepared statement cache
-    cache_size = pool_config[:prepared_statement_cache_size]
-    cache = :ets.new(:"#{pool_name}_prepared_cache", [:set, :private])
-
     state = %{
       adapter: adapter,
       pool_pid: pool_pid,
@@ -332,8 +332,6 @@ defmodule Selecto.ConnectionPool do
       pool_name: pool_name,
       pool_config: pool_config,
       connection_config: connection_config,
-      prepared_cache: cache,
-      cache_size: cache_size,
       stats: %{
         queries_executed: 0,
         cache_hits: 0,
@@ -387,7 +385,7 @@ defmodule Selecto.ConnectionPool do
     stats =
       Map.merge(state.stats, %{
         pool_info: pool_info,
-        cache_size: :ets.info(state.prepared_cache, :size),
+        cache_size: prepared_cache_size(state.pool_pid),
         uptime: System.system_time(:second)
       })
 
@@ -396,7 +394,7 @@ defmodule Selecto.ConnectionPool do
 
   @impl GenServer
   def handle_cast(:clear_cache, state) do
-    :ets.delete_all_objects(state.prepared_cache)
+    clear_prepared_flags(state.pool_pid)
     {:noreply, state}
   end
 
@@ -416,10 +414,7 @@ defmodule Selecto.ConnectionPool do
   end
 
   @impl GenServer
-  def terminate(_reason, state) do
-    :ets.delete(state.prepared_cache)
-    :ok
-  end
+  def terminate(_reason, _state), do: :ok
 
   # Private Functions
 
@@ -452,18 +447,18 @@ defmodule Selecto.ConnectionPool do
     # DBConnection handles the connection pooling transparently
 
     # Check if we have a cached prepared statement name
-    case Process.get({:selecto_prepared, cache_key}) do
-      nil ->
+    case prepared_statement_cached?(pool_pid, cache_key) do
+      false ->
         # No cached statement - use regular query which auto-prepares in Postgrex
         # Postgrex automatically prepares and caches statements internally
         result = Postgrex.query(pool_pid, query, params, timeout: timeout)
 
         # Cache the statement reference for future use (statement is cached in Postgrex)
-        Process.put({:selecto_prepared, cache_key}, true)
+        mark_prepared_statement(pool_pid, cache_key)
 
         result
 
-      _cached ->
+      true ->
         # Statement is already prepared in Postgrex's internal cache
         Postgrex.query(pool_pid, query, params, timeout: timeout)
     end
@@ -506,7 +501,7 @@ defmodule Selecto.ConnectionPool do
         # For manual checkout semantics, we return a reference to the pool
         # The actual connection checkout happens when you execute a query
         ref = make_ref()
-        Process.put({:selecto_checkout, ref}, pool_pid)
+        put_checkout_ref(ref, pool_pid, self())
         {:ok, {:selecto_conn, ref, pool_pid}}
 
       {:error, reason} ->
@@ -521,11 +516,19 @@ defmodule Selecto.ConnectionPool do
   """
   @spec checkin(pool_ref(), term()) :: :ok
   def checkin(_pool_ref, {:selecto_conn, ref, _pool_pid}) do
-    Process.delete({:selecto_checkout, ref})
+    delete_checkout_ref(ref)
     :ok
   end
 
   def checkin(_pool_ref, _conn), do: :ok
+
+  @doc false
+  def checkout_lookup(ref) do
+    case lookup_checkout_ref(ref) do
+      {pool_pid, _owner_pid} -> {:ok, pool_pid}
+      :error -> :error
+    end
+  end
 
   @doc """
   Execute a function with a checked-out connection.
@@ -724,5 +727,97 @@ defmodule Selecto.ConnectionPool do
 
   def generate_cache_key(query) do
     :crypto.hash(:md5, query) |> Base.encode16(case: :lower)
+  end
+
+  defp maybe_clear_prepared_flags(pool_ref) do
+    case get_pool_pid(pool_ref) do
+      {:ok, pool_pid} -> clear_prepared_flags(pool_pid)
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp prepared_cache_size(pool_pid) when is_pid(pool_pid) do
+    table = ensure_prepared_statements_table()
+
+    :ets.select_count(table, [
+      {{{pool_pid, :_}, :_}, [], [true]}
+    ])
+  end
+
+  defp prepared_cache_size(_), do: 0
+
+  defp prepared_statement_cached?(pool_pid, cache_key)
+       when is_pid(pool_pid) and is_binary(cache_key) do
+    table = ensure_prepared_statements_table()
+    :ets.member(table, {pool_pid, cache_key})
+  end
+
+  defp mark_prepared_statement(pool_pid, cache_key)
+       when is_pid(pool_pid) and is_binary(cache_key) do
+    table = ensure_prepared_statements_table()
+    :ets.insert(table, {{pool_pid, cache_key}, true})
+    :ok
+  end
+
+  defp clear_prepared_flags(pool_pid) when is_pid(pool_pid) do
+    table = ensure_prepared_statements_table()
+
+    :ets.select_delete(table, [
+      {{{pool_pid, :_}, :_}, [], [true]}
+    ])
+
+    :ok
+  end
+
+  defp clear_prepared_flags(_), do: :ok
+
+  defp put_checkout_ref(ref, pool_pid, owner_pid)
+       when is_reference(ref) and is_pid(pool_pid) and is_pid(owner_pid) do
+    table = ensure_checkout_refs_table()
+    :ets.insert(table, {ref, pool_pid, owner_pid})
+    :ok
+  end
+
+  defp delete_checkout_ref(ref) when is_reference(ref) do
+    table = ensure_checkout_refs_table()
+    :ets.delete(table, ref)
+    :ok
+  end
+
+  defp lookup_checkout_ref(ref) when is_reference(ref) do
+    table = ensure_checkout_refs_table()
+
+    case :ets.lookup(table, ref) do
+      [{^ref, pool_pid, owner_pid}] -> {pool_pid, owner_pid}
+      [] -> :error
+    end
+  end
+
+  defp ensure_prepared_statements_table do
+    ensure_named_table(@prepared_statements_table)
+  end
+
+  defp ensure_checkout_refs_table do
+    ensure_named_table(@checkout_refs_table)
+  end
+
+  defp ensure_named_table(name) when is_atom(name) do
+    case :ets.whereis(name) do
+      :undefined ->
+        try do
+          :ets.new(name, [
+            :set,
+            :public,
+            :named_table,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+        rescue
+          ArgumentError -> :ets.whereis(name)
+        end
+
+      table ->
+        table
+    end
   end
 end

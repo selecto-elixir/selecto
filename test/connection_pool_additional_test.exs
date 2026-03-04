@@ -73,17 +73,21 @@ defmodule Selecto.ConnectionPoolAdditionalTest do
     assert :ok = ConnectionPool.stop_pool(pool_ref)
   end
 
-  test "checkout and checkin use process dictionary references" do
+  test "checkout and checkin track references in ETS" do
     pool_pid = spawn(fn -> Process.sleep(:infinity) end)
     pool_ref = %{pool: pool_pid}
 
     assert {:ok, {:selecto_conn, ref, ^pool_pid}} = ConnectionPool.checkout(pool_ref)
-    assert Process.get({:selecto_checkout, ref}) == pool_pid
+    assert {:ok, ^pool_pid} = ConnectionPool.checkout_lookup(ref)
 
     assert :ok = ConnectionPool.checkin(pool_ref, {:selecto_conn, ref, pool_pid})
-    assert Process.get({:selecto_checkout, ref}) == nil
+    assert :error = ConnectionPool.checkout_lookup(ref)
 
     Process.exit(pool_pid, :kill)
+  end
+
+  test "checkout lookup returns error for unknown references" do
+    assert :error = ConnectionPool.checkout_lookup(make_ref())
   end
 
   test "with_connection and execute handle invalid pool refs" do

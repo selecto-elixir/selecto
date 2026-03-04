@@ -35,6 +35,24 @@ defmodule Selecto.ConnectionPoolTest do
       assert name1 == ConnectionPool.generate_pool_name(config1)
     end
 
+    test "pool naming can include adapter context" do
+      pg_name =
+        ConnectionPool.generate_pool_name(%{
+          adapter: Selecto.DB.PostgreSQL,
+          connection_config: [database: "db"]
+        })
+
+      fake_name =
+        ConnectionPool.generate_pool_name(%{
+          adapter: :fake_adapter,
+          connection_config: [database: "db"]
+        })
+
+      assert is_atom(pg_name)
+      assert is_atom(fake_name)
+      assert pg_name != fake_name
+    end
+
     test "generates cache keys" do
       query1 = "SELECT * FROM users WHERE id = $1"
       query2 = "SELECT * FROM posts WHERE user_id = $1"
@@ -143,7 +161,7 @@ defmodule Selecto.ConnectionPoolTest do
 
   describe "Selecto.configure with pooling" do
     test "configure with pool option creates pooled connection" do
-      domain = %{
+      _domain = %{
         source: %{
           source_table: "users",
           primary_key: :id,
@@ -157,7 +175,7 @@ defmodule Selecto.ConnectionPoolTest do
       }
 
       # Mock connection config
-      postgrex_opts = [
+      _postgrex_opts = [
         hostname: "localhost",
         username: "test",
         password: "test",
