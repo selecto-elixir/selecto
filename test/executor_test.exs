@@ -4,6 +4,10 @@ defmodule Selecto.ExecutorTest do
   alias Selecto.Executor
   alias Selecto.Performance.Hooks
 
+  def handle_span_event(event, measurements, metadata, parent) when is_pid(parent) do
+    send(parent, {:executor_span_event, event, measurements, metadata})
+  end
+
   defmodule Adapter do
     def execute(:single, _query, _params, _opts), do: {:ok, %{rows: [[1]], columns: ["id"]}}
     def execute(:empty, _query, _params, _opts), do: {:ok, %{rows: [], columns: ["id"]}}
@@ -261,6 +265,89 @@ defmodule Selecto.ExecutorTest do
     Hooks.unregister(:before_query_build)
   end
 
+  test "execute emits telemetry span lifecycle for successful query" do
+    handler_id = "selecto-executor-span-success-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [
+          [:selecto, :query, :execution, :start],
+          [:selecto, :query, :execution, :stop],
+          [:selecto, :query, :execution, :exception]
+        ],
+        &__MODULE__.handle_span_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, {[[1]], ["id"], _aliases}} =
+             Executor.execute(selecto_for(:single), analyze_complexity: false)
+
+    events = drain_span_events()
+
+    assert Enum.any?(events, fn
+             {:executor_span_event, [:selecto, :query, :execution, :start], _measurements,
+              metadata} ->
+               is_binary(metadata.query_id) and is_binary(metadata.query)
+
+             _ ->
+               false
+           end)
+
+    assert Enum.any?(events, fn
+             {:executor_span_event, [:selecto, :query, :execution, :stop], measurements, metadata} ->
+               is_integer(measurements.duration) and measurements.duration >= 0 and
+                 metadata.status == :ok and metadata.row_count == 1
+
+             _ ->
+               false
+           end)
+
+    refute Enum.any?(events, fn
+             {:executor_span_event, [:selecto, :query, :execution, :exception], _, _} -> true
+             _ -> false
+           end)
+  end
+
+  test "execute emits telemetry span stop metadata for query errors" do
+    handler_id = "selecto-executor-span-error-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [
+          [:selecto, :query, :execution, :start],
+          [:selecto, :query, :execution, :stop],
+          [:selecto, :query, :execution, :exception]
+        ],
+        &__MODULE__.handle_span_event/4,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:error, %Selecto.Error{type: :query_error}} =
+             Executor.execute(selecto_for(:error), analyze_complexity: false)
+
+    events = drain_span_events()
+
+    assert Enum.any?(events, fn
+             {:executor_span_event, [:selecto, :query, :execution, :stop], _measurements,
+              metadata} ->
+               metadata.status == :error and metadata.error_type == :query_error
+
+             _ ->
+               false
+           end)
+
+    refute Enum.any?(events, fn
+             {:executor_span_event, [:selecto, :query, :execution, :exception], _, _} -> true
+             _ -> false
+           end)
+  end
+
   test "execute_one returns row, no_results, and multiple_results variants" do
     assert {:ok, {[1], aliases}} =
              Executor.execute_one(selecto_for(:single), analyze_complexity: false)
@@ -304,5 +391,15 @@ defmodule Selecto.ExecutorTest do
 
     unknown = Executor.connection_info(%Selecto{postgrex_opts: 123})
     assert %{type: :unknown, status: :invalid, value: 123} = unknown
+  end
+
+  defp drain_span_events(acc \\ []) do
+    receive do
+      {:executor_span_event, _event, _measurements, _metadata} = payload ->
+        drain_span_events([payload | acc])
+    after
+      25 ->
+        Enum.reverse(acc)
+    end
   end
 end
