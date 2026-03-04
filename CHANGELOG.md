@@ -4,6 +4,31 @@
 ## V NEXT
 ---------------------------------------------------------
 
+## V 0.3.9 - OTP Runtime and Execution Hardening
+---------------------------------------------------------
+
+#### Added
+- Added supervised application boot via `Selecto.Application`, including
+  managed task and connection-pool runtime children.
+- Added typed public option validation via `Selecto.OptionsValidator`
+  (`NimbleOptions`) for configure/execute/SQL-format/diagnostic entry points.
+- Added query execution telemetry spans (`[:selecto, :query, :execution, ...]`)
+  with stop metadata for status, row count, and error type.
+- Added focused tests for option validation, telemetry span lifecycle coverage,
+  and counter-backed cache stats behavior.
+
+#### Changed
+- Hardened query cache lifecycle with idempotent startup, safe fallback behavior
+  when cache process is unavailable, ETS fast-path reads, and immediate
+  post-write visibility.
+- Moved query-cache hot stats paths to `:counters` for lower contention under
+  high read/write load.
+- Reworked connection pool manager lifecycle around
+  `Registry + DynamicSupervisor` with adapter-aware pool naming.
+- Replaced process-dictionary runtime state in hooks/pool transient flows with
+  ETS-backed process-scoped storage for safer cross-process behavior.
+- Bumped package version to `0.3.9`.
+
 ## V 0.3.8 - Property Testing and Tagging Hardening
 ---------------------------------------------------------
 
