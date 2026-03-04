@@ -8,6 +8,8 @@ defmodule Selecto.Executor do
 
   require Logger
 
+  @query_execution_event [:selecto, :query, :execution]
+
   @doc """
   Execute a query and return results with standardized error handling.
 
@@ -710,30 +712,19 @@ defmodule Selecto.Executor do
       fn _selecto, sql, params, context ->
         aliases = Map.get(context, :aliases, [])
 
-        # Emit telemetry event for query start
-        :telemetry.execute(
-          [:selecto, :query, :start],
-          %{system_time: System.system_time()},
-          %{query_id: query_id, query: sql}
-        )
+        result =
+          :telemetry.span(@query_execution_event, %{query_id: query_id, query: sql}, fn ->
+            result = execute_for_context(selecto, sql, params, aliases)
+            duration = System.monotonic_time(:millisecond) - start_time
 
-        result = execute_for_context(selecto, sql, params, aliases)
+            stop_metadata =
+              telemetry_stop_metadata(result, query_id, sql)
+              |> Map.put(:execution_time, duration)
+
+            {result, stop_metadata}
+          end)
 
         duration = System.monotonic_time(:millisecond) - start_time
-
-        # Emit telemetry event for successful query completion
-        :telemetry.execute(
-          [:selecto, :query, :complete],
-          %{
-            duration: duration,
-            execution_time: duration
-          },
-          %{
-            query_id: query_id,
-            query: sql,
-            row_count: result_row_count(result)
-          }
-        )
 
         track_query_execution(sql, duration, result)
         result
@@ -982,4 +973,30 @@ defmodule Selecto.Executor do
 
   defp result_row_count({:ok, {rows, _columns, _aliases}}) when is_list(rows), do: length(rows)
   defp result_row_count(_), do: 0
+
+  defp telemetry_stop_metadata(result, query_id, sql) do
+    %{
+      query_id: query_id,
+      query: sql,
+      row_count: result_row_count(result),
+      status: telemetry_result_status(result)
+    }
+    |> maybe_put_error_type(result)
+  end
+
+  defp telemetry_result_status({:ok, _result}), do: :ok
+  defp telemetry_result_status({:error, _reason}), do: :error
+  defp telemetry_result_status(_), do: :unknown
+
+  defp maybe_put_error_type(metadata, {:error, %Selecto.Error{type: type}}),
+    do: Map.put(metadata, :error_type, type)
+
+  defp maybe_put_error_type(metadata, {:error, reason}),
+    do: Map.put(metadata, :error_type, infer_error_type(reason))
+
+  defp maybe_put_error_type(metadata, _), do: metadata
+
+  defp infer_error_type(reason) when is_exception(reason), do: reason.__struct__
+  defp infer_error_type(reason) when is_atom(reason), do: reason
+  defp infer_error_type(_reason), do: :unknown
 end
