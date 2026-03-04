@@ -50,6 +50,28 @@ defmodule Selecto.ConnectionPool do
   @type connection_config :: Keyword.t() | map()
   @type pool_options :: Keyword.t()
 
+  @runtime Selecto.ConnectionPool.Runtime
+  @registry Selecto.ConnectionPool.Registry
+  @manager_supervisor Selecto.ConnectionPool.ManagerSupervisor
+
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts) when is_list(opts) do
+    pool_name = Keyword.fetch!(opts, :pool_name)
+    GenServer.start_link(__MODULE__, opts, name: via_manager(pool_name))
+  end
+
+  def child_spec(opts) do
+    pool_name = Keyword.fetch!(opts, :pool_name)
+
+    %{
+      id: {__MODULE__, pool_name},
+      start: {__MODULE__, :start_link, [opts]},
+      restart: :permanent,
+      shutdown: 5000,
+      type: :worker
+    }
+  end
+
   @doc """
   Start a connection pool with the given configuration.
 
@@ -88,99 +110,108 @@ defmodule Selecto.ConnectionPool do
     # Create unique pool name based on connection config
     pool_name = generate_pool_name(connection_config)
 
-    # Check if adapter supports pooling
-    if adapter == Selecto.DB.PostgreSQL do
-      # Use DBConnection pooling for PostgreSQL
-      start_postgrex_pool(connection_config, pool_config, pool_name)
-    else
-      # For other adapters, create a simple pool manager
-      # Many adapters may have their own pooling mechanisms
-      start_generic_pool(adapter, connection_config, pool_config, pool_name)
+    with :ok <- ensure_runtime_started() do
+      # Check if adapter supports pooling
+      if adapter == Selecto.DB.PostgreSQL do
+        # Use DBConnection pooling for PostgreSQL
+        start_postgrex_pool(connection_config, pool_config, pool_name)
+      else
+        # For other adapters, create a simple pool manager
+        # Many adapters may have their own pooling mechanisms
+        start_generic_pool(adapter, connection_config, pool_config, pool_name)
+      end
     end
   end
 
   defp start_postgrex_pool(connection_config, pool_config, pool_name) do
-    # Prepare DBConnection configuration
-    dbconnection_opts = [
-      name: pool_name,
-      pool: DBConnection.ConnectionPool,
-      pool_size: pool_config[:pool_size],
-      pool_overflow: pool_config[:max_overflow],
-      timeout: pool_config[:connection_timeout],
-      queue_target: pool_config[:checkout_timeout],
-      queue_interval: 1000
-    ]
+    case get_manager_pid_by_name(pool_name) do
+      {:ok, manager_pid} ->
+        build_pool_ref_from_manager(manager_pid)
 
-    # Merge with Postgrex-specific options
-    postgrex_opts = Keyword.merge(connection_config, dbconnection_opts)
-
-    case Postgrex.start_link(postgrex_opts) do
-      {:ok, pool_pid} ->
-        # Start pool manager
-        manager_opts = [
-          adapter: Selecto.DB.PostgreSQL,
-          pool_pid: pool_pid,
-          pool_name: pool_name,
-          pool_config: pool_config,
-          connection_config: connection_config
+      :error ->
+        # Prepare DBConnection configuration
+        dbconnection_opts = [
+          name: pool_name,
+          pool: DBConnection.ConnectionPool,
+          pool_size: pool_config[:pool_size],
+          pool_overflow: pool_config[:max_overflow],
+          timeout: pool_config[:connection_timeout],
+          queue_target: pool_config[:checkout_timeout],
+          queue_interval: 1000
         ]
 
-        case GenServer.start_link(__MODULE__, manager_opts, name: :"#{pool_name}_manager") do
-          {:ok, manager_pid} ->
-            {:ok,
-             %{
-               adapter: Selecto.DB.PostgreSQL,
-               pool: pool_pid,
-               manager: manager_pid,
-               name: pool_name
-             }}
+        # Merge with Postgrex-specific options
+        postgrex_opts = Keyword.merge(connection_config, dbconnection_opts)
 
-          {:error, reason} ->
-            GenServer.stop(pool_pid)
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp start_generic_pool(adapter, connection_config, pool_config, pool_name) do
-    cond do
-      not is_atom(adapter) ->
-        {:error, {:invalid_adapter, adapter}}
-
-      not function_exported?(adapter, :connect, 1) ->
-        {:error, {:unsupported_adapter, adapter}}
-
-      true ->
-        case adapter.connect(connection_config) do
-          {:ok, connection} ->
+        case start_postgrex_connection(postgrex_opts) do
+          {:ok, pool_pid, started_new_pool?} ->
             manager_opts = [
-              adapter: adapter,
-              connection: connection,
+              adapter: Selecto.DB.PostgreSQL,
+              pool_pid: pool_pid,
               pool_name: pool_name,
               pool_config: pool_config,
               connection_config: connection_config
             ]
 
-            case GenServer.start_link(__MODULE__, manager_opts, name: :"#{pool_name}_manager") do
-              {:ok, manager_pid} ->
-                {:ok,
-                 %{
-                   adapter: adapter,
-                   connection: connection,
-                   manager: manager_pid,
-                   name: pool_name
-                 }}
+            case start_manager(manager_opts) do
+              {:ok, manager_pid, :started} ->
+                build_pool_ref_from_manager(manager_pid)
+
+              {:ok, manager_pid, :existing} ->
+                if started_new_pool?, do: GenServer.stop(pool_pid)
+                build_pool_ref_from_manager(manager_pid)
 
               {:error, reason} ->
-                maybe_stop_connection(connection)
+                if started_new_pool?, do: GenServer.stop(pool_pid)
                 {:error, reason}
             end
 
           {:error, reason} ->
             {:error, reason}
+        end
+    end
+  end
+
+  defp start_generic_pool(adapter, connection_config, pool_config, pool_name) do
+    case get_manager_pid_by_name(pool_name) do
+      {:ok, manager_pid} ->
+        build_pool_ref_from_manager(manager_pid)
+
+      :error ->
+        cond do
+          not is_atom(adapter) ->
+            {:error, {:invalid_adapter, adapter}}
+
+          not function_exported?(adapter, :connect, 1) ->
+            {:error, {:unsupported_adapter, adapter}}
+
+          true ->
+            case adapter.connect(connection_config) do
+              {:ok, connection} ->
+                manager_opts = [
+                  adapter: adapter,
+                  connection: connection,
+                  pool_name: pool_name,
+                  pool_config: pool_config,
+                  connection_config: connection_config
+                ]
+
+                case start_manager(manager_opts) do
+                  {:ok, manager_pid, :started} ->
+                    build_pool_ref_from_manager(manager_pid)
+
+                  {:ok, manager_pid, :existing} ->
+                    maybe_stop_connection(connection)
+                    build_pool_ref_from_manager(manager_pid)
+
+                  {:error, reason} ->
+                    maybe_stop_connection(connection)
+                    {:error, reason}
+                end
+
+              {:error, reason} ->
+                {:error, reason}
+            end
         end
     end
   end
@@ -316,6 +347,28 @@ defmodule Selecto.ConnectionPool do
     schedule_health_check()
 
     {:ok, state}
+  end
+
+  @impl GenServer
+  def handle_call(:pool_reference, _from, state) do
+    reference =
+      if state.adapter == Selecto.DB.PostgreSQL do
+        %{
+          adapter: state.adapter,
+          pool: state.pool_pid,
+          manager: self(),
+          name: state.pool_name
+        }
+      else
+        %{
+          adapter: state.adapter,
+          connection: state.connection,
+          manager: self(),
+          name: state.pool_name
+        }
+      end
+
+    {:reply, reference, state}
   end
 
   @impl GenServer
@@ -569,7 +622,84 @@ defmodule Selecto.ConnectionPool do
   def get_pool_pid(_), do: {:error, "Invalid pool reference"}
 
   def get_manager_pid(%{manager: manager_pid}), do: {:ok, manager_pid}
+
+  def get_manager_pid(%{name: pool_name}) when is_atom(pool_name) do
+    case get_manager_pid_by_name(pool_name) do
+      {:ok, manager_pid} -> {:ok, manager_pid}
+      :error -> {:error, "Invalid pool reference"}
+    end
+  end
+
+  def get_manager_pid(pool_name) when is_atom(pool_name) do
+    case get_manager_pid_by_name(pool_name) do
+      {:ok, manager_pid} -> {:ok, manager_pid}
+      :error -> {:error, "Invalid pool reference"}
+    end
+  end
+
   def get_manager_pid(_), do: {:error, "Invalid pool reference"}
+
+  defp ensure_runtime_started do
+    case @runtime.ensure_started() do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp via_manager(pool_name) when is_atom(pool_name) do
+    {:via, Registry, {@registry, {:manager, pool_name}}}
+  end
+
+  defp get_manager_pid_by_name(pool_name) when is_atom(pool_name) do
+    case Process.whereis(@registry) do
+      nil ->
+        :error
+
+      _pid ->
+        case Registry.lookup(@registry, {:manager, pool_name}) do
+          [{pid, _value}] -> {:ok, pid}
+          [] -> :error
+        end
+    end
+  end
+
+  defp start_postgrex_connection(postgrex_opts) do
+    case Postgrex.start_link(postgrex_opts) do
+      {:ok, pool_pid} -> {:ok, pool_pid, true}
+      {:error, {:already_started, pool_pid}} -> {:ok, pool_pid, false}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp start_manager(manager_opts) when is_list(manager_opts) do
+    pool_name = Keyword.fetch!(manager_opts, :pool_name)
+
+    case DynamicSupervisor.start_child(@manager_supervisor, {__MODULE__, manager_opts}) do
+      {:ok, manager_pid} ->
+        {:ok, manager_pid, :started}
+
+      {:error, {:already_started, manager_pid}} ->
+        {:ok, manager_pid, :existing}
+
+      {:error, {:already_present, _child_id}} ->
+        case get_manager_pid_by_name(pool_name) do
+          {:ok, manager_pid} -> {:ok, manager_pid, :existing}
+          :error -> {:error, :manager_start_conflict}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp build_pool_ref_from_manager(manager_pid) when is_pid(manager_pid) do
+    case GenServer.call(manager_pid, :pool_reference) do
+      %{} = reference -> {:ok, reference}
+      other -> {:error, {:invalid_pool_reference, other}}
+    end
+  catch
+    :exit, reason -> {:error, {:manager_unavailable, reason}}
+  end
 
   defp maybe_stop_connection(connection) when is_pid(connection) do
     if Process.alive?(connection) do
