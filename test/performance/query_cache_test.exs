@@ -4,6 +4,11 @@ defmodule Selecto.Performance.QueryCacheTest do
   alias Selecto.Performance.QueryCache
 
   setup do
+    case Process.whereis(QueryCache) do
+      nil -> :ok
+      pid -> GenServer.stop(pid)
+    end
+
     {:ok, _pid} = QueryCache.start_link(max_size: 10, default_ttl: 1000)
     :ok
   end
@@ -29,9 +34,14 @@ defmodule Selecto.Performance.QueryCacheTest do
 
     stats = QueryCache.stats()
     assert is_map(stats)
+    assert stats.item_count == 1
 
     assert :ok = QueryCache.clear()
     assert :miss = QueryCache.get("k2")
+
+    cleared_stats = QueryCache.stats()
+    assert cleared_stats.item_count == 0
+    assert cleared_stats.size_bytes == 0
   end
 
   test "start_link is idempotent" do
@@ -63,5 +73,28 @@ defmodule Selecto.Performance.QueryCacheTest do
     assert :ok = QueryCache.clear()
     assert %{status: :not_started} = QueryCache.stats()
     assert {:ok, 0} = QueryCache.warmup([])
+  end
+
+  test "counter-backed stats track hit and miss totals" do
+    QueryCache.put("tracked", %{rows: [[1]]})
+    Process.sleep(10)
+
+    assert {:ok, %{rows: [[1]]}} = QueryCache.get("tracked")
+    assert :miss = QueryCache.get("missing")
+
+    stats = QueryCache.stats()
+    assert stats.hits == 1
+    assert stats.misses == 1
+    assert stats.hit_rate == 50.0
+  end
+
+  test "stats can be disabled" do
+    :ok = GenServer.stop(QueryCache)
+    {:ok, _pid} = QueryCache.start_link(max_size: 10, default_ttl: 1000, track_stats: false)
+
+    QueryCache.put("x", "y")
+    assert {:ok, "y"} = QueryCache.get("x")
+
+    assert %{stats_disabled: true} = QueryCache.stats()
   end
 end
