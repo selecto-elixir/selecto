@@ -108,7 +108,7 @@ defmodule Selecto.Query do
   @doc """
   Return only pre-pivot filters currently attached to the query.
 
-  This reads `set.filtered` and does not include legacy or post-pivot buckets.
+  This reads `set.filtered` and does not include post-pivot buckets.
   """
   @spec pre_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
   def pre_pivot_filters(selecto) do
@@ -145,7 +145,7 @@ defmodule Selecto.Query do
   end
 
   @doc """
-  Return query filters across legacy and current buckets as a flat list.
+  Return query filters across current buckets as a flat list.
 
   This is useful for integrations that need to copy filters between Selecto and
   other query/update builders.
@@ -163,11 +163,9 @@ defmodule Selecto.Query do
       Selecto.Tenant.ensure_scope!(selecto, opts)
     end
 
-    legacy_filters = Map.get(selecto, :filters, [])
-
     set_filters =
       case Map.get(selecto, :set) do
-        %{} = set -> Map.get(set, :filtered) || Map.get(set, :filters) || []
+        %{} = set -> Map.get(set, :filtered, [])
         _ -> []
       end
 
@@ -181,7 +179,7 @@ defmodule Selecto.Query do
         []
       end
 
-    [legacy_filters, required_filters(selecto), set_filters, post_pivot_filters]
+    [required_filters(selecto), set_filters, post_pivot_filters]
     |> Enum.flat_map(fn
       filters when is_list(filters) -> filters
       _ -> []

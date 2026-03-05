@@ -109,7 +109,7 @@ defmodule Selecto.SQL.Functions do
         prep_string_function(selecto, "length", [field])
 
       {:position, substring, string} ->
-        prep_string_function(selecto, "position", [substring, {:literal_string, " in "}, string])
+        prep_position_function(selecto, substring, string)
 
       {:replace, field, old, new} ->
         prep_string_function(selecto, "replace", [field, old, new])
@@ -278,6 +278,19 @@ defmodule Selecto.SQL.Functions do
     {sel_parts, joins, params} = prep_function_args(selecto, args)
     func_iodata = [func_name, "(", Enum.intersperse(sel_parts, ", "), ")"]
     {func_iodata, joins, params}
+  end
+
+  defp prep_position_function(selecto, substring, string) do
+    {substring_iodata, substring_joins, substring_params} = prep_single_arg(selecto, substring)
+    {string_iodata, string_joins, string_params} = prep_single_arg(selecto, string)
+
+    {[
+       "position(",
+       substring_iodata,
+       " in ",
+       string_iodata,
+       ")"
+     ], List.wrap(substring_joins) ++ List.wrap(string_joins), substring_params ++ string_params}
   end
 
   # Math function helpers
@@ -524,9 +537,6 @@ defmodule Selecto.SQL.Functions do
     case arg do
       {:literal, value} ->
         {{:param, value}, :selecto_root, [value]}
-
-      {:literal_string, value} ->
-        {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
 
       field when is_binary(field) ->
         # Handle field references by calling back to main prep_selector
