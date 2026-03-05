@@ -116,7 +116,7 @@ defmodule Selecto.Fields do
 
   ## Examples
 
-      field_info = Selecto.Fields.field(selecto, "customer[name]")
+      field_info = Selecto.Fields.field(selecto, "customer.name")
       # => %{name: "name", field: "name", requires_join: :customer, ...}
   """
   @spec field(Selecto.Types.t(), Selecto.Types.field_name()) :: map() | nil
@@ -181,9 +181,9 @@ defmodule Selecto.Fields do
                   # Extract field name from colid if available, otherwise use the field parameter
                   case Map.get(fallback_result, :colid) do
                     colid when is_binary(colid) ->
-                      case Regex.run(~r/\[([^\]]+)\]$/, colid) do
-                        [_, field_name] -> field_name
-                        nil -> Atom.to_string(field_name)
+                      case String.split(colid, ".") do
+                        [_join, nested_field] when nested_field != "" -> nested_field
+                        _ -> Atom.to_string(field_name)
                       end
 
                     _ ->
@@ -223,7 +223,7 @@ defmodule Selecto.Fields do
   ## Examples
 
       fields = Selecto.Fields.available_fields(selecto)
-      # => ["id", "name", "email", "posts[title]", ...]
+      # => ["id", "name", "email", "posts.title", ...]
   """
   @spec available_fields(Selecto.Types.t()) :: [String.t()]
   def available_fields(selecto) do
@@ -236,7 +236,7 @@ defmodule Selecto.Fields do
   ## Examples
 
       suggestions = Selecto.Fields.field_suggestions(selecto, "cust")
-      # => ["customer[id]", "customer[name]", "customer[email]"]
+      # => ["customer.id", "customer.name", "customer.email"]
   """
   @spec field_suggestions(Selecto.Types.t(), String.t()) :: [String.t()]
   def field_suggestions(selecto, partial_name) do

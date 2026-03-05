@@ -9,10 +9,10 @@ defmodule Selecto.Subselect do
 
       # Basic subselect - get orders as JSON array for each attendee
       selecto
-      |> Selecto.select(["attendee[name]"])
+      |> Selecto.select(["attendee.name"])
       |> Selecto.subselect([
-           "order[product_name]", 
-           "order[quantity]"
+           "order.product_name", 
+           "order.quantity"
          ])
       |> Selecto.filter([{"event_id", 123}])
 
@@ -48,7 +48,7 @@ defmodule Selecto.Subselect do
   ## Field Specification Formats
 
       # Simple field list (uses defaults)
-      ["order[product_name]", "order[quantity]"]
+      ["order.product_name", "order.quantity"]
 
       # With custom configuration
       [
@@ -317,10 +317,9 @@ defmodule Selecto.Subselect do
   end
 
   defp parse_field_string(field_string, default_format, alias_prefix, default_order_by) do
-    # Parse "table[field]" format (legacy) or "table.field" format (dot notation)
+    # Parse dot notation: "table.field" or "table.field1,field2"
     cond do
-      # Try bracket notation first for backward compatibility
-      match = Regex.run(~r/^([^[]+)\[([^]]+)\]$/, field_string) ->
+      match = Regex.run(~r/^([^.]+)\.([^.]+(?:\s*,\s*[^.]+)*)$/, field_string) ->
         [_, table_part, field_part] = match
         target_schema = String.to_atom(table_part)
         fields = String.split(field_part, ",") |> Enum.map(&String.trim/1)
@@ -334,24 +333,9 @@ defmodule Selecto.Subselect do
           filters: []
         }
 
-      # Try dot notation
-      match = Regex.run(~r/^([^.]+)\.([^.]+)$/, field_string) ->
-        [_, table_part, field_part] = match
-        target_schema = String.to_atom(table_part)
-        fields = [field_part]
-
-        %{
-          fields: fields,
-          target_schema: target_schema,
-          format: default_format,
-          alias: generate_alias(target_schema, alias_prefix),
-          order_by: default_order_by,
-          filters: []
-        }
-
       true ->
         raise ArgumentError,
-              "Invalid field format: #{field_string}. Expected 'table[field]' or 'table.field' format."
+              "Invalid field format: #{field_string}. Expected 'table.field' or 'table.field1,field2' format."
     end
   end
 

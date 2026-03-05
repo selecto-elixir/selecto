@@ -165,7 +165,7 @@ defmodule SelectoTest do
   end
 
   test "select with join", %{selecto: selecto} do
-    {rows, _, _} = Selecto.select(selecto, ["name", "posts[title]"]) |> Selecto.execute()
+    {rows, _, _} = Selecto.select(selecto, ["name", "posts.title"]) |> Selecto.execute()
     assert length(rows) == 1
     assert List.first(rows) == ["John Doe", "My first post"]
   end

@@ -85,7 +85,7 @@ defmodule Selecto.SubselectTest do
     test "adds subselect configuration with string field specs" do
       selecto = create_test_selecto()
 
-      subselected = Subselect.subselect(selecto, ["orders[product_name]"])
+      subselected = Subselect.subselect(selecto, ["orders.product_name"])
 
       assert Subselect.has_subselects?(subselected)
       configs = Subselect.get_subselect_configs(subselected)
@@ -100,7 +100,7 @@ defmodule Selecto.SubselectTest do
     test "parses multiple fields in string format" do
       selecto = create_test_selecto()
 
-      subselected = Subselect.subselect(selecto, ["orders[product_name, quantity, price]"])
+      subselected = Subselect.subselect(selecto, ["orders.product_name, quantity, price"])
 
       configs = Subselect.get_subselect_configs(subselected)
       [config] = configs
@@ -112,8 +112,8 @@ defmodule Selecto.SubselectTest do
 
       subselected =
         Subselect.subselect(selecto, [
-          "orders[product_name]",
-          "attendees[name]"
+          "orders.product_name",
+          "attendees.name"
         ])
 
       configs = Subselect.get_subselect_configs(subselected)
@@ -152,7 +152,7 @@ defmodule Selecto.SubselectTest do
       selecto = create_test_selecto()
 
       subselected =
-        Subselect.subselect(selecto, ["orders[product_name]"],
+        Subselect.subselect(selecto, ["orders.product_name"],
           format: :string_agg,
           alias_prefix: "agg"
         )
@@ -168,7 +168,7 @@ defmodule Selecto.SubselectTest do
       selecto = create_test_selecto()
 
       assert_raise ArgumentError, ~r/Target schema invalid_schema not found/, fn ->
-        Subselect.subselect(selecto, ["invalid_schema[field]"])
+        Subselect.subselect(selecto, ["invalid_schema.field"])
       end
     end
 
@@ -176,7 +176,7 @@ defmodule Selecto.SubselectTest do
       selecto = create_test_selecto()
 
       assert_raise ArgumentError, ~r/Fields.*not found in schema/, fn ->
-        Subselect.subselect(selecto, ["orders[invalid_field]"])
+        Subselect.subselect(selecto, ["orders.invalid_field"])
       end
     end
 
@@ -194,9 +194,9 @@ defmodule Selecto.SubselectTest do
       selecto =
         create_test_selecto()
         |> Subselect.subselect([
-          "orders[product_name]",
-          "orders[quantity]",
-          "attendees[name]"
+          "orders.product_name",
+          "orders.quantity",
+          "attendees.name"
         ])
 
       grouped = Subselect.group_subselects_by_table(selecto)
@@ -268,7 +268,7 @@ defmodule Selecto.SubselectTest do
     test "removes all subselect configurations" do
       selecto =
         create_test_selecto()
-        |> Subselect.subselect(["orders[product_name]"])
+        |> Subselect.subselect(["orders.product_name"])
 
       assert Subselect.has_subselects?(selecto)
 
@@ -289,7 +289,7 @@ defmodule Selecto.SubselectTest do
     test "returns true for queries with subselects" do
       selecto =
         create_test_selecto()
-        |> Subselect.subselect(["orders[product_name]"])
+        |> Subselect.subselect(["orders.product_name"])
 
       assert Subselect.has_subselects?(selecto)
     end
@@ -300,7 +300,7 @@ defmodule Selecto.SubselectTest do
       selecto =
         create_test_selecto()
         |> Selecto.select(["name", "date"])
-        |> Subselect.subselect(["orders[product_name]"])
+        |> Subselect.subselect(["orders.product_name"])
 
       # Both regular and subselect fields should be configured
       assert length(selecto.set.selected) == 2

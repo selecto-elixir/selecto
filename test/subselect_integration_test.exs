@@ -248,7 +248,7 @@ defmodule Selecto.SubselectIntegrationTest do
       selecto =
         create_test_selecto()
         |> Selecto.select(["name", "email"])
-        |> Selecto.subselect(["orders[product_name, quantity]"])
+        |> Selecto.subselect(["orders.product_name, quantity"])
         |> Selecto.filter([{"event_id", 123}])
 
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
@@ -277,7 +277,7 @@ defmodule Selecto.SubselectIntegrationTest do
       selecto =
         create_test_selecto()
         |> Selecto.select(["name"])
-        |> Selecto.subselect(["orders[product_name]"])
+        |> Selecto.subselect(["orders.product_name"])
 
       {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
 
@@ -318,7 +318,7 @@ defmodule Selecto.SubselectIntegrationTest do
       selecto =
         create_test_selecto()
         |> Selecto.select(["name"])
-        |> Selecto.subselect(["orders[product_name]"])
+        |> Selecto.subselect(["orders.product_name"])
         |> Selecto.filter([{"event_id", 123}])
         |> Selecto.order_by(["name"])
 
@@ -334,7 +334,7 @@ defmodule Selecto.SubselectIntegrationTest do
     test "works without regular SELECT fields" do
       selecto =
         create_test_selecto()
-        |> Selecto.subselect(["orders[product_name]"])
+        |> Selecto.subselect(["orders.product_name"])
 
       {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
 

@@ -81,8 +81,8 @@ defmodule SelectoMemoryProfiler do
     for _i <- 1..100 do
       selecto
       |> Selecto.select(["customer_display", "product_display", {:func, "sum", ["amount"]}])
-      |> Selecto.filter([{"customer[segment]", "Premium"}, {"active", true}])
-      |> Selecto.group_by(["customer[segment]"])
+      |> Selecto.filter([{"customer.segment", "Premium"}, {"active", true}])
+      |> Selecto.group_by(["customer.segment"])
       |> Selecto.to_sql()
     end
   end
@@ -96,15 +96,15 @@ defmodule SelectoMemoryProfiler do
     for _i <- 1..50 do
       selecto
       |> Selecto.select([
-        "customer[region][country][continent]",
-        "product[category][parent][grandparent][name]",
+        "customer.region.country.continent",
+        "product.category.parent.grandparent.name",
         {:func, "sum", ["amount"]}
       ])
       |> Selecto.filter([
-        {"customer[region][country][active]", true},
-        {"product[category][level]", {:lte, 5}}
+        {"customer.region.country.active", true},
+        {"product.category.level", {:lte, 5}}
       ])
-      |> Selecto.group_by(["customer[region][country][continent]"])
+      |> Selecto.group_by(["customer.region.country.continent"])
       |> Selecto.to_sql()
     end
   end
@@ -184,9 +184,9 @@ defmodule SelectoMemoryProfiler do
     # Test for memory leaks in repeated query generation
     for _i <- 1..1000 do
       selecto
-      |> Selecto.select(["name", "category[name]", {:func, "count", ["*"]}])
-      |> Selecto.filter([{"active", true}, {"category[level]", {:lte, 3}}])
-      |> Selecto.group_by(["category[name]"])
+      |> Selecto.select(["name", "category.name", {:func, "count", ["*"]}])
+      |> Selecto.filter([{"active", true}, {"category.level", {:lte, 3}}])
+      |> Selecto.group_by(["category.name"])
       |> Selecto.to_sql()
     end
   end
