@@ -548,7 +548,7 @@ defmodule Selecto do
   defdelegate post_pivot_filters(selecto), to: Selecto.Query
 
   @doc """
-  Return query filters from legacy and current filter buckets.
+  Return query filters from current filter buckets.
 
   Options:
   - `:include_post_pivot` (default: `true`)

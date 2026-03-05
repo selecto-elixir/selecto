@@ -321,7 +321,6 @@ defmodule Selecto.TypeSystem do
   defp do_infer_type(_selecto, {:literal, val}) when is_list(val), do: {:array, :unknown}
   defp do_infer_type(_selecto, {:literal, val}) when is_map(val), do: :jsonb
   defp do_infer_type(_selecto, {:literal, _}), do: :unknown
-  defp do_infer_type(_selecto, {:literal_string, _}), do: :string
 
   # Count always returns bigint
   defp do_infer_type(_selecto, {:count}), do: :bigint
