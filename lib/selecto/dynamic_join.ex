@@ -281,7 +281,7 @@ defmodule Selecto.DynamicJoin do
 
   defp build_field_configs(join_id, fields) do
     Enum.reduce(fields, %{}, fn {field_name, config}, acc ->
-      field_key = "#{join_id}[#{field_name}]"
+      field_key = "#{join_id}.#{field_name}"
 
       field_config =
         Map.merge(
@@ -307,12 +307,10 @@ defmodule Selecto.DynamicJoin do
     updated_fields =
       config.fields
       |> Enum.map(fn {_key, field_config} ->
-        bracket_key = "#{param_join_id}[#{field_config.field}]"
         dot_key = "#{param_join_id}.#{field_config.field}"
         updated_config = Map.put(field_config, :requires_join, param_join_id)
-        [{bracket_key, updated_config}, {dot_key, updated_config}]
+        {dot_key, updated_config}
       end)
-      |> List.flatten()
       |> Enum.into(%{})
 
     Map.put(config, :fields, updated_fields)

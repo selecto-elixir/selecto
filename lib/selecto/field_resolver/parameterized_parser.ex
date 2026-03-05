@@ -32,7 +32,7 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
           | {:float, float()}
           | {:boolean, boolean()}
   @type parsed_field :: %{
-          type: :simple | :qualified | :parameterized | :bracket_legacy,
+          type: :simple | :qualified | :parameterized,
           field: String.t(),
           join: String.t() | nil,
           parameters: [parameter()] | nil
@@ -41,15 +41,11 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
   @doc """
   Parse a field reference string into its components.
 
-  Supports both legacy bracket notation and new dot notation with parameters.
+  Supports dot notation with optional parameterized joins.
   """
   @spec parse_field_reference(String.t()) :: {:ok, parsed_field()} | {:error, String.t()}
   def parse_field_reference(field_ref) when is_binary(field_ref) do
     cond do
-      # Legacy bracket notation: "table[field]"
-      String.contains?(field_ref, "[") && String.contains?(field_ref, "]") ->
-        parse_bracket_notation(field_ref)
-
       # Dot notation: "table.field" or "table:params.field"
       String.contains?(field_ref, ".") ->
         parse_dot_notation(field_ref)
@@ -135,17 +131,6 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
   end
 
   # Private Implementation
-
-  defp parse_bracket_notation(field_ref) do
-    # Extract "table[field]" format
-    case Regex.run(~r/^(.+?)\[([^\]]+)\]$/, field_ref) do
-      [_, join, field] ->
-        {:ok, %{type: :bracket_legacy, join: join, field: field, parameters: nil}}
-
-      nil ->
-        {:error, "Invalid bracket notation format: #{field_ref}"}
-    end
-  end
 
   defp parse_dot_notation(field_ref) do
     case String.split(field_ref, ".", parts: 2) do

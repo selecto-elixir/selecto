@@ -23,9 +23,6 @@ defmodule Selecto.FieldResolver do
   - `"join:param1:param2.field_name"` - Multiple parameters
   - `"join:50:true:'quoted param'.field_name"` - Mixed parameter types
 
-  ### Legacy Field References (Backward Compatible)
-  - `"join[field_name]"` - Legacy bracket notation
-
   ### Advanced Field References
   - `{:field, "field_name", alias: "custom_alias"}` - Field with custom alias
   - `{:qualified_field, "join.field_name"}` - Explicitly qualified field
@@ -42,9 +39,6 @@ defmodule Selecto.FieldResolver do
       # Parameterized join resolution
       {:ok, field_info} = FieldResolver.resolve_field(selecto, "products:electronics:true.name")
 
-      # Legacy bracket notation (still supported)
-      {:ok, field_info} = FieldResolver.resolve_field(selecto, "users[name]")
-
       # With disambiguation
       {:ok, field_info} = FieldResolver.resolve_field(selecto, {:disambiguated_field, "name", from: "users"})
 
@@ -57,7 +51,6 @@ defmodule Selecto.FieldResolver do
 
   alias Selecto.Error
   alias Selecto.FieldResolver.ParameterizedParser
-  require Logger
 
   @type field_reference :: String.t() | atom() | tuple()
   @type field_info :: %{
@@ -273,42 +266,7 @@ defmodule Selecto.FieldResolver do
     # Try direct field name first
     case Map.get(available_fields, field_name) do
       nil ->
-        # Check if we're in pivot context and try bracket notation
-        set = Map.get(selecto, :set, %{}) || %{}
-        has_pivot = Map.has_key?(set, :pivot_state)
-
-        if has_pivot do
-          # In pivot context, try to find field in bracket notation
-          bracket_matches =
-            available_fields
-            |> Enum.filter(fn {key, _info} ->
-              String.ends_with?(key, "[#{field_name}]")
-            end)
-
-          case bracket_matches do
-            [{_bracket_key, field_info}] ->
-              # Found exactly one match
-              {:ok, field_info}
-
-            [] ->
-              # No bracket notation matches, continue with normal error handling
-              handle_field_not_found(selecto, field_name, available_fields)
-
-            _multiple ->
-              # Multiple matches, this is ambiguous
-              bracket_keys = Enum.map(bracket_matches, fn {key, _} -> key end)
-
-              {:error,
-               Error.field_resolution_error(
-                 "Ambiguous field reference '#{field_name}' in pivot context. Multiple possible matches: #{Enum.join(bracket_keys, ", ")}",
-                 field_name,
-                 %{available_options: bracket_keys}
-               )}
-          end
-        else
-          # Not in pivot context, use normal error handling
-          handle_field_not_found(selecto, field_name, available_fields)
-        end
+        handle_field_not_found(selecto, field_name, available_fields)
 
       field_info ->
         {:ok, field_info}
@@ -377,30 +335,6 @@ defmodule Selecto.FieldResolver do
                %{}
              )}
         end
-    end
-  end
-
-  defp do_resolve_field(selecto, %{type: :bracket_legacy, join: join_name, field: field_name}) do
-    available_fields = get_available_fields(selecto)
-    bracket_key = "#{join_name}[#{field_name}]"
-
-    # First try bracket notation key (for pivot contexts)
-    case Map.get(available_fields, bracket_key) do
-      nil ->
-        # Fall back to qualified notation
-        Logger.warning(
-          "Deprecated bracket notation '#{join_name}[#{field_name}]'. Consider using dot notation '#{join_name}.#{field_name}'"
-        )
-
-        do_resolve_field(selecto, %{
-          type: :qualified,
-          join: join_name,
-          field: field_name,
-          parameters: nil
-        })
-
-      field_info ->
-        {:ok, field_info}
     end
   end
 
@@ -484,10 +418,6 @@ defmodule Selecto.FieldResolver do
   end
 
   defp get_join_fields(selecto) do
-    # Check if we're in pivot context
-    set = Map.get(selecto, :set, %{}) || %{}
-    has_pivot = Map.has_key?(set, :pivot_state)
-
     selecto.config.joins
     |> Enum.flat_map(fn {join_name, join_config} ->
       # For Postgrex domains, fields come from schemas, not directly from join config
@@ -543,17 +473,7 @@ defmodule Selecto.FieldResolver do
           parameter_signature: nil
         }
 
-        # In pivot context, also include bracket notation key for easier access
-        if has_pivot do
-          bracket_key = "#{join_name}[#{field_name}]"
-
-          [
-            {qualified_name, field_info},
-            {bracket_key, field_info}
-          ]
-        else
-          [{qualified_name, field_info}]
-        end
+        [{qualified_name, field_info}]
       end)
     end)
     |> Enum.into(%{})
@@ -645,10 +565,9 @@ defmodule Selecto.FieldResolver do
   defp normalize_cte_columns(_), do: []
 
   defp extract_field_name(field_key) when is_binary(field_key) do
-    # Handle formats like "join[field]" -> "field"
-    case Regex.run(~r/\[([^\]]+)\]$/, field_key) do
-      [_, field_name] -> field_name
-      nil -> field_key
+    case String.split(field_key, ".", parts: 2) do
+      [_join, field_name] when field_name != "" -> field_name
+      _ -> field_key
     end
   end
 
@@ -705,7 +624,7 @@ defmodule Selecto.FieldResolver do
         field_atom = String.to_atom(field_name)
 
         field_key =
-          Enum.find([field_name, field_atom, "#{join_config.id}[#{field_name}]"], fn key ->
+          Enum.find([field_name, field_atom, "#{join_config.id}.#{field_name}"], fn key ->
             Map.has_key?(fields, key)
           end)
 

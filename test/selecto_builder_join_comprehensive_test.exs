@@ -8,18 +8,18 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
       fields = %{
         "id" => %{requires_join: :selecto_root},
         "name" => %{requires_join: :selecto_root},
-        "posts[title]" => %{requires_join: :posts},
-        "posts[author]" => %{requires_join: :posts},
-        "tags[name]" => %{requires_join: :tags},
-        "category[name]" => %{requires_join: :categories},
-        "comments[text]" => %{requires_join: :comments}
+        "posts.title" => %{requires_join: :posts},
+        "posts.author" => %{requires_join: :posts},
+        "tags.name" => %{requires_join: :tags},
+        "category.name" => %{requires_join: :categories},
+        "comments.text" => %{requires_join: :comments}
       }
 
       {:ok, fields: fields}
     end
 
     test "extracts joins from simple field selections", %{fields: fields} do
-      selected = ["name", "posts[title]"]
+      selected = ["name", "posts.title"]
 
       result = Join.from_selects(fields, selected)
 
@@ -31,7 +31,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
     test "extracts joins from tuple selections with field data", %{fields: fields} do
       selected = [
         {"name", "name", :string},
-        {"posts_title", "posts[title]", :string}
+        {"posts_title", "posts.title", :string}
       ]
 
       result = Join.from_selects(fields, selected)
@@ -43,7 +43,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
     test "extracts joins from complex tuple selections", %{fields: fields} do
       selected = [
         {"name", {"name", :display}, :string},
-        {"posts_title", {"posts[title]", :display}, :string}
+        {"posts_title", {"posts.title", :display}, :string}
       ]
 
       result = Join.from_selects(fields, selected)
@@ -54,7 +54,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
 
     test "handles array aggregations", %{fields: fields} do
       selected = [
-        {:array, "tags", ["tags[name]"]},
+        {:array, "tags", ["tags.name"]},
         {"name", "name", :string}
       ]
 
@@ -66,7 +66,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
 
     test "handles coalesce operations", %{fields: fields} do
       selected = [
-        {:coalesce, "user_name", ["name", "posts[author]"]}
+        {:coalesce, "user_name", ["name", "posts.author"]}
       ]
 
       result = Join.from_selects(fields, selected)
@@ -78,7 +78,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
     test "handles case expressions", %{fields: fields} do
       case_map = %{
         "when_active" => ["name"],
-        "when_inactive" => ["posts[title]"]
+        "when_inactive" => ["posts.title"]
       }
 
       selected = [
@@ -106,7 +106,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
     test "filters out literal selections from field processing", %{fields: fields} do
       selected = [
         {"name", {:literal, "Static"}, :string},
-        {"posts_title", "posts[title]", :string}
+        {"posts_title", "posts.title", :string}
       ]
 
       result = Join.from_selects(fields, selected)
@@ -142,8 +142,8 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
 
     test "deduplicates joins from multiple fields requiring same join", %{fields: fields} do
       selected = [
-        "posts[title]",
-        "posts[author]"
+        "posts.title",
+        "posts.author"
       ]
 
       result = Join.from_selects(fields, selected)
@@ -166,13 +166,13 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
         # selecto_root
         "name",
         # tags
-        {:array, "tags", ["tags[name]"]},
+        {:array, "tags", ["tags.name"]},
         # posts
-        {:coalesce, "title", ["posts[title]"]},
+        {:coalesce, "title", ["posts.title"]},
         # filtered out
         {:literal, "static", "value"},
         # categories
-        {"category", "category[name]", :string}
+        {"category", "category.name", :string}
       ]
 
       result = Join.from_selects(fields, selected)
@@ -348,11 +348,11 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
         columns: %{
           "name" => %{requires_join: :selecto_root},
           "email" => %{requires_join: :selecto_root},
-          "posts[title]" => %{requires_join: :posts},
-          "posts[content]" => %{requires_join: :posts},
-          "tags[name]" => %{requires_join: :tags},
-          "category[name]" => %{requires_join: :categories},
-          "comments[text]" => %{requires_join: :comments}
+          "posts.title" => %{requires_join: :posts},
+          "posts.content" => %{requires_join: :posts},
+          "tags.name" => %{requires_join: :tags},
+          "category.name" => %{requires_join: :categories},
+          "comments.text" => %{requires_join: :comments}
         }
       }
 
@@ -362,7 +362,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
     test "extracts joins from simple filters", %{config: config} do
       filters = [
         {"name", "John"},
-        {"posts[title]", "Hello World"}
+        {"posts.title", "Hello World"}
       ]
 
       result = Join.from_filters(config, filters)
@@ -377,7 +377,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
         {:or,
          [
            {"name", "John"},
-           {"posts[title]", "Hello"}
+           {"posts.title", "Hello"}
          ]}
       ]
 
@@ -392,7 +392,7 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
         {:and,
          [
            {"email", "john@example.com"},
-           {"tags[name]", "elixir"}
+           {"tags.name", "elixir"}
          ]}
       ]
 
@@ -409,8 +409,8 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
            {"name", "John"},
            {:and,
             [
-              {"posts[title]", "Hello"},
-              {"category[name]", "Tech"}
+              {"posts.title", "Hello"},
+              {"category.name", "Tech"}
             ]}
          ]}
       ]
@@ -424,8 +424,8 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
 
     test "deduplicates joins from multiple filters on same table", %{config: config} do
       filters = [
-        {"posts[title]", "Hello"},
-        {"posts[content]", "World"}
+        {"posts.title", "Hello"},
+        {"posts.content", "World"}
       ]
 
       result = Join.from_filters(config, filters)
@@ -442,11 +442,11 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
            {"name", "John"},
            {:and,
             [
-              {"posts[title]", "Hello"},
+              {"posts.title", "Hello"},
               {:or,
                [
-                 {"tags[name]", "elixir"},
-                 {"comments[text]", "Great post"}
+                 {"tags.name", "elixir"},
+                 {"comments.text", "Great post"}
                ]}
             ]}
          ]}
@@ -494,11 +494,11 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
         # String value
         {"name", "John"},
         # Nil value
-        {"posts[title]", nil},
+        {"posts.title", nil},
         # Integer value
-        {"tags[name]", 123},
+        {"tags.name", 123},
         # Boolean value
-        {"category[name]", true}
+        {"category.name", true}
       ]
 
       result = Join.from_filters(config, filters)
@@ -517,17 +517,17 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
            {"name", "John"},
            {:or,
             [
-              {"posts[title]", "Hello"},
-              {"posts[content]", "World"}
+              {"posts.title", "Hello"},
+              {"posts.content", "World"}
             ]}
          ]},
         {:or,
          [
-           {"tags[name]", "elixir"},
+           {"tags.name", "elixir"},
            {:and,
             [
-              {"category[name]", "Tech"},
-              {"comments[text]", "Nice"}
+              {"category.name", "Tech"},
+              {"comments.text", "Nice"}
             ]}
          ]}
       ]
@@ -555,10 +555,10 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
             ]},
            {:or,
             [
-              {"posts[content]", {:like, "%elixir%"}},
-              {"tags[name]", "programming"}
+              {"posts.content", {:like, "%elixir%"}},
+              {"tags.name", "programming"}
             ]},
-           {"comments[text]", {:not_null}}
+           {"comments.text", {:not_null}}
          ]}
       ]
 
@@ -575,18 +575,18 @@ defmodule Selecto.Builder.JoinComprehensiveTest do
     test "from_selects and from_filters produce consistent join requirements" do
       fields = %{
         "name" => %{requires_join: :selecto_root},
-        "posts[title]" => %{requires_join: :posts}
+        "posts.title" => %{requires_join: :posts}
       }
 
       config = %{
         columns: %{
           "name" => %{requires_join: :selecto_root},
-          "posts[title]" => %{requires_join: :posts}
+          "posts.title" => %{requires_join: :posts}
         }
       }
 
-      selected = ["name", "posts[title]"]
-      filters = [{"name", "John"}, {"posts[title]", "Hello"}]
+      selected = ["name", "posts.title"]
+      filters = [{"name", "John"}, {"posts.title", "Hello"}]
 
       select_joins = Join.from_selects(fields, selected)
       filter_joins = Join.from_filters(config, filters)

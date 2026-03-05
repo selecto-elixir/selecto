@@ -651,8 +651,8 @@ defmodule Selecto do
 
       # Basic subselect - get orders as JSON for each attendee
       selecto
-      |> Selecto.select(["attendee[name]"])
-      |> Selecto.subselect(["order[product_name]", "order[quantity]"])
+      |> Selecto.select(["attendee.name"])
+      |> Selecto.subselect(["order.product_name", "order.quantity"])
 
       # With custom configuration
       selecto

@@ -68,37 +68,37 @@ defmodule SelectoBenchmark do
         |> Selecto.select([
           "customer_display",
           "product_display", 
-          "date[year]",
-          "store[region]",
+          "date.year",
+          "store.region",
           {:func, "sum", ["sale_amount"]},
           {:func, "count", ["*"]}
         ])
         |> Selecto.filter([
-          {"customer[segment]", "Premium"},
-          {"date[year]", 2024},
-          {"product[category]", "Electronics"}
+          {"customer.segment", "Premium"},
+          {"date.year", 2024},
+          {"product.category", "Electronics"}
         ])
-        |> Selecto.group_by(["customer[segment]", "product[category]", "date[year]"])
+        |> Selecto.group_by(["customer.segment", "product.category", "date.year"])
         |> Selecto.to_sql()
       end,
 
       "Snowflake Schema Query" => fn ->
         snowflake_selecto
         |> Selecto.select([
-          "customer[region][country_display]",
-          "product[category][parent][name]", 
-          "product[brand_display]",
+          "customer.region.country_display",
+          "product.category.parent.name", 
+          "product.brand_display",
           {:func, "sum", ["sale_amount"]},
           {:func, "avg", ["quantity"]}
         ])
         |> Selecto.filter([
-          {"customer[region][country][continent]", "North America"},
-          {"product[category][level]", {:lte, 3}},
-          {"product[brand][active]", true}
+          {"customer.region.country.continent", "North America"},
+          {"product.category.level", {:lte, 3}},
+          {"product.brand.active", true}
         ])
         |> Selecto.group_by([
-          "customer[region][country_display]",
-          "product[category][parent][name]"
+          "customer.region.country_display",
+          "product.category.parent.name"
         ])
         |> Selecto.to_sql()
       end,
@@ -145,25 +145,25 @@ defmodule SelectoBenchmark do
         |> Selecto.select([
           # Star dimensions
           "customer_display",
-          "customer[region_display]",
+          "customer.region_display",
           # Hierarchical
-          "items[product][category_path]",
-          "items[product][category_level]",
+          "items.product.category_path",
+          "items.product.category_level",
           # Tagging
-          "items[product][tags_list]",
+          "items.product.tags_list",
           # Aggregations
           {:func, "sum", ["total"]},
           {:func, "count", ["DISTINCT", "customer_id"]}
         ])
         |> Selecto.filter([
-          {"customer[segment]", "Enterprise"},
-          {"items[product][category_level]", {:lte, 4}},
-          {"items[product][tags_filter]", "premium"},
+          {"customer.segment", "Enterprise"},
+          {"items.product.category_level", {:lte, 4}},
+          {"items.product.tags_filter", "premium"},
           {"status", "completed"}
         ])
         |> Selecto.group_by([
-          "customer[region_display]",
-          "items[product][category_path]"
+          "customer.region_display",
+          "items.product.category_path"
         ])
         |> Selecto.to_sql()
       end
@@ -197,8 +197,8 @@ defmodule SelectoBenchmark do
       for _i <- 1..1000 do
         star_selecto
         |> Selecto.select(["customer_display", "product_display", {:func, "sum", ["sale_amount"]}])
-        |> Selecto.filter([{"customer[segment]", "Premium"}, {"date[year]", 2024}])
-        |> Selecto.group_by(["customer[segment]"])
+        |> Selecto.filter([{"customer.segment", "Premium"}, {"date.year", 2024}])
+        |> Selecto.group_by(["customer.segment"])
         |> Selecto.to_sql()
       end
     end)
@@ -249,16 +249,16 @@ defmodule SelectoBenchmark do
         mixed_selecto
         |> Selecto.select([
           "customer_display",
-          "items[product][category_path]",
-          "items[product][tags_list]",
+          "items.product.category_path",
+          "items.product.tags_list",
           {:func, "sum", ["total"]}
         ])
         |> Selecto.filter([
-          {"customer[segment]", "Premium"},
-          {"items[product][category_level]", {:lte, 3}},
-          {"items[product][tags_filter]", "featured"}
+          {"customer.segment", "Premium"},
+          {"items.product.category_level", {:lte, 3}},
+          {"items.product.tags_filter", "featured"}
         ])
-        |> Selecto.group_by(["customer[segment]"])
+        |> Selecto.group_by(["customer.segment"])
         |> Selecto.to_sql()
       end
     end)

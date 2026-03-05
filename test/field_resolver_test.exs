@@ -21,23 +21,23 @@ defmodule Selecto.FieldResolverTest do
         joins: %{
           posts: %{
             fields: %{
-              "posts[id]" => %{type: :integer, alias: nil},
-              "posts[title]" => %{type: :string, alias: nil},
-              "posts[content]" => %{type: :text, alias: nil}
+              "posts.id" => %{type: :integer, alias: nil},
+              "posts.title" => %{type: :string, alias: nil},
+              "posts.content" => %{type: :text, alias: nil}
             }
           },
           comments: %{
             fields: %{
-              "comments[id]" => %{type: :integer, alias: nil},
-              "comments[content]" => %{type: :text, alias: nil},
-              "comments[created_at]" => %{type: :utc_datetime, alias: nil}
+              "comments.id" => %{type: :integer, alias: nil},
+              "comments.content" => %{type: :text, alias: nil},
+              "comments.created_at" => %{type: :utc_datetime, alias: nil}
             }
           },
           profile: %{
             fields: %{
-              "profile[id]" => %{type: :integer, alias: nil},
-              "profile[bio]" => %{type: :text, alias: nil},
-              "profile[avatar_url]" => %{type: :string, alias: nil}
+              "profile.id" => %{type: :integer, alias: nil},
+              "profile.bio" => %{type: :text, alias: nil},
+              "profile.avatar_url" => %{type: :string, alias: nil}
             }
           }
         }
@@ -257,7 +257,7 @@ defmodule Selecto.FieldResolverTest do
       # Add another join with 'id' to create ambiguity  
       selecto =
         put_in(selecto.config.joins[:tags], %{
-          fields: %{"tags[id]" => %{type: :integer, alias: nil}}
+          fields: %{"tags.id" => %{type: :integer, alias: nil}}
         })
 
       assert FieldResolver.is_ambiguous_field?(selecto, "id")
@@ -269,7 +269,7 @@ defmodule Selecto.FieldResolverTest do
       # Add joins to create ambiguity for 'id'
       selecto =
         put_in(selecto.config.joins[:tags], %{
-          fields: %{"tags[id]" => %{type: :integer, alias: nil}}
+          fields: %{"tags.id" => %{type: :integer, alias: nil}}
         })
 
       options = FieldResolver.get_disambiguation_options(selecto, "id")
@@ -325,7 +325,7 @@ defmodule Selecto.FieldResolverTest do
           joins: %{
             test_join: %{
               fields: %{
-                "test_join[complex_field_name]" => %{type: :string, alias: nil}
+                "test_join.complex_field_name" => %{type: :string, alias: nil}
               }
             }
           }
@@ -345,7 +345,7 @@ defmodule Selecto.FieldResolverTest do
             test_join: %{
               fields: %{
                 "simple_field" => %{type: :string, alias: nil},
-                "test_join[bracketed_field]" => %{type: :integer, alias: nil},
+                "test_join.bracketed_field" => %{type: :integer, alias: nil},
                 :atom_field => %{type: :boolean, alias: nil}
               }
             }
