@@ -93,23 +93,23 @@ selecto = Selecto.configure(star_domain, conn)
 sales_by_region = selecto
   |> Selecto.select([
     "customer_display",          # Automatic display field (customer.name)
-    "customer[segment]",         # Dimension attribute
-    "customer[region]",          # Dimension attribute
+    "customer.segment",         # Dimension attribute
+    "customer.region",          # Dimension attribute
     "product_display",           # Automatic display field (product.name)
-    "product[category]",         # Dimension attribute
-    "date[year]",               # Time dimension
+    "product.category",         # Dimension attribute
+    "date.year",               # Time dimension
     {:func, "sum", ["sale_amount"]},
     {:func, "count", ["*"]}
   ])
   |> Selecto.filter([
-    {"date[year]", 2024},
-    {"customer[segment]", {:in, ["Premium", "Enterprise"]}},
-    {"product[category]", {:not_eq, "Discontinued"}}
+    {"date.year", 2024},
+    {"customer.segment", {:in, ["Premium", "Enterprise"]}},
+    {"product.category", {:not_eq, "Discontinued"}}
   ])
   |> Selecto.group_by([
-    "customer[region]",
-    "product[category]", 
-    "date[year]"
+    "customer.region",
+    "product.category", 
+    "date.year"
   ])
   |> Selecto.execute()
 ```
@@ -167,18 +167,18 @@ nested_star_domain = %{
 # Query with nested star dimensions
 geographic_analysis = selecto
   |> Selecto.select([
-    "customer[region][country_display]",  # Nested dimension display
-    "customer[region][country][continent]", # Deep dimension attribute
+    "customer.region.country_display",  # Nested dimension display
+    "customer.region.country.continent", # Deep dimension attribute
     {:func, "sum", ["sale_amount"]},
     {:func, "count", ["DISTINCT", "customer_id"]}
   ])
   |> Selecto.filter([
-    {"customer[region][country][continent]", {:in, ["North America", "Europe"]}},
+    {"customer.region.country.continent", {:in, ["North America", "Europe"]}},
     {"sale_amount", {:gt, 1000}}
   ])
   |> Selecto.group_by([
-    "customer[region][country_display]",
-    "customer[region][country][continent]"
+    "customer.region.country_display",
+    "customer.region.country.continent"
   ])
   |> Selecto.execute()
 ```
@@ -248,7 +248,7 @@ management_analysis = selecto
     "manager_path",           # Full path to CEO: "CEO > VP > Director > Manager"
     "manager_level",          # Depth in hierarchy (0 = CEO, 1 = VP, etc.)
     "manager_path_array",     # Array of manager IDs in path
-    "department[name]",
+    "department.name",
     "department_path",        # Department hierarchy path
     "department_level"        # Department depth
   ])
@@ -315,7 +315,7 @@ selecto = Selecto.configure(path_hierarchy_domain, conn)
 category_analysis = selecto
   |> Selecto.select([
     "title",
-    "category[name]",
+    "category.name",
     "category_path",          # Full category path
     "category_level",         # Depth (calculated from path)
     "category_ancestors",     # Array of ancestor category names
@@ -328,7 +328,7 @@ category_analysis = selecto
     {"category_level", {:eq, 3}}
   ])
   |> Selecto.group_by([
-    "category[name]", 
+    "category.name", 
     "category_path",
     "category_level"
   ])
@@ -482,7 +482,7 @@ multi_dimensional_tags = selecto
     "user_tags_array",        # User-generated tags as array
     "system_tags_list",       # AI tags as string (high confidence only)
     "system_tags_avg_confidence", # Average AI confidence
-    {:func, "count", ["DISTINCT", "user_tags[user_id]"]} # Unique taggers
+    {:func, "count", ["DISTINCT", "user_tags.user_id"]} # Unique taggers
   ])
   |> Selecto.filter([
     {"user_tags_count", {:gte, 3}},           # At least 3 user tags
@@ -662,45 +662,45 @@ comprehensive_analysis = selecto
   |> Selecto.select([
     # Star dimension fields
     "customer_display",
-    "customer[region_display]",
+    "customer.region_display",
     
     # Hierarchical category analysis
-    "items[product][category_path]",
-    "items[product][category_level]",
+    "items.product.category_path",
+    "items.product.category_level",
     
     # Tagging analysis
-    "items[product][tags_list]",
-    "items[product][tags_count]",
+    "items.product.tags_list",
+    "items.product.tags_count",
     
     # Aggregated measures
     {:func, "sum", ["total"]},
-    {:func, "avg", ["items[quantity]"]},
-    {:func, "count", ["DISTINCT", "items[product_id]"]}
+    {:func, "avg", ["items.quantity"]},
+    {:func, "count", ["DISTINCT", "items.product_id"]}
   ])
   |> Selecto.filter([
     # Star dimension filters
-    {"customer[region][name]", {:in, ["North America", "Europe"]}},
+    {"customer.region.name", {:in, ["North America", "Europe"]}},
     
     # Hierarchical filters
-    {"items[product][category_level]", {:lte, 3}},
-    {"items[product][category_path]", {:like, "%electronics%"}},
+    {"items.product.category_level", {:lte, 3}},
+    {"items.product.category_path", {:like, "%electronics%"}},
     
     # Tagging filters
-    {"items[product][tags_filter]", "premium"},
-    {"items[product][tags_count]", {:gte, 2}},
+    {"items.product.tags_filter", "premium"},
+    {"items.product.tags_count", {:gte, 2}},
     
     # Standard filters
     {"status", "completed"},
     {"created_at", {:gte, ~D[2024-01-01]}}
   ])
   |> Selecto.group_by([
-    "customer[region_display]",
-    "items[product][category_path]",
-    "items[product][category_level]"
+    "customer.region_display",
+    "items.product.category_path",
+    "items.product.category_level"
   ])
   |> Selecto.order_by([
     {:desc, {:func, "sum", ["total"]}},
-    "items[product][category_level]"
+    "items.product.category_level"
   ])
   |> Selecto.execute()
 ```
@@ -717,16 +717,16 @@ def optimize_join_order(selecto) do
   |> Selecto.filter([
     {"created_at", {:between, ~D[2024-01-01], ~D[2024-03-31]}}, # Date range
     {"status", "active"},                                        # Selective filter
-    {"customer[segment]", "enterprise"}                          # Dimension filter
+    {"customer.segment", "enterprise"}                          # Dimension filter
   ])
   # 2. Select specific fields (avoid SELECT *)
   |> Selecto.select([
     "customer_display",
-    "items[product][category_path]",
+    "items.product.category_path",
     {:func, "sum", ["total"]}
   ])
   # 3. Group by dimension fields only
-  |> Selecto.group_by(["customer_display", "items[product][category_path]"])
+  |> Selecto.group_by(["customer_display", "items.product.category_path"])
   # 4. Order by aggregated values for efficient top-N
   |> Selecto.order_by([{:desc, {:func, "sum", ["total"]}}])
   |> Selecto.limit(100)
@@ -768,9 +768,9 @@ def build_customer_segment_analysis(conn) do
   base_selecto = Selecto.configure(ecommerce_mixed, conn)
     |> Selecto.select([
       "customer_id",
-      "customer[segment]", 
-      "customer[region_display]",
-      "items[product][category_level]",
+      "customer.segment", 
+      "customer.region_display",
+      "items.product.category_level",
       {:func, "sum", ["total"]},
       {:func, "count", ["*"]}
     ])
@@ -780,9 +780,9 @@ def build_customer_segment_analysis(conn) do
     ])
     |> Selecto.group_by([
       "customer_id",
-      "customer[segment]",
-      "customer[region_display]", 
-      "items[product][category_level]"
+      "customer.segment",
+      "customer.region_display", 
+      "items.product.category_level"
     ])
   
   # Convert to CTE spec

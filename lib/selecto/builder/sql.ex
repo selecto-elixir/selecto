@@ -1156,7 +1156,7 @@ defmodule Selecto.Builder.Sql do
 
     Enum.map(values_specs, fn spec ->
       values_cte_sql = ValuesClause.build_values_cte(spec)
-      # Raw CTE entry handled directly by Selecto.Builder.CTE.
+      # Raw CTE entry handled directly by Selecto.Builder.CteSql.
       {:raw_cte, values_cte_sql, []}
     end)
   end
