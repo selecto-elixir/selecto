@@ -213,11 +213,6 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, {:literal_position, value}, %{})
   end
 
-  # Special case for string literals that should not be parameterized (e.g., in concat)
-  def prep_selector(selecto, {:literal_string, value}) when is_bitstring(value) do
-    prep_selector(selecto, {:literal_string, value}, %{})
-  end
-
   def prep_selector(selecto, {:literal, value}) when is_bitstring(value) do
     prep_selector(selecto, {:literal, value}, %{})
   end
@@ -357,20 +352,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {func, fields}, pivot_aliases)
       when func in [:concat, :coalesce, :greatest, :least, :nullif] do
-    # Special handling for CONCAT to avoid PostgreSQL parameter type issues
-    processed_fields =
-      if func == :concat do
-        Enum.map(List.wrap(fields), fn
-          {:literal, value} when is_bitstring(value) ->
-            # Convert string literals to non-parameterized form for CONCAT
-            {:literal_string, value}
-
-          other ->
-            other
-        end)
-      else
-        List.wrap(fields)
-      end
+    processed_fields = List.wrap(fields)
 
     {sel_parts, join, param} =
       Enum.reduce(processed_fields, {[], [], []}, fn f, {select, join, param} ->
@@ -723,13 +705,6 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(_selecto, {:literal_position, value}, _pivot_aliases)
       when is_integer(value) do
     {[Integer.to_string(value)], :selecto_root, []}
-  end
-
-  # {:literal_string, value} is an alias for {:literal, value} when it's a string
-  # Keeping for backwards compatibility
-  def prep_selector(_selecto, {:literal_string, value}, _pivot_aliases)
-      when is_bitstring(value) do
-    {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
   end
 
   def prep_selector(selecto, {:to_char, {field, format}}, pivot_aliases) do

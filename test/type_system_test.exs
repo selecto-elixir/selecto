@@ -48,7 +48,7 @@ defmodule Selecto.TypeSystemTest do
 
     assert {:ok, {:array, :unknown}} = TypeSystem.infer_type(nil, {:literal, [1, 2, 3]})
     assert {:ok, :jsonb} = TypeSystem.infer_type(nil, {:literal, %{a: 1}})
-    assert {:ok, :string} = TypeSystem.infer_type(nil, {:literal_string, "x"})
+    assert {:ok, :string} = TypeSystem.infer_type(nil, {:literal, "x"})
   end
 
   test "infers aggregate and scalar expressions" do
