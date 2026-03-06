@@ -1483,7 +1483,12 @@ defmodule Selecto do
   - `selecto` - The Selecto instance
   - `name` - CTE name (must be valid SQL identifier)
   - `query_builder` - Function that returns a Selecto query for the CTE
-  - `opts` - Options including :columns, :dependencies
+  - `opts` - Options including :columns, :dependencies, and optional :join
+
+  Join shortcut options (`:join`):
+  - `true` - infer join keys from first declared CTE column
+  - keyword/map - any `Selecto.join/3` options (`:type`, `:owner_key`, `:related_key`, `:on`, `:fields`)
+  - `fields: :infer` - infer join fields from declared CTE columns
 
   ## Examples
 
@@ -1492,10 +1497,10 @@ defmodule Selecto do
       |> Selecto.with_cte("active_customers", fn ->
           Selecto.configure(customer_domain, connection)
           |> Selecto.filter([{"active", true}])
-        end)
+        end,
+        join: [owner_key: :customer_id, related_key: :customer_id]
+      )
       |> Selecto.select(["film.title", "active_customers.first_name"])
-      |> Selecto.join(:inner, "active_customers",
-          on: "rental.customer_id = active_customers.customer_id")
 
       # CTE with explicit columns
       selecto
@@ -1518,14 +1523,15 @@ defmodule Selecto do
       # INNER JOIN active_customers ON rental.customer_id = active_customers.customer_id
   """
   def with_cte(selecto, name, query_builder, opts \\ []) do
+    join_opts = Keyword.get(opts, :join)
+    cte_opts = Keyword.delete(opts, :join)
+
     # Create CTE specification
-    cte_spec = Selecto.Advanced.CTE.create_cte(name, query_builder, opts)
+    cte_spec = Selecto.Advanced.CTE.create_cte(name, query_builder, cte_opts)
 
-    # Add to selecto set
-    current_ctes = Map.get(selecto.set, :ctes, [])
-    updated_ctes = current_ctes ++ [cte_spec]
-
-    put_in(selecto.set[:ctes], updated_ctes)
+    selecto
+    |> append_cte_spec(cte_spec)
+    |> maybe_join_cte_spec(cte_spec, join_opts)
   end
 
   @doc """
@@ -1538,7 +1544,9 @@ defmodule Selecto do
 
   - `selecto` - The Selecto instance
   - `name` - CTE name (must be valid SQL identifier)
-  - `opts` - Options with :base_query and :recursive_query functions
+  - `opts` - Options with :base_query, :recursive_query, and optional :join
+
+  Join shortcut options (`:join`) follow `with_cte/4`.
 
   ## Examples
 
@@ -1557,10 +1565,9 @@ defmodule Selecto do
             |> Selecto.select(["employee.employee_id", "employee.name", "employee.manager_id",
                               {:func, "employee_hierarchy.level + 1", as: "level"}])
             |> Selecto.join(:inner, cte_ref, on: "employee.manager_id = employee_hierarchy.employee_id")
-          end
+          end,
+          join: [owner_key: :employee_id, related_key: :employee_id]
         )
-      |> Selecto.join(:inner, "employee_hierarchy",
-          on: "selecto_root.employee_id = employee_hierarchy.employee_id")
       |> Selecto.select([
           "employee_hierarchy.employee_id",
           "employee_hierarchy.name",
@@ -1587,32 +1594,39 @@ defmodule Selecto do
   # 1. (selecto, cte_name, base_fn, recursive_fn, opts) - original inline format
   # 2. (selecto, name, opts) - newer format using Advanced.CTE
   def with_recursive_cte(selecto, arg2, arg3, arg4 \\ nil, arg5 \\ []) do
-    cte_spec =
+    {cte_spec, join_opts} =
       case {arg2, arg3, arg4, arg5} do
         # Format 1: (selecto, cte_name, base_fn, recursive_fn, opts)
         {cte_name, base_fn, recursive_fn, opts}
         when is_function(base_fn) and is_function(recursive_fn) ->
+          normalized_opts = normalize_cte_option_list(opts)
+          join_opts = Keyword.get(normalized_opts, :join)
+          cte_opts = Keyword.delete(normalized_opts, :join)
+
           # Inline spec format
-          %{
-            name: cte_name,
-            type: :recursive,
-            base_query: base_fn,
-            recursive_query: recursive_fn,
-            max_depth: Keyword.get(opts, :max_depth),
-            cycle_detection: Keyword.get(opts, :cycle_detection, false)
-          }
+          {%{
+             name: cte_name,
+             type: :recursive,
+             base_query: base_fn,
+             recursive_query: recursive_fn,
+             max_depth: Keyword.get(cte_opts, :max_depth),
+             cycle_detection: Keyword.get(cte_opts, :cycle_detection, false),
+             columns: Keyword.get(cte_opts, :columns)
+           }, join_opts}
 
         # Format 2: (selecto, name, opts)
         {name, opts, nil, []} when is_list(opts) or is_map(opts) ->
+          normalized_opts = normalize_cte_option_list(opts)
+          join_opts = Keyword.get(normalized_opts, :join)
+          cte_opts = Keyword.delete(normalized_opts, :join)
+
           # Use Advanced.CTE module
-          Selecto.Advanced.CTE.create_recursive_cte(name, opts)
+          {Selecto.Advanced.CTE.create_recursive_cte(name, cte_opts), join_opts}
       end
 
-    # Add to selecto set
-    current_ctes = Map.get(selecto.set, :ctes, [])
-    updated_ctes = current_ctes ++ [cte_spec]
-
-    put_in(selecto.set[:ctes], updated_ctes)
+    selecto
+    |> append_cte_spec(cte_spec)
+    |> maybe_join_cte_spec(cte_spec, join_opts)
   end
 
   @doc """
@@ -1625,6 +1639,14 @@ defmodule Selecto do
 
   - `selecto` - The Selecto instance
   - `cte_specs` - List of CTE specifications created with create_cte/3
+  - `opts` - Options including :joins for auto-joining one or more CTEs
+
+  Batch join shortcut options (`:joins`):
+  - `true` - auto-join every provided CTE (default key inference)
+  - list of entries where each entry is one of:
+    - cte name (`"my_cte"` or `:my_cte`) to use inferred defaults
+    - `{name, join_opts}` tuple
+    - keyword/map with `:name` plus join options
 
   ## Examples
 
@@ -1643,16 +1665,274 @@ defmodule Selecto do
       end, dependencies: ["active_customers"])
 
       selecto
-      |> Selecto.with_ctes([active_customers_cte, high_value_cte])
+      |> Selecto.with_ctes([active_customers_cte, high_value_cte],
+        joins: [
+          [name: "active_customers", owner_key: :customer_id, related_key: :customer_id],
+          [name: "high_value_customers", owner_key: :customer_id, related_key: :customer_id]
+        ]
+      )
       |> Selecto.select(["film.title", "high_value_customers.total_spent"])
   """
-  def with_ctes(selecto, cte_specs) when is_list(cte_specs) do
-    # Add all CTEs to selecto set
+  def with_ctes(selecto, cte_specs, opts \\ []) when is_list(cte_specs) do
+    selecto_with_ctes = append_cte_specs(selecto, cte_specs)
+    apply_with_ctes_joins(selecto_with_ctes, cte_specs, Keyword.get(opts, :joins))
+  end
+
+  defp append_cte_spec(selecto, cte_spec), do: append_cte_specs(selecto, [cte_spec])
+
+  defp append_cte_specs(selecto, cte_specs) when is_list(cte_specs) do
     current_ctes = Map.get(selecto.set, :ctes, [])
     updated_ctes = current_ctes ++ cte_specs
 
     put_in(selecto.set[:ctes], updated_ctes)
   end
+
+  defp maybe_join_cte_spec(selecto, _cte_spec, join_opts) when join_opts in [nil, false],
+    do: selecto
+
+  defp maybe_join_cte_spec(selecto, cte_spec, join_opts) do
+    {join_id, join_options} = build_cte_join_options(cte_spec, join_opts)
+    Selecto.join(selecto, join_id, join_options)
+  end
+
+  defp build_cte_join_options(cte_spec, true), do: build_cte_join_options(cte_spec, [])
+
+  defp build_cte_join_options(cte_spec, join_opts) when is_map(join_opts) do
+    cte_spec
+    |> build_cte_join_options(normalize_cte_join_opts(join_opts))
+  end
+
+  defp build_cte_join_options(cte_spec, join_opts) when is_list(join_opts) do
+    cte_name = cte_spec_name!(cte_spec)
+    normalized_join_opts = normalize_cte_join_opts(join_opts)
+
+    join_id =
+      normalized_join_opts
+      |> Keyword.get(:id, cte_name)
+      |> normalize_values_join_id()
+
+    join_options =
+      normalized_join_opts
+      |> Keyword.delete(:id)
+      |> Keyword.delete(:name)
+      |> Keyword.put_new(:source, cte_name)
+      |> Keyword.put_new(:type, :left)
+      |> maybe_add_default_cte_join_keys(cte_spec)
+      |> maybe_add_default_cte_join_fields(cte_spec)
+
+    {join_id, join_options}
+  end
+
+  defp build_cte_join_options(_cte_spec, invalid_opts) do
+    raise ArgumentError,
+          ":join option for CTE helpers must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_opts)}"
+  end
+
+  defp maybe_add_default_cte_join_keys(join_options, cte_spec) do
+    if Keyword.has_key?(join_options, :on) do
+      join_options
+    else
+      case {Keyword.get(join_options, :owner_key), Keyword.get(join_options, :related_key)} do
+        {owner_key, related_key} when not is_nil(owner_key) and not is_nil(related_key) ->
+          join_options
+
+        {owner_key, nil} when not is_nil(owner_key) ->
+          Keyword.put(join_options, :related_key, owner_key)
+
+        _ ->
+          default_join_key = default_cte_join_key(cte_spec)
+          owner_key = Keyword.get(join_options, :owner_key, default_join_key)
+          related_key = Keyword.get(join_options, :related_key, owner_key)
+
+          join_options
+          |> Keyword.put_new(:owner_key, owner_key)
+          |> Keyword.put_new(:related_key, related_key)
+      end
+    end
+  end
+
+  defp maybe_add_default_cte_join_fields(join_options, cte_spec) do
+    case Keyword.get(join_options, :fields, :__missing__) do
+      :infer ->
+        Keyword.put(join_options, :fields, inferred_cte_join_fields!(cte_spec))
+
+      :__missing__ ->
+        inferred_fields = inferred_cte_join_fields(cte_spec)
+
+        if inferred_fields == %{} do
+          join_options
+        else
+          Keyword.put(join_options, :fields, inferred_fields)
+        end
+
+      _ ->
+        join_options
+    end
+  end
+
+  defp default_cte_join_key(cte_spec) do
+    case cte_columns(cte_spec) do
+      [first_column | _] ->
+        first_column
+
+      [] ->
+        cte_name = cte_spec_name!(cte_spec)
+
+        raise ArgumentError,
+              "Cannot infer join keys for CTE '#{cte_name}'. Declare CTE columns or pass :owner_key/:related_key (or :on) in :join options."
+    end
+  end
+
+  defp inferred_cte_join_fields(cte_spec) do
+    Enum.reduce(cte_columns(cte_spec), %{}, fn column, acc ->
+      Map.put(acc, String.to_atom(column), %{type: :any})
+    end)
+  end
+
+  defp inferred_cte_join_fields!(cte_spec) do
+    inferred_fields = inferred_cte_join_fields(cte_spec)
+
+    if inferred_fields == %{} do
+      cte_name = cte_spec_name!(cte_spec)
+
+      raise ArgumentError,
+            "Cannot infer fields for CTE '#{cte_name}' because it has no declared columns. Provide fields explicitly or declare CTE columns."
+    else
+      inferred_fields
+    end
+  end
+
+  defp cte_columns(cte_spec) do
+    cte_spec
+    |> Map.get(:columns, [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+  end
+
+  defp cte_spec_name!(%{name: name}) when is_binary(name), do: name
+  defp cte_spec_name!(%{name: name}) when is_atom(name), do: Atom.to_string(name)
+
+  defp cte_spec_name!(cte_spec) do
+    raise ArgumentError,
+          "CTE spec must include a string or atom :name. Got: #{inspect(cte_spec)}"
+  end
+
+  defp apply_with_ctes_joins(selecto, _cte_specs, joins) when joins in [nil, false, []],
+    do: selecto
+
+  defp apply_with_ctes_joins(selecto, cte_specs, true) do
+    Enum.reduce(cte_specs, selecto, fn cte_spec, acc ->
+      maybe_join_cte_spec(acc, cte_spec, true)
+    end)
+  end
+
+  defp apply_with_ctes_joins(selecto, cte_specs, joins) when is_list(joins) do
+    Enum.reduce(joins, selecto, fn join_entry, acc ->
+      {cte_spec, join_opts} = resolve_with_ctes_join_entry(cte_specs, join_entry)
+      maybe_join_cte_spec(acc, cte_spec, join_opts)
+    end)
+  end
+
+  defp apply_with_ctes_joins(_selecto, _cte_specs, invalid_joins) do
+    raise ArgumentError,
+          ":joins option for with_ctes/3 must be true, false, nil, or a list. Got: #{inspect(invalid_joins)}"
+  end
+
+  defp resolve_with_ctes_join_entry(cte_specs, entry) when is_binary(entry) or is_atom(entry) do
+    {find_cte_spec!(cte_specs, entry), true}
+  end
+
+  defp resolve_with_ctes_join_entry(cte_specs, {name, join_opts}) do
+    {find_cte_spec!(cte_specs, name), join_opts}
+  end
+
+  defp resolve_with_ctes_join_entry(cte_specs, join_entry) when is_map(join_entry) do
+    resolve_with_ctes_join_entry(cte_specs, Map.to_list(join_entry))
+  end
+
+  defp resolve_with_ctes_join_entry(cte_specs, join_entry) when is_list(join_entry) do
+    normalized_entry = normalize_cte_join_opts(join_entry)
+    cte_name = Keyword.get(normalized_entry, :name)
+
+    if is_nil(cte_name) do
+      raise ArgumentError,
+            "Each entry in :joins for with_ctes/3 must include :name, be a cte name, or be a {name, opts} tuple. Got: #{inspect(join_entry)}"
+    end
+
+    join_opts = Keyword.delete(normalized_entry, :name)
+    {find_cte_spec!(cte_specs, cte_name), join_opts}
+  end
+
+  defp resolve_with_ctes_join_entry(_cte_specs, invalid_entry) do
+    raise ArgumentError,
+          "Invalid :joins entry for with_ctes/3: #{inspect(invalid_entry)}"
+  end
+
+  defp find_cte_spec!(cte_specs, cte_name) do
+    cte_name_string = to_string(cte_name)
+
+    Enum.find(cte_specs, fn cte_spec ->
+      cte_spec_name!(cte_spec) == cte_name_string
+    end) ||
+      raise ArgumentError,
+            "CTE named '#{cte_name_string}' was not found in with_ctes/3 input"
+  end
+
+  defp normalize_cte_option_list(opts) when is_map(opts),
+    do: opts |> Map.to_list() |> normalize_cte_option_list()
+
+  defp normalize_cte_option_list(opts) when is_list(opts) do
+    Enum.map(opts, fn
+      {key, value} -> {normalize_cte_option_key(key), value}
+      other -> other
+    end)
+  end
+
+  defp normalize_cte_option_key(key) when is_atom(key), do: key
+
+  defp normalize_cte_option_key(key) when is_binary(key) do
+    case key do
+      "base_query" -> :base_query
+      "recursive_query" -> :recursive_query
+      "columns" -> :columns
+      "dependencies" -> :dependencies
+      "join" -> :join
+      "joins" -> :joins
+      "max_depth" -> :max_depth
+      "cycle_detection" -> :cycle_detection
+      other -> other
+    end
+  end
+
+  defp normalize_cte_option_key(key), do: key
+
+  defp normalize_cte_join_opts(join_opts) when is_map(join_opts),
+    do: join_opts |> Map.to_list() |> normalize_cte_join_opts()
+
+  defp normalize_cte_join_opts(join_opts) when is_list(join_opts) do
+    Enum.map(join_opts, fn
+      {key, value} -> {normalize_cte_join_key(key), value}
+      other -> other
+    end)
+  end
+
+  defp normalize_cte_join_key(key) when is_atom(key), do: key
+
+  defp normalize_cte_join_key(key) when is_binary(key) do
+    case key do
+      "name" -> :name
+      "id" -> :id
+      "source" -> :source
+      "type" -> :type
+      "owner_key" -> :owner_key
+      "related_key" -> :related_key
+      "on" -> :on
+      "fields" -> :fields
+      other -> other
+    end
+  end
+
+  defp normalize_cte_join_key(key), do: key
 
   @doc """
   Add a simple CASE expression to the select fields.

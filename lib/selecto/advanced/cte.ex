@@ -16,10 +16,11 @@ defmodule Selecto.Advanced.CTE do
           |> Selecto.join(:inner, "payment", on: "customer.customer_id = payment.customer_id")
           |> Selecto.group_by(["customer.customer_id", "customer.first_name", "customer.last_name"])
           |> Selecto.having([{"total_spent", {:>, 100}}])
-        end)
+        end,
+        columns: ["customer_id", "first_name", "last_name", "total_spent"],
+        join: [type: :inner, owner_key: :customer_id, related_key: :customer_id, fields: :infer]
+      )
       |> Selecto.select(["film.title", "high_value_customers.first_name"])
-      |> Selecto.join(:inner, "high_value_customers", 
-          on: "rental.customer_id = high_value_customers.customer_id")
       
       # Recursive CTE for hierarchical data
       selecto
@@ -36,8 +37,10 @@ defmodule Selecto.Advanced.CTE do
             |> Selecto.select(["employee.employee_id", "employee.name", "employee.manager_id", 
                               {:func, "org_hierarchy.level + 1", as: "level"}])
             |> Selecto.join(:inner, cte, on: "employee.manager_id = org_hierarchy.employee_id")
-          end
-        )
+        end,
+        columns: ["employee_id", "name", "manager_id", "level"],
+        join: [type: :inner, owner_key: :employee_id, related_key: :employee_id, fields: :infer]
+      )
   """
 
   defmodule Spec do
