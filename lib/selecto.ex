@@ -1129,7 +1129,8 @@ defmodule Selecto do
 
   - `selecto` - The Selecto struct
   - `data` - List of data rows (lists or maps)
-  - `opts` - Options including `:columns` (explicit column names) and `:as` (table alias)
+  - `opts` - Options including `:columns` (explicit column names), `:as` (table alias),
+    and optional `:join` configuration to auto-join the VALUES table
 
   ## Examples
 
@@ -1152,6 +1153,18 @@ defmodule Selecto do
           %{month: 3, name: "March", days: 31}
         ], as: "months")
 
+      # VALUES with auto-join (fields inferred from VALUES columns)
+      selecto
+      |> Selecto.with_values([
+          ["processing", "In Progress"],
+          ["shipped", "In Transit"]
+        ],
+        columns: ["status", "status_label"],
+        as: "status_labels",
+        join: [owner_key: :status, related_key: :status]
+      )
+      |> Selecto.select(["order_number", "status_labels.status_label"])
+
       # Generated SQL:
       # WITH rating_lookup (rating_code, description, sort_order) AS (
       #   VALUES ('PG', 'Family Friendly', 1),
@@ -1167,7 +1180,104 @@ defmodule Selecto do
     current_values_clauses = Map.get(selecto.set, :values_clauses, [])
     updated_values_clauses = current_values_clauses ++ [values_spec]
 
-    put_in(selecto.set[:values_clauses], updated_values_clauses)
+    selecto
+    |> put_in([Access.key(:set), :values_clauses], updated_values_clauses)
+    |> maybe_join_values_clause(values_spec, Keyword.get(opts, :join))
+  end
+
+  defp maybe_join_values_clause(selecto, _values_spec, join_opts)
+       when join_opts in [nil, false],
+       do: selecto
+
+  defp maybe_join_values_clause(selecto, values_spec, join_opts) do
+    {join_id, join_options} = build_values_join_options(values_spec, join_opts)
+    Selecto.join(selecto, join_id, join_options)
+  end
+
+  defp build_values_join_options(values_spec, true),
+    do: build_values_join_options(values_spec, [])
+
+  defp build_values_join_options(values_spec, join_opts) when is_map(join_opts) do
+    values_spec
+    |> build_values_join_options(normalize_values_join_opts(join_opts))
+  end
+
+  defp build_values_join_options(values_spec, join_opts) when is_list(join_opts) do
+    normalized_join_opts = normalize_values_join_opts(join_opts)
+    default_join_key = default_values_join_key(values_spec)
+
+    owner_key = Keyword.get(normalized_join_opts, :owner_key, default_join_key)
+    related_key = Keyword.get(normalized_join_opts, :related_key, owner_key)
+
+    join_id =
+      normalized_join_opts
+      |> Keyword.get(:id, values_spec.alias)
+      |> normalize_values_join_id()
+
+    join_options =
+      normalized_join_opts
+      |> Keyword.delete(:id)
+      |> Keyword.put_new(:source, values_spec.alias)
+      |> Keyword.put_new(:type, :left)
+      |> Keyword.put_new(:owner_key, owner_key)
+      |> Keyword.put_new(:related_key, related_key)
+      |> Keyword.put_new(:fields, inferred_values_join_fields(values_spec))
+
+    {join_id, join_options}
+  end
+
+  defp build_values_join_options(_values_spec, invalid_opts) do
+    raise ArgumentError,
+          ":join option for with_values/3 must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_opts)}"
+  end
+
+  defp normalize_values_join_opts(join_opts) when is_map(join_opts),
+    do: join_opts |> Map.to_list() |> normalize_values_join_opts()
+
+  defp normalize_values_join_opts(join_opts) when is_list(join_opts) do
+    Enum.map(join_opts, fn
+      {key, value} -> {normalize_values_join_key(key), value}
+      other -> other
+    end)
+  end
+
+  defp normalize_values_join_key(key) when is_atom(key), do: key
+
+  defp normalize_values_join_key(key) when is_binary(key) do
+    case key do
+      "id" -> :id
+      "source" -> :source
+      "type" -> :type
+      "owner_key" -> :owner_key
+      "related_key" -> :related_key
+      "on" -> :on
+      "fields" -> :fields
+      other -> other
+    end
+  end
+
+  defp normalize_values_join_key(key), do: key
+
+  defp normalize_values_join_id(join_id) when is_atom(join_id), do: join_id
+  defp normalize_values_join_id(join_id) when is_binary(join_id), do: String.to_atom(join_id)
+
+  defp normalize_values_join_id(join_id) do
+    raise ArgumentError,
+          "VALUES auto-join id must be an atom or string. Got: #{inspect(join_id)}"
+  end
+
+  defp default_values_join_key(%{columns: [first_column | _]}), do: first_column
+
+  defp default_values_join_key(%{columns: []}) do
+    raise ArgumentError,
+          "Cannot infer VALUES join key from empty columns. Provide join: [owner_key: ..., related_key: ...]."
+  end
+
+  defp inferred_values_join_fields(values_spec) do
+    Enum.reduce(values_spec.columns, %{}, fn column, acc ->
+      type = Map.get(values_spec.column_types, column, :string)
+      Map.put(acc, column, %{type: type})
+    end)
   end
 
   @doc """

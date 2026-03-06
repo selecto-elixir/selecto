@@ -281,6 +281,55 @@ defmodule Selecto.WindowJsonRegressionTest do
              "from orders selecto_root left join status_labels status_labels on status_labels.status = selecto_root.status"
   end
 
+  test "with_values can auto-join via join options" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Selecto.with_values(
+        [
+          ["processing", "In Progress"],
+          ["shipped", "In Transit"],
+          ["delivered", "Completed"]
+        ],
+        columns: ["status", "status_label"],
+        as: "status_labels",
+        join: [owner_key: :status, related_key: :status]
+      )
+      |> Selecto.select(["order_number", "status", "status_labels.status_label"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "WITH status_labels (\"status\", \"status_label\") AS (VALUES ('processing', 'In Progress'), ('shipped', 'In Transit'), ('delivered', 'Completed'))"
+
+    assert sql =~
+             "from orders selecto_root left join status_labels status_labels on status_labels.status = selecto_root.status"
+  end
+
+  test "with_values join: true infers join keys from first VALUES column" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Selecto.with_values(
+        [
+          ["processing", "In Progress"],
+          ["shipped", "In Transit"]
+        ],
+        columns: ["status", "status_label"],
+        as: "status_labels",
+        join: true
+      )
+      |> Selecto.select(["order_number", "status_labels.status_label"])
+
+    {sql, _params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert sql =~
+             "left join status_labels status_labels on status_labels.status = selecto_root.status"
+  end
+
   test "join_subquery injects parameterized subquery and preserves params" do
     high_value_delivered_orders =
       Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
