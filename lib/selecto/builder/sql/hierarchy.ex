@@ -177,19 +177,20 @@ defmodule Selecto.Builder.Sql.Hierarchy do
       "FROM #{source_table} WHERE #{parent_field} IS NULL"
     ]
 
-    # Recursive case: JOIN with CTE (use raw placeholder for now)
+    # Recursive case: JOIN with CTE
     recursive_case_iodata = [
       "SELECT c.#{id_field}, c.#{name_field}, c.#{parent_field}, h.level + 1, ",
       "h.path || '/' || CAST(c.#{id_field} AS TEXT), h.path_array || c.#{id_field} ",
       "FROM #{source_table} c JOIN #{cte_name} h ON c.#{parent_field} = h.#{id_field} ",
-      "WHERE h.level < $1"
+      "WHERE h.level < ",
+      {:param, depth_limit}
     ]
 
     # Build CTE definition body (WITH keyword added by CTE builder)
     cte_iodata = [cte_name, " AS (", base_case_iodata, " UNION ALL ", recursive_case_iodata, ")"]
 
-    # Return CTE with parameters
-    {cte_iodata, [depth_limit]}
+    # Parameters are embedded in iodata via {:param, value} markers.
+    {cte_iodata, []}
   end
 
   @doc """
@@ -237,11 +238,12 @@ defmodule Selecto.Builder.Sql.Hierarchy do
       "(length(#{path_field}) - length(replace(#{path_field}, '#{path_separator}', ''))) as depth, ",
       "string_to_array(#{path_field}, '#{path_separator}') as path_array ",
       "FROM #{source_table} ",
-      "WHERE #{path_field} LIKE $1",
+      "WHERE #{path_field} LIKE ",
+      {:param, path_pattern},
       ")"
     ]
 
-    {query_iodata, [path_pattern]}
+    {query_iodata, []}
   end
 
   @doc """
