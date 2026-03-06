@@ -1,10 +1,10 @@
 defmodule Selecto.Phase1IntegrationTest do
   use ExUnit.Case
 
-  test "core compatibility modules are available" do
-    assert Code.ensure_loaded?(Selecto.Builder.Cte)
+  test "core CTE modules are available" do
+    assert Code.ensure_loaded?(Selecto.Builder.CteSql)
     assert Code.ensure_loaded?(Selecto.Builder.Sql.Hierarchy)
-    assert function_exported?(Selecto.Builder.Cte, :build_cte, 3)
+    assert function_exported?(Selecto.Builder.CteSql, :build_with_clause, 1)
     assert function_exported?(Selecto.SQL.Params, :finalize_with_ctes, 1)
   end
 

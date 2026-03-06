@@ -543,7 +543,8 @@ sales_cube = dashboard_selecto
   |> Selecto.execute()
 
 # 2. Time-based trend analysis with CTEs
-alias Selecto.Builder.Cte
+alias Selecto.Advanced.CTE
+alias Selecto.Builder.CteSql
 
 # Create base CTE for monthly sales
 monthly_base = dashboard_selecto
@@ -557,7 +558,10 @@ monthly_base = dashboard_selecto
   |> Selecto.filter([{"time[year]", 2024}])
   |> Selecto.group_by(["time[year]", "time[month]", "customer[segment]"])
 
-{monthly_cte, monthly_params} = Cte.build_cte_from_selecto("monthly_sales", monthly_base)
+monthly_cte =
+  CTE.create_cte("monthly_sales", fn ->
+    monthly_base
+  end)
 
 # Main query with month-over-month comparison
 trend_query = [
@@ -572,8 +576,8 @@ trend_query = [
   "ORDER BY m1.year, m1.month, growth_percentage DESC"
 ]
 
-{final_query, final_params} = Cte.integrate_ctes_with_query(
-  [{monthly_cte, monthly_params}],
+{final_query, _combined_params} = CteSql.integrate_ctes_with_query(
+  [monthly_cte],
   trend_query,
   []
 )
@@ -590,7 +594,7 @@ trend_query = [
 ```elixir
 defmodule ComplexCTEExamples do
   def build_territory_hierarchy(conn, root_territory_id) do
-    alias Selecto.Builder.Cte
+    alias Selecto.Builder.CteSql
     
     # Base case: Root territory
     base_cte_sql = [
@@ -609,11 +613,9 @@ defmodule ComplexCTEExamples do
       "WHERE h.level < ", {:param, 5}
     ]
     
-    {recursive_cte, params} = Cte.build_recursive_cte(
-      "territory_hierarchy",
-      base_cte_sql, [root_territory_id],
-      recursive_cte_sql, [5]
-    )
+    recursive_cte =
+      {:raw_recursive_cte,
+       ["territory_hierarchy AS (", base_cte_sql, " UNION ALL ", recursive_cte_sql, ")"], []}
     
     # Main query: Sales rollup by territory level
     main_query = [
@@ -629,8 +631,8 @@ defmodule ComplexCTEExamples do
       "ORDER BY h.level, total_sales DESC"
     ]
     
-    {complete_query, combined_params} = Cte.integrate_ctes_with_query(
-      [{recursive_cte, params}],
+    {complete_query, _combined_params} = CteSql.integrate_ctes_with_query(
+      [recursive_cte],
       main_query,
       [~D[2024-01-01]]
     )
@@ -640,7 +642,7 @@ defmodule ComplexCTEExamples do
   end
   
   def build_customer_lifetime_value_analysis(conn) do
-    alias Selecto.Builder.Cte
+    alias Selecto.Builder.CteSql
     
     # CTE 1: Customer first purchase date
     first_purchase_sql = [
@@ -648,7 +650,7 @@ defmodule ComplexCTEExamples do
       "FROM sales_facts ",
       "GROUP BY customer_id"
     ]
-    {first_purchase_cte, _} = Cte.build_cte("first_purchases", first_purchase_sql, [])
+    first_purchase_cte = {:raw_cte, ["first_purchases AS (", first_purchase_sql, ")"], []}
     
     # CTE 2: Customer purchase summary by month
     monthly_purchases_sql = [
@@ -661,7 +663,7 @@ defmodule ComplexCTEExamples do
       "WHERE s.sale_date >= ", {:param, ~D[2023-01-01]}, " ",
       "GROUP BY s.customer_id, DATE_TRUNC('month', s.sale_date)"
     ]
-    {monthly_cte, monthly_params} = Cte.build_cte("monthly_purchases", monthly_purchases_sql, [~D[2023-01-01]])
+    monthly_cte = {:raw_cte, ["monthly_purchases AS (", monthly_purchases_sql, ")"], []}
     
     # Main query: Customer lifetime value with cohort analysis
     main_query = [
@@ -680,12 +682,9 @@ defmodule ComplexCTEExamples do
       "ORDER BY lifetime_value DESC"
     ]
     
-    all_ctes = [
-      {first_purchase_cte, []},
-      {monthly_cte, monthly_params}
-    ]
+    all_ctes = [first_purchase_cte, monthly_cte]
     
-    {complete_query, combined_params} = Cte.integrate_ctes_with_query(
+    {complete_query, _combined_params} = CteSql.integrate_ctes_with_query(
       all_ctes,
       main_query,
       [1000]

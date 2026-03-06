@@ -759,7 +759,8 @@ CREATE INDEX idx_orders_status_date_customer ON orders(status, created_at, custo
 ### Custom CTE with Join Patterns
 
 ```elixir
-alias Selecto.Builder.Cte
+alias Selecto.Advanced.CTE
+alias Selecto.Builder.CteSql
 
 # Build custom CTE that leverages join patterns
 def build_customer_segment_analysis(conn) do
@@ -784,8 +785,8 @@ def build_customer_segment_analysis(conn) do
       "items[product][category_level]"
     ])
   
-  # Convert to CTE
-  {customer_cte, params} = Cte.build_cte_from_selecto("customer_analysis", base_selecto)
+  # Convert to CTE spec
+  customer_cte = CTE.create_cte("customer_analysis", fn -> base_selecto end)
   
   # Main query using the CTE
   main_query = [
@@ -799,8 +800,8 @@ def build_customer_segment_analysis(conn) do
     "ORDER BY segment_sales DESC"
   ]
   
-  {complete_query, combined_params} = Cte.integrate_ctes_with_query(
-    [{customer_cte, params}],
+  {complete_query, _combined_params} = CteSql.integrate_ctes_with_query(
+    [customer_cte],
     main_query,
     []
   )

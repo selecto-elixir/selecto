@@ -1,6 +1,5 @@
 defmodule Selecto.TaggingIntegrationTest do
   use ExUnit.Case
-  alias Selecto.Builder.Sql
 
   @moduledoc """
   Integration tests for Phase 3 many-to-many tagging implementation.
@@ -110,8 +109,9 @@ defmodule Selecto.TaggingIntegrationTest do
       assert String.contains?(tagging_sql_str, "LEFT JOIN article_tags")
       assert String.contains?(tagging_sql_str, "LEFT JOIN tags")
 
-      # Hierarchy should have recursive CTE
-      assert String.contains?(hierarchy_sql_str, "WITH RECURSIVE")
+      # Hierarchy should have recursive CTE definition
+      assert String.contains?(hierarchy_sql_str, "categories_hierarchy AS (")
+      assert String.contains?(hierarchy_sql_str, "UNION ALL")
       assert String.contains?(hierarchy_sql_str, "categories_hierarchy")
     end
   end
@@ -122,19 +122,19 @@ defmodule Selecto.TaggingIntegrationTest do
       # sets up tagging joins with the right join_type marker
 
       # Mock association and queryable structures
-      association = %{
+      _association = %{
         field: "tags",
         owner_key: "id",
         related_key: "id"
       }
 
-      queryable = %{
+      _queryable = %{
         source_table: "tags",
         fields: [:id, :name, :description],
         redact_fields: []
       }
 
-      config = %{
+      _config = %{
         type: :tagging,
         tag_field: :name,
         name: "Tags"

@@ -283,31 +283,31 @@ joins: %{
 
 ## 🔧 Common Table Expressions (CTEs)
 
-Build complex queries with CTEs using familiar Selecto syntax:
+Build complex queries with Selecto's public CTE APIs:
 
 ```elixir
-alias Selecto.Builder.Cte
-
-# Simple CTE
-active_users = selecto
-  |> Selecto.select(["id", "name"])
-  |> Selecto.filter([{"active", true}])
-
-{cte_iodata, params} = Cte.build_cte_from_selecto("active_users", active_users)
-
-# Recursive CTE for hierarchies
-base_case = selecto
-  |> Selecto.select(["id", "name", "parent_id", {:literal, 0, "level"}])
-  |> Selecto.filter([{"parent_id", nil}])
-
-recursive_case = selecto  
-  |> Selecto.select(["c.id", "c.name", "c.parent_id", "h.level + 1"])
-  |> Selecto.filter([{"h.level", {:lt, 5}}])
-
-{recursive_cte, params} = Cte.build_recursive_cte_from_selecto("hierarchy", base_case, recursive_case)
+query =
+  selecto
+  |> Selecto.with_cte("active_users", fn ->
+    Selecto.configure(user_domain, conn)
+    |> Selecto.select(["id", "name"])
+    |> Selecto.filter({"active", true})
+  end)
+  |> Selecto.with_recursive_cte("hierarchy",
+    base_query: fn ->
+      Selecto.configure(tree_domain, conn)
+      |> Selecto.select(["id", "name", "parent_id", {:literal, 0, as: "level"}])
+      |> Selecto.filter({"parent_id", nil})
+    end,
+    recursive_query: fn cte_ref ->
+      Selecto.configure(tree_domain, conn)
+      |> Selecto.join(:inner, cte_ref, on: "node.parent_id = hierarchy.id")
+      |> Selecto.select(["node.id", "node.name", "node.parent_id", {:literal, 1, as: "level"}])
+    end
+  )
 ```
 
-For advanced spec-based CTE SQL generation, use `Selecto.Builder.CteSql`.
+For low-level SQL assembly, build validated `Selecto.Advanced.CTE.Spec` entries and render them with `Selecto.Builder.CteSql`.
 
 ## 📊 Advanced Selection Features
 
