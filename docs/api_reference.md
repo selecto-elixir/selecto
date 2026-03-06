@@ -319,95 +319,59 @@ joins: %{
 
 ## Common Table Expression (CTE) API
 
-### `Selecto.Builder.Cte`
+### `Selecto.Builder.CteSql`
 
-Module for building CTEs from Selecto queries.
+Low-level SQL builder for validated CTE specs and raw CTE fragments.
 
-#### `build_cte_from_selecto/2`
-Creates a simple CTE from a Selecto struct.
+#### `build_with_clause/1`
+Builds a complete WITH clause from CTE entries.
 
 ```elixir
-build_cte_from_selecto(name, selecto) :: {iodata, [params]}
+build_with_clause(ctes) :: {iodata, [params]}
 ```
 
-**Example:**
-```elixir
-alias Selecto.Builder.Cte
+Accepted entries:
+- `%Selecto.Advanced.CTE.Spec{}`
+- `{:raw_cte, cte_definition_iodata, params}`
+- `{:raw_recursive_cte, cte_definition_iodata, params}`
 
-active_users = selecto
-  |> Selecto.select(["id", "name", "email"])
-  |> Selecto.filter([{"active", true}])
-
-{cte_iodata, params} = Cte.build_cte_from_selecto("active_users", active_users)
-```
-
-#### `build_recursive_cte_from_selecto/3`
-Creates a recursive CTE for hierarchical queries.
+#### `build_cte_definition/1`
+Builds a single CTE definition from a validated `%Selecto.Advanced.CTE.Spec{}`.
 
 ```elixir
-build_recursive_cte_from_selecto(name, base_case, recursive_case) :: {iodata, [params]}
-```
-
-**Example:**
-```elixir
-# Base case: root categories
-base_case = selecto
-  |> Selecto.select(["id", "name", "parent_id", {:literal, 0, "level"}])
-  |> Selecto.filter([{"parent_id", nil}])
-
-# Recursive case: child categories  
-recursive_case = selecto
-  |> Selecto.select(["id", "name", "parent_id", "hierarchy.level + 1"])
-  |> Selecto.join(:inner, "hierarchy", on: "selecto_root.parent_id = hierarchy.id")
-  |> Selecto.filter([{"hierarchy.level", {:lt, 5}}])
-
-{recursive_cte, params} = Cte.build_recursive_cte_from_selecto(
-  "category_hierarchy",
-  base_case,
-  recursive_case
-)
-```
-
-#### `build_cte/3`
-Creates CTE from raw SQL with parameters.
-
-```elixir
-build_cte(name, sql_iodata, params) :: {iodata, [params]}
-```
-
-#### `build_recursive_cte/5`
-Creates recursive CTE from raw SQL components.
-
-```elixir
-build_recursive_cte(name, base_sql, base_params, recursive_sql, recursive_params) :: {iodata, [params]}
+build_cte_definition(spec) :: {iodata, [params]}
 ```
 
 #### `integrate_ctes_with_query/3`
-Combines multiple CTEs with a main query.
+Combines a WITH clause and a main query iodata payload.
 
 ```elixir
-integrate_ctes_with_query(cte_list, main_query, main_params) :: {iodata, [params]}
+integrate_ctes_with_query(ctes, main_query, main_params) :: {iodata, [params]}
 ```
 
 **Example:**
 ```elixir
-all_ctes = [
-  {user_cte, user_params},
-  {post_cte, post_params}
-]
+alias Selecto.Advanced.CTE
+alias Selecto.Builder.CteSql
 
-main_query = [
-  "SELECT u.name, p.title ",
-  "FROM active_users u ",
-  "JOIN popular_posts p ON u.id = p.author_id"
-]
+active_users_spec =
+  CTE.create_cte("active_users", fn ->
+    Selecto.configure(user_domain, conn)
+    |> Selecto.select(["id", "name"])
+    |> Selecto.filter({"active", true})
+  end)
 
-{complete_query, all_params} = Cte.integrate_ctes_with_query(
-  all_ctes,
-  main_query,
-  []
-)
+{with_clause, with_params} = CteSql.build_with_clause([active_users_spec])
+
+{query_iodata, params} =
+  CteSql.integrate_ctes_with_query(
+    [active_users_spec],
+    ["SELECT * FROM active_users"],
+    []
+  )
 ```
+
+Most users should prefer the high-level public APIs (`Selecto.with_cte/4`, `Selecto.with_recursive_cte/3`, and `Selecto.with_ctes/2`) over low-level CTE SQL assembly.
 
 ## Parameter Handling API
 

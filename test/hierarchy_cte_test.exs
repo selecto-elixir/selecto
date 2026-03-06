@@ -29,7 +29,7 @@ defmodule Selecto.HierarchyCteTest do
     cte_sql = IO.iodata_to_binary(cte_iodata)
 
     # Verify CTE structure
-    assert String.contains?(cte_sql, "WITH RECURSIVE categories_hierarchy AS (")
+    assert String.contains?(cte_sql, "categories_hierarchy AS (")
     assert String.contains?(cte_sql, "UNION ALL")
 
     # Verify params is a list
@@ -72,7 +72,7 @@ defmodule Selecto.HierarchyCteTest do
     assert 10 in cte_params
 
     # Verify it generates valid SQL structure
-    assert String.contains?(cte_sql, "WITH RECURSIVE")
+    assert String.contains?(cte_sql, "employees_hierarchy AS (")
     assert String.contains?(cte_sql, "UNION ALL")
   end
 
@@ -92,8 +92,7 @@ defmodule Selecto.HierarchyCteTest do
     assert 5 in cte_params
 
     # Should generate valid SQL
-    assert String.contains?(cte_sql, "WITH RECURSIVE")
-    assert String.contains?(cte_sql, "nodes_hierarchy")
+    assert String.contains?(cte_sql, "nodes_hierarchy AS (")
   end
 
   test "build_materialized_path_query generates path-based SQL" do
@@ -110,8 +109,8 @@ defmodule Selecto.HierarchyCteTest do
     {query_iodata, query_params} = Hierarchy.build_materialized_path_query(selecto, join, config)
     query_sql = IO.iodata_to_binary(query_iodata)
 
-    # Should generate materialized path CTE
-    assert String.contains?(query_sql, "WITH categories_materialized_path AS")
+    # Should generate materialized path CTE definition
+    assert String.contains?(query_sql, "categories_materialized_path AS")
 
     # Should include depth calculation
     assert String.contains?(query_sql, "length(path)")
@@ -163,8 +162,8 @@ defmodule Selecto.HierarchyCteTest do
     {query_iodata, query_params} = Hierarchy.build_closure_table_query(selecto, join, config)
     query_sql = IO.iodata_to_binary(query_iodata)
 
-    # Should generate closure table CTE
-    assert String.contains?(query_sql, "WITH categories_closure AS")
+    # Should generate closure table CTE definition
+    assert String.contains?(query_sql, "categories_closure AS")
 
     # Should join main table with closure table
     assert String.contains?(query_sql, "FROM categories c")

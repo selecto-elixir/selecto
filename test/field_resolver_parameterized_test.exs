@@ -43,13 +43,14 @@ defmodule Selecto.FieldResolverParameterizedTest do
   end
 
   test "resolve_field supports regular joined fields", %{selecto: selecto} do
-    assert {:ok, field} = FieldResolver.resolve_field(selecto, "products.products.name")
-    assert field.name == "products.name"
+    assert {:ok, field} = FieldResolver.resolve_field(selecto, "products.name")
+    assert field.name == "name"
+    assert field.qualified_name == "products.name"
   end
 
   test "available fields include join fields", %{selecto: selecto} do
     fields = FieldResolver.get_available_fields(selecto)
-    assert Map.has_key?(fields, "products.products.name")
+    assert Map.has_key?(fields, "products.name")
   end
 
   test "validate_field_references returns errors for bad fields", %{selecto: selecto} do
