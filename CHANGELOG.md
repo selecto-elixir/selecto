@@ -4,6 +4,22 @@
 ## V NEXT
 ---------------------------------------------------------
 
+## V 0.3.10 - CTE/VALUES Auto-Join and Syntax Cleanup
+---------------------------------------------------------
+
+#### Added
+- Added CTE auto-join shortcuts and join inference for `with_cte/4`,
+  `with_recursive_cte/5`, and `with_ctes/3`.
+- Added `with_values/3` join shortcuts so inline `VALUES` clauses can be
+  attached as joins with inferred fields.
+
+#### Changed
+- Removed legacy bracket field notation fallbacks and standardized joined-field
+  path handling around dot notation.
+- Removed legacy filter/literal selector fallback paths to keep query
+  normalization behavior explicit and predictable.
+- Bumped package version to `0.3.10`.
+
 ## V 0.3.9 - OTP Runtime and Execution Hardening
 ---------------------------------------------------------
 
