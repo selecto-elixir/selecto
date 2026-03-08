@@ -86,6 +86,20 @@ defmodule Selecto.DomainValidatorTest do
               type: :inner,
               on: [%{left: "id", right: "order_id"}]
             }
+          },
+          laterals: %{
+            explode_tags: %{
+              source: {:unnest, "\"selecto_root\".\"tags\""},
+              join_type: :left,
+              as: "tag_rows"
+            }
+          },
+          unnests: %{
+            tag_list: %{
+              array_field: "tags",
+              as: "tag",
+              ordinality: "tag_position"
+            }
           }
         }
       }
@@ -117,6 +131,12 @@ defmodule Selecto.DomainValidatorTest do
           subqueries: %{
             # query should be function
             bad_subquery: %{query: :not_a_function, type: :bogus}
+          },
+          laterals: %{
+            bad_lateral: %{source: 123, join_type: :bogus}
+          },
+          unnests: %{
+            bad_unnest: %{array_field: nil, ordinality: 42}
           }
         }
       }
@@ -135,6 +155,16 @@ defmodule Selecto.DomainValidatorTest do
 
       assert Enum.any?(errors, fn
                {:query_members_invalid, {:subqueries, :bad_subquery, _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:query_members_invalid, {:laterals, :bad_lateral, _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:query_members_invalid, {:unnests, :bad_unnest, _message}} -> true
                _ -> false
              end)
     end

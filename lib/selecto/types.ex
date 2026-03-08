@@ -248,7 +248,9 @@ defmodule Selecto.Types do
   @type query_member_registry :: %{
           optional(:ctes) => %{optional(atom() | String.t()) => map()},
           optional(:values) => %{optional(atom() | String.t()) => map()},
-          optional(:subqueries) => %{optional(atom() | String.t()) => map()}
+          optional(:subqueries) => %{optional(atom() | String.t()) => map()},
+          optional(:laterals) => %{optional(atom() | String.t()) => map()},
+          optional(:unnests) => %{optional(atom() | String.t()) => map()}
         }
 
   @type domain :: %{

@@ -111,6 +111,8 @@ defmodule Selecto.Config.OverlayDSL do
   - `defcte id do ... end` - Define a named CTE preset under `query_members.ctes`
   - `defvalues id do ... end` - Define a named VALUES preset under `query_members.values`
   - `defsubquery id do ... end` - Define a named subquery-join preset under `query_members.subqueries`
+  - `deflateral id do ... end` - Define a named LATERAL preset under `query_members.laterals`
+  - `defunnest id do ... end` - Define a named UNNEST preset under `query_members.unnests`
 
   ### Query Member Directives
 
@@ -118,6 +120,10 @@ defmodule Selecto.Config.OverlayDSL do
   - `columns/1` - Declared columns for CTE/VALUES presets
   - `join/1` - Auto-join options used by named member helpers
   - `rows/1` - VALUES data rows (alias: `data/1`)
+  - `source/1` / `lateral_source/1` - LATERAL source tuple/query
+  - `array_field/1` - UNNEST source field/expression
+  - `join_type/1` - LATERAL join type (`:left`, `:inner`, etc.)
+  - `ordinality/1` - UNNEST ordinality alias
   - `as/1` - VALUES alias name
   - `join_id/1` - Subquery join id override
   - `on/1` - Subquery join conditions
@@ -189,6 +195,8 @@ defmodule Selecto.Config.OverlayDSL do
       Module.register_attribute(__MODULE__, :overlay_ctes, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_values, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_subqueries, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_laterals, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_unnests, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_jsonb_schemas, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_extension_specs, accumulate: false)
       Module.register_attribute(__MODULE__, :redactions, accumulate: false)
@@ -217,6 +225,8 @@ defmodule Selecto.Config.OverlayDSL do
     ctes = Module.get_attribute(env.module, :overlay_ctes) |> Enum.reverse()
     values = Module.get_attribute(env.module, :overlay_values) |> Enum.reverse()
     subqueries = Module.get_attribute(env.module, :overlay_subqueries) |> Enum.reverse()
+    laterals = Module.get_attribute(env.module, :overlay_laterals) |> Enum.reverse()
+    unnests = Module.get_attribute(env.module, :overlay_unnests) |> Enum.reverse()
     jsonb_schemas = Module.get_attribute(env.module, :overlay_jsonb_schemas) |> Enum.reverse()
     redactions = Module.get_attribute(env.module, :redactions) || []
     extension_specs = Module.get_attribute(env.module, :overlay_extension_specs) || []
@@ -246,6 +256,16 @@ defmodule Selecto.Config.OverlayDSL do
       |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
       |> Map.new()
 
+    laterals_map =
+      laterals
+      |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
+      |> Map.new()
+
+    unnests_map =
+      unnests
+      |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
+      |> Map.new()
+
     jsonb_schemas_map =
       jsonb_schemas
       |> Enum.map(fn {name, fields} -> {name, fields} end)
@@ -260,7 +280,9 @@ defmodule Selecto.Config.OverlayDSL do
         query_members: %{
           ctes: ctes_map,
           values: values_map,
-          subqueries: subqueries_map
+          subqueries: subqueries_map,
+          laterals: laterals_map,
+          unnests: unnests_map
         },
         jsonb_schemas: jsonb_schemas_map,
         redact_fields: redactions
@@ -367,6 +389,44 @@ defmodule Selecto.Config.OverlayDSL do
 
     quote do
       @overlay_subqueries {unquote(subquery_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a named LATERAL preset for `Selecto.with_lateral/2`.
+
+  ## Example
+
+      deflateral :tag_expansion do
+        source {:unnest, "\"selecto_root\".\"tags\""}
+        as "tag_expansion"
+        join_type :inner
+      end
+  """
+  defmacro deflateral(lateral_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_laterals {unquote(lateral_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a named UNNEST preset for `Selecto.with_unnest/2`.
+
+  ## Example
+
+      defunnest :product_tags do
+        array_field "tags"
+        as "tag"
+        ordinality "tag_position"
+      end
+  """
+  defmacro defunnest(unnest_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_unnests {unquote(unnest_id), unquote(Macro.escape(config))}
     end
   end
 
@@ -656,6 +716,31 @@ defmodule Selecto.Config.OverlayDSL do
   Sets named subquery kind (`:join` currently supported).
   """
   defmacro kind(_value), do: quote(do: nil)
+
+  @doc """
+  Sets a source expression for named LATERAL members.
+  """
+  defmacro source(_value), do: quote(do: nil)
+
+  @doc """
+  Alias for `source/1` in named LATERAL members.
+  """
+  defmacro lateral_source(_value), do: quote(do: nil)
+
+  @doc """
+  Sets the UNNEST array field/expression for named UNNEST members.
+  """
+  defmacro array_field(_value), do: quote(do: nil)
+
+  @doc """
+  Sets the join type for named LATERAL members.
+  """
+  defmacro join_type(_value), do: quote(do: nil)
+
+  @doc """
+  Sets ordinality alias for named UNNEST members.
+  """
+  defmacro ordinality(_value), do: quote(do: nil)
 
   # JSONB Schema Field Directives
 

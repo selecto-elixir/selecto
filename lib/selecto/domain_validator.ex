@@ -468,6 +468,8 @@ defmodule Selecto.DomainValidator do
         |> validate_query_member_group(query_members, :ctes)
         |> validate_query_member_group(query_members, :values)
         |> validate_query_member_group(query_members, :subqueries)
+        |> validate_query_member_group(query_members, :laterals)
+        |> validate_query_member_group(query_members, :unnests)
 
       _invalid ->
         errors ++
@@ -513,6 +515,12 @@ defmodule Selecto.DomainValidator do
 
       :subqueries ->
         validate_subquery_member(errors, member_id, spec)
+
+      :laterals ->
+        validate_lateral_member(errors, member_id, spec)
+
+      :unnests ->
+        validate_unnest_member(errors, member_id, spec)
     end
   end
 
@@ -749,6 +757,129 @@ defmodule Selecto.DomainValidator do
           ]
     end
   end
+
+  defp validate_lateral_member(errors, member_id, spec) do
+    lateral_source =
+      map_value(spec, :query) || map_value(spec, :source) || map_value(spec, :lateral_source)
+
+    errors =
+      if valid_lateral_source?(lateral_source) do
+        errors
+      else
+        errors ++
+          [
+            {:query_members_invalid,
+             {:laterals, member_id,
+              "Lateral member requires :query/:source/:lateral_source as tuple or function (arity 0/1/2)"}}
+          ]
+      end
+
+    join_type = map_value(spec, :join_type) || map_value(spec, :type)
+
+    errors =
+      case join_type do
+        nil ->
+          errors
+
+        type when type in [:left, :inner, :right, :full] ->
+          errors
+
+        _invalid ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:laterals, member_id,
+                ":join_type (or :type) must be one of :left, :inner, :right, :full"}}
+            ]
+      end
+
+    errors
+    |> validate_member_alias(:laterals, member_id, spec)
+    |> validate_member_options(:laterals, member_id, spec)
+  end
+
+  defp validate_unnest_member(errors, member_id, spec) do
+    array_field = map_value(spec, :array_field) || map_value(spec, :field)
+
+    errors =
+      if valid_unnest_field?(array_field) do
+        errors
+      else
+        errors ++
+          [
+            {:query_members_invalid,
+             {:unnests, member_id,
+              "UNNEST member requires :array_field (or :field) as string, atom, or tuple expression"}}
+          ]
+      end
+
+    errors =
+      case map_value(spec, :ordinality) do
+        nil ->
+          errors
+
+        ordinality when is_binary(ordinality) or is_atom(ordinality) ->
+          errors
+
+        _invalid ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:unnests, member_id, ":ordinality must be a string or atom when provided"}}
+            ]
+      end
+
+    errors
+    |> validate_member_alias(:unnests, member_id, spec)
+    |> validate_member_options(:unnests, member_id, spec)
+  end
+
+  defp validate_member_alias(errors, section, member_id, spec) do
+    case values_alias(spec) do
+      nil ->
+        errors
+
+      alias_name when is_binary(alias_name) and alias_name != "" ->
+        errors
+
+      alias_name when is_atom(alias_name) ->
+        errors
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {section, member_id, ":as (or :alias/:alias_name) must be a string or atom"}}
+          ]
+    end
+  end
+
+  defp validate_member_options(errors, section, member_id, spec) do
+    case fetch_map_value(spec, :options) do
+      :__missing__ ->
+        errors
+
+      options when is_list(options) or is_map(options) ->
+        errors
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {section, member_id, ":options must be a keyword list or map when provided"}}
+          ]
+    end
+  end
+
+  defp valid_lateral_source?(source) when is_tuple(source), do: true
+  defp valid_lateral_source?(source) when is_function(source, 0), do: true
+  defp valid_lateral_source?(source) when is_function(source, 1), do: true
+  defp valid_lateral_source?(source) when is_function(source, 2), do: true
+  defp valid_lateral_source?(_source), do: false
+
+  defp valid_unnest_field?(field) when is_binary(field) or is_atom(field), do: true
+  defp valid_unnest_field?(field) when is_tuple(field), do: true
+  defp valid_unnest_field?(_field), do: false
 
   defp fetch_map_value(map, key) when is_map(map) do
     cond do

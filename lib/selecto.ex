@@ -6,7 +6,7 @@ defmodule Selecto do
 
   @type t :: Selecto.Types.t()
 
-  @named_query_member_kinds [:ctes, :values, :subqueries]
+  @named_query_member_kinds [:ctes, :values, :subqueries, :laterals, :unnests]
 
   @named_query_member_key_map %{
     "name" => :name,
@@ -26,6 +26,12 @@ defmodule Selecto do
     "join_id" => :join_id,
     "on" => :on,
     "kind" => :kind,
+    "source" => :source,
+    "lateral_source" => :lateral_source,
+    "join_type" => :join_type,
+    "field" => :field,
+    "array_field" => :array_field,
+    "ordinality" => :ordinality,
     "options" => :options,
     "max_depth" => :max_depth,
     "cycle_detection" => :cycle_detection
@@ -1039,6 +1045,90 @@ defmodule Selecto do
     put_in(updated_selecto.config[:columns], Map.merge(current_columns, columns_to_add))
   end
 
+  @doc """
+  Apply a named UNNEST preset from `domain.query_members.unnests`.
+
+  ## Examples
+
+      selecto
+      |> Selecto.with_unnest(:product_tags)
+  """
+  @spec with_unnest(t(), atom() | String.t(), keyword() | map()) :: t()
+  def with_unnest(selecto, member_id, opts \\ [])
+
+  def with_unnest(selecto, member_id, opts)
+      when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+    {member_name, raw_spec} = fetch_named_query_member!(selecto, :unnests, member_id)
+    spec = normalize_named_query_member_spec(raw_spec)
+
+    array_field =
+      Keyword.get(
+        normalized_overrides,
+        :array_field,
+        Keyword.get(normalized_overrides, :field, map_get(spec, :array_field, :field))
+      )
+
+    if is_nil(array_field) do
+      raise ArgumentError,
+            "Named UNNEST '#{member_name}' requires :array_field (or :field)."
+    end
+
+    alias_name =
+      normalized_overrides
+      |> Keyword.get(
+        :as,
+        Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
+      ) || values_member_alias(spec) || "unnested_#{array_field}"
+
+    ordinality = Keyword.get(normalized_overrides, :ordinality, Map.get(spec, :ordinality))
+
+    default_options = ensure_keyword_opts(Map.get(spec, :options, []), :unnests, member_name)
+
+    override_options =
+      normalized_overrides
+      |> Keyword.drop([
+        :array_field,
+        :field,
+        :as,
+        :alias,
+        :alias_name,
+        :ordinality,
+        :options
+      ])
+
+    override_nested_options =
+      ensure_keyword_opts(
+        Keyword.get(normalized_overrides, :options, :__missing__),
+        :unnests,
+        member_name
+      )
+
+    unnest_opts =
+      default_options
+      |> Keyword.put(:as, to_string(alias_name))
+      |> maybe_put_keyword(:ordinality, ordinality)
+      |> Keyword.merge(override_options)
+      |> Keyword.merge(override_nested_options)
+
+    selecto
+    |> Selecto.unnest(array_field, unnest_opts)
+    |> upsert_unnest_by_alias(to_string(alias_name))
+  end
+
+  defp upsert_unnest_by_alias(selecto, alias_name) do
+    unnests = Map.get(selecto.set, :unnest, [])
+    {matching, others} = Enum.split_with(unnests, &(Map.get(&1, :alias) == alias_name))
+
+    case matching do
+      [] ->
+        selecto
+
+      _ ->
+        put_in(selecto.set[:unnest], others ++ [List.last(matching)])
+    end
+  end
+
   # DUPLICATE REMOVED - Consolidated with the version below that uses Advanced.CTE
   # This version accepted (selecto, cte_name, base_fn, recursive_fn, opts)
   # The consolidated version below now handles both parameter formats
@@ -1219,6 +1309,105 @@ defmodule Selecto do
 
       {:error, correlation_error} ->
         raise correlation_error
+    end
+  end
+
+  @doc """
+  Apply a named LATERAL preset from `domain.query_members.laterals`.
+
+  ## Examples
+
+      selecto
+      |> Selecto.with_lateral(:recent_rentals)
+
+      selecto
+      |> Selecto.with_lateral(:recent_rentals, join_type: :inner)
+  """
+  @spec with_lateral(t(), atom() | String.t(), keyword() | map()) :: t()
+  def with_lateral(selecto, member_id, opts \\ [])
+
+  def with_lateral(selecto, member_id, opts)
+      when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+    {member_name, raw_spec} = fetch_named_query_member!(selecto, :laterals, member_id)
+    spec = normalize_named_query_member_spec(raw_spec)
+
+    lateral_source =
+      Keyword.get(
+        normalized_overrides,
+        :query,
+        Keyword.get(
+          normalized_overrides,
+          :source,
+          Keyword.get(
+            normalized_overrides,
+            :lateral_source,
+            map_get(spec, :query, :source, :lateral_source)
+          )
+        )
+      )
+
+    lateral_source = normalize_lateral_source!(lateral_source, selecto, member_name)
+
+    alias_name =
+      normalized_overrides
+      |> Keyword.get(
+        :as,
+        Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
+      ) || values_member_alias(spec) || member_name
+
+    join_type =
+      Keyword.get(
+        normalized_overrides,
+        :join_type,
+        Keyword.get(normalized_overrides, :type, map_get(spec, :join_type, :type) || :left)
+      )
+
+    join_type = normalize_lateral_join_type!(join_type, member_name)
+
+    default_options = ensure_keyword_opts(Map.get(spec, :options, []), :laterals, member_name)
+
+    override_options =
+      normalized_overrides
+      |> Keyword.drop([
+        :query,
+        :source,
+        :lateral_source,
+        :as,
+        :alias,
+        :alias_name,
+        :join_type,
+        :type,
+        :options
+      ])
+
+    override_nested_options =
+      ensure_keyword_opts(
+        Keyword.get(normalized_overrides, :options, :__missing__),
+        :laterals,
+        member_name
+      )
+
+    lateral_opts =
+      default_options
+      |> Keyword.merge(override_options)
+      |> Keyword.merge(override_nested_options)
+
+    selecto
+    |> Selecto.lateral_join(join_type, lateral_source, to_string(alias_name), lateral_opts)
+    |> upsert_lateral_by_alias(to_string(alias_name))
+  end
+
+  defp upsert_lateral_by_alias(selecto, alias_name) do
+    laterals = Map.get(selecto.set, :lateral_joins, [])
+    {matching, others} = Enum.split_with(laterals, &(Map.get(&1, :alias) == alias_name))
+
+    case matching do
+      [] ->
+        selecto
+
+      _ ->
+        put_in(selecto.set[:lateral_joins], others ++ [List.last(matching)])
     end
   end
 
@@ -2322,6 +2511,79 @@ defmodule Selecto do
   defp kind_to_label(:ctes), do: "CTE"
   defp kind_to_label(:values), do: "VALUES"
   defp kind_to_label(:subqueries), do: "subquery"
+  defp kind_to_label(:laterals), do: "lateral"
+  defp kind_to_label(:unnests), do: "unnest"
+
+  defp map_get(map, key, alt_key) when is_map(map) do
+    Map.get(map, key, Map.get(map, alt_key))
+  end
+
+  defp map_get(map, key, alt_key1, alt_key2) when is_map(map) do
+    Map.get(map, key, Map.get(map, alt_key1, Map.get(map, alt_key2)))
+  end
+
+  defp normalize_lateral_source!(source, selecto, member_name) do
+    case source do
+      source when is_tuple(source) ->
+        source
+
+      %Selecto{} = query ->
+        fn _base_query -> query end
+
+      query_builder when is_function(query_builder, 0) ->
+        fn _base_query ->
+          result = query_builder.()
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      query_builder when is_function(query_builder, 1) ->
+        fn base_query ->
+          result = query_builder.(base_query)
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      query_builder when is_function(query_builder, 2) ->
+        fn base_query ->
+          result = query_builder.(selecto, base_query)
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      nil ->
+        raise ArgumentError,
+              "Named lateral '#{member_name}' requires :query, :source, or :lateral_source."
+
+      invalid ->
+        raise ArgumentError,
+              "Named lateral '#{member_name}' source must be a tuple, Selecto struct, or function with arity 0/1/2. Got: #{inspect(invalid)}"
+    end
+  end
+
+  defp normalize_lateral_join_type!(join_type, _member_name)
+       when join_type in [:left, :inner, :right, :full],
+       do: join_type
+
+  defp normalize_lateral_join_type!(join_type, member_name) do
+    raise ArgumentError,
+          "Named lateral '#{member_name}' join type must be one of :left, :inner, :right, :full. Got: #{inspect(join_type)}"
+  end
 
   defp ensure_keyword_opts(nil, _kind, _member_name), do: []
   defp ensure_keyword_opts(:__missing__, _kind, _member_name), do: []

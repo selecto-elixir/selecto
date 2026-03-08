@@ -243,6 +243,18 @@ defmodule Selecto.Config.OverlayDSLTest do
           type(:inner)
           on([%{left: "id", right: "customer_id"}])
         end
+
+        deflateral :tag_expansion do
+          source({:unnest, "\"selecto_root\".\"tags\""})
+          as("tag_expansion")
+          join_type(:inner)
+        end
+
+        defunnest :product_tags do
+          array_field("tags")
+          as("product_tag")
+          ordinality("product_tag_position")
+        end
       end
 
       overlay = TestQueryMembersOverlay.overlay()
@@ -268,6 +280,13 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert overlay.query_members.subqueries.high_value_orders.on == [
                %{left: "id", right: "customer_id"}
              ]
+
+      assert overlay.query_members.laterals.tag_expansion.source ==
+               {:unnest, "\"selecto_root\".\"tags\""}
+
+      assert overlay.query_members.laterals.tag_expansion.join_type == :inner
+      assert overlay.query_members.unnests.product_tags.array_field == "tags"
+      assert overlay.query_members.unnests.product_tags.ordinality == "product_tag_position"
     end
   end
 

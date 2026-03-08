@@ -13,13 +13,14 @@ defmodule Selecto.QueryMembersTest do
       source: %{
         source_table: "orders",
         primary_key: :id,
-        fields: [:id, :order_number, :status, :total, :customer_id],
+        fields: [:id, :order_number, :status, :total, :tags, :customer_id],
         redact_fields: [],
         columns: %{
           id: %{type: :integer},
           order_number: %{type: :string},
           status: %{type: :string},
           total: %{type: :decimal},
+          tags: %{type: {:array, :string}},
           customer_id: %{type: :integer}
         },
         associations: %{}
@@ -76,7 +77,21 @@ defmodule Selecto.QueryMembersTest do
           join: [owner_key: :status, related_key: :status]
         }
       },
-      subqueries: %{}
+      subqueries: %{},
+      laterals: %{
+        tag_expansion: %{
+          source: {:function, :generate_series, [1, 3]},
+          as: "series_rows",
+          join_type: :inner
+        }
+      },
+      unnests: %{
+        product_tags: %{
+          array_field: "tags",
+          as: "product_tag",
+          ordinality: "product_tag_position"
+        }
+      }
     }
 
     Map.put(domain, :query_members, query_members)
@@ -171,6 +186,44 @@ defmodule Selecto.QueryMembersTest do
     assert sql =~ "from customers selecto_root inner join ("
     assert sql =~ "where (((( selecto_root.status = $1 ) and ( selecto_root.total > $2 ))))"
     assert sql =~ ") high_value_delivered on selecto_root.id = high_value_delivered.customer_id"
+  end
+
+  test "with_lateral/2 resolves named lateral member" do
+    query =
+      Selecto.configure(order_domain_with_query_members(), :mock_connection, validate: false)
+      |> Selecto.with_lateral(:tag_expansion)
+      |> Selecto.select(["order_number"])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == [1, 3]
+    assert sql =~ ~r/inner\s+join\s+lateral/i
+    assert sql =~ ~r/series_rows/i
+  end
+
+  test "with_unnest/2 resolves named unnest member" do
+    query =
+      Selecto.configure(order_domain_with_query_members(), :mock_connection, validate: false)
+      |> Selecto.with_unnest(:product_tags)
+      |> Selecto.select(["order_number"])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == []
+    assert sql =~ ~r/unnest\("selecto_root"\."tags"\)/i
+    assert sql =~ ~r/AS\s+product_tag\(value,\s*product_tag_position\)/i
+  end
+
+  test "with_unnest/2 is idempotent by alias" do
+    query =
+      Selecto.configure(order_domain_with_query_members(), :mock_connection, validate: false)
+      |> Selecto.with_unnest(:product_tags)
+      |> Selecto.with_unnest(:product_tags)
+      |> Selecto.select(["order_number"])
+
+    {sql, _params} = Selecto.to_sql(query)
+
+    assert Regex.scan(~r/unnest\("selecto_root"\."tags"\)/i, sql) |> length() == 1
   end
 
   test "named helpers raise useful errors for unknown members" do

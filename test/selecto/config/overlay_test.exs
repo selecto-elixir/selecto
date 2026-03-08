@@ -87,7 +87,10 @@ defmodule Selecto.Config.OverlayTest do
           ctes: %{
             active_orders: %{columns: ["id"], join: [owner_key: :id, related_key: :id]}
           },
-          values: %{}
+          values: %{},
+          laterals: %{
+            explode_tags: %{source: {:unnest, "\"selecto_root\".\"tags\""}, join_type: :left}
+          }
         }
       }
 
@@ -99,6 +102,12 @@ defmodule Selecto.Config.OverlayTest do
           },
           subqueries: %{
             high_value: %{on: [%{left: "id", right: "customer_id"}]}
+          },
+          laterals: %{
+            explode_tags: %{as: "tag_rows", join_type: :inner}
+          },
+          unnests: %{
+            tag_values: %{array_field: "tags", as: "tag"}
           }
         }
       }
@@ -114,6 +123,13 @@ defmodule Selecto.Config.OverlayTest do
       assert result.query_members.subqueries.high_value.on == [
                %{left: "id", right: "customer_id"}
              ]
+
+      assert result.query_members.laterals.explode_tags.source ==
+               {:unnest, "\"selecto_root\".\"tags\""}
+
+      assert result.query_members.laterals.explode_tags.as == "tag_rows"
+      assert result.query_members.laterals.explode_tags.join_type == :inner
+      assert result.query_members.unnests.tag_values.array_field == "tags"
     end
 
     test "merges redact_fields as union" do
