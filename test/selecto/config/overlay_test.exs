@@ -80,6 +80,42 @@ defmodule Selecto.Config.OverlayTest do
       assert result.filters["status"] == %{name: "Status Filter", type: :boolean}
     end
 
+    test "merges query_members deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        query_members: %{
+          ctes: %{
+            active_orders: %{columns: ["id"], join: [owner_key: :id, related_key: :id]}
+          },
+          values: %{}
+        }
+      }
+
+      overlay = %{
+        query_members: %{
+          ctes: %{
+            active_orders: %{columns: ["id", "status"]},
+            delayed_orders: %{columns: ["id", "delayed_days"]}
+          },
+          subqueries: %{
+            high_value: %{on: [%{left: "id", right: "customer_id"}]}
+          }
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.query_members.ctes.active_orders.join ==
+               [owner_key: :id, related_key: :id]
+
+      assert result.query_members.ctes.active_orders.columns == ["id", "status"]
+      assert result.query_members.ctes.delayed_orders.columns == ["id", "delayed_days"]
+
+      assert result.query_members.subqueries.high_value.on == [
+               %{left: "id", right: "customer_id"}
+             ]
+    end
+
     test "merges redact_fields as union" do
       base = %{
         source: %{

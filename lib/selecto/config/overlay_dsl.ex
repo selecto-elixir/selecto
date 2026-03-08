@@ -4,7 +4,8 @@ defmodule Selecto.Config.OverlayDSL do
 
   This module provides a clean, declarative syntax for customizing Selecto domains
   through overlay files. Instead of manually constructing maps, you can use
-  macros like `defcolumn` and `deffilter` along with module attributes.
+  macros like `defcolumn`, `deffilter`, `defcte`, `defvalues`, and `defsubquery`
+  along with module attributes.
 
   ## Usage
 
@@ -39,6 +40,26 @@ defmodule Selecto.Config.OverlayDSL do
           name "In Stock"
           type :boolean
           description "Show only items currently in stock"
+        end
+
+        # Named query members
+        defcte :active_products do
+          query &__MODULE__.active_products_cte/1
+          columns ["id", "name"]
+          join [owner_key: :id, related_key: :id, fields: :infer]
+        end
+
+        defvalues :status_lookup do
+          rows [["active", "Active"], ["archived", "Archived"]]
+          columns ["status", "label"]
+          as "status_lookup"
+          join [owner_key: :status, related_key: :status]
+        end
+
+        defsubquery :high_value_orders do
+          query &__MODULE__.high_value_orders_subquery/1
+          type :inner
+          on [%{left: "id", right: "customer_id"}]
         end
       end
 
@@ -84,6 +105,25 @@ defmodule Selecto.Config.OverlayDSL do
   - `required/1` - Whether filter is required (boolean)
   - `default/1` - Default value for the filter
   - `options/1` - List of valid options for select-type filters
+
+  ### Query Member Macros
+
+  - `defcte id do ... end` - Define a named CTE preset under `query_members.ctes`
+  - `defvalues id do ... end` - Define a named VALUES preset under `query_members.values`
+  - `defsubquery id do ... end` - Define a named subquery-join preset under `query_members.subqueries`
+
+  ### Query Member Directives
+
+  - `query/1` - Query builder (`fn -> selecto end`, `fn selecto -> selecto end`, or capture)
+  - `columns/1` - Declared columns for CTE/VALUES presets
+  - `join/1` - Auto-join options used by named member helpers
+  - `rows/1` - VALUES data rows (alias: `data/1`)
+  - `as/1` - VALUES alias name
+  - `join_id/1` - Subquery join id override
+  - `on/1` - Subquery join conditions
+  - `base_query/1`, `recursive_query/1` - Recursive CTE query functions
+  - `dependencies/1` - CTE dependencies
+  - `kind/1` - Subquery preset kind (currently `:join`)
 
   ## Examples
 
@@ -146,6 +186,9 @@ defmodule Selecto.Config.OverlayDSL do
 
       Module.register_attribute(__MODULE__, :overlay_columns, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_filters, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_ctes, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_values, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_subqueries, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_jsonb_schemas, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_extension_specs, accumulate: false)
       Module.register_attribute(__MODULE__, :redactions, accumulate: false)
@@ -171,6 +214,9 @@ defmodule Selecto.Config.OverlayDSL do
   defmacro __before_compile__(env) do
     columns = Module.get_attribute(env.module, :overlay_columns) |> Enum.reverse()
     filters = Module.get_attribute(env.module, :overlay_filters) |> Enum.reverse()
+    ctes = Module.get_attribute(env.module, :overlay_ctes) |> Enum.reverse()
+    values = Module.get_attribute(env.module, :overlay_values) |> Enum.reverse()
+    subqueries = Module.get_attribute(env.module, :overlay_subqueries) |> Enum.reverse()
     jsonb_schemas = Module.get_attribute(env.module, :overlay_jsonb_schemas) |> Enum.reverse()
     redactions = Module.get_attribute(env.module, :redactions) || []
     extension_specs = Module.get_attribute(env.module, :overlay_extension_specs) || []
@@ -185,6 +231,21 @@ defmodule Selecto.Config.OverlayDSL do
       |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
       |> Map.new()
 
+    ctes_map =
+      ctes
+      |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
+      |> Map.new()
+
+    values_map =
+      values
+      |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
+      |> Map.new()
+
+    subqueries_map =
+      subqueries
+      |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
+      |> Map.new()
+
     jsonb_schemas_map =
       jsonb_schemas
       |> Enum.map(fn {name, fields} -> {name, fields} end)
@@ -196,6 +257,11 @@ defmodule Selecto.Config.OverlayDSL do
       %{
         columns: columns_map,
         filters: filters_map,
+        query_members: %{
+          ctes: ctes_map,
+          values: values_map,
+          subqueries: subqueries_map
+        },
         jsonb_schemas: jsonb_schemas_map,
         redact_fields: redactions
       }
@@ -243,6 +309,64 @@ defmodule Selecto.Config.OverlayDSL do
 
     quote do
       @overlay_filters {unquote(filter_name), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a named CTE preset for `Selecto.with_cte/2`.
+
+  ## Example
+
+      defcte :active_customers do
+        query &__MODULE__.active_customers_cte/1
+        columns ["id", "name"]
+        join [owner_key: :id, related_key: :id, fields: :infer]
+      end
+  """
+  defmacro defcte(cte_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_ctes {unquote(cte_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a named VALUES preset for `Selecto.with_values/2`.
+
+  ## Example
+
+      defvalues :status_lookup do
+        rows [["active", "Active"], ["inactive", "Inactive"]]
+        columns ["status", "label"]
+        as "status_lookup"
+        join [owner_key: :status, related_key: :status]
+      end
+  """
+  defmacro defvalues(values_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_values {unquote(values_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a named subquery preset for `Selecto.with_subquery/2`.
+
+  ## Example
+
+      defsubquery :high_value_orders do
+        query &__MODULE__.high_value_orders_subquery/1
+        type :inner
+        on [%{left: "id", right: "customer_id"}]
+      end
+  """
+  defmacro defsubquery(subquery_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_subqueries {unquote(subquery_id), unquote(Macro.escape(config))}
     end
   end
 
@@ -370,19 +494,27 @@ defmodule Selecto.Config.OverlayDSL do
   end
 
   # Helper to extract configuration from block at compile time
-  defp extract_config({:__block__, _, exprs}, _caller) do
-    Enum.reduce(exprs, %{}, &process_directive/2)
+  defp extract_config({:__block__, _, exprs}, caller) do
+    Enum.reduce(exprs, %{}, &process_directive(&1, &2, caller))
   end
 
-  defp extract_config(expr, _caller) do
-    process_directive(expr, %{})
+  defp extract_config(expr, caller) do
+    process_directive(expr, %{}, caller)
   end
 
-  defp process_directive({directive, _, [value]}, acc) do
+  defp process_directive({directive, _, [value_ast]}, acc, caller) do
+    value =
+      try do
+        {evaluated, _} = Code.eval_quoted(value_ast, [], caller)
+        evaluated
+      rescue
+        _ -> value_ast
+      end
+
     Map.put(acc, directive, value)
   end
 
-  defp process_directive(_, acc), do: acc
+  defp process_directive(_, acc, _caller), do: acc
 
   @doc """
   Sets the human-readable label for a column or filter.
@@ -464,6 +596,66 @@ defmodule Selecto.Config.OverlayDSL do
   Sets the valid options for a select-type filter.
   """
   defmacro options(_value), do: quote(do: nil)
+
+  @doc """
+  Sets a query builder function for named query members.
+  """
+  defmacro query(_value), do: quote(do: nil)
+
+  @doc """
+  Sets declared columns for CTE/VALUES query members.
+  """
+  defmacro columns(_value), do: quote(do: nil)
+
+  @doc """
+  Sets join options for query member auto-join behavior.
+  """
+  defmacro join(_value), do: quote(do: nil)
+
+  @doc """
+  Sets VALUES rows for a named `defvalues` member.
+  """
+  defmacro rows(_value), do: quote(do: nil)
+
+  @doc """
+  Alias for `rows/1` in named VALUES members.
+  """
+  defmacro data(_value), do: quote(do: nil)
+
+  @doc """
+  Sets the SQL alias/table name for named VALUES members.
+  """
+  defmacro as(_value), do: quote(do: nil)
+
+  @doc """
+  Sets explicit join id for named subquery members.
+  """
+  defmacro join_id(_value), do: quote(do: nil)
+
+  @doc """
+  Sets ON conditions for named subquery members.
+  """
+  defmacro on(_value), do: quote(do: nil)
+
+  @doc """
+  Sets recursive CTE base query function.
+  """
+  defmacro base_query(_value), do: quote(do: nil)
+
+  @doc """
+  Sets recursive CTE recursive query function.
+  """
+  defmacro recursive_query(_value), do: quote(do: nil)
+
+  @doc """
+  Sets CTE dependency names.
+  """
+  defmacro dependencies(_value), do: quote(do: nil)
+
+  @doc """
+  Sets named subquery kind (`:join` currently supported).
+  """
+  defmacro kind(_value), do: quote(do: nil)
 
   # JSONB Schema Field Directives
 

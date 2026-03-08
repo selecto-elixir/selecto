@@ -15,6 +15,8 @@ defmodule Selecto.Config.Overlay do
 
   - **Column configurations**: Deep merge - overlay extends/overrides base column properties
   - **Filters**: Additive merge - both base and overlay filters are available
+  - **Query members** (`query_members.ctes/values/subqueries`): Deep merge - overlay can
+    add or override named query-member presets without replacing the full registry
   - **Redact fields**: Union - unique list of all redacted fields
   - **Other fields**: Shallow merge - overlay takes precedence
 
@@ -119,6 +121,7 @@ defmodule Selecto.Config.Overlay do
     |> merge_columns(overlay)
     |> merge_jsonb_schemas(overlay)
     |> merge_filters(overlay)
+    |> merge_query_members(overlay)
     |> merge_redact_fields(overlay)
     |> merge_other_fields(overlay)
   end
@@ -203,12 +206,32 @@ defmodule Selecto.Config.Overlay do
     end
   end
 
+  # Merges named query members from overlay into base.
+  #
+  # Query members include named CTE, VALUES, and subquery presets. They are
+  # deep-merged so overlays can add or override specific members while keeping
+  # the rest of the base registry intact.
+  defp merge_query_members(base, overlay) do
+    overlay_query_members = get_in(overlay, [:query_members])
+
+    cond do
+      is_map(overlay_query_members) and map_size(overlay_query_members) > 0 ->
+        update_in(base, [:query_members], fn base_query_members ->
+          base_query_members = if is_map(base_query_members), do: base_query_members, else: %{}
+          deep_merge(base_query_members, overlay_query_members)
+        end)
+
+      true ->
+        base
+    end
+  end
+
   # Merges other overlay fields that aren't handled specially.
   #
   # These fields use shallow merge - overlay replaces base value entirely.
   # Skip special fields that have their own merge logic.
   defp merge_other_fields(base, overlay) do
-    skip_fields = [:columns, :filters, :redact_fields, :jsonb_schemas]
+    skip_fields = [:columns, :filters, :redact_fields, :jsonb_schemas, :query_members]
 
     overlay
     |> Map.drop(skip_fields)

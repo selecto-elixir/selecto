@@ -48,6 +48,97 @@ defmodule Selecto.DomainValidatorTest do
       assert DomainValidator.validate_domain(valid_domain) == :ok
     end
 
+    test "accepts valid query_members configuration" do
+      domain_with_query_members = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status, :total],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :integer},
+            status: %{type: :string},
+            total: %{type: :decimal}
+          },
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        name: "Orders",
+        query_members: %{
+          ctes: %{
+            delivered_orders: %{
+              query: fn _selecto -> %Selecto{} end,
+              columns: ["id", "total"],
+              join: [owner_key: :id, related_key: :id]
+            }
+          },
+          values: %{
+            status_lookup: %{
+              rows: [["delivered", "Delivered"]],
+              columns: ["status", "label"],
+              as: "status_lookup"
+            }
+          },
+          subqueries: %{
+            high_value_orders: %{
+              query: fn _selecto -> %Selecto{} end,
+              type: :inner,
+              on: [%{left: "id", right: "order_id"}]
+            }
+          }
+        }
+      }
+
+      assert DomainValidator.validate_domain(domain_with_query_members) == :ok
+    end
+
+    test "validates invalid query_members configuration" do
+      invalid_domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        query_members: %{
+          ctes: %{
+            # Missing :query/:query_builder function
+            bad_cte: %{columns: ["id"]}
+          },
+          values: %{
+            # rows should be a list
+            bad_values: %{rows: :not_a_list}
+          },
+          subqueries: %{
+            # query should be function
+            bad_subquery: %{query: :not_a_function, type: :bogus}
+          }
+        }
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
+
+      assert Enum.any?(errors, fn
+               {:query_members_invalid, {:ctes, :bad_cte, _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:query_members_invalid, {:values, :bad_values, _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:query_members_invalid, {:subqueries, :bad_subquery, _message}} -> true
+               _ -> false
+             end)
+    end
+
     test "validates missing required keys" do
       invalid_domain = %{
         # Missing :source and :schemas
