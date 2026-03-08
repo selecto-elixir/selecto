@@ -184,7 +184,13 @@ defmodule Selecto.QueryMembersTest do
 
     assert params == ["delivered", 1000]
     assert sql =~ "from customers selecto_root inner join ("
-    assert sql =~ "where (((( selecto_root.status = $1 ) and ( selecto_root.total > $2 ))))"
+
+    assert sql =~
+             "where (((( subq_root_orders_high_value_delivered.status = $1 ) and ( subq_root_orders_high_value_delivered.total > $2 ))))"
+
+    assert sql =~
+             "select subq_root_orders_high_value_delivered.customer_id, subq_root_orders_high_value_delivered.order_number, subq_root_orders_high_value_delivered.total"
+
     assert sql =~ ") high_value_delivered on selecto_root.id = high_value_delivered.customer_id"
   end
 

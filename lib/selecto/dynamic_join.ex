@@ -212,13 +212,17 @@ defmodule Selecto.DynamicJoin do
     # Generate SQL for the subquery
     {subquery_sql, _aliases, subquery_params} = Selecto.gen_sql(join_selecto, [])
 
+    subquery_root_alias = build_subquery_root_alias(selecto, join_id, join_selecto)
+    rewritten_subquery_sql = rewrite_subquery_root_alias(subquery_sql, subquery_root_alias)
+
     # Build subquery join config
     subquery_config = %{
       id: join_id,
       name: to_string(join_id),
       join_type: :subquery,
-      subquery: subquery_sql,
+      subquery: rewritten_subquery_sql,
       subquery_params: subquery_params,
+      subquery_root_alias: subquery_root_alias,
       on: on_conditions,
       type: join_type,
       requires_join: :selecto_root,
@@ -352,5 +356,63 @@ defmodule Selecto.DynamicJoin do
     selecto
     |> put_in([Access.key(:config), :columns], updated_columns)
     |> put_in([Access.key(:config), :joins], updated_joins)
+  end
+
+  defp build_subquery_root_alias(selecto, join_id, join_selecto) do
+    table_segment =
+      join_selecto
+      |> Selecto.source_table()
+      |> normalize_alias_segment("source")
+
+    join_segment = normalize_alias_segment(join_id, "join")
+    base_alias = "subq_root_#{table_segment}_#{join_segment}"
+
+    used_aliases =
+      selecto
+      |> existing_subquery_root_aliases(join_id)
+      |> MapSet.new()
+
+    ensure_unique_alias(base_alias, used_aliases)
+  end
+
+  defp existing_subquery_root_aliases(selecto, current_join_id) do
+    selecto
+    |> Map.get(:set, %{})
+    |> Map.get(:dynamic_joins, %{})
+    |> Enum.reject(fn {join_id, _config} -> join_id == current_join_id end)
+    |> Enum.map(fn {_join_id, config} -> Map.get(config, :subquery_root_alias) end)
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp ensure_unique_alias(base_alias, used_aliases) do
+    if MapSet.member?(used_aliases, base_alias) do
+      Stream.iterate(2, &(&1 + 1))
+      |> Enum.find_value(fn suffix ->
+        alias_name = "#{base_alias}_#{suffix}"
+
+        if MapSet.member?(used_aliases, alias_name) do
+          nil
+        else
+          alias_name
+        end
+      end)
+    else
+      base_alias
+    end
+  end
+
+  defp normalize_alias_segment(value, fallback) do
+    normalized =
+      value
+      |> to_string()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/u, "_")
+      |> String.trim("_")
+
+    if normalized == "", do: fallback, else: normalized
+  end
+
+  defp rewrite_subquery_root_alias(subquery_sql, alias_name) when is_binary(subquery_sql) do
+    Regex.replace(~r/\bselecto_root\b/u, subquery_sql, alias_name)
   end
 end

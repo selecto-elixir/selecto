@@ -479,9 +479,67 @@ defmodule Selecto.WindowJsonRegressionTest do
 
     assert params == ["delivered", 1000]
     assert sql =~ "from customers selecto_root inner join ("
-    assert sql =~ "select selecto_root.customer_id, selecto_root.order_number, selecto_root.total"
-    assert sql =~ "where (((( selecto_root.status = $1 ) and ( selecto_root.total > $2 ))))"
+
+    assert sql =~
+             "select subq_root_orders_high_value_delivered.customer_id, subq_root_orders_high_value_delivered.order_number, subq_root_orders_high_value_delivered.total"
+
+    assert sql =~
+             "where (((( subq_root_orders_high_value_delivered.status = $1 ) and ( subq_root_orders_high_value_delivered.total > $2 ))))"
+
     assert sql =~ ") high_value_delivered on selecto_root.id = high_value_delivered.customer_id"
+  end
+
+  test "join_subquery uses unique root aliases across multiple subqueries" do
+    delivered_orders =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.select(["customer_id", "order_number", "total"])
+      |> Selecto.filter(
+        {:and,
+         [
+           {"status", "delivered"},
+           {"total", {:>, 1000}}
+         ]}
+      )
+
+    shipped_orders =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.select(["customer_id", "order_number", "total"])
+      |> Selecto.filter(
+        {:and,
+         [
+           {"status", "shipped"},
+           {"total", {:>, 500}}
+         ]}
+      )
+
+    query =
+      Selecto.configure(customer_domain(), :mock_connection, validate: false)
+      |> Selecto.join_subquery(:high_value_delivered, delivered_orders,
+        type: :left,
+        on: [%{left: "id", right: "customer_id"}]
+      )
+      |> Selecto.join_subquery(:high_value_shipped, shipped_orders,
+        type: :left,
+        on: [%{left: "id", right: "customer_id"}]
+      )
+      |> Selecto.select([
+        "name",
+        "high_value_delivered.order_number",
+        "high_value_shipped.order_number"
+      ])
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["delivered", 1000, "shipped", 500]
+    assert sql =~ "from orders subq_root_orders_high_value_delivered"
+    assert sql =~ "from orders subq_root_orders_high_value_shipped"
+
+    [first_alias, second_alias] =
+      Regex.scan(~r/from orders (subq_root_orders_[a-z0-9_]+)/, sql, capture: :all_but_first)
+      |> List.flatten()
+
+    assert first_alias != second_alias
   end
 
   test "join_parameterize exposes dot notation fields for generated aliases" do
