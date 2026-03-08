@@ -82,6 +82,7 @@ defmodule Selecto.DomainValidator do
       |> validate_schemas(domain)
       |> validate_associations(domain)
       |> validate_joins(domain)
+      |> validate_query_members(domain)
 
     # Only do complex validations if basic structure is sound
     final_errors =
@@ -457,6 +458,475 @@ defmodule Selecto.DomainValidator do
     errors
   end
 
+  defp validate_query_members(errors, domain) do
+    case Map.get(domain, :query_members) do
+      nil ->
+        errors
+
+      query_members when is_map(query_members) ->
+        errors
+        |> validate_query_member_group(query_members, :ctes)
+        |> validate_query_member_group(query_members, :values)
+        |> validate_query_member_group(query_members, :subqueries)
+        |> validate_query_member_group(query_members, :laterals)
+        |> validate_query_member_group(query_members, :unnests)
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {:query_members, "query_members must be a map with :ctes/:values/:subqueries maps"}}
+          ]
+    end
+  end
+
+  defp validate_query_member_group(errors, query_members, group_key) do
+    case fetch_map_value(query_members, group_key) do
+      :__missing__ ->
+        errors
+
+      nil ->
+        errors
+
+      members when members == %{} ->
+        errors
+
+      members when is_map(members) ->
+        Enum.reduce(members, errors, fn {member_id, spec}, acc ->
+          validate_query_member_spec(acc, group_key, member_id, spec)
+        end)
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {group_key, "query_members.#{group_key} must be a map of named presets"}}
+          ]
+    end
+  end
+
+  defp validate_query_member_spec(errors, group_key, member_id, spec) when is_map(spec) do
+    case group_key do
+      :ctes ->
+        validate_cte_member(errors, member_id, spec)
+
+      :values ->
+        validate_values_member(errors, member_id, spec)
+
+      :subqueries ->
+        validate_subquery_member(errors, member_id, spec)
+
+      :laterals ->
+        validate_lateral_member(errors, member_id, spec)
+
+      :unnests ->
+        validate_unnest_member(errors, member_id, spec)
+    end
+  end
+
+  defp validate_query_member_spec(errors, group_key, member_id, _invalid_spec) do
+    errors ++
+      [
+        {:query_members_invalid,
+         {group_key, member_id, "query member '#{member_id}' must be a map"}}
+      ]
+  end
+
+  defp validate_cte_member(errors, member_id, spec) do
+    errors
+    |> maybe_validate_cte_query(spec, member_id)
+    |> maybe_validate_cte_join(spec, member_id)
+  end
+
+  defp maybe_validate_cte_query(errors, spec, member_id) do
+    recursive? =
+      map_value(spec, :type) == :recursive or not is_nil(map_value(spec, :base_query)) or
+        not is_nil(map_value(spec, :recursive_query))
+
+    if recursive? do
+      base_query = map_value(spec, :base_query)
+      recursive_query = map_value(spec, :recursive_query)
+
+      errors =
+        if valid_arity?(base_query, [0, 1]) do
+          errors
+        else
+          errors ++
+            [
+              {:query_members_invalid,
+               {:ctes, member_id, "recursive CTE requires :base_query function with arity 0 or 1"}}
+            ]
+        end
+
+      if valid_arity?(recursive_query, [1, 2]) do
+        errors
+      else
+        errors ++
+          [
+            {:query_members_invalid,
+             {:ctes, member_id,
+              "recursive CTE requires :recursive_query function with arity 1 or 2"}}
+          ]
+      end
+    else
+      query_builder = map_value(spec, :query_builder) || map_value(spec, :query)
+
+      if valid_arity?(query_builder, [0, 1]) do
+        errors
+      else
+        errors ++
+          [
+            {:query_members_invalid,
+             {:ctes, member_id,
+              "CTE requires :query (or :query_builder) function with arity 0 or 1"}}
+          ]
+      end
+    end
+  end
+
+  defp maybe_validate_cte_join(errors, spec, member_id) do
+    case fetch_map_value(spec, :join) do
+      :__missing__ ->
+        errors
+
+      join_opts when join_opts in [nil, false, true] ->
+        errors
+
+      join_opts when is_list(join_opts) or is_map(join_opts) ->
+        errors
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {:ctes, member_id, ":join must be true, false, nil, keyword list, or map"}}
+          ]
+    end
+  end
+
+  defp validate_values_member(errors, member_id, spec) do
+    rows =
+      fetch_map_value(spec, :rows)
+      |> case do
+        :__missing__ -> fetch_map_value(spec, :data)
+        value -> value
+      end
+
+    errors =
+      if is_list(rows) do
+        errors
+      else
+        errors ++
+          [
+            {:query_members_invalid,
+             {:values, member_id, "VALUES member requires :rows (or :data) list"}}
+          ]
+      end
+
+    errors =
+      case fetch_map_value(spec, :columns) do
+        :__missing__ ->
+          errors
+
+        columns when is_list(columns) ->
+          errors
+
+        _invalid ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:values, member_id, ":columns must be a list when provided"}}
+            ]
+      end
+
+    errors =
+      case fetch_map_value(spec, :join) do
+        :__missing__ ->
+          errors
+
+        join_opts when join_opts in [nil, false, true] ->
+          errors
+
+        join_opts when is_list(join_opts) or is_map(join_opts) ->
+          errors
+
+        _invalid ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:values, member_id, ":join must be true, false, nil, keyword list, or map"}}
+            ]
+      end
+
+    case values_alias(spec) do
+      nil ->
+        errors
+
+      alias_name when is_binary(alias_name) and alias_name != "" ->
+        errors
+
+      alias_name when is_atom(alias_name) ->
+        errors
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {:values, member_id, ":as (or :alias/:alias_name) must be a string or atom"}}
+          ]
+    end
+  end
+
+  defp validate_subquery_member(errors, member_id, spec) do
+    kind = map_value(spec, :kind)
+
+    errors =
+      case kind do
+        nil ->
+          errors
+
+        :join ->
+          errors
+
+        _ ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:subqueries, member_id, "Only kind: :join is currently supported"}}
+            ]
+      end
+
+    query_builder = map_value(spec, :query_builder) || map_value(spec, :query)
+
+    errors =
+      if valid_arity?(query_builder, [0, 1]) do
+        errors
+      else
+        errors ++
+          [
+            {:query_members_invalid,
+             {:subqueries, member_id,
+              "Subquery requires :query (or :query_builder) function with arity 0 or 1"}}
+          ]
+      end
+
+    errors =
+      case fetch_map_value(spec, :on) do
+        :__missing__ ->
+          errors
+
+        on when is_list(on) ->
+          errors
+
+        _invalid ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:subqueries, member_id, ":on must be a list when provided"}}
+            ]
+      end
+
+    errors =
+      case fetch_map_value(spec, :type) do
+        :__missing__ ->
+          errors
+
+        type when type in [:left, :inner, :right, :full] ->
+          errors
+
+        _invalid ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:subqueries, member_id, ":type must be one of :left, :inner, :right, :full"}}
+            ]
+      end
+
+    case fetch_map_value(spec, :join_id) do
+      :__missing__ ->
+        errors
+
+      join_id when is_atom(join_id) or is_binary(join_id) ->
+        errors
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {:subqueries, member_id, ":join_id must be a string or atom when provided"}}
+          ]
+    end
+  end
+
+  defp validate_lateral_member(errors, member_id, spec) do
+    lateral_source =
+      map_value(spec, :query) || map_value(spec, :source) || map_value(spec, :lateral_source)
+
+    errors =
+      if valid_lateral_source?(lateral_source) do
+        errors
+      else
+        errors ++
+          [
+            {:query_members_invalid,
+             {:laterals, member_id,
+              "Lateral member requires :query/:source/:lateral_source as tuple or function (arity 0/1/2)"}}
+          ]
+      end
+
+    join_type = map_value(spec, :join_type) || map_value(spec, :type)
+
+    errors =
+      case join_type do
+        nil ->
+          errors
+
+        type when type in [:left, :inner, :right, :full] ->
+          errors
+
+        _invalid ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:laterals, member_id,
+                ":join_type (or :type) must be one of :left, :inner, :right, :full"}}
+            ]
+      end
+
+    errors
+    |> validate_member_alias(:laterals, member_id, spec)
+    |> validate_member_options(:laterals, member_id, spec)
+  end
+
+  defp validate_unnest_member(errors, member_id, spec) do
+    array_field = map_value(spec, :array_field) || map_value(spec, :field)
+
+    errors =
+      if valid_unnest_field?(array_field) do
+        errors
+      else
+        errors ++
+          [
+            {:query_members_invalid,
+             {:unnests, member_id,
+              "UNNEST member requires :array_field (or :field) as string, atom, or tuple expression"}}
+          ]
+      end
+
+    errors =
+      case map_value(spec, :ordinality) do
+        nil ->
+          errors
+
+        ordinality when is_binary(ordinality) or is_atom(ordinality) ->
+          errors
+
+        _invalid ->
+          errors ++
+            [
+              {:query_members_invalid,
+               {:unnests, member_id, ":ordinality must be a string or atom when provided"}}
+            ]
+      end
+
+    errors
+    |> validate_member_alias(:unnests, member_id, spec)
+    |> validate_member_options(:unnests, member_id, spec)
+  end
+
+  defp validate_member_alias(errors, section, member_id, spec) do
+    case values_alias(spec) do
+      nil ->
+        errors
+
+      alias_name when is_binary(alias_name) and alias_name != "" ->
+        errors
+
+      alias_name when is_atom(alias_name) ->
+        errors
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {section, member_id, ":as (or :alias/:alias_name) must be a string or atom"}}
+          ]
+    end
+  end
+
+  defp validate_member_options(errors, section, member_id, spec) do
+    case fetch_map_value(spec, :options) do
+      :__missing__ ->
+        errors
+
+      options when is_list(options) or is_map(options) ->
+        errors
+
+      _invalid ->
+        errors ++
+          [
+            {:query_members_invalid,
+             {section, member_id, ":options must be a keyword list or map when provided"}}
+          ]
+    end
+  end
+
+  defp valid_lateral_source?(source) when is_tuple(source), do: true
+  defp valid_lateral_source?(source) when is_function(source, 0), do: true
+  defp valid_lateral_source?(source) when is_function(source, 1), do: true
+  defp valid_lateral_source?(source) when is_function(source, 2), do: true
+  defp valid_lateral_source?(_source), do: false
+
+  defp valid_unnest_field?(field) when is_binary(field) or is_atom(field), do: true
+  defp valid_unnest_field?(field) when is_tuple(field), do: true
+  defp valid_unnest_field?(_field), do: false
+
+  defp fetch_map_value(map, key) when is_map(map) do
+    cond do
+      Map.has_key?(map, key) ->
+        Map.get(map, key)
+
+      is_atom(key) and Map.has_key?(map, Atom.to_string(key)) ->
+        Map.get(map, Atom.to_string(key))
+
+      true ->
+        :__missing__
+    end
+  end
+
+  defp map_value(map, key) do
+    case fetch_map_value(map, key) do
+      :__missing__ -> nil
+      value -> value
+    end
+  end
+
+  defp valid_arity?(fun, arities) when is_function(fun),
+    do: Enum.any?(arities, &is_function(fun, &1))
+
+  defp valid_arity?(_value, _arities), do: false
+
+  defp values_alias(spec) do
+    alias_name =
+      fetch_map_value(spec, :as)
+      |> case do
+        :__missing__ ->
+          fetch_map_value(spec, :alias)
+          |> case do
+            :__missing__ ->
+              fetch_map_value(spec, :alias_name)
+
+            value ->
+              value
+          end
+
+        value ->
+          value
+      end
+
+    if alias_name == :__missing__, do: nil, else: alias_name
+  end
+
   # Format errors for display - expose publicly for testing
   def format_errors(errors) do
     errors
@@ -504,6 +974,14 @@ defmodule Selecto.DomainValidator do
 
   defp format_error({:advanced_join_missing_key, {join_name, key, message}}) do
     "Advanced join '#{join_name}' missing required key '#{key}': #{message}"
+  end
+
+  defp format_error({:query_members_invalid, {section, member_id, message}}) do
+    "Invalid query member '#{member_id}' in '#{section}': #{message}"
+  end
+
+  defp format_error({:query_members_invalid, {section, message}}) do
+    "Invalid query_members section '#{section}': #{message}"
   end
 
   defp format_error(error) do

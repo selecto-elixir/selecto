@@ -80,6 +80,58 @@ defmodule Selecto.Config.OverlayTest do
       assert result.filters["status"] == %{name: "Status Filter", type: :boolean}
     end
 
+    test "merges query_members deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        query_members: %{
+          ctes: %{
+            active_orders: %{columns: ["id"], join: [owner_key: :id, related_key: :id]}
+          },
+          values: %{},
+          laterals: %{
+            explode_tags: %{source: {:unnest, "\"selecto_root\".\"tags\""}, join_type: :left}
+          }
+        }
+      }
+
+      overlay = %{
+        query_members: %{
+          ctes: %{
+            active_orders: %{columns: ["id", "status"]},
+            delayed_orders: %{columns: ["id", "delayed_days"]}
+          },
+          subqueries: %{
+            high_value: %{on: [%{left: "id", right: "customer_id"}]}
+          },
+          laterals: %{
+            explode_tags: %{as: "tag_rows", join_type: :inner}
+          },
+          unnests: %{
+            tag_values: %{array_field: "tags", as: "tag"}
+          }
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.query_members.ctes.active_orders.join ==
+               [owner_key: :id, related_key: :id]
+
+      assert result.query_members.ctes.active_orders.columns == ["id", "status"]
+      assert result.query_members.ctes.delayed_orders.columns == ["id", "delayed_days"]
+
+      assert result.query_members.subqueries.high_value.on == [
+               %{left: "id", right: "customer_id"}
+             ]
+
+      assert result.query_members.laterals.explode_tags.source ==
+               {:unnest, "\"selecto_root\".\"tags\""}
+
+      assert result.query_members.laterals.explode_tags.as == "tag_rows"
+      assert result.query_members.laterals.explode_tags.join_type == :inner
+      assert result.query_members.unnests.tag_values.array_field == "tags"
+    end
+
     test "merges redact_fields as union" do
       base = %{
         source: %{

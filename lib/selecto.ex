@@ -6,6 +6,37 @@ defmodule Selecto do
 
   @type t :: Selecto.Types.t()
 
+  @named_query_member_kinds [:ctes, :values, :subqueries, :laterals, :unnests]
+
+  @named_query_member_key_map %{
+    "name" => :name,
+    "type" => :type,
+    "query" => :query,
+    "query_builder" => :query_builder,
+    "base_query" => :base_query,
+    "recursive_query" => :recursive_query,
+    "columns" => :columns,
+    "dependencies" => :dependencies,
+    "join" => :join,
+    "rows" => :rows,
+    "data" => :data,
+    "as" => :as,
+    "alias" => :alias,
+    "alias_name" => :alias_name,
+    "join_id" => :join_id,
+    "on" => :on,
+    "kind" => :kind,
+    "source" => :source,
+    "lateral_source" => :lateral_source,
+    "join_type" => :join_type,
+    "field" => :field,
+    "array_field" => :array_field,
+    "ordinality" => :ordinality,
+    "options" => :options,
+    "max_depth" => :max_depth,
+    "cycle_detection" => :cycle_detection
+  }
+
   @moduledoc """
   Selecto is a query builder for Elixir that uses Postgrex to execute queries.
   It is designed to be a flexible and powerful tool for building complex SQL queries
@@ -441,6 +472,84 @@ defmodule Selecto do
   @spec join_subquery(t(), atom(), t(), keyword()) :: t()
   defdelegate join_subquery(selecto, join_id, join_selecto, options \\ []),
     to: Selecto.DynamicJoin
+
+  @doc """
+  Apply a named subquery preset from `domain.query_members.subqueries`.
+
+  This resolves a preconfigured subquery member and applies
+  `Selecto.join_subquery/4` with optional overrides.
+
+  ## Examples
+
+      selecto
+      |> Selecto.with_subquery(:high_value_orders)
+
+      selecto
+      |> Selecto.with_subquery(:high_value_orders, type: :left)
+  """
+  @spec with_subquery(t(), atom() | String.t(), keyword() | map()) :: t()
+  def with_subquery(selecto, member_id, opts \\ [])
+
+  def with_subquery(selecto, member_id, opts)
+      when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+    {member_name, raw_spec} = fetch_named_query_member!(selecto, :subqueries, member_id)
+    spec = normalize_named_query_member_spec(raw_spec)
+
+    kind = Map.get(spec, :kind, :join)
+
+    if kind != :join do
+      raise ArgumentError,
+            "Named subquery '#{member_name}' has unsupported kind #{inspect(kind)}. Only :join is currently supported."
+    end
+
+    query_source =
+      Keyword.get(normalized_overrides, :query, Keyword.get(normalized_overrides, :query_builder)) ||
+        Map.get(spec, :query, Map.get(spec, :query_builder))
+
+    join_selecto =
+      evaluate_named_query_member_query!(query_source, selecto, :subqueries, member_name)
+
+    join_id =
+      normalized_overrides
+      |> Keyword.get(:join_id, Map.get(spec, :join_id, member_name))
+      |> normalize_values_join_id()
+
+    default_options =
+      []
+      |> maybe_put_keyword(:type, Map.get(spec, :type))
+      |> maybe_put_keyword(:on, normalize_subquery_on(Map.get(spec, :on)))
+      |> Keyword.merge(ensure_keyword_opts(Map.get(spec, :options, []), :subqueries, member_name))
+
+    override_options =
+      normalized_overrides
+      |> Keyword.drop([:query, :query_builder, :join_id, :kind])
+
+    override_nested_options =
+      ensure_keyword_opts(
+        Keyword.get(override_options, :options, :__missing__),
+        :subqueries,
+        member_name
+      )
+
+    override_options =
+      override_options
+      |> Keyword.delete(:options)
+      |> Keyword.merge(override_nested_options)
+
+    override_options =
+      if Keyword.has_key?(override_options, :on) do
+        Keyword.update!(override_options, :on, &normalize_subquery_on/1)
+      else
+        override_options
+      end
+
+    final_options =
+      default_options
+      |> Keyword.merge(override_options)
+
+    Selecto.join_subquery(selecto, join_id, join_selecto, final_options)
+  end
 
   @doc """
   Add a field to the Select list. Send in one or a list of field names or selectable tuples.
@@ -936,6 +1045,90 @@ defmodule Selecto do
     put_in(updated_selecto.config[:columns], Map.merge(current_columns, columns_to_add))
   end
 
+  @doc """
+  Apply a named UNNEST preset from `domain.query_members.unnests`.
+
+  ## Examples
+
+      selecto
+      |> Selecto.with_unnest(:product_tags)
+  """
+  @spec with_unnest(t(), atom() | String.t(), keyword() | map()) :: t()
+  def with_unnest(selecto, member_id, opts \\ [])
+
+  def with_unnest(selecto, member_id, opts)
+      when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+    {member_name, raw_spec} = fetch_named_query_member!(selecto, :unnests, member_id)
+    spec = normalize_named_query_member_spec(raw_spec)
+
+    array_field =
+      Keyword.get(
+        normalized_overrides,
+        :array_field,
+        Keyword.get(normalized_overrides, :field, map_get(spec, :array_field, :field))
+      )
+
+    if is_nil(array_field) do
+      raise ArgumentError,
+            "Named UNNEST '#{member_name}' requires :array_field (or :field)."
+    end
+
+    alias_name =
+      normalized_overrides
+      |> Keyword.get(
+        :as,
+        Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
+      ) || values_member_alias(spec) || "unnested_#{array_field}"
+
+    ordinality = Keyword.get(normalized_overrides, :ordinality, Map.get(spec, :ordinality))
+
+    default_options = ensure_keyword_opts(Map.get(spec, :options, []), :unnests, member_name)
+
+    override_options =
+      normalized_overrides
+      |> Keyword.drop([
+        :array_field,
+        :field,
+        :as,
+        :alias,
+        :alias_name,
+        :ordinality,
+        :options
+      ])
+
+    override_nested_options =
+      ensure_keyword_opts(
+        Keyword.get(normalized_overrides, :options, :__missing__),
+        :unnests,
+        member_name
+      )
+
+    unnest_opts =
+      default_options
+      |> Keyword.put(:as, to_string(alias_name))
+      |> maybe_put_keyword(:ordinality, ordinality)
+      |> Keyword.merge(override_options)
+      |> Keyword.merge(override_nested_options)
+
+    selecto
+    |> Selecto.unnest(array_field, unnest_opts)
+    |> upsert_unnest_by_alias(to_string(alias_name))
+  end
+
+  defp upsert_unnest_by_alias(selecto, alias_name) do
+    unnests = Map.get(selecto.set, :unnest, [])
+    {matching, others} = Enum.split_with(unnests, &(Map.get(&1, :alias) == alias_name))
+
+    case matching do
+      [] ->
+        selecto
+
+      _ ->
+        put_in(selecto.set[:unnest], others ++ [List.last(matching)])
+    end
+  end
+
   # DUPLICATE REMOVED - Consolidated with the version below that uses Advanced.CTE
   # This version accepted (selecto, cte_name, base_fn, recursive_fn, opts)
   # The consolidated version below now handles both parameter formats
@@ -1120,6 +1313,105 @@ defmodule Selecto do
   end
 
   @doc """
+  Apply a named LATERAL preset from `domain.query_members.laterals`.
+
+  ## Examples
+
+      selecto
+      |> Selecto.with_lateral(:recent_rentals)
+
+      selecto
+      |> Selecto.with_lateral(:recent_rentals, join_type: :inner)
+  """
+  @spec with_lateral(t(), atom() | String.t(), keyword() | map()) :: t()
+  def with_lateral(selecto, member_id, opts \\ [])
+
+  def with_lateral(selecto, member_id, opts)
+      when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+    {member_name, raw_spec} = fetch_named_query_member!(selecto, :laterals, member_id)
+    spec = normalize_named_query_member_spec(raw_spec)
+
+    lateral_source =
+      Keyword.get(
+        normalized_overrides,
+        :query,
+        Keyword.get(
+          normalized_overrides,
+          :source,
+          Keyword.get(
+            normalized_overrides,
+            :lateral_source,
+            map_get(spec, :query, :source, :lateral_source)
+          )
+        )
+      )
+
+    lateral_source = normalize_lateral_source!(lateral_source, selecto, member_name)
+
+    alias_name =
+      normalized_overrides
+      |> Keyword.get(
+        :as,
+        Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
+      ) || values_member_alias(spec) || member_name
+
+    join_type =
+      Keyword.get(
+        normalized_overrides,
+        :join_type,
+        Keyword.get(normalized_overrides, :type, map_get(spec, :join_type, :type) || :left)
+      )
+
+    join_type = normalize_lateral_join_type!(join_type, member_name)
+
+    default_options = ensure_keyword_opts(Map.get(spec, :options, []), :laterals, member_name)
+
+    override_options =
+      normalized_overrides
+      |> Keyword.drop([
+        :query,
+        :source,
+        :lateral_source,
+        :as,
+        :alias,
+        :alias_name,
+        :join_type,
+        :type,
+        :options
+      ])
+
+    override_nested_options =
+      ensure_keyword_opts(
+        Keyword.get(normalized_overrides, :options, :__missing__),
+        :laterals,
+        member_name
+      )
+
+    lateral_opts =
+      default_options
+      |> Keyword.merge(override_options)
+      |> Keyword.merge(override_nested_options)
+
+    selecto
+    |> Selecto.lateral_join(join_type, lateral_source, to_string(alias_name), lateral_opts)
+    |> upsert_lateral_by_alias(to_string(alias_name))
+  end
+
+  defp upsert_lateral_by_alias(selecto, alias_name) do
+    laterals = Map.get(selecto.set, :lateral_joins, [])
+    {matching, others} = Enum.split_with(laterals, &(Map.get(&1, :alias) == alias_name))
+
+    case matching do
+      [] ->
+        selecto
+
+      _ ->
+        put_in(selecto.set[:lateral_joins], others ++ [List.last(matching)])
+    end
+  end
+
+  @doc """
   Add a VALUES clause to create an inline table from literal data.
 
   VALUES clauses allow creating inline tables from literal values, useful for
@@ -1129,7 +1421,8 @@ defmodule Selecto do
 
   - `selecto` - The Selecto struct
   - `data` - List of data rows (lists or maps)
-  - `opts` - Options including `:columns` (explicit column names) and `:as` (table alias)
+  - `opts` - Options including `:columns` (explicit column names), `:as` (table alias),
+    and optional `:join` configuration to auto-join the VALUES table
 
   ## Examples
 
@@ -1152,6 +1445,23 @@ defmodule Selecto do
           %{month: 3, name: "March", days: 31}
         ], as: "months")
 
+      # VALUES with auto-join (fields inferred from VALUES columns)
+      selecto
+      |> Selecto.with_values([
+          ["processing", "In Progress"],
+          ["shipped", "In Transit"]
+        ],
+        columns: ["status", "status_label"],
+        as: "status_labels",
+        join: [owner_key: :status, related_key: :status]
+      )
+      |> Selecto.select(["order_number", "status_labels.status_label"])
+
+      # Named VALUES member from domain.query_members.values
+      selecto
+      |> Selecto.with_values(:status_labels)
+      |> Selecto.select(["order_number", "status_labels.status_label"])
+
       # Generated SQL:
       # WITH rating_lookup (rating_code, description, sort_order) AS (
       #   VALUES ('PG', 'Family Friendly', 1),
@@ -1159,15 +1469,194 @@ defmodule Selecto do
       #          ('R', 'Adult', 3)
       # )
   """
-  def with_values(selecto, data, opts \\ []) do
-    # Create VALUES clause specification
+  def with_values(selecto, data_or_member, opts \\ [])
+
+  def with_values(selecto, member_id, opts)
+      when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+    {member_name, raw_spec} = fetch_named_query_member!(selecto, :values, member_id)
+    spec = normalize_named_query_member_spec(raw_spec)
+
+    rows_override =
+      Keyword.get(
+        normalized_overrides,
+        :rows,
+        Keyword.get(normalized_overrides, :data, :__missing__)
+      )
+
+    rows =
+      case rows_override do
+        :__missing__ -> Map.get(spec, :rows, Map.get(spec, :data))
+        override -> override
+      end
+
+    if not is_list(rows) do
+      raise ArgumentError,
+            "Named VALUES '#{member_name}' requires list rows (use :rows or :data). Got: #{inspect(rows)}"
+    end
+
+    alias_name =
+      normalized_overrides
+      |> Keyword.get(
+        :as,
+        Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
+      ) || values_member_alias(spec) || member_name
+
+    values_opts =
+      []
+      |> maybe_put_keyword(
+        :columns,
+        Keyword.get(normalized_overrides, :columns, Map.get(spec, :columns))
+      )
+      |> Keyword.put(:as, to_string(alias_name))
+
+    join_opts =
+      merge_named_join_opts(
+        Map.get(spec, :join),
+        if(Keyword.has_key?(normalized_overrides, :join),
+          do: Keyword.get(normalized_overrides, :join),
+          else: :__missing__
+        ),
+        &normalize_values_join_opts/1
+      )
+
+    values_opts =
+      if join_opts == :__missing__ do
+        values_opts
+      else
+        Keyword.put(values_opts, :join, join_opts)
+      end
+
+    apply_values_clause(selecto, rows, values_opts, upsert: true)
+  end
+
+  def with_values(selecto, data, opts) do
+    apply_values_clause(selecto, data, opts, upsert: false)
+  end
+
+  defp apply_values_clause(selecto, data, opts, apply_opts) do
     values_spec = Selecto.Advanced.ValuesClause.create_values_clause(data, opts)
 
-    # Add to selecto set
+    selecto =
+      if Keyword.get(apply_opts, :upsert, false) do
+        upsert_values_clause(selecto, values_spec)
+      else
+        append_values_clause(selecto, values_spec)
+      end
+
+    maybe_join_values_clause(selecto, values_spec, Keyword.get(opts, :join))
+  end
+
+  defp append_values_clause(selecto, values_spec) do
     current_values_clauses = Map.get(selecto.set, :values_clauses, [])
     updated_values_clauses = current_values_clauses ++ [values_spec]
+    put_in(selecto, [Access.key(:set), :values_clauses], updated_values_clauses)
+  end
 
-    put_in(selecto.set[:values_clauses], updated_values_clauses)
+  defp upsert_values_clause(selecto, values_spec) do
+    current_values_clauses = Map.get(selecto.set, :values_clauses, [])
+
+    updated_values_clauses =
+      current_values_clauses
+      |> Enum.reject(fn existing -> Map.get(existing, :alias) == values_spec.alias end)
+      |> Kernel.++([values_spec])
+
+    put_in(selecto, [Access.key(:set), :values_clauses], updated_values_clauses)
+  end
+
+  defp maybe_join_values_clause(selecto, _values_spec, join_opts)
+       when join_opts in [nil, false],
+       do: selecto
+
+  defp maybe_join_values_clause(selecto, values_spec, join_opts) do
+    {join_id, join_options} = build_values_join_options(values_spec, join_opts)
+    Selecto.join(selecto, join_id, join_options)
+  end
+
+  defp build_values_join_options(values_spec, true),
+    do: build_values_join_options(values_spec, [])
+
+  defp build_values_join_options(values_spec, join_opts) when is_map(join_opts) do
+    values_spec
+    |> build_values_join_options(normalize_values_join_opts(join_opts))
+  end
+
+  defp build_values_join_options(values_spec, join_opts) when is_list(join_opts) do
+    normalized_join_opts = normalize_values_join_opts(join_opts)
+    default_join_key = default_values_join_key(values_spec)
+
+    owner_key = Keyword.get(normalized_join_opts, :owner_key, default_join_key)
+    related_key = Keyword.get(normalized_join_opts, :related_key, owner_key)
+
+    join_id =
+      normalized_join_opts
+      |> Keyword.get(:id, values_spec.alias)
+      |> normalize_values_join_id()
+
+    join_options =
+      normalized_join_opts
+      |> Keyword.delete(:id)
+      |> Keyword.put_new(:source, values_spec.alias)
+      |> Keyword.put_new(:type, :left)
+      |> Keyword.put_new(:owner_key, owner_key)
+      |> Keyword.put_new(:related_key, related_key)
+      |> Keyword.put_new(:fields, inferred_values_join_fields(values_spec))
+
+    {join_id, join_options}
+  end
+
+  defp build_values_join_options(_values_spec, invalid_opts) do
+    raise ArgumentError,
+          ":join option for with_values/3 must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_opts)}"
+  end
+
+  defp normalize_values_join_opts(join_opts) when is_map(join_opts),
+    do: join_opts |> Map.to_list() |> normalize_values_join_opts()
+
+  defp normalize_values_join_opts(join_opts) when is_list(join_opts) do
+    Enum.map(join_opts, fn
+      {key, value} -> {normalize_values_join_key(key), value}
+      other -> other
+    end)
+  end
+
+  defp normalize_values_join_key(key) when is_atom(key), do: key
+
+  defp normalize_values_join_key(key) when is_binary(key) do
+    case key do
+      "id" -> :id
+      "source" -> :source
+      "type" -> :type
+      "owner_key" -> :owner_key
+      "related_key" -> :related_key
+      "on" -> :on
+      "fields" -> :fields
+      other -> other
+    end
+  end
+
+  defp normalize_values_join_key(key), do: key
+
+  defp normalize_values_join_id(join_id) when is_atom(join_id), do: join_id
+  defp normalize_values_join_id(join_id) when is_binary(join_id), do: String.to_atom(join_id)
+
+  defp normalize_values_join_id(join_id) do
+    raise ArgumentError,
+          "VALUES auto-join id must be an atom or string. Got: #{inspect(join_id)}"
+  end
+
+  defp default_values_join_key(%{columns: [first_column | _]}), do: first_column
+
+  defp default_values_join_key(%{columns: []}) do
+    raise ArgumentError,
+          "Cannot infer VALUES join key from empty columns. Provide join: [owner_key: ..., related_key: ...]."
+  end
+
+  defp inferred_values_join_fields(values_spec) do
+    Enum.reduce(values_spec.columns, %{}, fn column, acc ->
+      type = Map.get(values_spec.column_types, column, :string)
+      Map.put(acc, column, %{type: type})
+    end)
   end
 
   @doc """
@@ -1373,7 +1862,12 @@ defmodule Selecto do
   - `selecto` - The Selecto instance
   - `name` - CTE name (must be valid SQL identifier)
   - `query_builder` - Function that returns a Selecto query for the CTE
-  - `opts` - Options including :columns, :dependencies
+  - `opts` - Options including :columns, :dependencies, and optional :join
+
+  Join shortcut options (`:join`):
+  - `true` - infer join keys from first declared CTE column
+  - keyword/map - any `Selecto.join/3` options (`:type`, `:owner_key`, `:related_key`, `:on`, `:fields`)
+  - `fields: :infer` - infer join fields from declared CTE columns
 
   ## Examples
 
@@ -1382,10 +1876,10 @@ defmodule Selecto do
       |> Selecto.with_cte("active_customers", fn ->
           Selecto.configure(customer_domain, connection)
           |> Selecto.filter([{"active", true}])
-        end)
+        end,
+        join: [owner_key: :customer_id, related_key: :customer_id]
+      )
       |> Selecto.select(["film.title", "active_customers.first_name"])
-      |> Selecto.join(:inner, "active_customers",
-          on: "rental.customer_id = active_customers.customer_id")
 
       # CTE with explicit columns
       selecto
@@ -1399,6 +1893,11 @@ defmodule Selecto do
           columns: ["customer_id", "rental_count"]
         )
 
+      # Named CTE member from domain.query_members.ctes
+      selecto
+      |> Selecto.with_cte(:active_customers)
+      |> Selecto.select(["film.title", "active_customers.first_name"])
+
       # Generated SQL:
       # WITH active_customers AS (
       #   SELECT * FROM customer WHERE active = true
@@ -1407,15 +1906,108 @@ defmodule Selecto do
       # FROM film
       # INNER JOIN active_customers ON rental.customer_id = active_customers.customer_id
   """
+  def with_cte(selecto, member_id) when is_atom(member_id) or is_binary(member_id) do
+    with_cte(selecto, member_id, [])
+  end
+
+  def with_cte(selecto, member_id, opts)
+      when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+    {member_name, raw_spec} = fetch_named_query_member!(selecto, :ctes, member_id)
+    spec = normalize_named_query_member_spec(raw_spec)
+
+    join_opts =
+      merge_named_join_opts(
+        Map.get(spec, :join),
+        if(Keyword.has_key?(normalized_overrides, :join),
+          do: Keyword.get(normalized_overrides, :join),
+          else: :__missing__
+        ),
+        &normalize_cte_join_opts/1
+      )
+
+    recursive? =
+      Keyword.get(normalized_overrides, :type, Map.get(spec, :type)) == :recursive or
+        not is_nil(Map.get(spec, :base_query)) or not is_nil(Map.get(spec, :recursive_query)) or
+        Keyword.has_key?(normalized_overrides, :base_query) or
+        Keyword.has_key?(normalized_overrides, :recursive_query)
+
+    cte_name = Keyword.get(normalized_overrides, :name, Map.get(spec, :name, member_name))
+
+    cte_spec =
+      if recursive? do
+        base_query =
+          Keyword.get(normalized_overrides, :base_query, Map.get(spec, :base_query))
+          |> wrap_named_base_query!(selecto, member_name)
+
+        recursive_query =
+          Keyword.get(normalized_overrides, :recursive_query, Map.get(spec, :recursive_query))
+          |> wrap_named_recursive_query!(selecto, member_name)
+
+        recursive_opts =
+          []
+          |> maybe_put_keyword(
+            :columns,
+            Keyword.get(normalized_overrides, :columns, Map.get(spec, :columns))
+          )
+          |> maybe_put_keyword(
+            :dependencies,
+            Keyword.get(normalized_overrides, :dependencies, Map.get(spec, :dependencies))
+          )
+          |> maybe_put_keyword(
+            :max_depth,
+            Keyword.get(normalized_overrides, :max_depth, Map.get(spec, :max_depth))
+          )
+          |> maybe_put_keyword(
+            :cycle_detection,
+            Keyword.get(normalized_overrides, :cycle_detection, Map.get(spec, :cycle_detection))
+          )
+          |> Keyword.put(:base_query, base_query)
+          |> Keyword.put(:recursive_query, recursive_query)
+
+        Selecto.Advanced.CTE.create_recursive_cte(to_string(cte_name), recursive_opts)
+      else
+        query_builder =
+          Keyword.get(
+            normalized_overrides,
+            :query,
+            Keyword.get(normalized_overrides, :query_builder)
+          ) || Map.get(spec, :query, Map.get(spec, :query_builder))
+
+        cte_opts =
+          []
+          |> maybe_put_keyword(
+            :columns,
+            Keyword.get(normalized_overrides, :columns, Map.get(spec, :columns))
+          )
+          |> maybe_put_keyword(
+            :dependencies,
+            Keyword.get(normalized_overrides, :dependencies, Map.get(spec, :dependencies))
+          )
+
+        Selecto.Advanced.CTE.create_cte(
+          to_string(cte_name),
+          wrap_named_query_builder!(query_builder, selecto, :ctes, member_name),
+          cte_opts
+        )
+      end
+
+    join_opts = if join_opts == :__missing__, do: nil, else: join_opts
+
+    selecto
+    |> upsert_cte_spec(cte_spec)
+    |> maybe_join_cte_spec(cte_spec, join_opts)
+  end
+
   def with_cte(selecto, name, query_builder, opts \\ []) do
-    # Create CTE specification
-    cte_spec = Selecto.Advanced.CTE.create_cte(name, query_builder, opts)
+    join_opts = Keyword.get(opts, :join)
+    cte_opts = Keyword.delete(opts, :join)
 
-    # Add to selecto set
-    current_ctes = Map.get(selecto.set, :ctes, [])
-    updated_ctes = current_ctes ++ [cte_spec]
+    cte_spec = Selecto.Advanced.CTE.create_cte(name, query_builder, cte_opts)
 
-    put_in(selecto.set[:ctes], updated_ctes)
+    selecto
+    |> append_cte_spec(cte_spec)
+    |> maybe_join_cte_spec(cte_spec, join_opts)
   end
 
   @doc """
@@ -1428,7 +2020,9 @@ defmodule Selecto do
 
   - `selecto` - The Selecto instance
   - `name` - CTE name (must be valid SQL identifier)
-  - `opts` - Options with :base_query and :recursive_query functions
+  - `opts` - Options with :base_query, :recursive_query, and optional :join
+
+  Join shortcut options (`:join`) follow `with_cte/4`.
 
   ## Examples
 
@@ -1447,10 +2041,9 @@ defmodule Selecto do
             |> Selecto.select(["employee.employee_id", "employee.name", "employee.manager_id",
                               {:func, "employee_hierarchy.level + 1", as: "level"}])
             |> Selecto.join(:inner, cte_ref, on: "employee.manager_id = employee_hierarchy.employee_id")
-          end
+          end,
+          join: [owner_key: :employee_id, related_key: :employee_id]
         )
-      |> Selecto.join(:inner, "employee_hierarchy",
-          on: "selecto_root.employee_id = employee_hierarchy.employee_id")
       |> Selecto.select([
           "employee_hierarchy.employee_id",
           "employee_hierarchy.name",
@@ -1477,32 +2070,39 @@ defmodule Selecto do
   # 1. (selecto, cte_name, base_fn, recursive_fn, opts) - original inline format
   # 2. (selecto, name, opts) - newer format using Advanced.CTE
   def with_recursive_cte(selecto, arg2, arg3, arg4 \\ nil, arg5 \\ []) do
-    cte_spec =
+    {cte_spec, join_opts} =
       case {arg2, arg3, arg4, arg5} do
         # Format 1: (selecto, cte_name, base_fn, recursive_fn, opts)
         {cte_name, base_fn, recursive_fn, opts}
         when is_function(base_fn) and is_function(recursive_fn) ->
+          normalized_opts = normalize_cte_option_list(opts)
+          join_opts = Keyword.get(normalized_opts, :join)
+          cte_opts = Keyword.delete(normalized_opts, :join)
+
           # Inline spec format
-          %{
-            name: cte_name,
-            type: :recursive,
-            base_query: base_fn,
-            recursive_query: recursive_fn,
-            max_depth: Keyword.get(opts, :max_depth),
-            cycle_detection: Keyword.get(opts, :cycle_detection, false)
-          }
+          {%{
+             name: cte_name,
+             type: :recursive,
+             base_query: base_fn,
+             recursive_query: recursive_fn,
+             max_depth: Keyword.get(cte_opts, :max_depth),
+             cycle_detection: Keyword.get(cte_opts, :cycle_detection, false),
+             columns: Keyword.get(cte_opts, :columns)
+           }, join_opts}
 
         # Format 2: (selecto, name, opts)
         {name, opts, nil, []} when is_list(opts) or is_map(opts) ->
+          normalized_opts = normalize_cte_option_list(opts)
+          join_opts = Keyword.get(normalized_opts, :join)
+          cte_opts = Keyword.delete(normalized_opts, :join)
+
           # Use Advanced.CTE module
-          Selecto.Advanced.CTE.create_recursive_cte(name, opts)
+          {Selecto.Advanced.CTE.create_recursive_cte(name, cte_opts), join_opts}
       end
 
-    # Add to selecto set
-    current_ctes = Map.get(selecto.set, :ctes, [])
-    updated_ctes = current_ctes ++ [cte_spec]
-
-    put_in(selecto.set[:ctes], updated_ctes)
+    selecto
+    |> append_cte_spec(cte_spec)
+    |> maybe_join_cte_spec(cte_spec, join_opts)
   end
 
   @doc """
@@ -1515,6 +2115,14 @@ defmodule Selecto do
 
   - `selecto` - The Selecto instance
   - `cte_specs` - List of CTE specifications created with create_cte/3
+  - `opts` - Options including :joins for auto-joining one or more CTEs
+
+  Batch join shortcut options (`:joins`):
+  - `true` - auto-join every provided CTE (default key inference)
+  - list of entries where each entry is one of:
+    - cte name (`"my_cte"` or `:my_cte`) to use inferred defaults
+    - `{name, join_opts}` tuple
+    - keyword/map with `:name` plus join options
 
   ## Examples
 
@@ -1533,15 +2141,672 @@ defmodule Selecto do
       end, dependencies: ["active_customers"])
 
       selecto
-      |> Selecto.with_ctes([active_customers_cte, high_value_cte])
+      |> Selecto.with_ctes([active_customers_cte, high_value_cte],
+        joins: [
+          [name: "active_customers", owner_key: :customer_id, related_key: :customer_id],
+          [name: "high_value_customers", owner_key: :customer_id, related_key: :customer_id]
+        ]
+      )
       |> Selecto.select(["film.title", "high_value_customers.total_spent"])
   """
-  def with_ctes(selecto, cte_specs) when is_list(cte_specs) do
-    # Add all CTEs to selecto set
+  def with_ctes(selecto, cte_specs, opts \\ []) when is_list(cte_specs) do
+    selecto_with_ctes = append_cte_specs(selecto, cte_specs)
+    apply_with_ctes_joins(selecto_with_ctes, cte_specs, Keyword.get(opts, :joins))
+  end
+
+  defp append_cte_spec(selecto, cte_spec), do: append_cte_specs(selecto, [cte_spec])
+
+  defp append_cte_specs(selecto, cte_specs) when is_list(cte_specs) do
     current_ctes = Map.get(selecto.set, :ctes, [])
     updated_ctes = current_ctes ++ cte_specs
 
     put_in(selecto.set[:ctes], updated_ctes)
+  end
+
+  defp upsert_cte_spec(selecto, cte_spec) do
+    cte_name = cte_spec_name!(cte_spec)
+    current_ctes = Map.get(selecto.set, :ctes, [])
+
+    updated_ctes =
+      current_ctes
+      |> Enum.reject(fn existing -> cte_spec_name(existing) == cte_name end)
+      |> Kernel.++([cte_spec])
+
+    put_in(selecto.set[:ctes], updated_ctes)
+  end
+
+  defp maybe_join_cte_spec(selecto, _cte_spec, join_opts) when join_opts in [nil, false],
+    do: selecto
+
+  defp maybe_join_cte_spec(selecto, cte_spec, join_opts) do
+    {join_id, join_options} = build_cte_join_options(cte_spec, join_opts)
+    Selecto.join(selecto, join_id, join_options)
+  end
+
+  defp build_cte_join_options(cte_spec, true), do: build_cte_join_options(cte_spec, [])
+
+  defp build_cte_join_options(cte_spec, join_opts) when is_map(join_opts) do
+    cte_spec
+    |> build_cte_join_options(normalize_cte_join_opts(join_opts))
+  end
+
+  defp build_cte_join_options(cte_spec, join_opts) when is_list(join_opts) do
+    cte_name = cte_spec_name!(cte_spec)
+    normalized_join_opts = normalize_cte_join_opts(join_opts)
+
+    join_id =
+      normalized_join_opts
+      |> Keyword.get(:id, cte_name)
+      |> normalize_values_join_id()
+
+    join_options =
+      normalized_join_opts
+      |> Keyword.delete(:id)
+      |> Keyword.delete(:name)
+      |> Keyword.put_new(:source, cte_name)
+      |> Keyword.put_new(:type, :left)
+      |> maybe_add_default_cte_join_keys(cte_spec)
+      |> maybe_add_default_cte_join_fields(cte_spec)
+
+    {join_id, join_options}
+  end
+
+  defp build_cte_join_options(_cte_spec, invalid_opts) do
+    raise ArgumentError,
+          ":join option for CTE helpers must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_opts)}"
+  end
+
+  defp maybe_add_default_cte_join_keys(join_options, cte_spec) do
+    if Keyword.has_key?(join_options, :on) do
+      join_options
+    else
+      case {Keyword.get(join_options, :owner_key), Keyword.get(join_options, :related_key)} do
+        {owner_key, related_key} when not is_nil(owner_key) and not is_nil(related_key) ->
+          join_options
+
+        {owner_key, nil} when not is_nil(owner_key) ->
+          Keyword.put(join_options, :related_key, owner_key)
+
+        _ ->
+          default_join_key = default_cte_join_key(cte_spec)
+          owner_key = Keyword.get(join_options, :owner_key, default_join_key)
+          related_key = Keyword.get(join_options, :related_key, owner_key)
+
+          join_options
+          |> Keyword.put_new(:owner_key, owner_key)
+          |> Keyword.put_new(:related_key, related_key)
+      end
+    end
+  end
+
+  defp maybe_add_default_cte_join_fields(join_options, cte_spec) do
+    case Keyword.get(join_options, :fields, :__missing__) do
+      :infer ->
+        Keyword.put(join_options, :fields, inferred_cte_join_fields!(cte_spec))
+
+      :__missing__ ->
+        inferred_fields = inferred_cte_join_fields(cte_spec)
+
+        if inferred_fields == %{} do
+          join_options
+        else
+          Keyword.put(join_options, :fields, inferred_fields)
+        end
+
+      _ ->
+        join_options
+    end
+  end
+
+  defp default_cte_join_key(cte_spec) do
+    case cte_columns(cte_spec) do
+      [first_column | _] ->
+        first_column
+
+      [] ->
+        cte_name = cte_spec_name!(cte_spec)
+
+        raise ArgumentError,
+              "Cannot infer join keys for CTE '#{cte_name}'. Declare CTE columns or pass :owner_key/:related_key (or :on) in :join options."
+    end
+  end
+
+  defp inferred_cte_join_fields(cte_spec) do
+    Enum.reduce(cte_columns(cte_spec), %{}, fn column, acc ->
+      Map.put(acc, String.to_atom(column), %{type: :any})
+    end)
+  end
+
+  defp inferred_cte_join_fields!(cte_spec) do
+    inferred_fields = inferred_cte_join_fields(cte_spec)
+
+    if inferred_fields == %{} do
+      cte_name = cte_spec_name!(cte_spec)
+
+      raise ArgumentError,
+            "Cannot infer fields for CTE '#{cte_name}' because it has no declared columns. Provide fields explicitly or declare CTE columns."
+    else
+      inferred_fields
+    end
+  end
+
+  defp cte_columns(cte_spec) do
+    cte_spec
+    |> Map.get(:columns, [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+  end
+
+  defp cte_spec_name(%{name: name}) when is_binary(name), do: name
+  defp cte_spec_name(%{name: name}) when is_atom(name), do: Atom.to_string(name)
+  defp cte_spec_name(_cte_spec), do: nil
+
+  defp cte_spec_name!(%{name: name}) when is_binary(name), do: name
+  defp cte_spec_name!(%{name: name}) when is_atom(name), do: Atom.to_string(name)
+
+  defp cte_spec_name!(cte_spec) do
+    raise ArgumentError,
+          "CTE spec must include a string or atom :name. Got: #{inspect(cte_spec)}"
+  end
+
+  defp apply_with_ctes_joins(selecto, _cte_specs, joins) when joins in [nil, false, []],
+    do: selecto
+
+  defp apply_with_ctes_joins(selecto, cte_specs, true) do
+    Enum.reduce(cte_specs, selecto, fn cte_spec, acc ->
+      maybe_join_cte_spec(acc, cte_spec, true)
+    end)
+  end
+
+  defp apply_with_ctes_joins(selecto, cte_specs, joins) when is_list(joins) do
+    Enum.reduce(joins, selecto, fn join_entry, acc ->
+      {cte_spec, join_opts} = resolve_with_ctes_join_entry(cte_specs, join_entry)
+      maybe_join_cte_spec(acc, cte_spec, join_opts)
+    end)
+  end
+
+  defp apply_with_ctes_joins(_selecto, _cte_specs, invalid_joins) do
+    raise ArgumentError,
+          ":joins option for with_ctes/3 must be true, false, nil, or a list. Got: #{inspect(invalid_joins)}"
+  end
+
+  defp resolve_with_ctes_join_entry(cte_specs, entry) when is_binary(entry) or is_atom(entry) do
+    {find_cte_spec!(cte_specs, entry), true}
+  end
+
+  defp resolve_with_ctes_join_entry(cte_specs, {name, join_opts}) do
+    {find_cte_spec!(cte_specs, name), join_opts}
+  end
+
+  defp resolve_with_ctes_join_entry(cte_specs, join_entry) when is_map(join_entry) do
+    resolve_with_ctes_join_entry(cte_specs, Map.to_list(join_entry))
+  end
+
+  defp resolve_with_ctes_join_entry(cte_specs, join_entry) when is_list(join_entry) do
+    normalized_entry = normalize_cte_join_opts(join_entry)
+    cte_name = Keyword.get(normalized_entry, :name)
+
+    if is_nil(cte_name) do
+      raise ArgumentError,
+            "Each entry in :joins for with_ctes/3 must include :name, be a cte name, or be a {name, opts} tuple. Got: #{inspect(join_entry)}"
+    end
+
+    join_opts = Keyword.delete(normalized_entry, :name)
+    {find_cte_spec!(cte_specs, cte_name), join_opts}
+  end
+
+  defp resolve_with_ctes_join_entry(_cte_specs, invalid_entry) do
+    raise ArgumentError,
+          "Invalid :joins entry for with_ctes/3: #{inspect(invalid_entry)}"
+  end
+
+  defp find_cte_spec!(cte_specs, cte_name) do
+    cte_name_string = to_string(cte_name)
+
+    Enum.find(cte_specs, fn cte_spec ->
+      cte_spec_name!(cte_spec) == cte_name_string
+    end) ||
+      raise ArgumentError,
+            "CTE named '#{cte_name_string}' was not found in with_ctes/3 input"
+  end
+
+  defp normalize_cte_option_list(opts) when is_map(opts),
+    do: opts |> Map.to_list() |> normalize_cte_option_list()
+
+  defp normalize_cte_option_list(opts) when is_list(opts) do
+    Enum.map(opts, fn
+      {key, value} -> {normalize_cte_option_key(key), value}
+      other -> other
+    end)
+  end
+
+  defp normalize_cte_option_key(key) when is_atom(key), do: key
+
+  defp normalize_cte_option_key(key) when is_binary(key) do
+    case key do
+      "base_query" -> :base_query
+      "recursive_query" -> :recursive_query
+      "columns" -> :columns
+      "dependencies" -> :dependencies
+      "join" -> :join
+      "joins" -> :joins
+      "max_depth" -> :max_depth
+      "cycle_detection" -> :cycle_detection
+      other -> other
+    end
+  end
+
+  defp normalize_cte_option_key(key), do: key
+
+  defp normalize_cte_join_opts(join_opts) when is_map(join_opts),
+    do: join_opts |> Map.to_list() |> normalize_cte_join_opts()
+
+  defp normalize_cte_join_opts(join_opts) when is_list(join_opts) do
+    Enum.map(join_opts, fn
+      {key, value} -> {normalize_cte_join_key(key), value}
+      other -> other
+    end)
+  end
+
+  defp normalize_cte_join_key(key) when is_atom(key), do: key
+
+  defp normalize_cte_join_key(key) when is_binary(key) do
+    case key do
+      "name" -> :name
+      "id" -> :id
+      "source" -> :source
+      "type" -> :type
+      "owner_key" -> :owner_key
+      "related_key" -> :related_key
+      "on" -> :on
+      "fields" -> :fields
+      other -> other
+    end
+  end
+
+  defp normalize_cte_join_key(key), do: key
+
+  defp maybe_put_keyword(keyword, _key, value) when value in [nil, :__missing__], do: keyword
+  defp maybe_put_keyword(keyword, key, value), do: Keyword.put(keyword, key, value)
+
+  defp normalize_named_query_member_opts(opts) when is_map(opts),
+    do: opts |> Map.to_list() |> normalize_named_query_member_opts()
+
+  defp normalize_named_query_member_opts(opts) when is_list(opts) do
+    Enum.map(opts, fn
+      {key, value} ->
+        {normalize_named_query_member_key(key), value}
+
+      other ->
+        raise ArgumentError,
+              "Named query member options must be a keyword list or map. Invalid option: #{inspect(other)}"
+    end)
+  end
+
+  defp normalize_named_query_member_opts(invalid_opts) do
+    raise ArgumentError,
+          "Named query member options must be a keyword list or map. Got: #{inspect(invalid_opts)}"
+  end
+
+  defp normalize_named_query_member_spec(spec) when is_map(spec) do
+    spec
+    |> Enum.map(fn {key, value} -> {normalize_named_query_member_key(key), value} end)
+    |> Map.new()
+  end
+
+  defp normalize_named_query_member_spec(spec) do
+    raise ArgumentError,
+          "Named query member specifications must be maps. Got: #{inspect(spec)}"
+  end
+
+  defp normalize_named_query_member_key(key) when is_atom(key), do: key
+
+  defp normalize_named_query_member_key(key) when is_binary(key),
+    do: Map.get(@named_query_member_key_map, key, key)
+
+  defp normalize_named_query_member_key(key), do: key
+
+  defp fetch_named_query_member!(selecto, kind, member_id)
+       when kind in @named_query_member_kinds do
+    members = query_members_for_kind!(selecto, kind)
+    member_name = to_string(member_id)
+
+    Enum.find_value(members, fn {key, spec} ->
+      if to_string(key) == member_name do
+        {member_name, spec}
+      end
+    end) ||
+      raise ArgumentError,
+            "Named #{kind_to_label(kind)} '#{member_name}' was not found in domain query_members. Available: #{available_named_members(members)}"
+  end
+
+  defp query_members_for_kind!(selecto, kind) when kind in @named_query_member_kinds do
+    query_members =
+      selecto
+      |> Map.get(:domain, %{})
+      |> Map.get(:query_members, %{})
+
+    if not is_map(query_members) do
+      raise ArgumentError,
+            "domain.query_members must be a map to resolve named #{kind_to_label(kind)} members."
+    end
+
+    members = Map.get(query_members, kind, Map.get(query_members, Atom.to_string(kind), %{}))
+
+    if is_map(members) do
+      members
+    else
+      raise ArgumentError,
+            "domain.query_members.#{kind} must be a map of named members. Got: #{inspect(members)}"
+    end
+  end
+
+  defp available_named_members(members) do
+    case members |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort() do
+      [] -> "none"
+      ids -> Enum.join(ids, ", ")
+    end
+  end
+
+  defp kind_to_label(:ctes), do: "CTE"
+  defp kind_to_label(:values), do: "VALUES"
+  defp kind_to_label(:subqueries), do: "subquery"
+  defp kind_to_label(:laterals), do: "lateral"
+  defp kind_to_label(:unnests), do: "unnest"
+
+  defp map_get(map, key, alt_key) when is_map(map) do
+    Map.get(map, key, Map.get(map, alt_key))
+  end
+
+  defp map_get(map, key, alt_key1, alt_key2) when is_map(map) do
+    Map.get(map, key, Map.get(map, alt_key1, Map.get(map, alt_key2)))
+  end
+
+  defp normalize_lateral_source!(source, selecto, member_name) do
+    case source do
+      source when is_tuple(source) ->
+        source
+
+      %Selecto{} = query ->
+        fn _base_query -> query end
+
+      query_builder when is_function(query_builder, 0) ->
+        fn _base_query ->
+          result = query_builder.()
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      query_builder when is_function(query_builder, 1) ->
+        fn base_query ->
+          result = query_builder.(base_query)
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      query_builder when is_function(query_builder, 2) ->
+        fn base_query ->
+          result = query_builder.(selecto, base_query)
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      nil ->
+        raise ArgumentError,
+              "Named lateral '#{member_name}' requires :query, :source, or :lateral_source."
+
+      invalid ->
+        raise ArgumentError,
+              "Named lateral '#{member_name}' source must be a tuple, Selecto struct, or function with arity 0/1/2. Got: #{inspect(invalid)}"
+    end
+  end
+
+  defp normalize_lateral_join_type!(join_type, _member_name)
+       when join_type in [:left, :inner, :right, :full],
+       do: join_type
+
+  defp normalize_lateral_join_type!(join_type, member_name) do
+    raise ArgumentError,
+          "Named lateral '#{member_name}' join type must be one of :left, :inner, :right, :full. Got: #{inspect(join_type)}"
+  end
+
+  defp ensure_keyword_opts(nil, _kind, _member_name), do: []
+  defp ensure_keyword_opts(:__missing__, _kind, _member_name), do: []
+  defp ensure_keyword_opts(opts, _kind, _member_name) when is_list(opts), do: opts
+  defp ensure_keyword_opts(opts, _kind, _member_name) when is_map(opts), do: Map.to_list(opts)
+
+  defp ensure_keyword_opts(opts, kind, member_name) do
+    raise ArgumentError,
+          "Named #{kind_to_label(kind)} '#{member_name}' expects :options to be a keyword list or map. Got: #{inspect(opts)}"
+  end
+
+  defp evaluate_named_query_member_query!(query_source, selecto, kind, member_name) do
+    query =
+      case query_source do
+        %Selecto{} = query ->
+          query
+
+        query_builder when is_function(query_builder, 0) ->
+          query_builder.()
+
+        query_builder when is_function(query_builder, 1) ->
+          query_builder.(selecto)
+
+        nil ->
+          raise ArgumentError,
+                "Named #{kind_to_label(kind)} '#{member_name}' requires a query source (:query or :query_builder)."
+
+        invalid ->
+          raise ArgumentError,
+                "Named #{kind_to_label(kind)} '#{member_name}' query source must be a Selecto struct or function with arity 0/1. Got: #{inspect(invalid)}"
+      end
+
+    if match?(%Selecto{}, query) do
+      query
+    else
+      raise ArgumentError,
+            "Named #{kind_to_label(kind)} '#{member_name}' query builder must return a Selecto struct. Got: #{inspect(query)}"
+    end
+  end
+
+  defp wrap_named_query_builder!(query_source, selecto, kind, member_name) do
+    case query_source do
+      %Selecto{} = query ->
+        fn -> query end
+
+      query_builder when is_function(query_builder, 0) ->
+        fn ->
+          result = query_builder.()
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named #{kind_to_label(kind)} '#{member_name}' query builder must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      query_builder when is_function(query_builder, 1) ->
+        fn ->
+          result = query_builder.(selecto)
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named #{kind_to_label(kind)} '#{member_name}' query builder must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      nil ->
+        raise ArgumentError,
+              "Named #{kind_to_label(kind)} '#{member_name}' requires :query or :query_builder."
+
+      invalid ->
+        raise ArgumentError,
+              "Named #{kind_to_label(kind)} '#{member_name}' query source must be a Selecto struct or function with arity 0/1. Got: #{inspect(invalid)}"
+    end
+  end
+
+  defp wrap_named_base_query!(base_query, selecto, member_name) do
+    case base_query do
+      query_builder when is_function(query_builder, 0) ->
+        fn ->
+          result = query_builder.()
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named CTE '#{member_name}' base_query must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      query_builder when is_function(query_builder, 1) ->
+        fn ->
+          result = query_builder.(selecto)
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named CTE '#{member_name}' base_query must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      invalid ->
+        raise ArgumentError,
+              "Named CTE '#{member_name}' requires :base_query function with arity 0 or 1. Got: #{inspect(invalid)}"
+    end
+  end
+
+  defp wrap_named_recursive_query!(recursive_query, selecto, member_name) do
+    case recursive_query do
+      query_builder when is_function(query_builder, 1) ->
+        fn cte_ref ->
+          result = query_builder.(cte_ref)
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named CTE '#{member_name}' recursive_query must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      query_builder when is_function(query_builder, 2) ->
+        fn cte_ref ->
+          result = query_builder.(selecto, cte_ref)
+
+          if match?(%Selecto{}, result) do
+            result
+          else
+            raise ArgumentError,
+                  "Named CTE '#{member_name}' recursive_query must return a Selecto struct. Got: #{inspect(result)}"
+          end
+        end
+
+      invalid ->
+        raise ArgumentError,
+              "Named CTE '#{member_name}' requires :recursive_query function with arity 1 or 2. Got: #{inspect(invalid)}"
+    end
+  end
+
+  defp merge_named_join_opts(default_join_opts, :__missing__, normalizer_fun) do
+    normalize_named_join_opts(default_join_opts, normalizer_fun)
+  end
+
+  defp merge_named_join_opts(_default_join_opts, override_join_opts, _normalizer_fun)
+       when override_join_opts in [nil, false, true],
+       do: override_join_opts
+
+  defp merge_named_join_opts(default_join_opts, override_join_opts, normalizer_fun)
+       when is_list(override_join_opts) or is_map(override_join_opts) do
+    override_join_opts = normalize_named_join_opts(override_join_opts, normalizer_fun)
+    default_join_opts = normalize_named_join_opts(default_join_opts, normalizer_fun)
+
+    if is_list(default_join_opts) do
+      Keyword.merge(default_join_opts, override_join_opts)
+    else
+      override_join_opts
+    end
+  end
+
+  defp merge_named_join_opts(_default_join_opts, invalid_join_opts, _normalizer_fun) do
+    raise ArgumentError,
+          "Named query member :join must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_join_opts)}"
+  end
+
+  defp normalize_named_join_opts(join_opts, _normalizer_fun)
+       when join_opts in [nil, false, true, :__missing__],
+       do: join_opts
+
+  defp normalize_named_join_opts(join_opts, normalizer_fun)
+       when is_list(join_opts) or is_map(join_opts),
+       do: normalizer_fun.(join_opts)
+
+  defp normalize_named_join_opts(invalid_join_opts, _normalizer_fun) do
+    raise ArgumentError,
+          "Named query member :join must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_join_opts)}"
+  end
+
+  defp values_member_alias(spec) when is_map(spec) do
+    Map.get(spec, :as) || Map.get(spec, :alias) || Map.get(spec, :alias_name)
+  end
+
+  defp normalize_subquery_on(nil), do: nil
+  defp normalize_subquery_on(:__missing__), do: nil
+
+  defp normalize_subquery_on(on_conditions) when is_list(on_conditions) do
+    Enum.map(on_conditions, fn
+      condition when is_map(condition) ->
+        normalize_subquery_on_condition(condition)
+
+      condition when is_list(condition) ->
+        condition |> Map.new() |> normalize_subquery_on_condition()
+
+      invalid ->
+        raise ArgumentError, "Invalid subquery :on condition: #{inspect(invalid)}"
+    end)
+  end
+
+  defp normalize_subquery_on(invalid_on) do
+    raise ArgumentError,
+          "Subquery :on option must be a list of conditions. Got: #{inspect(invalid_on)}"
+  end
+
+  defp normalize_subquery_on_condition(condition) do
+    left = Map.get(condition, :left, Map.get(condition, "left"))
+    right = Map.get(condition, :right, Map.get(condition, "right"))
+    operator = Map.get(condition, :operator, Map.get(condition, "operator"))
+
+    if is_nil(left) or is_nil(right) do
+      raise ArgumentError,
+            "Subquery :on conditions must include :left and :right. Got: #{inspect(condition)}"
+    end
+
+    result = %{left: left, right: right}
+
+    if is_nil(operator) do
+      result
+    else
+      Map.put(result, :operator, operator)
+    end
   end
 
   @doc """

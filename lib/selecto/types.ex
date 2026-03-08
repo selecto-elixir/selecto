@@ -245,6 +245,14 @@ defmodule Selecto.Types do
         }
 
   # Domain configuration
+  @type query_member_registry :: %{
+          optional(:ctes) => %{optional(atom() | String.t()) => map()},
+          optional(:values) => %{optional(atom() | String.t()) => map()},
+          optional(:subqueries) => %{optional(atom() | String.t()) => map()},
+          optional(:laterals) => %{optional(atom() | String.t()) => map()},
+          optional(:unnests) => %{optional(atom() | String.t()) => map()}
+        }
+
   @type domain :: %{
           required(:name) => String.t(),
           required(:source) => source(),
@@ -257,7 +265,8 @@ defmodule Selecto.Types do
           optional(:required_group_by) => [field_name()],
           optional(:filters) => %{String.t() => term()},
           optional(:domain_data) => term(),
-          optional(:extensions) => [term()]
+          optional(:extensions) => [term()],
+          optional(:query_members) => query_member_registry()
         }
 
   # Query set (mutable query state)

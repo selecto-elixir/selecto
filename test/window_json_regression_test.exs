@@ -281,6 +281,173 @@ defmodule Selecto.WindowJsonRegressionTest do
              "from orders selecto_root left join status_labels status_labels on status_labels.status = selecto_root.status"
   end
 
+  test "with_values can auto-join via join options" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Selecto.with_values(
+        [
+          ["processing", "In Progress"],
+          ["shipped", "In Transit"],
+          ["delivered", "Completed"]
+        ],
+        columns: ["status", "status_label"],
+        as: "status_labels",
+        join: [owner_key: :status, related_key: :status]
+      )
+      |> Selecto.select(["order_number", "status", "status_labels.status_label"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "WITH status_labels (\"status\", \"status_label\") AS (VALUES ('processing', 'In Progress'), ('shipped', 'In Transit'), ('delivered', 'Completed'))"
+
+    assert sql =~
+             "from orders selecto_root left join status_labels status_labels on status_labels.status = selecto_root.status"
+  end
+
+  test "with_values join: true infers join keys from first VALUES column" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Selecto.with_values(
+        [
+          ["processing", "In Progress"],
+          ["shipped", "In Transit"]
+        ],
+        columns: ["status", "status_label"],
+        as: "status_labels",
+        join: true
+      )
+      |> Selecto.select(["order_number", "status_labels.status_label"])
+
+    {sql, _params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert sql =~
+             "left join status_labels status_labels on status_labels.status = selecto_root.status"
+  end
+
+  test "with_cte can auto-join with inferred CTE fields" do
+    query =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.with_cte(
+        "order_totals",
+        fn ->
+          Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+          |> Selecto.select(["id", "total"])
+          |> Selecto.filter({"status", "delivered"})
+        end,
+        columns: ["id", "total"],
+        join: [owner_key: :id, related_key: :id, fields: :infer]
+      )
+      |> Selecto.select(["order_number", "order_totals.total"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["delivered"]
+    assert sql =~ "WITH order_totals (id, total) AS ("
+
+    assert sql =~
+             "left join order_totals order_totals on order_totals.id = selecto_root.id"
+  end
+
+  test "with_recursive_cte can auto-join recursive CTE" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Selecto.with_recursive_cte("order_chain",
+        base_query: fn ->
+          Selecto.configure(order_domain(), :mock_connection, validate: false)
+          |> Selecto.select(["id", "status"])
+          |> Selecto.filter({"status", "processing"})
+        end,
+        recursive_query: fn _cte_ref ->
+          Selecto.configure(order_domain(), :mock_connection, validate: false)
+          |> Selecto.select(["id", "status"])
+        end,
+        columns: ["id", "status"],
+        join: [owner_key: :id, related_key: :id, fields: :infer]
+      )
+      |> Selecto.select(["order_number", "order_chain.status"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["processing"]
+    assert sql =~ "WITH RECURSIVE order_chain (id, status) AS ("
+    assert sql =~ "left join order_chain order_chain on order_chain.id = selecto_root.id"
+  end
+
+  test "with_ctes supports joins: [...] batch auto-join" do
+    order_totals_cte =
+      Selecto.Advanced.CTE.create_cte(
+        "order_totals",
+        fn ->
+          Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+          |> Selecto.select(["id", "total"])
+        end,
+        columns: ["id", "total"]
+      )
+
+    customer_spend_cte =
+      Selecto.Advanced.CTE.create_cte(
+        "customer_spend",
+        fn ->
+          Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+          |> Selecto.select(["customer_id", "total"])
+        end,
+        columns: ["customer_id", "total"]
+      )
+
+    query =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.with_ctes([order_totals_cte, customer_spend_cte],
+        joins: [
+          [name: "order_totals", owner_key: :id, related_key: :id, fields: :infer],
+          [
+            name: "customer_spend",
+            owner_key: :customer_id,
+            related_key: :customer_id,
+            fields: :infer
+          ]
+        ]
+      )
+      |> Selecto.select(["order_number", "order_totals.total", "customer_spend.total"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ "order_totals (id, total) AS ("
+    assert sql =~ "customer_spend (customer_id, total) AS ("
+    assert sql =~ "left join order_totals order_totals on order_totals.id = selecto_root.id"
+
+    assert sql =~
+             "left join customer_spend customer_spend on customer_spend.customer_id = selecto_root.customer_id"
+  end
+
+  test "CTE auto-join fields: :infer requires declared CTE columns" do
+    assert_raise ArgumentError,
+                 "Cannot infer fields for CTE 'order_totals' because it has no declared columns. Provide fields explicitly or declare CTE columns.",
+                 fn ->
+                   Selecto.configure(order_domain(), :mock_connection, validate: false)
+                   |> Selecto.with_cte(
+                     "order_totals",
+                     fn ->
+                       Selecto.configure(order_domain(), :mock_connection, validate: false)
+                       |> Selecto.select(["id", "total"])
+                     end,
+                     join: [owner_key: :id, related_key: :id, fields: :infer]
+                   )
+                 end
+  end
+
   test "join_subquery injects parameterized subquery and preserves params" do
     high_value_delivered_orders =
       Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)

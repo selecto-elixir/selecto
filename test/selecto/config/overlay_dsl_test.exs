@@ -1,6 +1,9 @@
 defmodule Selecto.Config.OverlayDSLTest do
   use ExUnit.Case, async: true
 
+  def __query_member_cte__(_selecto), do: :ok
+  def __query_member_subquery__(_selecto), do: :ok
+
   describe "OverlayDSL basic usage" do
     test "generates overlay map from DSL" do
       defmodule TestOverlay1 do
@@ -214,6 +217,76 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert column.aggregate_functions == [:sum, :avg]
       assert column.sortable == true
       assert column.filterable == true
+    end
+  end
+
+  describe "query member macros" do
+    test "builds named cte, values, and subquery presets" do
+      defmodule TestQueryMembersOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defcte :employee_pets do
+          query(&Selecto.Config.OverlayDSLTest.__query_member_cte__/1)
+          columns(["employee_id", "pet_name"])
+          join(owner_key: :id, related_key: :employee_id, fields: :infer)
+        end
+
+        defvalues :status_lookup do
+          rows([["active", "Active"], ["inactive", "Inactive"]])
+          columns(["status", "label"])
+          as("status_lookup")
+          join(owner_key: :status, related_key: :status)
+        end
+
+        defsubquery :high_value_orders do
+          query(&Selecto.Config.OverlayDSLTest.__query_member_subquery__/1)
+          type(:inner)
+          on([%{left: "id", right: "customer_id"}])
+        end
+
+        deflateral :tag_expansion do
+          source({:unnest, "\"selecto_root\".\"tags\""})
+          as("tag_expansion")
+          join_type(:inner)
+        end
+
+        defunnest :product_tags do
+          array_field("tags")
+          as("product_tag")
+          ordinality("product_tag_position")
+        end
+      end
+
+      overlay = TestQueryMembersOverlay.overlay()
+
+      assert overlay.query_members.ctes.employee_pets.columns == ["employee_id", "pet_name"]
+      assert is_function(overlay.query_members.ctes.employee_pets.query, 1)
+
+      assert overlay.query_members.ctes.employee_pets.join == [
+               owner_key: :id,
+               related_key: :employee_id,
+               fields: :infer
+             ]
+
+      assert overlay.query_members.values.status_lookup.rows == [
+               ["active", "Active"],
+               ["inactive", "Inactive"]
+             ]
+
+      assert overlay.query_members.values.status_lookup.as == "status_lookup"
+      assert overlay.query_members.subqueries.high_value_orders.type == :inner
+      assert is_function(overlay.query_members.subqueries.high_value_orders.query, 1)
+
+      assert overlay.query_members.subqueries.high_value_orders.on == [
+               %{left: "id", right: "customer_id"}
+             ]
+
+      assert overlay.query_members.laterals.tag_expansion.source ==
+               {:unnest, "\"selecto_root\".\"tags\""}
+
+      assert overlay.query_members.laterals.tag_expansion.join_type == :inner
+      assert overlay.query_members.unnests.product_tags.array_field == "tags"
+      assert overlay.query_members.unnests.product_tags.ordinality == "product_tag_position"
     end
   end
 
