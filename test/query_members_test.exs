@@ -201,6 +201,19 @@ defmodule Selecto.QueryMembersTest do
     assert sql =~ ~r/series_rows/i
   end
 
+  test "with_lateral/3 allows overriding alias and join type" do
+    query =
+      Selecto.configure(order_domain_with_query_members(), :mock_connection, validate: false)
+      |> Selecto.with_lateral(:tag_expansion, as: "series_override", join_type: :left)
+      |> Selecto.select(["order_number"])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == [1, 3]
+    assert sql =~ ~r/left\s+join\s+lateral/i
+    assert sql =~ ~r/series_override/i
+  end
+
   test "with_unnest/2 resolves named unnest member" do
     query =
       Selecto.configure(order_domain_with_query_members(), :mock_connection, validate: false)
@@ -224,6 +237,19 @@ defmodule Selecto.QueryMembersTest do
     {sql, _params} = Selecto.to_sql(query)
 
     assert Regex.scan(~r/unnest\("selecto_root"\."tags"\)/i, sql) |> length() == 1
+  end
+
+  test "with_unnest/3 allows overriding alias and ordinality" do
+    query =
+      Selecto.configure(order_domain_with_query_members(), :mock_connection, validate: false)
+      |> Selecto.with_unnest(:product_tags, as: "tag_override", ordinality: "tag_idx")
+      |> Selecto.select(["order_number", "tag_override"])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == []
+    assert sql =~ ~r/unnest\("selecto_root"\."tags"\)/i
+    assert sql =~ ~r/AS\s+tag_override\(value,\s*tag_idx\)/i
   end
 
   test "named helpers raise useful errors for unknown members" do
