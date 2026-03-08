@@ -85,6 +85,16 @@ defmodule Selecto.Builder.Sql.WhereTest do
       {sq_sql, _sq_params} = Params.finalize(sq_iodata)
       assert sq_sql =~ ~r/\sin\s*\(/i
       assert sq_sql =~ subquery
+
+      param_subquery = "SELECT id FROM users WHERE name = $1"
+
+      {_joins, psq_iodata, psq_params} =
+        Where.build(selecto(), {"id", {:subquery, :in, param_subquery, ["Jane"]}})
+
+      {psq_sql, psq_finalized_params} = Params.finalize(psq_iodata)
+      assert psq_sql =~ ~r/name\s*=\s*\$1/i
+      assert psq_finalized_params == ["Jane"]
+      assert psq_params == ["Jane"]
     end
 
     test "null checks" do
@@ -103,9 +113,18 @@ defmodule Selecto.Builder.Sql.WhereTest do
       {_joins, exists_iodata, exists_params} =
         Where.build(selecto(), {:exists, "SELECT 1", ["x"]})
 
-      {exists_sql, _} = Params.finalize(exists_iodata)
+      {exists_sql, exists_finalized_params} = Params.finalize(exists_iodata)
       assert exists_sql =~ ~r/exists\s*\(/i
+      assert exists_finalized_params == []
       assert exists_params == ["x"]
+
+      {_joins, param_exists_iodata, param_exists_params} =
+        Where.build(selecto(), {:exists, "SELECT 1 FROM users WHERE name = $1", ["x"]})
+
+      {param_exists_sql, param_exists_finalized_params} = Params.finalize(param_exists_iodata)
+      assert param_exists_sql =~ ~r/name\s*=\s*\$1/i
+      assert param_exists_finalized_params == ["x"]
+      assert param_exists_params == ["x"]
 
       {_joins, raw_iodata, raw_params} =
         Where.build(selecto(), {:raw_sql_filter, [" users.id = 1 "]})

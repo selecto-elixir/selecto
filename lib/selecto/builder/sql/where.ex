@@ -79,9 +79,10 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, {:subquery, :in, query, params}}) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
+    query_iodata = convert_sql_placeholders_to_iodata(query, params)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
-     [" ", sel, " in ", in_subquery_fragment(query), " "], param ++ params}
+     [" ", sel, " in ", in_subquery_fragment(query_iodata), " "], param ++ params}
   end
 
   def build(selecto, {field, {:subquery, :in, query}}) do
@@ -95,9 +96,10 @@ defmodule Selecto.Builder.Sql.Where do
   def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
+    query_iodata = convert_sql_placeholders_to_iodata(query, params)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
-     [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param ++ params}
+     [" ", sel, " ", comp, " ", to_string(agg), " (", query_iodata, ") "], param ++ params}
   end
 
   def build(selecto, {field, comp, {:subquery, agg, query}}) when agg in [:any, :all] do
@@ -109,7 +111,8 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(_selecto, {:exists, query, params}) do
-    {[], [" exists (", query, ") "], params}
+    query_iodata = convert_sql_placeholders_to_iodata(query, params)
+    {[], [" exists (", query_iodata, ") "], params}
   end
 
   def build(_selecto, {:exists, query}) do
@@ -867,6 +870,30 @@ defmodule Selecto.Builder.Sql.Where do
   defp to_type(_t, val) do
     val
   end
+
+  defp convert_sql_placeholders_to_iodata(sql, params)
+       when is_binary(sql) and is_list(params) do
+    values_by_index =
+      params
+      |> Enum.with_index(1)
+      |> Map.new(fn {value, idx} -> {idx, value} end)
+
+    Regex.split(~r/(\$\d+)/, sql, include_captures: true, trim: false)
+    |> Enum.map(fn part ->
+      case Regex.run(~r/^\$(\d+)$/, part, capture: :all_but_first) do
+        [idx] ->
+          case Map.fetch(values_by_index, String.to_integer(idx)) do
+            {:ok, value} -> {:param, value}
+            :error -> part
+          end
+
+        _ ->
+          part
+      end
+    end)
+  end
+
+  defp convert_sql_placeholders_to_iodata(sql, _params), do: sql
 
   # Ensure `IN` subqueries are wrapped in parentheses.
   # If caller already provides parentheses, keep them as-is.
