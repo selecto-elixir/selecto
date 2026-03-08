@@ -177,52 +177,52 @@ selecto = Selecto.configure(ECommerceAnalytics.domain(), conn)
 # 1. Sales by Customer Region (Star Schema)
 regional_sales = selecto
   |> Selecto.select([
-    "customer[name]",
-    "customer[region][name]",
+    "customer.name",
+    "customer.region.name",
     {:func, "sum", ["total"]},
     {:func, "count", ["*"]},
     {:func, "avg", ["total"]}
   ])
   |> Selecto.filter([
     {"created_at", {:between, ~D[2024-01-01], ~D[2024-12-31]}},
-    {"customer[customer_type]", "premium"}
+    {"customer.customer_type", "premium"}
   ])
-  |> Selecto.group_by(["customer[name]", "customer[region][name]"])
+  |> Selecto.group_by(["customer.name", "customer.region.name"])
   |> Selecto.order_by([{:desc, {:func, "sum", ["total"]}}])
   |> Selecto.execute()
 
 # 2. Product Category Hierarchy Analysis
 category_performance = selecto
   |> Selecto.select([
-    "items[product][category_display]",     # From star dimension
-    "items[product][category_path]",        # From hierarchical path
-    "items[product][category_level]",       # From CTE calculation
-    {:func, "sum", ["items[quantity]"]},
+    "items.product.category_display",     # From star dimension
+    "items.product.category_path",        # From hierarchical path
+    "items.product.category_level",       # From CTE calculation
+    {:func, "sum", ["items.quantity"]},
     {:func, "sum", ["total"]}
   ])
   |> Selecto.filter([
-    {"items[product][category_level]", {:lte, 3}},  # Only 3 levels deep
+    {"items.product.category_level", {:lte, 3}},  # Only 3 levels deep
     {"total", {:gte, 50}}
   ])
   |> Selecto.group_by([
-    "items[product][category_display]",
-    "items[product][category_level]"
+    "items.product.category_display",
+    "items.product.category_level"
   ])
   |> Selecto.execute()
 
 # 3. Tagged Product Analysis (Many-to-Many)
 tagged_products = selecto
   |> Selecto.select([
-    "items[product][name]",
-    "items[product][tags_list]",            # Aggregated tag string
-    {:func, "sum", ["items[quantity]"]},
-    {:func, "avg", ["items[unit_price]"]}
+    "items.product.name",
+    "items.product.tags_list",            # Aggregated tag string
+    {:func, "sum", ["items.quantity"]},
+    {:func, "avg", ["items.unit_price"]}
   ])
   |> Selecto.filter([
-    {"items[product][tags_filter]", "premium"},  # Faceted tag filter
+    {"items.product.tags_filter", "premium"},  # Faceted tag filter
     {"created_at", {:gte, ~D[2024-06-01]}}
   ])
-  |> Selecto.group_by(["items[product][name]", "items[product][tags_list]"])
+  |> Selecto.group_by(["items.product.name", "items.product.tags_list"])
   |> Selecto.execute()
 ```
 
@@ -286,19 +286,19 @@ cms_selecto = Selecto.configure(CMSContent.domain(), conn)
 articles_with_hierarchy = cms_selecto
   |> Selecto.select([
     "title",
-    "author[name]",
-    "category[name]",
+    "author.name",
+    "category.name",
     "category_path",      # From CTE: full path to root
     "category_level",     # From CTE: depth in hierarchy  
     "tags_list"           # Aggregated tags
   ])
   |> Selecto.filter([
     {:or, [
-      {"category[name]", "Technology"},
+      {"category.name", "Technology"},
       {"category_path_array", {:contains, "Technology"}}  # Any ancestor named "Technology"
     ]},
     {"published_at", {:not_null}},
-    {"tags[name]", {:in, ["featured", "trending"]}}
+    {"tags.name", {:in, ["featured", "trending"]}}
   ])
   |> Selecto.order_by(["category_level", "published_at"])
   |> Selecto.execute()
@@ -382,14 +382,14 @@ management_chain = org_selecto
     "name",
     "manager_path",           # Full path to CEO
     "manager_level",          # Management level (0 = CEO)
-    "department[name]", 
+    "department.name", 
     "department_level",       # Department hierarchy level
     "skills_list"             # Aggregated skills
   ])
   |> Selecto.filter([
     {"manager_level", {:between, 1, 3}},  # Middle management only
-    {"department[name]", {:like, "Engineering%"}},
-    {"skills[skill_name]", {:in, ["leadership", "management"]}}
+    {"department.name", {:like, "Engineering%"}},
+    {"skills.skill_name", {:in, ["leadership", "management"]}}
   ])
   |> Selecto.order_by(["manager_level", "department_level", "name"])
   |> Selecto.execute()
@@ -397,17 +397,17 @@ management_chain = org_selecto
 # 2. Department rollup with employee counts
 department_summary = org_selecto
   |> Selecto.select([
-    "department[name]",
+    "department.name",
     "department_path",        # Full department hierarchy path
     {:func, "count", ["*"]},  # Employee count
     {:func, "avg", [{:extract, "year", {:func, "age", ["hire_date"]}}]}, # Avg tenure
-    {:array_agg, "skills_unique", ["skills[skill_name]"]}  # All unique skills
+    {:array_agg, "skills_unique", ["skills.skill_name"]}  # All unique skills
   ])
   |> Selecto.filter([
     {"hire_date", {:gte, ~D[2020-01-01]}},
     {"department_level", {:lte, 2}}  # Only top 2 department levels
   ])
-  |> Selecto.group_by(["department[name]", "department_path"])
+  |> Selecto.group_by(["department.name", "department_path"])
   |> Selecto.execute()
 ```
 
@@ -509,11 +509,11 @@ dashboard_selecto = Selecto.configure(SalesDashboard.sales_cube_domain(), conn)
 sales_cube = dashboard_selecto
   |> Selecto.select([
     # Dimensions
-    "time[year]",
-    "time[quarter]", 
-    "customer[segment]",
-    "product[category][name]",
-    "territory[country][name]",
+    "time.year",
+    "time.quarter", 
+    "customer.segment",
+    "product.category.name",
+    "territory.country.name",
     
     # Measures
     {:func, "sum", ["sale_amount"]},
@@ -526,38 +526,42 @@ sales_cube = dashboard_selecto
     {:window, "rank", [], {:over, ["sale_amount"], :desc}}  # Ranking
   ])
   |> Selecto.filter([
-    {"time[year]", {:in, [2023, 2024]}},
-    {"customer[segment]", {:not_eq, "test"}},
+    {"time.year", {:in, [2023, 2024]}},
+    {"customer.segment", {:not_eq, "test"}},
     {"sale_amount", {:gt, 0}}
   ])
   |> Selecto.group_by([
-    "time[year]", "time[quarter]",
-    "customer[segment]",
-    "product[category][name]", 
-    "territory[country][name]"
+    "time.year", "time.quarter",
+    "customer.segment",
+    "product.category.name", 
+    "territory.country.name"
   ])
   |> Selecto.order_by([
-    "time[year]", "time[quarter]",
+    "time.year", "time.quarter",
     {:desc, {:func, "sum", ["sale_amount"]}}
   ])
   |> Selecto.execute()
 
 # 2. Time-based trend analysis with CTEs
-alias Selecto.Builder.Cte
+alias Selecto.Advanced.CTE
+alias Selecto.Builder.CteSql
 
 # Create base CTE for monthly sales
 monthly_base = dashboard_selecto
   |> Selecto.select([
-    "time[year]",
-    "time[month]",
-    "customer[segment]",
+    "time.year",
+    "time.month",
+    "customer.segment",
     {:func, "sum", ["sale_amount"]},
     {:func, "count", ["*"]}
   ])
-  |> Selecto.filter([{"time[year]", 2024}])
-  |> Selecto.group_by(["time[year]", "time[month]", "customer[segment]"])
+  |> Selecto.filter([{"time.year", 2024}])
+  |> Selecto.group_by(["time.year", "time.month", "customer.segment"])
 
-{monthly_cte, monthly_params} = Cte.build_cte_from_selecto("monthly_sales", monthly_base)
+monthly_cte =
+  CTE.create_cte("monthly_sales", fn ->
+    monthly_base
+  end)
 
 # Main query with month-over-month comparison
 trend_query = [
@@ -572,8 +576,8 @@ trend_query = [
   "ORDER BY m1.year, m1.month, growth_percentage DESC"
 ]
 
-{final_query, final_params} = Cte.integrate_ctes_with_query(
-  [{monthly_cte, monthly_params}],
+{final_query, _combined_params} = CteSql.integrate_ctes_with_query(
+  [monthly_cte],
   trend_query,
   []
 )
@@ -590,7 +594,7 @@ trend_query = [
 ```elixir
 defmodule ComplexCTEExamples do
   def build_territory_hierarchy(conn, root_territory_id) do
-    alias Selecto.Builder.Cte
+    alias Selecto.Builder.CteSql
     
     # Base case: Root territory
     base_cte_sql = [
@@ -609,11 +613,9 @@ defmodule ComplexCTEExamples do
       "WHERE h.level < ", {:param, 5}
     ]
     
-    {recursive_cte, params} = Cte.build_recursive_cte(
-      "territory_hierarchy",
-      base_cte_sql, [root_territory_id],
-      recursive_cte_sql, [5]
-    )
+    recursive_cte =
+      {:raw_recursive_cte,
+       ["territory_hierarchy AS (", base_cte_sql, " UNION ALL ", recursive_cte_sql, ")"], []}
     
     # Main query: Sales rollup by territory level
     main_query = [
@@ -629,8 +631,8 @@ defmodule ComplexCTEExamples do
       "ORDER BY h.level, total_sales DESC"
     ]
     
-    {complete_query, combined_params} = Cte.integrate_ctes_with_query(
-      [{recursive_cte, params}],
+    {complete_query, _combined_params} = CteSql.integrate_ctes_with_query(
+      [recursive_cte],
       main_query,
       [~D[2024-01-01]]
     )
@@ -640,7 +642,7 @@ defmodule ComplexCTEExamples do
   end
   
   def build_customer_lifetime_value_analysis(conn) do
-    alias Selecto.Builder.Cte
+    alias Selecto.Builder.CteSql
     
     # CTE 1: Customer first purchase date
     first_purchase_sql = [
@@ -648,7 +650,7 @@ defmodule ComplexCTEExamples do
       "FROM sales_facts ",
       "GROUP BY customer_id"
     ]
-    {first_purchase_cte, _} = Cte.build_cte("first_purchases", first_purchase_sql, [])
+    first_purchase_cte = {:raw_cte, ["first_purchases AS (", first_purchase_sql, ")"], []}
     
     # CTE 2: Customer purchase summary by month
     monthly_purchases_sql = [
@@ -661,7 +663,7 @@ defmodule ComplexCTEExamples do
       "WHERE s.sale_date >= ", {:param, ~D[2023-01-01]}, " ",
       "GROUP BY s.customer_id, DATE_TRUNC('month', s.sale_date)"
     ]
-    {monthly_cte, monthly_params} = Cte.build_cte("monthly_purchases", monthly_purchases_sql, [~D[2023-01-01]])
+    monthly_cte = {:raw_cte, ["monthly_purchases AS (", monthly_purchases_sql, ")"], []}
     
     # Main query: Customer lifetime value with cohort analysis
     main_query = [
@@ -680,12 +682,9 @@ defmodule ComplexCTEExamples do
       "ORDER BY lifetime_value DESC"
     ]
     
-    all_ctes = [
-      {first_purchase_cte, []},
-      {monthly_cte, monthly_params}
-    ]
+    all_ctes = [first_purchase_cte, monthly_cte]
     
-    {complete_query, combined_params} = Cte.integrate_ctes_with_query(
+    {complete_query, _combined_params} = CteSql.integrate_ctes_with_query(
       all_ctes,
       main_query,
       [1000]
@@ -711,17 +710,17 @@ defmodule PerformanceOptimization do
     |> Selecto.filter([
       {"sale_date", {:between, ~D[2024-01-01], ~D[2024-12-31]}},  # Date range first
       {"sale_amount", {:gt, 100}},                                # Value filter
-      {"customer[segment]", "premium"}                            # Dimension filter
+      {"customer.segment", "premium"}                            # Dimension filter
     ])
     # 2. Select only needed columns
     |> Selecto.select([
-      "customer[name]",
-      "product[category]", 
+      "customer.name",
+      "product.category", 
       {:func, "sum", ["sale_amount"]},
       {:func, "count", ["*"]}
     ])
     # 3. Group by dimensions (not measures)
-    |> Selecto.group_by(["customer[name]", "product[category]"])
+    |> Selecto.group_by(["customer.name", "product.category"])
     # 4. Order by aggregated values for top-N queries
     |> Selecto.order_by([{:desc, {:func, "sum", ["sale_amount"]}}])
     |> Selecto.limit(100)  # Limit results for pagination
@@ -758,7 +757,7 @@ defmodule PerformanceOptimization do
       offset = batch_num * batch_size
       
       selecto
-      |> Selecto.select(["id", "name", "customer[segment]"])
+      |> Selecto.select(["id", "name", "customer.segment"])
       |> Selecto.order_by(["id"])  # Consistent ordering
       |> Selecto.limit(batch_size)
       |> Selecto.offset(offset)

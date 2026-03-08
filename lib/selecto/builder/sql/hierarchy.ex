@@ -10,7 +10,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
   """
 
   import Selecto.Builder.Sql.Helpers
-  # alias Selecto.Builder.Cte  # Phase 2: Will be used for CTE generation
+  # Hierarchy CTE definitions are emitted as raw CTE entries consumed by Selecto.Builder.CteSql.
 
   @doc """
   Build hierarchical join with appropriate CTE pattern.
@@ -57,7 +57,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     ]
 
     # Add CTE to the list and return JOIN clause with updated parameters
-    new_ctes = ctes ++ [{hierarchy_cte, cte_params}]
+    new_ctes = ctes ++ [{:raw_recursive_cte, hierarchy_cte, cte_params}]
     {fc ++ [cte_join_iodata], p ++ cte_params, new_ctes}
   end
 
@@ -83,7 +83,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     ]
 
     # Add CTE to the list and return JOIN clause
-    new_ctes = ctes ++ [{path_cte, cte_params}]
+    new_ctes = ctes ++ [{:raw_cte, path_cte, cte_params}]
     {fc ++ [cte_join_iodata], p ++ cte_params, new_ctes}
   end
 
@@ -109,7 +109,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     ]
 
     # Add CTE to the list and return JOIN clause
-    new_ctes = ctes ++ [{closure_cte, cte_params}]
+    new_ctes = ctes ++ [{:raw_cte, closure_cte, cte_params}]
     {fc ++ [cte_join_iodata], p ++ cte_params, new_ctes}
   end
 
@@ -177,27 +177,20 @@ defmodule Selecto.Builder.Sql.Hierarchy do
       "FROM #{source_table} WHERE #{parent_field} IS NULL"
     ]
 
-    # Recursive case: JOIN with CTE (use raw placeholder for now)
+    # Recursive case: JOIN with CTE
     recursive_case_iodata = [
       "SELECT c.#{id_field}, c.#{name_field}, c.#{parent_field}, h.level + 1, ",
       "h.path || '/' || CAST(c.#{id_field} AS TEXT), h.path_array || c.#{id_field} ",
       "FROM #{source_table} c JOIN #{cte_name} h ON c.#{parent_field} = h.#{id_field} ",
-      "WHERE h.level < $1"
+      "WHERE h.level < ",
+      {:param, depth_limit}
     ]
 
-    # Build complete CTE
-    cte_iodata = [
-      "WITH RECURSIVE ",
-      cte_name,
-      " AS (",
-      base_case_iodata,
-      " UNION ALL ",
-      recursive_case_iodata,
-      ")"
-    ]
+    # Build CTE definition body (WITH keyword added by CTE builder)
+    cte_iodata = [cte_name, " AS (", base_case_iodata, " UNION ALL ", recursive_case_iodata, ")"]
 
-    # Return CTE with parameters
-    {cte_iodata, [depth_limit]}
+    # Parameters are embedded in iodata via {:param, value} markers.
+    {cte_iodata, []}
   end
 
   @doc """
@@ -239,18 +232,18 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     query_name = "#{join}_materialized_path"
 
     query_iodata = [
-      "WITH ",
       query_name,
       " AS (",
       "SELECT *, ",
       "(length(#{path_field}) - length(replace(#{path_field}, '#{path_separator}', ''))) as depth, ",
       "string_to_array(#{path_field}, '#{path_separator}') as path_array ",
       "FROM #{source_table} ",
-      "WHERE #{path_field} LIKE $1",
+      "WHERE #{path_field} LIKE ",
+      {:param, path_pattern},
       ")"
     ]
 
-    {query_iodata, [path_pattern]}
+    {query_iodata, []}
   end
 
   @doc """
@@ -283,7 +276,6 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     query_name = "#{join}_closure"
 
     query_iodata = [
-      "WITH ",
       query_name,
       " AS (",
       "SELECT c.*, cl.#{depth_field}, ",
@@ -333,9 +325,12 @@ defmodule Selecto.Builder.Sql.Hierarchy do
           |> Selecto.filter([{"h.level", {:lt, 5}}])
           # Special handling for CTE JOIN would be added here
         
-        # Use Selecto-powered CTE generation
-        Selecto.Builder.Cte.build_recursive_cte_from_selecto(
-          hierarchy_name(join), base_case, recursive_case
+        # Use Selecto public recursive CTE API
+        Selecto.with_recursive_cte(
+          selecto,
+          hierarchy_name(join),
+          fn -> base_case end,
+          fn _cte_ref -> recursive_case end
         )
       end
   """
@@ -346,27 +341,20 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     # Users will build hierarchical CTEs using familiar Selecto syntax
     hierarchy_domain = configure_hierarchy_domain(categories_table)
 
-    {hierarchy_cte, params} = Cte.build_hierarchy_cte_from_selecto(
-      "category_tree",
-      hierarchy_domain,
-      connection,
-      %{
-        id_field: "id",
-        name_field: "name",
-        parent_field: "parent_id",
-        depth_limit: 5,
-        root_condition: [{"parent_id", nil}],
-        additional_fields: ["description", "sort_order"]
-      }
-    )
+    selecto_with_cte =
+      Selecto.configure(hierarchy_domain, connection)
+      |> Selecto.with_recursive_cte("category_tree",
+        base_query: fn -> base_case_selecto end,
+        recursive_query: fn cte_ref -> recursive_selecto(cte_ref) end
+      )
 
     # Main query can then reference the CTE
     main_selecto = Selecto.configure(main_domain, connection)
       |> Selecto.select(["main.*", "h.level", "h.path"])
       |> Selecto.filter([{"main.active", true}])
 
-    # CTE integration happens automatically in the SQL builder
-    {final_sql, final_params} = build_query_with_ctes(main_selecto, [hierarchy_cte])
+    # CTE integration happens automatically in SQL generation
+    {final_sql, final_params} = Selecto.to_sql(selecto_with_cte)
     """
   end
 

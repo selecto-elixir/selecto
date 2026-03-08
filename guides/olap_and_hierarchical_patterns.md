@@ -156,8 +156,8 @@ defmodule OLAPDimensionExample do
         }
       },
       # OLAP-specific default configurations
-      default_selected: ["date[year]", "date[quarter]", {:func, "sum", ["sale_amount"]}],
-      required_filters: [{"date[year]", {:gte, 2020}}],  # Prevent full table scans
+      default_selected: ["date.year", "date.quarter", {:func, "sum", ["sale_amount"]}],
+      required_filters: [{"date.year", {:gte, 2020}}],  # Prevent full table scans
       dimension_security: %{
         customer: [:customer_name, :segment],  # Visible customer fields
         store: [:store_name, :region]          # Restricted store access
@@ -177,22 +177,22 @@ olap_selecto = Selecto.configure(OLAPDimensionExample.sales_cube_domain(), conn)
 sales_cube_analysis = olap_selecto
   |> Selecto.select([
     # Time dimensions
-    "date[year]",
-    "date[quarter_name]",
-    "date[month_name]",
+    "date.year",
+    "date.quarter_name",
+    "date.month_name",
     
     # Customer dimensions  
-    "customer[segment]",
-    "customer[region]",
-    "customer[customer_type]",
+    "customer.segment",
+    "customer.region",
+    "customer.customer_type",
     
     # Product dimensions
-    "product[category]", 
-    "product[brand]",
+    "product.category", 
+    "product.brand",
     
     # Geographic dimensions
-    "store[region]",
-    "store[store_type]",
+    "store.region",
+    "store.store_type",
     
     # Core measures
     {:func, "sum", ["sale_amount"]},
@@ -202,37 +202,37 @@ sales_cube_analysis = olap_selecto
     
     # Calculated measures
     {:calc, :sum, ["sale_amount"], :divide, {:sum, ["quantity"]}},  # Average unit price
-    {:calc, :sum, ["sale_amount"], :subtract, {:sum, ["product[cost]"]}}, # Total profit
+    {:calc, :sum, ["sale_amount"], :subtract, {:sum, ["product.cost"]}}, # Total profit
     
     # Analytical functions
     {:window, "rank", [], {:over, [{:func, "sum", ["sale_amount"]}], :desc}},  # Sales rank
-    {:window, "lag", [{:func, "sum", ["sale_amount"]}, 1], {:over, ["date[year]", "date[quarter]"]}}, # Previous quarter
+    {:window, "lag", [{:func, "sum", ["sale_amount"]}, 1], {:over, ["date.year", "date.quarter"]}}, # Previous quarter
     {:percent_of_total, {:func, "sum", ["sale_amount"]}, [:customer, :segment]}  # Percentage by segment
   ])
   |> Selecto.filter([
     # Time-based filtering
-    {"date[year]", {:in, [2023, 2024]}},
-    {"date[quarter]", {:between, 1, 3}},
-    {"date[is_holiday]", false},
+    {"date.year", {:in, [2023, 2024]}},
+    {"date.quarter", {:between, 1, 3}},
+    {"date.is_holiday", false},
     
     # Dimension filtering
-    {"customer[segment]", {:in, ["Premium", "Enterprise"]}},
-    {"customer[credit_rating]", {:in, ["A", "B"]}},
-    {"product[category]", {:not_in, ["Discontinued", "Clearance"]}},
-    {"store[store_type]", {:not_eq, "Outlet"}},
+    {"customer.segment", {:in, ["Premium", "Enterprise"]}},
+    {"customer.credit_rating", {:in, ["A", "B"]}},
+    {"product.category", {:not_in, ["Discontinued", "Clearance"]}},
+    {"store.store_type", {:not_eq, "Outlet"}},
     
     # Measure filtering (HAVING clause)
     {{:func, "sum", ["sale_amount"]}, {:gt, 10000}},
     {{:func, "count", ["*"]}, {:gte, 5}}
   ])
   |> Selecto.group_by([
-    "date[year]", "date[quarter_name]", "date[month_name]",
-    "customer[segment]", "customer[region]", 
-    "product[category]", "product[brand]",
-    "store[region]"
+    "date.year", "date.quarter_name", "date.month_name",
+    "customer.segment", "customer.region", 
+    "product.category", "product.brand",
+    "store.region"
   ])
   |> Selecto.order_by([
-    "date[year]", "date[quarter]",
+    "date.year", "date.quarter",
     {:desc, {:func, "sum", ["sale_amount"]}}
   ])
   |> Selecto.execute()
@@ -246,54 +246,54 @@ def time_intelligence_queries(olap_selecto) do
   # Quarter-over-quarter growth analysis
   quarterly_growth = olap_selecto
     |> Selecto.select([
-      "date[year]",
-      "date[quarter_name]",
-      "customer[segment]",
+      "date.year",
+      "date.quarter_name",
+      "customer.segment",
       {:func, "sum", ["sale_amount"]},
       
       # Previous quarter comparison
       {:window, "lag", [{:func, "sum", ["sale_amount"]}, 1], 
-        {:over, ["customer[segment]"], [{:order_by, ["date[year]", "date[quarter]"]}]}},
+        {:over, ["customer.segment"], [{:order_by, ["date.year", "date.quarter"]}]}},
       
       # Growth calculation
       {:calc, 
         {:subtract, [
           {:func, "sum", ["sale_amount"]},
           {:window, "lag", [{:func, "sum", ["sale_amount"]}, 1], 
-            {:over, ["customer[segment]"], [{:order_by, ["date[year]", "date[quarter]"]}]}}
+            {:over, ["customer.segment"], [{:order_by, ["date.year", "date.quarter"]}]}}
         ]},
         :divide,
         {:window, "lag", [{:func, "sum", ["sale_amount"]}, 1], 
-          {:over, ["customer[segment]"], [{:order_by, ["date[year]", "date[quarter]"]}]}}
+          {:over, ["customer.segment"], [{:order_by, ["date.year", "date.quarter"]}]}}
       },
       
       # Year-over-year comparison
       {:window, "lag", [{:func, "sum", ["sale_amount"]}, 4], 
-        {:over, ["customer[segment]"], [{:order_by, ["date[year]", "date[quarter]"]}]}},
+        {:over, ["customer.segment"], [{:order_by, ["date.year", "date.quarter"]}]}},
       
       # Moving averages
       {:window, "avg", [{:func, "sum", ["sale_amount"]}], 
-        {:over, ["customer[segment]"], 
-         [{:order_by, ["date[year]", "date[quarter]"]}, 
+        {:over, ["customer.segment"], 
+         [{:order_by, ["date.year", "date.quarter"]}, 
           {:rows, {:between, 2, :preceding, :current_row}}]}}  # 3-quarter moving average
     ])
     |> Selecto.filter([
-      {"date[year]", {:between, 2022, 2024}}
+      {"date.year", {:between, 2022, 2024}}
     ])
     |> Selecto.group_by([
-      "date[year]", "date[quarter_name]", "customer[segment]"
+      "date.year", "date.quarter_name", "customer.segment"
     ])
     |> Selecto.order_by([
-      "customer[segment]", "date[year]", "date[quarter]"
+      "customer.segment", "date.year", "date.quarter"
     ])
     |> Selecto.execute()
   
   # Seasonal analysis
   seasonal_patterns = olap_selecto
     |> Selecto.select([
-      "date[month_name]",
-      "date[day_name]", 
-      "product[category]",
+      "date.month_name",
+      "date.day_name", 
+      "product.category",
       {:func, "avg", ["sale_amount"]},  # Average for this time period
       {:func, "sum", ["quantity"]},
       
@@ -302,15 +302,15 @@ def time_intelligence_queries(olap_selecto) do
         {:func, "avg", ["sale_amount"]},
         :divide,
         {:window, "avg", [{:func, "avg", ["sale_amount"]}], 
-          {:over, ["product[category]"], []}}
+          {:over, ["product.category"], []}}
       }
     ])
     |> Selecto.filter([
-      {"date[year]", 2024},
-      {"date[is_weekend]", false}
+      {"date.year", 2024},
+      {"date.is_weekend", false}
     ])
     |> Selecto.group_by([
-      "date[month_name]", "date[day_name]", "product[category]"
+      "date.month_name", "date.day_name", "product.category"
     ])
     |> Selecto.execute()
   
@@ -461,18 +461,18 @@ snowflake_selecto = Selecto.configure(SnowflakeSchemaExample.normalized_sales_do
 geographic_analysis = snowflake_selecto
   |> Selecto.select([
     # Deep snowflake navigation
-    "customer[region][country_display]",        # Country name
-    "customer[region][country][continent]",     # Continent
-    "customer[region][country][currency]",      # Currency
-    "customer[region][sales_manager_display]",  # Regional manager
-    "customer[customer_type_display]",          # Customer type
-    "customer[customer_type][discount_rate]",   # Type-specific discount
+    "customer.region.country_display",        # Country name
+    "customer.region.country.continent",     # Continent
+    "customer.region.country.currency",      # Currency
+    "customer.region.sales_manager_display",  # Regional manager
+    "customer.customer_type_display",          # Customer type
+    "customer.customer_type.discount_rate",   # Type-specific discount
     
     # Product snowflake navigation
-    "product[category_path]",                   # Hierarchical category path
-    "product[category_level]",                  # Category depth
-    "product[brand_display]",                   # Brand name
-    "product[supplier_display]",                # Supplier name
+    "product.category_path",                   # Hierarchical category path
+    "product.category_level",                  # Category depth
+    "product.brand_display",                   # Brand name
+    "product.supplier_display",                # Supplier name
     
     # Aggregated measures
     {:func, "sum", ["sale_amount"]},
@@ -480,16 +480,16 @@ geographic_analysis = snowflake_selecto
     {:func, "avg", ["sale_amount"]}
   ])
   |> Selecto.filter([
-    {"customer[region][country][continent]", {:in, ["North America", "Europe"]}},
-    {"customer[customer_type][discount_rate]", {:gte, 0.05}},
-    {"product[category_level]", {:lte, 3}},
-    {"product[brand][name]", {:not_null}}
+    {"customer.region.country.continent", {:in, ["North America", "Europe"]}},
+    {"customer.customer_type.discount_rate", {:gte, 0.05}},
+    {"product.category_level", {:lte, 3}},
+    {"product.brand.name", {:not_null}}
   ])
   |> Selecto.group_by([
-    "customer[region][country_display]",
-    "customer[customer_type_display]",
-    "product[category_path]", 
-    "product[brand_display]"
+    "customer.region.country_display",
+    "customer.customer_type_display",
+    "product.category_path", 
+    "product.brand_display"
   ])
   |> Selecto.execute()
 ```
@@ -589,11 +589,11 @@ management_metrics = org_selecto
     "subordinates_max_level",          # Deepest subordinate level
     
     # Department hierarchy
-    "department[name]",
+    "department.name",
     "department_path",                 # Department hierarchy path
     "department_level",                # Department depth
-    "department[budget]",
-    "department[head_display]",        # Department head name
+    "department.budget",
+    "department.head_display",        # Department head name
     
     # Individual metrics
     "salary",
@@ -669,7 +669,7 @@ category_navigation = content_selecto
     "title",
     
     # Category hierarchy information
-    "category[name]",
+    "category.name",
     "category_path",                    # Full category path
     "category_level",                   # Depth in hierarchy
     "category_ancestors",               # Array of ancestor names
@@ -692,15 +692,15 @@ category_navigation = content_selecto
     
     # Sibling and relationship filtering  
     {"category_siblings_count", {:gte, 2}},             # Has siblings
-    {"category[active]", true}
+    {"category.active", true}
   ])
   |> Selecto.group_by([
-    "category[name]", "category_path", "category_level"
+    "category.name", "category_path", "category_level"
   ])
   |> Selecto.order_by([
     "category_level",
-    "category[sort_order]",
-    "category[name]"
+    "category.sort_order",
+    "category.name"
   ])
   |> Selecto.execute()
 ```
@@ -762,12 +762,12 @@ scd_selecto = Selecto.configure(scd_customer_domain(), conn)
 # Point-in-time analysis
 historical_analysis = scd_selecto
   |> Selecto.select([
-    "customer[natural_key]",            # Business key
-    "customer[name]", 
-    "customer[segment]",
-    "customer[version]",                # SCD version
-    "customer[effective_date]",
-    "customer[expiration_date]",
+    "customer.natural_key",            # Business key
+    "customer.name", 
+    "customer.segment",
+    "customer.version",                # SCD version
+    "customer.effective_date",
+    "customer.expiration_date",
     {:func, "sum", ["sale_amount"]},
     {:func, "count", ["*"]}
   ])
@@ -776,14 +776,14 @@ historical_analysis = scd_selecto
     {"fact_date", {:between, ~D[2024-01-01], ~D[2024-12-31]}},
     
     # SCD-specific filters
-    {"customer[current_flag]", true},           # Current version only
-    # OR: {"customer[point_in_time]", ~D[2024-06-01]}, # Specific point in time
+    {"customer.current_flag", true},           # Current version only
+    # OR: {"customer.point_in_time", ~D[2024-06-01]}, # Specific point in time
     
-    {"customer[segment]", "Premium"}
+    {"customer.segment", "Premium"}
   ])
   |> Selecto.group_by([
-    "customer[natural_key]", "customer[name]", 
-    "customer[segment]", "customer[version]"
+    "customer.natural_key", "customer.name", 
+    "customer.segment", "customer.version"
   ])
   |> Selecto.execute()
 ```
@@ -799,21 +799,21 @@ defmodule OLAPOptimization do
     # Create summary cube for common queries
     monthly_summary = selecto
       |> Selecto.select([
-        "date[year]",
-        "date[month]",
-        "customer[segment]",
-        "product[category]",
+        "date.year",
+        "date.month",
+        "customer.segment",
+        "product.category",
         {:func, "sum", ["sale_amount"]},
         {:func, "sum", ["quantity"]},
         {:func, "count", ["*"]},
         {:func, "count", ["DISTINCT", "customer_id"]}
       ])
       |> Selecto.filter([
-        {"date[year]", {:gte, 2022}}
+        {"date.year", {:gte, 2022}}
       ])
       |> Selecto.group_by([
-        "date[year]", "date[month]",
-        "customer[segment]", "product[category]"
+        "date.year", "date.month",
+        "customer.segment", "product.category"
       ])
   end
   
@@ -822,18 +822,18 @@ defmodule OLAPOptimization do
     selecto
     # 1. Most selective dimension filters first
     |> Selecto.filter([
-      {"date[year]", 2024},                    # Highly selective time filter
-      {"customer[segment]", "Premium"},         # Selective business filter
-      {"product[category]", "Electronics"}     # Category filter
+      {"date.year", 2024},                    # Highly selective time filter
+      {"customer.segment", "Premium"},         # Selective business filter
+      {"product.category", "Electronics"}     # Category filter
     ])
     # 2. Select only required dimensions
     |> Selecto.select([
-      "customer[region]",
-      "product[brand]",
+      "customer.region",
+      "product.brand",
       {:func, "sum", ["sale_amount"]}
     ])
     # 3. Group by dimensions only (not measures)
-    |> Selecto.group_by(["customer[region]", "product[brand]"])
+    |> Selecto.group_by(["customer.region", "product.brand"])
     # 4. Efficient ordering
     |> Selecto.order_by([{:desc, {:func, "sum", ["sale_amount"]}}])
     |> Selecto.limit(100)  # Top N for dashboard display
@@ -845,15 +845,15 @@ defmodule OLAPOptimization do
     # Limit hierarchy depth early
     |> Selecto.filter([
       {"category_level", {:lte, 4}},          # Prevent deep recursion
-      {"category[active]", true},             # Index-friendly filter
+      {"category.active", true},             # Index-friendly filter
       {"category_path", {:like, "/tech/%"}}   # Path prefix for efficiency
     ])
     |> Selecto.select([
-      "category[name]",
+      "category.name",
       "category_level",
       "category_path"
     ])
-    |> Selecto.order_by(["category_level", "category[name]"])
+    |> Selecto.order_by(["category_level", "category.name"])
   end
 end
 ```

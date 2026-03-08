@@ -12,10 +12,8 @@ None currently.
 ## Recently Re-enabled
 
 ### `test/selecto_cte_integration_test.exs`
-- Re-enabled on: 2026-02-13
-- Validation command: `mix test test/selecto_cte_integration_test.exs`
-- Result: `11 tests, 0 failures`
-- Compatibility note: this suite depends on legacy `Selecto.Builder.Cte` helpers, now provided for backward compatibility.
+- Removed on: 2026-03-05
+- Reason: legacy `Selecto.Builder.Cte` compatibility API was removed in favor of `Selecto.Advanced.CTE` + `Selecto.Builder.CteSql`.
 
 ### `test/selecto_test.exs`
 - Re-enabled on: 2026-02-13

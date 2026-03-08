@@ -55,11 +55,11 @@ defmodule Selecto.HierarchyIntegrationTest do
       # Should have CTE in the list
       assert is_list(ctes)
       assert length(ctes) == 1
-      [{cte_iodata, cte_params}] = ctes
+      [{:raw_recursive_cte, cte_iodata, cte_params}] = ctes
 
       # Verify CTE structure
       cte_sql = IO.iodata_to_binary(cte_iodata)
-      assert String.contains?(cte_sql, "WITH RECURSIVE categories_hierarchy")
+      assert String.contains?(cte_sql, "categories_hierarchy AS (")
       assert String.contains?(cte_sql, "UNION ALL")
       assert cte_params == [5]
     end
@@ -117,9 +117,9 @@ defmodule Selecto.HierarchyIntegrationTest do
 
       # Should have path CTE
       assert length(ctes) == 1
-      [{cte_iodata, _cte_params}] = ctes
+      [{:raw_cte, cte_iodata, _cte_params}] = ctes
       cte_sql = IO.iodata_to_binary(cte_iodata)
-      assert String.contains?(cte_sql, "WITH menu_items_materialized_path AS")
+      assert String.contains?(cte_sql, "menu_items_materialized_path AS")
       assert String.contains?(cte_sql, "length(item_path)")
       assert String.contains?(cte_sql, "string_to_array(item_path")
     end
@@ -150,7 +150,7 @@ defmodule Selecto.HierarchyIntegrationTest do
       assert "%" in params
 
       # Should generate CTE with default path field
-      [{cte_iodata, _}] = ctes
+      [{:raw_cte, cte_iodata, _}] = ctes
       cte_sql = IO.iodata_to_binary(cte_iodata)
       assert String.contains?(cte_sql, "length(path)")
     end
@@ -193,9 +193,9 @@ defmodule Selecto.HierarchyIntegrationTest do
 
       # Should have closure CTE
       assert length(ctes) == 1
-      [{cte_iodata, _}] = ctes
+      [{:raw_cte, cte_iodata, _}] = ctes
       cte_sql = IO.iodata_to_binary(cte_iodata)
-      assert String.contains?(cte_sql, "WITH locations_closure AS")
+      assert String.contains?(cte_sql, "locations_closure AS")
       assert String.contains?(cte_sql, "FROM locations c")
       assert String.contains?(cte_sql, "JOIN location_closure cl")
       assert String.contains?(cte_sql, "cl.level")
@@ -224,7 +224,7 @@ defmodule Selecto.HierarchyIntegrationTest do
 
       {_from_clause, _params, ctes} = result
 
-      [{cte_iodata, _}] = ctes
+      [{:raw_cte, cte_iodata, _}] = ctes
       cte_sql = IO.iodata_to_binary(cte_iodata)
 
       # Should default to source_table + "_closure"
@@ -289,14 +289,14 @@ defmodule Selecto.HierarchyIntegrationTest do
 
       # Verify both CTE types are present
       cte_sqls =
-        Enum.map(combined_ctes, fn {cte_iodata, _} ->
+        Enum.map(combined_ctes, fn {_cte_type, cte_iodata, _cte_params} ->
           IO.iodata_to_binary(cte_iodata)
         end)
 
-      recursive_cte = Enum.find(cte_sqls, &String.contains?(&1, "WITH RECURSIVE"))
+      cte_types = Enum.map(combined_ctes, fn {cte_type, _cte_iodata, _cte_params} -> cte_type end)
       path_cte = Enum.find(cte_sqls, &String.contains?(&1, "menus_materialized_path"))
 
-      assert recursive_cte != nil
+      assert :raw_recursive_cte in cte_types
       assert path_cte != nil
     end
   end

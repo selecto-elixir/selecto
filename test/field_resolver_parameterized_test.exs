@@ -44,6 +44,7 @@ defmodule Selecto.FieldResolverParameterizedTest do
 
   test "resolve_field supports regular joined fields", %{selecto: selecto} do
     assert {:ok, field} = FieldResolver.resolve_field(selecto, "products.name")
+    assert field.name == "name"
     assert field.qualified_name == "products.name"
   end
 

@@ -155,10 +155,10 @@ Testing: Simple Star Schema
 1. **Reduce Join Complexity**
    ```elixir
    # Instead of deep nesting
-   "customer[region][country][continent]"
+   "customer.region.country.continent"
    
    # Consider denormalization
-   "customer[continent]"  # Pre-computed
+   "customer.continent"  # Pre-computed
    ```
 
 2. **Limit Hierarchy Depth**
@@ -176,7 +176,7 @@ Testing: Simple Star Schema
    ```elixir
    selecto
    |> Selecto.filter([
-     {"date[year]", 2024},        # Most selective first
+     {"date.year", 2024},        # Most selective first
      {"active", true},            # Indexed fields
      {"category_level", {:lte, 3}} # Limit complexity
    ])
