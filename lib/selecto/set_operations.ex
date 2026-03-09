@@ -511,7 +511,13 @@ defmodule Selecto.SetOperations do
   defp create_set_operation_selecto(spec) do
     # Use the left query as the base for the new struct
     # Set operations inherit the connection and basic configuration from the left side
-    base_selecto = spec.left_query
+    sanitized_set =
+      spec.left_query.set
+      |> Map.put(:order_by, [])
+      |> Map.delete(:limit)
+      |> Map.delete(:offset)
+
+    base_selecto = %{spec.left_query | set: sanitized_set}
 
     # Add set operation to the query set
     current_set_ops = Map.get(base_selecto.set, :set_operations, [])

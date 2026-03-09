@@ -76,6 +76,15 @@ defmodule Selecto.Builder.Sql.Where do
      ], []}
   end
 
+  def build(selecto, {field, {:subquery, :in, %Selecto{} = query_selecto}}) do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    query_iodata = selecto_subquery_to_iodata(query_selecto)
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " in ", in_subquery_fragment(query_iodata), " "], param}
+  end
+
   def build(selecto, {field, {:subquery, :in, query, params}}) do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
@@ -93,6 +102,16 @@ defmodule Selecto.Builder.Sql.Where do
      [" ", sel, " in ", in_subquery_fragment(query), " "], param}
   end
 
+  def build(selecto, {field, comp, {:subquery, agg, %Selecto{} = query_selecto}})
+      when agg in [:any, :all] do
+    conf = Selecto.field(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    query_iodata = selecto_subquery_to_iodata(query_selecto)
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " ", comp, " ", to_string(agg), " (", query_iodata, ") "], param}
+  end
+
   def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
@@ -108,6 +127,11 @@ defmodule Selecto.Builder.Sql.Where do
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
      [" ", sel, " ", comp, " ", to_string(agg), " (", query, ") "], param}
+  end
+
+  def build(_selecto, {:exists, %Selecto{} = query_selecto}) do
+    query_iodata = selecto_subquery_to_iodata(query_selecto)
+    {[], [" exists (", query_iodata, ") "], []}
   end
 
   def build(_selecto, {:exists, query, params}) do
@@ -894,6 +918,11 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   defp convert_sql_placeholders_to_iodata(sql, _params), do: sql
+
+  defp selecto_subquery_to_iodata(%Selecto{} = query_selecto) do
+    {sql, params} = Selecto.to_sql(query_selecto)
+    convert_sql_placeholders_to_iodata(sql, params)
+  end
 
   # Ensure `IN` subqueries are wrapped in parentheses.
   # If caller already provides parentheses, keep them as-is.

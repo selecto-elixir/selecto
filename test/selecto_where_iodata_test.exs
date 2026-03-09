@@ -95,6 +95,19 @@ defmodule Selecto.Builder.Sql.WhereTest do
       assert psq_sql =~ ~r/name\s*=\s*\$1/i
       assert psq_finalized_params == ["Jane"]
       assert psq_params == ["Jane"]
+
+      structured_subquery =
+        Selecto.configure(@domain, :mock_connection)
+        |> Selecto.select(["id"])
+        |> Selecto.filter({"name", "Jane"})
+
+      {_joins, structured_sq_iodata, _} =
+        Where.build(selecto(), {"id", {:subquery, :in, structured_subquery}})
+
+      {structured_sq_sql, structured_sq_params} = Params.finalize(structured_sq_iodata)
+      assert structured_sq_sql =~ ~r/in\s*\(\s*select/i
+      assert structured_sq_sql =~ ~r/from\s+users\s+selecto_root/i
+      assert structured_sq_params == ["Jane"]
     end
 
     test "null checks" do
@@ -125,6 +138,21 @@ defmodule Selecto.Builder.Sql.WhereTest do
       assert param_exists_sql =~ ~r/name\s*=\s*\$1/i
       assert param_exists_finalized_params == ["x"]
       assert param_exists_params == ["x"]
+
+      structured_exists_subquery =
+        Selecto.configure(@domain, :mock_connection)
+        |> Selecto.select(["id"])
+        |> Selecto.filter({"active", true})
+
+      {_joins, structured_exists_iodata, _} =
+        Where.build(selecto(), {:exists, structured_exists_subquery})
+
+      {structured_exists_sql, structured_exists_params} =
+        Params.finalize(structured_exists_iodata)
+
+      assert structured_exists_sql =~ ~r/exists\s*\(\s*select/i
+      assert structured_exists_sql =~ ~r/from\s+users\s+selecto_root/i
+      assert structured_exists_params == [true]
 
       {_joins, raw_iodata, raw_params} =
         Where.build(selecto(), {:raw_sql_filter, [" users.id = 1 "]})
