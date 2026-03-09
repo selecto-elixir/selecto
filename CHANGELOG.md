@@ -4,6 +4,17 @@
 ## V NEXT
 ---------------------------------------------------------
 
+## V 0.3.12 - Package Metadata and Documentation Links
+---------------------------------------------------------
+
+#### Changed
+- Updated package metadata description to better reflect Selecto's core query
+  capabilities (joins, CTEs, OLAP, and hierarchical patterns).
+- Added package links for SQL pattern references and the hosted demo
+  (`https://seeken.github.io/selecto-sql-patterns`,
+  `https://testselecto.fly.dev`).
+- Bumped package version to `0.3.12`.
+
 ## V 0.3.11 - Subquery Parameter Binding Reliability
 ---------------------------------------------------------
 
