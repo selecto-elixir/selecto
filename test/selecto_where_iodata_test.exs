@@ -106,7 +106,7 @@ defmodule Selecto.Builder.Sql.WhereTest do
 
       {structured_sq_sql, structured_sq_params} = Params.finalize(structured_sq_iodata)
       assert structured_sq_sql =~ ~r/in\s*\(\s*select/i
-      assert structured_sq_sql =~ ~r/from\s+users\s+selecto_root/i
+      assert structured_sq_sql =~ ~r/from\s+users\s+subq_root_users/i
       assert structured_sq_params == ["Jane"]
     end
 
@@ -151,7 +151,7 @@ defmodule Selecto.Builder.Sql.WhereTest do
         Params.finalize(structured_exists_iodata)
 
       assert structured_exists_sql =~ ~r/exists\s*\(\s*select/i
-      assert structured_exists_sql =~ ~r/from\s+users\s+selecto_root/i
+      assert structured_exists_sql =~ ~r/from\s+users\s+subq_root_users/i
       assert structured_exists_params == [true]
 
       {_joins, raw_iodata, raw_params} =

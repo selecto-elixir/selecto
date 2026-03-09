@@ -921,7 +921,34 @@ defmodule Selecto.Builder.Sql.Where do
 
   defp selecto_subquery_to_iodata(%Selecto{} = query_selecto) do
     {sql, params} = Selecto.to_sql(query_selecto)
-    convert_sql_placeholders_to_iodata(sql, params)
+
+    sql
+    |> rewrite_subquery_root_alias(build_subquery_root_alias(query_selecto))
+    |> convert_sql_placeholders_to_iodata(params)
+  end
+
+  defp build_subquery_root_alias(query_selecto) do
+    table_segment =
+      query_selecto
+      |> Selecto.source_table()
+      |> normalize_alias_segment("source")
+
+    "subq_root_#{table_segment}"
+  end
+
+  defp normalize_alias_segment(value, fallback) do
+    normalized =
+      value
+      |> to_string()
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/u, "_")
+      |> String.trim("_")
+
+    if normalized == "", do: fallback, else: normalized
+  end
+
+  defp rewrite_subquery_root_alias(subquery_sql, alias_name) when is_binary(subquery_sql) do
+    Regex.replace(~r/\bselecto_root\b/u, subquery_sql, alias_name)
   end
 
   # Ensure `IN` subqueries are wrapped in parentheses.
