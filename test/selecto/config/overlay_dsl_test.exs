@@ -290,6 +290,33 @@ defmodule Selecto.Config.OverlayDSLTest do
     end
   end
 
+  describe "domain registry macros" do
+    test "builds joins and schemas from DSL" do
+      defmodule TestJoinSchemaOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defschema(:initiative, %{
+          source_table: "initiatives",
+          columns: %{id: %{type: :integer}, name: %{type: :string}}
+        })
+
+        defjoin(:initiative, %{
+          type: :left,
+          schema: :initiative,
+          owner_key: :initiative_id,
+          related_key: :id
+        })
+      end
+
+      overlay = TestJoinSchemaOverlay.overlay()
+
+      assert overlay.schemas.initiative.source_table == "initiatives"
+      assert overlay.schemas.initiative.columns.name.type == :string
+      assert overlay.joins.initiative.type == :left
+      assert overlay.joins.initiative.owner_key == :initiative_id
+    end
+  end
+
   describe "filter directives" do
     test "name directive" do
       defmodule TestFilterName do

@@ -168,6 +168,57 @@ defmodule Selecto.WindowJsonRegressionTest do
     |> put_in([:joins, :customer, :filters], %{"tier" => %{type: "string"}})
   end
 
+  defp order_domain_with_status_dimension_join do
+    %{
+      name: "Orders",
+      source: %{
+        source_table: "orders",
+        primary_key: :id,
+        fields: [:id, :order_number, :status, :total],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          order_number: %{type: :string},
+          status: %{type: :string},
+          total: %{type: :decimal}
+        },
+        associations: %{
+          ref_load_status: %{
+            field: :ref_load_status,
+            queryable: :ref_load_statuses,
+            owner_key: :status,
+            related_key: :id
+          }
+        }
+      },
+      schemas: %{
+        ref_load_statuses: %{
+          source_table: "ref_load_statuses",
+          primary_key: :id,
+          fields: [:id, :name],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :string},
+            name: %{type: :string}
+          }
+        }
+      },
+      joins: %{
+        ref_load_status: %{
+          name: "Load Status",
+          type: :star_dimension,
+          source: "ref_load_statuses",
+          owner_key: :status,
+          my_key: :id,
+          fields: %{
+            id: %{type: :string},
+            name: %{type: :string}
+          }
+        }
+      }
+    }
+  end
+
   test "window SQL uses selecto_root alias for unqualified fields" do
     query =
       Selecto.configure(employee_domain(), :mock_connection, validate: false)
@@ -724,6 +775,77 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert params == []
     assert sql =~ "LEFT JOIN customers customer ON selecto_root.customer_id = customer.id"
     refute sql =~ "ON orders.customer_id = customer.id"
+  end
+
+  test "star_dimension join honors owner_key and my_key" do
+    query =
+      Selecto.configure(order_domain_with_status_dimension_join(), :mock_connection,
+        validate: false
+      )
+      |> Selecto.select(["ref_load_status.name", {:count, "*"}])
+      |> Selecto.group_by(["ref_load_status.name"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "LEFT JOIN ref_load_statuses ref_load_status ON selecto_root.status = ref_load_status.id"
+
+    refute sql =~ "selecto_root.ref_load_status_id = ref_load_status.id"
+  end
+
+  test "snowflake_dimension join honors owner_key and my_key" do
+    snowflake_domain =
+      order_domain_with_status_dimension_join()
+      |> put_in([:joins, :ref_load_status, :type], :snowflake_dimension)
+      |> put_in([:joins, :ref_load_status, :normalization_joins], [])
+
+    query =
+      Selecto.configure(snowflake_domain, :mock_connection, validate: false)
+      |> Selecto.select(["ref_load_status.name", {:count, "*"}])
+      |> Selecto.group_by(["ref_load_status.name"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "LEFT JOIN ref_load_statuses ref_load_status ON selecto_root.status = ref_load_status.id"
+
+    refute sql =~ "selecto_root.ref_load_status_id = ref_load_status.id"
+  end
+
+  test "snowflake_dimension with normalization chain keeps custom root keys" do
+    snowflake_domain =
+      order_domain_with_status_dimension_join()
+      |> put_in([:joins, :ref_load_status, :type], :snowflake_dimension)
+      |> put_in([:joins, :ref_load_status, :normalization_joins], [
+        %{table: "status_groups", key: "id", foreign_key: "status_group_id"}
+      ])
+
+    query =
+      Selecto.configure(snowflake_domain, :mock_connection, validate: false)
+      |> Selecto.select(["ref_load_status.name", {:count, "*"}])
+      |> Selecto.group_by(["ref_load_status.name"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "LEFT JOIN ref_load_statuses ref_load_status ON selecto_root.status = ref_load_status.id"
+
+    assert sql =~
+             "LEFT JOIN status_groups ref_load_status_status_groups ON ref_load_status.status_group_id = ref_load_status_status_groups.id"
+
+    refute sql =~ "selecto_root.ref_load_status_id = ref_load_status.id"
   end
 
   test "lateral subquery join includes subquery params and keeps global placeholder order" do

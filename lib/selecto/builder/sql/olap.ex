@@ -80,26 +80,24 @@ defmodule Selecto.Builder.Sql.Olap do
     # Extract star schema configuration
     # Used for custom columns
     _display_field = Map.get(config, :display_field, "name")
-    dimension_key = Map.get(config, :dimension_key, "#{join}_id")
+    owner_key = Map.get(config, :dimension_key) || Map.get(config, :owner_key, "#{join}_id")
+    related_key = Map.get(config, :my_key, :id)
+    requires_join = Map.get(config, :requires_join, :selecto_root)
 
     # Build fact table reference (for optimal JOIN ordering)
-    fact_table_ref = get_fact_table_reference(selecto)
     dimension_alias = build_join_string(selecto, join)
 
     # Star schema: direct fact-to-dimension JOIN
     # Optimized for aggregation queries - dimension data is denormalized
     star_join_iodata = [
       " LEFT JOIN ",
-      config.source,
+      quote_identifier(selecto, config.source),
       " ",
       dimension_alias,
       " ON ",
-      fact_table_ref,
-      ".",
-      dimension_key,
+      build_selector_string(selecto, requires_join, owner_key),
       " = ",
-      dimension_alias,
-      ".id"
+      build_selector_string(selecto, join, related_key)
     ]
 
     # Add query hints for OLAP performance (PostgreSQL-specific optimizations)
@@ -136,24 +134,22 @@ defmodule Selecto.Builder.Sql.Olap do
     # Used for custom columns
     _display_field = Map.get(config, :display_field, "name")
     normalization_joins = Map.get(config, :normalization_joins, [])
-    dimension_key = Map.get(config, :dimension_key, "#{join}_id")
+    owner_key = Map.get(config, :dimension_key) || Map.get(config, :owner_key, "#{join}_id")
+    related_key = Map.get(config, :my_key, :id)
+    requires_join = Map.get(config, :requires_join, :selecto_root)
 
     # Build primary dimension join (fact -> primary dimension table)
-    fact_table_ref = get_fact_table_reference(selecto)
     primary_alias = build_join_string(selecto, join)
 
     primary_join_iodata = [
       " LEFT JOIN ",
-      config.source,
+      quote_identifier(selecto, config.source),
       " ",
       primary_alias,
       " ON ",
-      fact_table_ref,
-      ".",
-      dimension_key,
+      build_selector_string(selecto, requires_join, owner_key),
       " = ",
-      primary_alias,
-      ".id"
+      build_selector_string(selecto, join, related_key)
     ]
 
     # Build normalization chain JOINs (primary -> secondary -> tertiary...)
@@ -270,16 +266,6 @@ defmodule Selecto.Builder.Sql.Olap do
   end
 
   # Helper functions
-
-  defp get_fact_table_reference(selecto) do
-    # Fact table is aliased as selecto_root in Selecto SQL generation.
-    # OLAP joins must use that alias to avoid invalid FROM references.
-    case selecto do
-      %{domain: %{source: %{source_table: _table}}} -> "selecto_root"
-      # Fallback for testing
-      _ -> "selecto_root"
-    end
-  end
 
   defp add_star_schema_hints(join_iodata, config) do
     # Add PostgreSQL-specific hints for star schema performance

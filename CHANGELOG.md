@@ -4,6 +4,27 @@
 ## V NEXT
 ---------------------------------------------------------
 
+## V 0.3.13 - Overlay Join/Schema DSL and OLAP Key Mapping Fixes
+---------------------------------------------------------
+
+#### Added
+- Added `defjoin/2` and `defschema/2` to `Selecto.Config.OverlayDSL` so
+  overlays can define top-level `joins` and `schemas` entries without
+  replacing entire sections.
+- Added overlay merge coverage and DSL tests for additive/deep merge behavior
+  across `joins` and `schemas`.
+- Added OLAP regression coverage ensuring `:star_dimension` and
+  `:snowflake_dimension` joins honor explicit `owner_key`/`my_key`, including
+  a snowflake normalization-chain case.
+
+#### Changed
+- Updated `Selecto.Config.Overlay.merge/2` to deep-merge top-level `joins` and
+  `schemas` the same way query-member registries are merged.
+- Updated OLAP join SQL generation to prefer explicit
+  `dimension_key`/`owner_key` and `my_key` when building ON clauses instead of
+  defaulting to `<join>_id = <alias>.id`.
+- Bumped package version to `0.3.13`.
+
 ## V 0.3.12 - Package Metadata and Documentation Links
 ---------------------------------------------------------
 
