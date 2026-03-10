@@ -4,6 +4,22 @@
 ## V NEXT
 ---------------------------------------------------------
 
+## V 0.3.14 - Join Label Name Fallback Fix
+---------------------------------------------------------
+
+#### Added
+- Added focused regression coverage in `test/selecto_schema_column_test.exs`
+  for joined-column display labels honoring join config names across
+  atom/string join keys.
+
+#### Changed
+- Updated `Selecto.Schema.Column` join label resolution to honor join config
+  `:name`/`"name"` before falling back to `humanize(join)` when building
+  joined column display names.
+- Added atom/string join-key lookup fallback when resolving join metadata for
+  display labels.
+- Bumped package version to `0.3.14`.
+
 ## V 0.3.13 - Overlay Join/Schema DSL and OLAP Key Mapping Fixes
 ---------------------------------------------------------
 

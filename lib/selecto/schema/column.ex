@@ -115,8 +115,8 @@ defmodule Selecto.Schema.Column do
 
         _ ->
           # For joined tables, use the join name
-          join_info = Map.get(Map.get(domain, :joins, %{}), join, %{})
-          join_name = Map.get(join_info, :name, humanize(join))
+          join_info = get_join_info(domain, join)
+          join_name = Map.get(join_info, :name, Map.get(join_info, "name", humanize(join)))
           "#{join_name}: #{name}"
       end
 
@@ -151,5 +151,27 @@ defmodule Selecto.Schema.Column do
 
   def humanize(bin) when is_binary(bin) do
     bin |> String.replace("_", " ") |> String.capitalize()
+  end
+
+  defp get_join_info(domain, join) do
+    joins = Map.get(domain, :joins, %{})
+
+    case Map.get(joins, join) do
+      nil when is_binary(join) ->
+        atom_join =
+          try do
+            String.to_existing_atom(join)
+          rescue
+            ArgumentError -> nil
+          end
+
+        if atom_join, do: Map.get(joins, atom_join, %{}), else: %{}
+
+      nil when is_atom(join) ->
+        Map.get(joins, Atom.to_string(join), %{})
+
+      join_info ->
+        join_info
+    end
   end
 end
