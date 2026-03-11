@@ -116,7 +116,15 @@ defmodule Selecto.Schema.Column do
         _ ->
           # For joined tables, use the join name
           join_info = get_join_info(domain, join)
-          join_name = resolve_assigned_name(join_info, join)
+
+          join_context =
+            if is_map(join_info) and map_size(join_info) > 0 do
+              join_info
+            else
+              domain
+            end
+
+          join_name = resolve_assigned_name(join_context, join)
           "#{join_name}: #{name}"
       end
 

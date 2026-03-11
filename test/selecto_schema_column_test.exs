@@ -62,4 +62,23 @@ defmodule Selecto.Schema.ColumnTest do
 
     assert columns["payload.co_name"].name == "payload_label: Co name"
   end
+
+  test "joined column label uses join config name when passed as domain context" do
+    source = %{
+      columns: %{
+        co_name: %{type: :string}
+      }
+    }
+
+    # This mirrors the join recursion path where configure_columns/4 receives
+    # the join config itself, not the top-level domain map.
+    join_config_domain = %{
+      name: "Payload",
+      columns: %{}
+    }
+
+    columns = Column.configure_columns(:load_det, [:co_name], source, join_config_domain)
+
+    assert columns["load_det.co_name"].name == "Payload: Co name"
+  end
 end
