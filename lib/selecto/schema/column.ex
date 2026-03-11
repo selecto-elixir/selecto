@@ -104,7 +104,7 @@ defmodule Selecto.Schema.Column do
         end
       )
 
-    name = Map.get(config, :name, humanize(field))
+    name = resolve_assigned_name(config, field)
 
     # Add appropriate prefix based on join type
     display_name =
@@ -116,7 +116,7 @@ defmodule Selecto.Schema.Column do
         _ ->
           # For joined tables, use the join name
           join_info = get_join_info(domain, join)
-          join_name = Map.get(join_info, :name, Map.get(join_info, "name", humanize(join)))
+          join_name = resolve_assigned_name(join_info, join)
           "#{join_name}: #{name}"
       end
 
@@ -174,4 +174,14 @@ defmodule Selecto.Schema.Column do
         join_info
     end
   end
+
+  defp resolve_assigned_name(config, fallback) when is_map(config) do
+    case Map.get(config, :name, Map.get(config, "name")) do
+      name when is_binary(name) and name != "" -> name
+      name when is_atom(name) and not is_nil(name) -> Atom.to_string(name)
+      _ -> humanize(fallback)
+    end
+  end
+
+  defp resolve_assigned_name(_config, fallback), do: humanize(fallback)
 end

@@ -4,6 +4,13 @@
 ## V NEXT
 ---------------------------------------------------------
 
+#### Changed
+- Updated joined-column label naming in `Selecto.Schema.Column` to always prefer
+  assigned join/field names (`:name` or `"name"`) before falling back to
+  `humanize/1`.
+- Hardened assigned-name resolution so `nil` does not bypass fallback handling,
+  and added regression coverage for atom-assigned names.
+
 ## V 0.3.14 - Join Label Name Fallback Fix
 ---------------------------------------------------------
 
