@@ -83,7 +83,7 @@ your domain config.
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.15"},
+    {:selecto, "~> 0.3.16"},
     # Optional extension package for spatial/map support
     {:selecto_postgis, "~> 0.1"}
   ]
@@ -467,7 +467,7 @@ SELECTO_POSTGRES_DATABASE=selecto_test
 
 ## 🚦 System Requirements
 
-- Elixir 1.14+
+- Elixir 1.18+
 - PostgreSQL 12+ with `postgrex` for full first-party integration coverage
 - Optional adapter client libraries for non-PostgreSQL execution paths
   (`myxql`, `tds`, `exqlite`), depending on adapter selection
@@ -487,7 +487,7 @@ SELECTO_POSTGRES_DATABASE=selecto_test
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.15"}
+    {:selecto, "~> 0.3.16"}
   ]
 end
 ```

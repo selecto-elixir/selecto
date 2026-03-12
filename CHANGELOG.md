@@ -1,6 +1,19 @@
 
 # Selecto Library Changelog
 
+## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
+---------------------------------------------------------
+
+#### Added
+- Added safe overlay association handling plus overlay-driven detail action
+  support for `iframe_modal` and `live_component` actions.
+
+#### Changed
+- Refactored SQL subquery compilation to generate unique aliases and improve
+  pagination query reliability.
+- Raised the minimum supported Elixir version to `1.18`.
+- Bumped package version to `0.3.16`.
+
 ## V 0.3.15 - Join Label Resolution Hardening
 ---------------------------------------------------------
 
