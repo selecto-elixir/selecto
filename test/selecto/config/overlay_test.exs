@@ -80,6 +80,37 @@ defmodule Selecto.Config.OverlayTest do
       assert result.filters["status"] == %{name: "Status Filter", type: :boolean}
     end
 
+    test "merges detail actions deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        detail_actions: %{
+          customer_modal: %{
+            name: "Customer Modal",
+            type: :modal,
+            payload: %{title: "Customer"}
+          }
+        }
+      }
+
+      overlay = %{
+        detail_actions: %{
+          customer_modal: %{payload: %{size: :xl}},
+          customer_profile: %{
+            name: "Customer Profile",
+            type: :external_link,
+            payload: %{url_template: "https://example.test/customers/{{customer_id}}"}
+          }
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.detail_actions.customer_modal.name == "Customer Modal"
+      assert result.detail_actions.customer_modal.payload.title == "Customer"
+      assert result.detail_actions.customer_modal.payload.size == :xl
+      assert result.detail_actions.customer_profile.type == :external_link
+    end
+
     test "merges query_members deeply" do
       base = %{
         source: %{columns: %{}, redact_fields: []},
@@ -474,6 +505,7 @@ defmodule Selecto.Config.OverlayTest do
       # Basic just has base config
       assert basic_config.source.columns.price == %{type: :decimal}
     end
+
     test "self-join overlay can add root and alias schema associations safely" do
       base = %{
         source: %{
@@ -565,6 +597,5 @@ defmodule Selecto.Config.OverlayTest do
 
       assert result.schemas.split_parent_load.associations == %{}
     end
-
   end
 end

@@ -87,6 +87,14 @@ defmodule Selecto.Fields do
   end
 
   @doc """
+  Get configured detail-row actions for the domain.
+  """
+  @spec detail_actions(Selecto.Types.t()) :: %{optional(atom() | String.t()) => map()}
+  def detail_actions(selecto) do
+    Map.get(selecto.domain, :detail_actions, %{})
+  end
+
+  @doc """
   Get normalized extension specs loaded for this Selecto instance.
   """
   @spec extensions(Selecto.Types.t()) :: [{module(), keyword()}]

@@ -293,6 +293,9 @@ defmodule Selecto do
   @spec domain_data(t()) :: term()
   defdelegate domain_data(selecto), to: Selecto.Fields
 
+  @spec detail_actions(t()) :: %{optional(atom() | String.t()) => map()}
+  defdelegate detail_actions(selecto), to: Selecto.Fields
+
   @spec field(t(), Selecto.Types.field_name()) :: map() | nil
   defdelegate field(selecto, field_name), to: Selecto.Fields
 
