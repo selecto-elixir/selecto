@@ -31,7 +31,7 @@ defmodule Selecto.DomainValidator do
       end
   """
 
-  @detail_action_types [:modal, :external_link]
+  @detail_action_types [:modal, :iframe_modal, :external_link, :live_component]
 
   # import Selecto.Types - removed to avoid circular dependency
 
@@ -411,9 +411,15 @@ defmodule Selecto.DomainValidator do
       "payload must be a map"
     )
     |> maybe_add_detail_action_error(
-      action_type == :external_link and not is_binary(detail_action_value(payload, :url_template)),
+      action_type in [:external_link, :iframe_modal] and
+        not is_binary(detail_action_value(payload, :url_template)),
       action_id,
-      "external_link actions require payload.url_template"
+      "#{action_type} actions require payload.url_template"
+    )
+    |> maybe_add_detail_action_error(
+      action_type == :live_component and not is_atom(detail_action_value(payload, :module)),
+      action_id,
+      "live_component actions require payload.module"
     )
     |> validate_detail_action_required_fields(action_id, required_fields, field_map)
   end
@@ -464,7 +470,9 @@ defmodule Selecto.DomainValidator do
   defp normalize_detail_action_type(value) when is_binary(value) do
     case String.trim(value) do
       "modal" -> :modal
+      "iframe_modal" -> :iframe_modal
       "external_link" -> :external_link
+      "live_component" -> :live_component
       _ -> nil
     end
   end

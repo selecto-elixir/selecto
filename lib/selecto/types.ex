@@ -253,7 +253,7 @@ defmodule Selecto.Types do
           optional(:unnests) => %{optional(atom() | String.t()) => map()}
         }
 
-  @type detail_action_type :: :modal | :external_link
+  @type detail_action_type :: :modal | :iframe_modal | :external_link | :live_component
 
   @type detail_action :: %{
           required(:name) => String.t(),

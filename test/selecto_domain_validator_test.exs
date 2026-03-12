@@ -198,6 +198,21 @@ defmodule Selecto.DomainValidatorTest do
             type: :external_link,
             required_fields: [:customer_id],
             payload: %{url_template: "https://example.test/customers/{{customer_id}}"}
+          },
+          customer_preview: %{
+            name: "Customer Preview",
+            type: :iframe_modal,
+            required_fields: [:customer_id],
+            payload: %{url_template: "https://example.test/customers/{{customer_id}}/preview"}
+          },
+          customer_card: %{
+            name: "Customer Card",
+            type: :live_component,
+            required_fields: [:customer_id, :full_name],
+            payload: %{
+              module: MyApp.CustomerCardComponent,
+              assigns: %{customer_id: {:field, "customer_id"}}
+            }
           }
         }
       }
@@ -225,9 +240,19 @@ defmodule Selecto.DomainValidatorTest do
             required_fields: [:missing_field],
             payload: %{}
           },
+          bad_iframe: %{
+            name: "Bad Iframe",
+            type: :iframe_modal,
+            payload: %{}
+          },
+          bad_component: %{
+            name: "Bad Component",
+            type: :live_component,
+            payload: %{}
+          },
           bad_type: %{
             name: "Bad Type",
-            type: :iframe_modal,
+            type: :made_up,
             payload: %{}
           }
         }
@@ -238,6 +263,14 @@ defmodule Selecto.DomainValidatorTest do
       assert Enum.any?(errors, fn
                {:detail_actions_invalid,
                 {:bad_link, "external_link actions require payload.url_template"}} ->
+                 true
+
+               {:detail_actions_invalid,
+                {:bad_iframe, "iframe_modal actions require payload.url_template"}} ->
+                 true
+
+               {:detail_actions_invalid,
+                {:bad_component, "live_component actions require payload.module"}} ->
                  true
 
                _ ->
