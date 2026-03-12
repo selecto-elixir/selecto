@@ -21,6 +21,8 @@ defmodule Selecto.Config.Overlay do
     without replacing the full schemas map
   - **Joins** (`joins`): Deep merge - overlay can add/override join entries
     without replacing the full joins map
+  - **Source associations** (`source.associations`): Deep merge - overlay can add
+    or override root associations without replacing the full source map
   - **Redact fields**: Union - unique list of all redacted fields
   - **Other fields**: Shallow merge - overlay takes precedence
 
@@ -128,6 +130,7 @@ defmodule Selecto.Config.Overlay do
     |> merge_query_members(overlay)
     |> merge_schemas(overlay)
     |> merge_joins(overlay)
+    |> merge_source_associations(overlay)
     |> merge_redact_fields(overlay)
     |> merge_other_fields(overlay)
   end
@@ -270,6 +273,27 @@ defmodule Selecto.Config.Overlay do
     end
   end
 
+  # Merges root source associations from overlay into base.
+  #
+  # Source associations are deep-merged so overlays can extend the source graph
+  # without replacing sibling source settings such as source_table or fields.
+  defp merge_source_associations(base, overlay) do
+    overlay_source_associations = get_in(overlay, [:source, :associations])
+
+    cond do
+      is_map(overlay_source_associations) and map_size(overlay_source_associations) > 0 ->
+        update_in(base, [:source, :associations], fn base_source_associations ->
+          base_source_associations =
+            if is_map(base_source_associations), do: base_source_associations, else: %{}
+
+          deep_merge(base_source_associations, overlay_source_associations)
+        end)
+
+      true ->
+        base
+    end
+  end
+
   # Merges other overlay fields that aren't handled specially.
   #
   # These fields use shallow merge - overlay replaces base value entirely.
@@ -282,7 +306,8 @@ defmodule Selecto.Config.Overlay do
       :jsonb_schemas,
       :query_members,
       :schemas,
-      :joins
+      :joins,
+      :source
     ]
 
     overlay

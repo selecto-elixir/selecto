@@ -155,6 +155,48 @@ defmodule Selecto.Config.OverlayTest do
       assert result.schemas.sponsor.source_table == "sponsors"
     end
 
+    test "merges schema associations deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        schemas: %{
+          bundle_parent_load: %{
+            source_table: "loads",
+            associations: %{
+              customer: %{
+                queryable: :customer,
+                field: :customer,
+                owner_key: :customer_id,
+                related_key: :id
+              }
+            }
+          }
+        }
+      }
+
+      overlay = %{
+        schemas: %{
+          bundle_parent_load: %{
+            associations: %{
+              split_parent_load: %{
+                queryable: :split_parent_load,
+                field: :split_parent_load,
+                owner_key: :split_parent_id,
+                related_key: :id
+              }
+            }
+          }
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.schemas.bundle_parent_load.source_table == "loads"
+      assert result.schemas.bundle_parent_load.associations.customer.queryable == :customer
+
+      assert result.schemas.bundle_parent_load.associations.split_parent_load.queryable ==
+               :split_parent_load
+    end
+
     test "merges joins deeply" do
       base = %{
         source: %{columns: %{}, redact_fields: []},
@@ -176,6 +218,48 @@ defmodule Selecto.Config.OverlayTest do
       assert result.joins.initiative.owner_key == :initiative_id
       assert result.joins.initiative.name == "initiative_join"
       assert result.joins.sponsor.type == :inner
+    end
+
+    test "merges source associations deeply without replacing source" do
+      base = %{
+        source: %{
+          source_table: "loads",
+          primary_key: :id,
+          fields: [:id, :customer_id],
+          columns: %{},
+          redact_fields: [],
+          associations: %{
+            customer: %{
+              queryable: :customer,
+              field: :customer,
+              owner_key: :customer_id,
+              related_key: :id
+            }
+          }
+        }
+      }
+
+      overlay = %{
+        source: %{
+          associations: %{
+            bundle_parent_load: %{
+              queryable: :bundle_parent_load,
+              field: :bundle_parent_load,
+              owner_key: :bundle_parent_id,
+              related_key: :id
+            }
+          }
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.source.source_table == "loads"
+      assert result.source.primary_key == :id
+      assert result.source.fields == [:id, :customer_id]
+      assert result.source.associations.customer.queryable == :customer
+      assert result.source.associations.bundle_parent_load.queryable == :bundle_parent_load
+      assert result.source.associations.bundle_parent_load.owner_key == :bundle_parent_id
     end
 
     test "merges redact_fields as union" do
@@ -390,5 +474,97 @@ defmodule Selecto.Config.OverlayTest do
       # Basic just has base config
       assert basic_config.source.columns.price == %{type: :decimal}
     end
+    test "self-join overlay can add root and alias schema associations safely" do
+      base = %{
+        source: %{
+          source_table: "loads",
+          primary_key: :id,
+          fields: [:id, :bundle_parent_id, :split_parent_id],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :integer},
+            bundle_parent_id: %{type: :integer},
+            split_parent_id: %{type: :integer}
+          },
+          associations: %{}
+        },
+        schemas: %{
+          bundle_parent_load: %{
+            source_table: "loads",
+            primary_key: :id,
+            fields: [:id, :split_parent_id],
+            redact_fields: [],
+            columns: %{id: %{type: :integer}, split_parent_id: %{type: :integer}},
+            associations: %{}
+          },
+          split_parent_load: %{
+            source_table: "loads",
+            primary_key: :id,
+            fields: [:id],
+            redact_fields: [],
+            columns: %{id: %{type: :integer}},
+            associations: %{}
+          }
+        },
+        joins: %{
+          bundle_parent_load: %{
+            type: :left,
+            schema: :bundle_parent_load,
+            owner_key: :bundle_parent_id,
+            related_key: :id
+          },
+          split_parent_load: %{
+            type: :left,
+            schema: :split_parent_load,
+            owner_key: :split_parent_id,
+            related_key: :id
+          }
+        }
+      }
+
+      overlay = %{
+        source: %{
+          associations: %{
+            bundle_parent_load: %{
+              queryable: :bundle_parent_load,
+              field: :bundle_parent_load,
+              owner_key: :bundle_parent_id,
+              related_key: :id
+            },
+            split_parent_load: %{
+              queryable: :split_parent_load,
+              field: :split_parent_load,
+              owner_key: :split_parent_id,
+              related_key: :id
+            }
+          }
+        },
+        schemas: %{
+          bundle_parent_load: %{
+            associations: %{
+              split_parent_load: %{
+                queryable: :split_parent_load,
+                field: :split_parent_load,
+                owner_key: :split_parent_id,
+                related_key: :id
+              }
+            }
+          }
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.source.source_table == "loads"
+      assert result.source.primary_key == :id
+      assert result.source.associations.bundle_parent_load.queryable == :bundle_parent_load
+      assert result.source.associations.split_parent_load.queryable == :split_parent_load
+
+      assert result.schemas.bundle_parent_load.associations.split_parent_load.queryable ==
+               :split_parent_load
+
+      assert result.schemas.split_parent_load.associations == %{}
+    end
+
   end
 end
