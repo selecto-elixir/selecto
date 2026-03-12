@@ -632,6 +632,7 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert overlay.columns == %{}
       assert overlay.filters == %{}
       assert overlay.detail_actions == %{}
+      assert overlay.source == %{associations: %{}}
       assert overlay.redact_fields == []
     end
   end

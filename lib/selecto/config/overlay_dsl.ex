@@ -5,7 +5,8 @@ defmodule Selecto.Config.OverlayDSL do
   This module provides a clean, declarative syntax for customizing Selecto domains
   through overlay files. Instead of manually constructing maps, you can use
   macros like `defcolumn`, `deffilter`, `defdetail_action`, `defcte`,
-  `defvalues`, `defsubquery`, `defjoin`, `defschema`, and `defsource_assoc`
+  `defvalues`, `defsubquery`, `defjoin`, `defschema`, `defschema_assoc`, and
+  `defsource_assoc`
   along with module attributes.
 
   ## Usage
