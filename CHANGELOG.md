@@ -1,7 +1,7 @@
 
 # Selecto Library Changelog
 
-## V NEXT
+## V 0.3.15 - Join Label Resolution Hardening
 ---------------------------------------------------------
 
 #### Changed
@@ -10,6 +10,7 @@
   `humanize/1`.
 - Hardened assigned-name resolution so `nil` does not bypass fallback handling,
   and added regression coverage for atom-assigned names.
+- Bumped package version to `0.3.15`.
 
 ## V 0.3.14 - Join Label Name Fallback Fix
 ---------------------------------------------------------
