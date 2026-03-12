@@ -83,7 +83,7 @@ your domain config.
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.10"},
+    {:selecto, "~> 0.3.15"},
     # Optional extension package for spatial/map support
     {:selecto_postgis, "~> 0.1"}
   ]
@@ -487,7 +487,7 @@ SELECTO_POSTGRES_DATABASE=selecto_test
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.10"}
+    {:selecto, "~> 0.3.15"}
   ]
 end
 ```

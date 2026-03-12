@@ -4,7 +4,8 @@ defmodule Selecto.Config.OverlayDSL do
 
   This module provides a clean, declarative syntax for customizing Selecto domains
   through overlay files. Instead of manually constructing maps, you can use
-  macros like `defcolumn`, `deffilter`, `defcte`, `defvalues`, and `defsubquery`
+  macros like `defcolumn`, `deffilter`, `defcte`, `defvalues`, `defsubquery`,
+  `defjoin`, and `defschema`
   along with module attributes.
 
   ## Usage
@@ -114,6 +115,11 @@ defmodule Selecto.Config.OverlayDSL do
   - `deflateral id do ... end` - Define a named LATERAL preset under `query_members.laterals`
   - `defunnest id do ... end` - Define a named UNNEST preset under `query_members.unnests`
 
+  ### Domain Registry Macros
+
+  - `defjoin id, config` - Define a top-level join entry under `joins`
+  - `defschema id, config` - Define a top-level schema entry under `schemas`
+
   ### Query Member Directives
 
   - `query/1` - Query builder (`fn -> selecto end`, `fn selecto -> selecto end`, or capture)
@@ -197,6 +203,8 @@ defmodule Selecto.Config.OverlayDSL do
       Module.register_attribute(__MODULE__, :overlay_subqueries, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_laterals, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_unnests, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_joins, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_schemas, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_jsonb_schemas, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_extension_specs, accumulate: false)
       Module.register_attribute(__MODULE__, :redactions, accumulate: false)
@@ -227,6 +235,8 @@ defmodule Selecto.Config.OverlayDSL do
     subqueries = Module.get_attribute(env.module, :overlay_subqueries) |> Enum.reverse()
     laterals = Module.get_attribute(env.module, :overlay_laterals) |> Enum.reverse()
     unnests = Module.get_attribute(env.module, :overlay_unnests) |> Enum.reverse()
+    joins = Module.get_attribute(env.module, :overlay_joins) |> Enum.reverse()
+    schemas = Module.get_attribute(env.module, :overlay_schemas) |> Enum.reverse()
     jsonb_schemas = Module.get_attribute(env.module, :overlay_jsonb_schemas) |> Enum.reverse()
     redactions = Module.get_attribute(env.module, :redactions) || []
     extension_specs = Module.get_attribute(env.module, :overlay_extension_specs) || []
@@ -266,6 +276,16 @@ defmodule Selecto.Config.OverlayDSL do
       |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
       |> Map.new()
 
+    joins_map =
+      joins
+      |> Enum.map(fn {name, props} -> {name, normalize_overlay_value(props)} end)
+      |> Map.new()
+
+    schemas_map =
+      schemas
+      |> Enum.map(fn {name, props} -> {name, normalize_overlay_value(props)} end)
+      |> Map.new()
+
     jsonb_schemas_map =
       jsonb_schemas
       |> Enum.map(fn {name, fields} -> {name, fields} end)
@@ -284,6 +304,8 @@ defmodule Selecto.Config.OverlayDSL do
           laterals: laterals_map,
           unnests: unnests_map
         },
+        joins: joins_map,
+        schemas: schemas_map,
         jsonb_schemas: jsonb_schemas_map,
         redact_fields: redactions
       }
@@ -431,6 +453,40 @@ defmodule Selecto.Config.OverlayDSL do
   end
 
   @doc """
+  Defines a join configuration under the top-level `joins` registry.
+
+  ## Example
+
+      defjoin :initiative, %{
+        type: :left,
+        schema: MyApp.Initiative,
+        owner_key: :initiative_id,
+        related_key: :id
+      }
+  """
+  defmacro defjoin(join_id, join_config) do
+    quote do
+      @overlay_joins {unquote(join_id), unquote(join_config)}
+    end
+  end
+
+  @doc """
+  Defines a schema configuration under the top-level `schemas` registry.
+
+  ## Example
+
+      defschema :initiative, %{
+        source_table: "initiatives",
+        columns: %{id: %{type: :integer}, name: %{type: :string}}
+      }
+  """
+  defmacro defschema(schema_id, schema_config) do
+    quote do
+      @overlay_schemas {unquote(schema_id), unquote(schema_config)}
+    end
+  end
+
+  @doc """
   Defines a JSONB schema for a JSONB column, enabling typed field access,
   filtering, and display of structured JSON data.
 
@@ -552,6 +608,12 @@ defmodule Selecto.Config.OverlayDSL do
       value -> Map.put(map, key, value)
     end
   end
+
+  defp normalize_overlay_value(value) when is_list(value) do
+    if Keyword.keyword?(value), do: Map.new(value), else: value
+  end
+
+  defp normalize_overlay_value(value), do: value
 
   # Helper to extract configuration from block at compile time
   defp extract_config({:__block__, _, exprs}, caller) do

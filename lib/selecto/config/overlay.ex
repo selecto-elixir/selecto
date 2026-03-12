@@ -17,6 +17,10 @@ defmodule Selecto.Config.Overlay do
   - **Filters**: Additive merge - both base and overlay filters are available
   - **Query members** (`query_members.ctes/values/subqueries`): Deep merge - overlay can
     add or override named query-member presets without replacing the full registry
+  - **Schemas** (`schemas`): Deep merge - overlay can add/override schema entries
+    without replacing the full schemas map
+  - **Joins** (`joins`): Deep merge - overlay can add/override join entries
+    without replacing the full joins map
   - **Redact fields**: Union - unique list of all redacted fields
   - **Other fields**: Shallow merge - overlay takes precedence
 
@@ -122,6 +126,8 @@ defmodule Selecto.Config.Overlay do
     |> merge_jsonb_schemas(overlay)
     |> merge_filters(overlay)
     |> merge_query_members(overlay)
+    |> merge_schemas(overlay)
+    |> merge_joins(overlay)
     |> merge_redact_fields(overlay)
     |> merge_other_fields(overlay)
   end
@@ -226,12 +232,58 @@ defmodule Selecto.Config.Overlay do
     end
   end
 
+  # Merges top-level schema definitions from overlay into base.
+  #
+  # Schema entries are deep-merged so overlays can add or override one schema
+  # without replacing sibling schemas defined by the base domain.
+  defp merge_schemas(base, overlay) do
+    overlay_schemas = get_in(overlay, [:schemas])
+
+    cond do
+      is_map(overlay_schemas) and map_size(overlay_schemas) > 0 ->
+        update_in(base, [:schemas], fn base_schemas ->
+          base_schemas = if is_map(base_schemas), do: base_schemas, else: %{}
+          deep_merge(base_schemas, overlay_schemas)
+        end)
+
+      true ->
+        base
+    end
+  end
+
+  # Merges top-level join definitions from overlay into base.
+  #
+  # Join entries are deep-merged so overlays can add or override one join
+  # without replacing sibling joins defined by the base domain.
+  defp merge_joins(base, overlay) do
+    overlay_joins = get_in(overlay, [:joins])
+
+    cond do
+      is_map(overlay_joins) and map_size(overlay_joins) > 0 ->
+        update_in(base, [:joins], fn base_joins ->
+          base_joins = if is_map(base_joins), do: base_joins, else: %{}
+          deep_merge(base_joins, overlay_joins)
+        end)
+
+      true ->
+        base
+    end
+  end
+
   # Merges other overlay fields that aren't handled specially.
   #
   # These fields use shallow merge - overlay replaces base value entirely.
   # Skip special fields that have their own merge logic.
   defp merge_other_fields(base, overlay) do
-    skip_fields = [:columns, :filters, :redact_fields, :jsonb_schemas, :query_members]
+    skip_fields = [
+      :columns,
+      :filters,
+      :redact_fields,
+      :jsonb_schemas,
+      :query_members,
+      :schemas,
+      :joins
+    ]
 
     overlay
     |> Map.drop(skip_fields)

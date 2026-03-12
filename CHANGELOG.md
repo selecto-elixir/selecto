@@ -1,8 +1,64 @@
 
 # Selecto Library Changelog
 
-## V NEXT
+## V 0.3.15 - Join Label Resolution Hardening
 ---------------------------------------------------------
+
+#### Changed
+- Updated joined-column label naming in `Selecto.Schema.Column` to always prefer
+  assigned join/field names (`:name` or `"name"`) before falling back to
+  `humanize/1`.
+- Hardened assigned-name resolution so `nil` does not bypass fallback handling,
+  and added regression coverage for atom-assigned names.
+- Bumped package version to `0.3.15`.
+
+## V 0.3.14 - Join Label Name Fallback Fix
+---------------------------------------------------------
+
+#### Added
+- Added focused regression coverage in `test/selecto_schema_column_test.exs`
+  for joined-column display labels honoring join config names across
+  atom/string join keys.
+
+#### Changed
+- Updated `Selecto.Schema.Column` join label resolution to honor join config
+  `:name`/`"name"` before falling back to `humanize(join)` when building
+  joined column display names.
+- Added atom/string join-key lookup fallback when resolving join metadata for
+  display labels.
+- Bumped package version to `0.3.14`.
+
+## V 0.3.13 - Overlay Join/Schema DSL and OLAP Key Mapping Fixes
+---------------------------------------------------------
+
+#### Added
+- Added `defjoin/2` and `defschema/2` to `Selecto.Config.OverlayDSL` so
+  overlays can define top-level `joins` and `schemas` entries without
+  replacing entire sections.
+- Added overlay merge coverage and DSL tests for additive/deep merge behavior
+  across `joins` and `schemas`.
+- Added OLAP regression coverage ensuring `:star_dimension` and
+  `:snowflake_dimension` joins honor explicit `owner_key`/`my_key`, including
+  a snowflake normalization-chain case.
+
+#### Changed
+- Updated `Selecto.Config.Overlay.merge/2` to deep-merge top-level `joins` and
+  `schemas` the same way query-member registries are merged.
+- Updated OLAP join SQL generation to prefer explicit
+  `dimension_key`/`owner_key` and `my_key` when building ON clauses instead of
+  defaulting to `<join>_id = <alias>.id`.
+- Bumped package version to `0.3.13`.
+
+## V 0.3.12 - Package Metadata and Documentation Links
+---------------------------------------------------------
+
+#### Changed
+- Updated package metadata description to better reflect Selecto's core query
+  capabilities (joins, CTEs, OLAP, and hierarchical patterns).
+- Added package links for SQL pattern references and the hosted demo
+  (`https://seeken.github.io/selecto-sql-patterns`,
+  `https://testselecto.fly.dev`).
+- Bumped package version to `0.3.12`.
 
 ## V 0.3.11 - Subquery Parameter Binding Reliability
 ---------------------------------------------------------

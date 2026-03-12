@@ -440,7 +440,7 @@ defmodule Selecto.Builder.Sql do
 
   defp build_set_operation_query(selecto, _opts) do
     # Build set operations using the dedicated builder
-    {set_op_iodata, set_op_params} = Selecto.Builder.SetOperations.build_set_operations(selecto)
+    {set_op_iodata, _set_op_params} = Selecto.Builder.SetOperations.build_set_operations(selecto)
 
     # Check if we need to add ORDER BY to the entire set operation result
     {order_by_iodata, order_by_params} =
@@ -456,9 +456,21 @@ defmodule Selecto.Builder.Sql do
         {[], []}
       end
 
-    # Combine set operations with any outer ORDER BY
-    final_iodata = [set_op_iodata] ++ order_by_iodata
-    _all_params = set_op_params ++ order_by_params
+    limit_iodata =
+      case Map.get(selecto.set, :limit) do
+        nil -> []
+        limit_value -> ["\nLIMIT ", Integer.to_string(limit_value)]
+      end
+
+    offset_iodata =
+      case Map.get(selecto.set, :offset) do
+        nil -> []
+        offset_value -> ["\nOFFSET ", Integer.to_string(offset_value)]
+      end
+
+    # Combine set operations with any outer ORDER BY/LIMIT/OFFSET
+    final_iodata = [set_op_iodata] ++ order_by_iodata ++ limit_iodata ++ offset_iodata
+    _all_params = order_by_params
 
     # Finalize the SQL
     {sql, final_params} =

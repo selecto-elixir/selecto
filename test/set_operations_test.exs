@@ -62,4 +62,31 @@ defmodule SetOperationsTest do
     assert sql =~ "ORDER BY"
     assert sql =~ "selecto_root.title"
   end
+
+  test "outer limit/offset apply to set operation result", %{q1: q1, q2: q2} do
+    result =
+      q1
+      |> Selecto.union(q2, all: true)
+      |> Selecto.order_by([{"title", :asc}])
+      |> Selecto.limit(5)
+      |> Selecto.offset(10)
+
+    {sql, _params} = Selecto.to_sql(result)
+
+    assert sql =~ ~r/ORDER BY/i
+    assert sql =~ ~r/LIMIT\s+5/i
+    assert sql =~ ~r/OFFSET\s+10/i
+  end
+
+  test "set operation does not inherit left query order by as outer order by", %{q1: q1, q2: q2} do
+    ordered_left = q1 |> Selecto.order_by([{"title", :asc}])
+    ordered_right = q2 |> Selecto.order_by([{"title", :asc}])
+
+    result = Selecto.union(ordered_left, ordered_right, all: true)
+
+    {sql, _params} = Selecto.to_sql(result)
+
+    order_by_count = Regex.scan(~r/order\s+by/i, sql) |> length()
+    assert order_by_count == 2
+  end
 end

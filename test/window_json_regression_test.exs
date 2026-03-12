@@ -168,6 +168,57 @@ defmodule Selecto.WindowJsonRegressionTest do
     |> put_in([:joins, :customer, :filters], %{"tier" => %{type: "string"}})
   end
 
+  defp order_domain_with_status_dimension_join do
+    %{
+      name: "Orders",
+      source: %{
+        source_table: "orders",
+        primary_key: :id,
+        fields: [:id, :order_number, :status, :total],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          order_number: %{type: :string},
+          status: %{type: :string},
+          total: %{type: :decimal}
+        },
+        associations: %{
+          ref_load_status: %{
+            field: :ref_load_status,
+            queryable: :ref_load_statuses,
+            owner_key: :status,
+            related_key: :id
+          }
+        }
+      },
+      schemas: %{
+        ref_load_statuses: %{
+          source_table: "ref_load_statuses",
+          primary_key: :id,
+          fields: [:id, :name],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :string},
+            name: %{type: :string}
+          }
+        }
+      },
+      joins: %{
+        ref_load_status: %{
+          name: "Load Status",
+          type: :star_dimension,
+          source: "ref_load_statuses",
+          owner_key: :status,
+          my_key: :id,
+          fields: %{
+            id: %{type: :string},
+            name: %{type: :string}
+          }
+        }
+      }
+    }
+  end
+
   test "window SQL uses selecto_root alias for unqualified fields" do
     query =
       Selecto.configure(employee_domain(), :mock_connection, validate: false)
@@ -479,9 +530,67 @@ defmodule Selecto.WindowJsonRegressionTest do
 
     assert params == ["delivered", 1000]
     assert sql =~ "from customers selecto_root inner join ("
-    assert sql =~ "select selecto_root.customer_id, selecto_root.order_number, selecto_root.total"
-    assert sql =~ "where (((( selecto_root.status = $1 ) and ( selecto_root.total > $2 ))))"
+
+    assert sql =~
+             "select subq_root_orders_high_value_delivered.customer_id, subq_root_orders_high_value_delivered.order_number, subq_root_orders_high_value_delivered.total"
+
+    assert sql =~
+             "where (((( subq_root_orders_high_value_delivered.status = $1 ) and ( subq_root_orders_high_value_delivered.total > $2 ))))"
+
     assert sql =~ ") high_value_delivered on selecto_root.id = high_value_delivered.customer_id"
+  end
+
+  test "join_subquery uses unique root aliases across multiple subqueries" do
+    delivered_orders =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.select(["customer_id", "order_number", "total"])
+      |> Selecto.filter(
+        {:and,
+         [
+           {"status", "delivered"},
+           {"total", {:>, 1000}}
+         ]}
+      )
+
+    shipped_orders =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.select(["customer_id", "order_number", "total"])
+      |> Selecto.filter(
+        {:and,
+         [
+           {"status", "shipped"},
+           {"total", {:>, 500}}
+         ]}
+      )
+
+    query =
+      Selecto.configure(customer_domain(), :mock_connection, validate: false)
+      |> Selecto.join_subquery(:high_value_delivered, delivered_orders,
+        type: :left,
+        on: [%{left: "id", right: "customer_id"}]
+      )
+      |> Selecto.join_subquery(:high_value_shipped, shipped_orders,
+        type: :left,
+        on: [%{left: "id", right: "customer_id"}]
+      )
+      |> Selecto.select([
+        "name",
+        "high_value_delivered.order_number",
+        "high_value_shipped.order_number"
+      ])
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["delivered", 1000, "shipped", 500]
+    assert sql =~ "from orders subq_root_orders_high_value_delivered"
+    assert sql =~ "from orders subq_root_orders_high_value_shipped"
+
+    [first_alias, second_alias] =
+      Regex.scan(~r/from orders (subq_root_orders_[a-z0-9_]+)/, sql, capture: :all_but_first)
+      |> List.flatten()
+
+    assert first_alias != second_alias
   end
 
   test "join_parameterize exposes dot notation fields for generated aliases" do
@@ -666,6 +775,77 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert params == []
     assert sql =~ "LEFT JOIN customers customer ON selecto_root.customer_id = customer.id"
     refute sql =~ "ON orders.customer_id = customer.id"
+  end
+
+  test "star_dimension join honors owner_key and my_key" do
+    query =
+      Selecto.configure(order_domain_with_status_dimension_join(), :mock_connection,
+        validate: false
+      )
+      |> Selecto.select(["ref_load_status.name", {:count, "*"}])
+      |> Selecto.group_by(["ref_load_status.name"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "LEFT JOIN ref_load_statuses ref_load_status ON selecto_root.status = ref_load_status.id"
+
+    refute sql =~ "selecto_root.ref_load_status_id = ref_load_status.id"
+  end
+
+  test "snowflake_dimension join honors owner_key and my_key" do
+    snowflake_domain =
+      order_domain_with_status_dimension_join()
+      |> put_in([:joins, :ref_load_status, :type], :snowflake_dimension)
+      |> put_in([:joins, :ref_load_status, :normalization_joins], [])
+
+    query =
+      Selecto.configure(snowflake_domain, :mock_connection, validate: false)
+      |> Selecto.select(["ref_load_status.name", {:count, "*"}])
+      |> Selecto.group_by(["ref_load_status.name"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "LEFT JOIN ref_load_statuses ref_load_status ON selecto_root.status = ref_load_status.id"
+
+    refute sql =~ "selecto_root.ref_load_status_id = ref_load_status.id"
+  end
+
+  test "snowflake_dimension with normalization chain keeps custom root keys" do
+    snowflake_domain =
+      order_domain_with_status_dimension_join()
+      |> put_in([:joins, :ref_load_status, :type], :snowflake_dimension)
+      |> put_in([:joins, :ref_load_status, :normalization_joins], [
+        %{table: "status_groups", key: "id", foreign_key: "status_group_id"}
+      ])
+
+    query =
+      Selecto.configure(snowflake_domain, :mock_connection, validate: false)
+      |> Selecto.select(["ref_load_status.name", {:count, "*"}])
+      |> Selecto.group_by(["ref_load_status.name"])
+      |> Selecto.limit(5)
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "LEFT JOIN ref_load_statuses ref_load_status ON selecto_root.status = ref_load_status.id"
+
+    assert sql =~
+             "LEFT JOIN status_groups ref_load_status_status_groups ON ref_load_status.status_group_id = ref_load_status_status_groups.id"
+
+    refute sql =~ "selecto_root.ref_load_status_id = ref_load_status.id"
   end
 
   test "lateral subquery join includes subquery params and keeps global placeholder order" do

@@ -4,12 +4,13 @@ defmodule Selecto.MixProject do
   def project do
     [
       app: :selecto,
-      version: "0.3.11",
+      version: "0.3.15",
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       name: "Selecto",
-      description: "ALPHA: Query builder with breaking changes expected",
+      description:
+        "Alpha: composable SQL query builder for Elixir domains with joins, CTEs, OLAP, and hierarchical patterns",
       package: package(),
 
       # Test coverage
@@ -119,7 +120,11 @@ defmodule Selecto.MixProject do
         ".formatter.exs"
       ],
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/selecto-elixir/selecto"},
+      links: %{
+        "GitHub" => "https://github.com/selecto-elixir/selecto",
+        "SQL Patterns" => "https://seeken.github.io/selecto-sql-patterns",
+        "Demo (Fly)" => "https://testselecto.fly.dev"
+      },
       source_url: "https://github.com/selecto-elixir/selecto"
     ]
   end

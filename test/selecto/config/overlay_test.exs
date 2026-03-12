@@ -132,6 +132,52 @@ defmodule Selecto.Config.OverlayTest do
       assert result.query_members.unnests.tag_values.array_field == "tags"
     end
 
+    test "merges schemas deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        schemas: %{
+          initiative: %{source_table: "initiatives", columns: %{id: %{type: :integer}}}
+        }
+      }
+
+      overlay = %{
+        schemas: %{
+          initiative: %{columns: %{name: %{type: :string}}},
+          sponsor: %{source_table: "sponsors", columns: %{id: %{type: :integer}}}
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.schemas.initiative.source_table == "initiatives"
+      assert result.schemas.initiative.columns.id.type == :integer
+      assert result.schemas.initiative.columns.name.type == :string
+      assert result.schemas.sponsor.source_table == "sponsors"
+    end
+
+    test "merges joins deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        joins: %{
+          initiative: %{type: :left, owner_key: :initiative_id, related_key: :id}
+        }
+      }
+
+      overlay = %{
+        joins: %{
+          initiative: %{name: "initiative_join"},
+          sponsor: %{type: :inner, owner_key: :sponsor_id, related_key: :id}
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.joins.initiative.type == :left
+      assert result.joins.initiative.owner_key == :initiative_id
+      assert result.joins.initiative.name == "initiative_join"
+      assert result.joins.sponsor.type == :inner
+    end
+
     test "merges redact_fields as union" do
       base = %{
         source: %{
