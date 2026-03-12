@@ -317,6 +317,81 @@ defmodule Selecto.Config.OverlayDSLTest do
     end
   end
 
+  describe "domain registry macros" do
+    test "builds joins and schemas from DSL" do
+      defmodule TestJoinSchemaOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defschema(:initiative, %{
+          source_table: "initiatives",
+          columns: %{id: %{type: :integer}, name: %{type: :string}}
+        })
+
+        defjoin(:initiative, %{
+          type: :left,
+          schema: :initiative,
+          owner_key: :initiative_id,
+          related_key: :id
+        })
+      end
+
+      overlay = TestJoinSchemaOverlay.overlay()
+
+      assert overlay.schemas.initiative.source_table == "initiatives"
+      assert overlay.schemas.initiative.columns.name.type == :string
+      assert overlay.joins.initiative.type == :left
+      assert overlay.joins.initiative.owner_key == :initiative_id
+    end
+
+    test "builds root source associations from DSL" do
+      defmodule TestSourceAssociationOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defsource_assoc(:bundle_parent_load, %{
+          queryable: :bundle_parent_load,
+          field: :bundle_parent_load,
+          owner_key: :bundle_parent_id,
+          related_key: :id
+        })
+      end
+
+      overlay = TestSourceAssociationOverlay.overlay()
+
+      assert overlay.source.associations.bundle_parent_load.queryable == :bundle_parent_load
+      assert overlay.source.associations.bundle_parent_load.field == :bundle_parent_load
+      assert overlay.source.associations.bundle_parent_load.owner_key == :bundle_parent_id
+      assert overlay.source.associations.bundle_parent_load.related_key == :id
+    end
+
+    test "builds schema associations from DSL" do
+      defmodule TestSchemaAssociationOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defschema(:bundle_parent_load, %{
+          source_table: "loads",
+          columns: %{id: %{type: :integer}}
+        })
+
+        defschema_assoc(:bundle_parent_load, :split_parent_load, %{
+          queryable: :split_parent_load,
+          field: :split_parent_load,
+          owner_key: :split_parent_id,
+          related_key: :id
+        })
+      end
+
+      overlay = TestSchemaAssociationOverlay.overlay()
+
+      assert overlay.schemas.bundle_parent_load.source_table == "loads"
+
+      assert overlay.schemas.bundle_parent_load.associations.split_parent_load.queryable ==
+               :split_parent_load
+
+      assert overlay.schemas.bundle_parent_load.associations.split_parent_load.field ==
+               :split_parent_load
+    end
+  end
+
   describe "filter directives" do
     test "name directive" do
       defmodule TestFilterName do
@@ -461,6 +536,81 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert :password in merged.source.redact_fields
       assert merged.filters["active"].name == "Active Items"
     end
+    test "DSL source associations merge correctly with base domain" do
+      defmodule TestSourceAssociationIntegration do
+        use Selecto.Config.OverlayDSL
+
+        defsource_assoc(:bundle_parent_load, %{
+          queryable: :bundle_parent_load,
+          field: :bundle_parent_load,
+          owner_key: :bundle_parent_id,
+          related_key: :id
+        })
+      end
+
+      base = %{
+        source: %{
+          columns: %{},
+          redact_fields: [],
+          associations: %{
+            customer: %{
+              queryable: :customer,
+              field: :customer,
+              owner_key: :customer_id,
+              related_key: :id
+            }
+          }
+        },
+        filters: %{}
+      }
+
+      merged = Selecto.Config.Overlay.merge(base, TestSourceAssociationIntegration.overlay())
+
+      assert merged.source.associations.customer.queryable == :customer
+
+      assert merged.source.associations.bundle_parent_load.queryable == :bundle_parent_load
+      assert merged.source.associations.bundle_parent_load.owner_key == :bundle_parent_id
+    end
+
+    test "DSL schema associations merge correctly with base domain" do
+      defmodule TestSchemaAssociationIntegration do
+        use Selecto.Config.OverlayDSL
+
+        defschema_assoc(:bundle_parent_load, :split_parent_load, %{
+          queryable: :split_parent_load,
+          field: :split_parent_load,
+          owner_key: :split_parent_id,
+          related_key: :id
+        })
+      end
+
+      base = %{
+        source: %{columns: %{}, redact_fields: [], associations: %{}},
+        schemas: %{
+          bundle_parent_load: %{
+            source_table: "loads",
+            associations: %{
+              customer: %{
+                queryable: :customer,
+                field: :customer,
+                owner_key: :customer_id,
+                related_key: :id
+              }
+            }
+          }
+        },
+        filters: %{}
+      }
+
+      merged = Selecto.Config.Overlay.merge(base, TestSchemaAssociationIntegration.overlay())
+
+      assert merged.schemas.bundle_parent_load.source_table == "loads"
+      assert merged.schemas.bundle_parent_load.associations.customer.queryable == :customer
+
+      assert merged.schemas.bundle_parent_load.associations.split_parent_load.queryable ==
+               :split_parent_load
+    end
+
   end
 
   describe "empty overlay" do
@@ -473,6 +623,7 @@ defmodule Selecto.Config.OverlayDSLTest do
 
       assert overlay.columns == %{}
       assert overlay.filters == %{}
+      assert overlay.source == %{associations: %{}}
       assert overlay.redact_fields == []
     end
   end
