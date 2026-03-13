@@ -309,6 +309,9 @@ defmodule Selecto.Builder.Sql.Where do
         Selecto.DB.MariaDB ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
+        SelectoDBMariaDB.Adapter ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
         _ ->
           [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
       end
@@ -352,6 +355,15 @@ defmodule Selecto.Builder.Sql.Where do
             ") "
           ]
 
+        SelectoDBMariaDB.Adapter ->
+          [
+            " ",
+            sel,
+            " NOT IN (",
+            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+            ") "
+          ]
+
         _ ->
           [
             " NOT (",
@@ -381,6 +393,9 @@ defmodule Selecto.Builder.Sql.Where do
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
         Selecto.DB.MariaDB ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
+        SelectoDBMariaDB.Adapter ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
         _ ->
@@ -583,6 +598,15 @@ defmodule Selecto.Builder.Sql.Where do
               ]
 
             Selecto.DB.MariaDB ->
+              [
+                " ",
+                sel,
+                " IN (",
+                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+                ") "
+              ]
+
+            SelectoDBMariaDB.Adapter ->
               [
                 " ",
                 sel,

@@ -98,6 +98,7 @@ defmodule Selecto.MixProject do
       {:timex, "~> 3.7.9"},
       {:mneme, ">= 0.0.0", only: [:dev, :test]},
       mysql_adapter_dep(),
+      mariadb_adapter_dep(),
       {:tds, "~> 2.3", only: :test, optional: true},
       sqlite_adapter_dep(),
       {:benchee, "~> 1.0", only: [:dev, :test], optional: true},
@@ -127,6 +128,13 @@ defmodule Selecto.MixProject do
     case maybe_local_dep_path("selecto_db_mysql") do
       nil -> {:selecto_db_mysql, ">= 0.1.0 and < 0.2.0", only: :test, optional: true}
       path -> {:selecto_db_mysql, path: path, only: :test, optional: true}
+    end
+  end
+
+  defp mariadb_adapter_dep do
+    case maybe_local_dep_path("selecto_db_mariadb") do
+      nil -> {:selecto_db_mariadb, ">= 0.1.0 and < 0.2.0", only: :test, optional: true}
+      path -> {:selecto_db_mariadb, path: path, only: :test, optional: true}
     end
   end
 

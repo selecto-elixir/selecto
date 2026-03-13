@@ -33,15 +33,16 @@ defmodule Selecto.CrossDBBaselineTest do
 
   @tag :mariadb
   test "mariadb adapter executes baseline query" do
-    assert {:ok, conn} = connect_with_retry(fn -> Selecto.DB.MariaDB.connect(mariadb_opts()) end)
+    assert {:ok, conn} =
+             connect_with_retry(fn -> SelectoDBMariaDB.Adapter.connect(mariadb_opts()) end)
 
     on_exit(fn ->
       close_connection(conn)
     end)
 
-    assert_single_value_query(Selecto.DB.MariaDB, conn, "SELECT 1 AS value")
-    assert_query_shape_suite(Selecto.DB.MariaDB, conn)
-    assert_stream_capability_error(Selecto.DB.MariaDB, conn)
+    assert_single_value_query(SelectoDBMariaDB.Adapter, conn, "SELECT 1 AS value")
+    assert_query_shape_suite(SelectoDBMariaDB.Adapter, conn)
+    assert_stream_capability_error(SelectoDBMariaDB.Adapter, conn)
   end
 
   @tag :mssql

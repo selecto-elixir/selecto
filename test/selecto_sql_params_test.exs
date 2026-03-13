@@ -355,7 +355,7 @@ defmodule Selecto.SQL.ParamsTest do
       assert Params.finalize(fragments, adapter: SelectoDBMySQL.Adapter) ==
                {"where id = ? and status = ?", [10, "active"]}
 
-      assert Params.finalize(fragments, adapter: Selecto.DB.MariaDB) ==
+      assert Params.finalize(fragments, adapter: SelectoDBMariaDB.Adapter) ==
                {"where id = ? and status = ?", [10, "active"]}
 
       assert Params.finalize(fragments, adapter: SelectoDBSQLite.Adapter) ==

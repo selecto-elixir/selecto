@@ -12,6 +12,8 @@
   package.
 - Began extracting MySQL support into the external `selecto_db_mysql` package
   and updated core tests/docs to validate the external adapter path.
+- Began extracting MariaDB support into the external `selecto_db_mariadb`
+  package and updated core tests/docs to validate the external adapter path.
 
 ## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
 ---------------------------------------------------------

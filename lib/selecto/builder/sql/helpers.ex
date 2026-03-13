@@ -21,6 +21,7 @@ defmodule Selecto.Builder.Sql.Helpers do
       Selecto.DB.MySQL -> "`"
       SelectoDBMySQL.Adapter -> "`"
       Selecto.DB.MariaDB -> "`"
+      SelectoDBMariaDB.Adapter -> "`"
       _ -> "\""
     end
   end
