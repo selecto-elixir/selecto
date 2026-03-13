@@ -47,15 +47,16 @@ defmodule Selecto.CrossDBBaselineTest do
 
   @tag :mssql
   test "mssql adapter executes baseline query" do
-    assert {:ok, conn} = connect_with_retry(fn -> Selecto.DB.MSSQL.connect(mssql_opts()) end)
+    assert {:ok, conn} =
+             connect_with_retry(fn -> SelectoDBMSSQL.Adapter.connect(mssql_opts()) end)
 
     on_exit(fn ->
       close_connection(conn)
     end)
 
-    assert_single_value_query(Selecto.DB.MSSQL, conn, "SELECT CAST(1 AS INT) AS value")
-    assert_query_shape_suite(Selecto.DB.MSSQL, conn)
-    assert_stream_capability_error(Selecto.DB.MSSQL, conn)
+    assert_single_value_query(SelectoDBMSSQL.Adapter, conn, "SELECT CAST(1 AS INT) AS value")
+    assert_query_shape_suite(SelectoDBMSSQL.Adapter, conn)
+    assert_stream_capability_error(SelectoDBMSSQL.Adapter, conn)
   end
 
   @tag :sqlite
@@ -124,7 +125,7 @@ defmodule Selecto.CrossDBBaselineTest do
     assert details[:adapter_contract] == :supports_stream
   end
 
-  defp query_shape_sql(Selecto.DB.MSSQL) do
+  defp query_shape_sql(SelectoDBMSSQL.Adapter) do
     """
     SELECT id, name, bucket
     FROM (

@@ -20,10 +20,10 @@ define the next steps needed to turn the adapter layer from "present" into
 
 1. Built-in adapter modules exist for:
    - `Selecto.DB.PostgreSQL`
-   - `Selecto.DB.MSSQL`
-2. MySQL, MariaDB, and SQLite extraction are underway via external adapter
+2. MySQL, MariaDB, MSSQL, and SQLite extraction are underway via external adapter
    packages such as `SelectoDBMySQL.Adapter` in `selecto_db_mysql`,
    `SelectoDBMariaDB.Adapter` in `selecto_db_mariadb`, and
+   `SelectoDBMSSQL.Adapter` in `selecto_db_mssql`, and
    `SelectoDBSQLite.Adapter` in `selecto_db_sqlite`.
 3. A shared adapter behavior exists and should live in a standalone package.
 4. SQL placeholder generation and identifier quoting are adapter-driven.

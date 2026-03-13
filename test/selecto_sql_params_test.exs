@@ -361,7 +361,7 @@ defmodule Selecto.SQL.ParamsTest do
       assert Params.finalize(fragments, adapter: SelectoDBSQLite.Adapter) ==
                {"where id = ? and status = ?", [10, "active"]}
 
-      assert Params.finalize(fragments, adapter: Selecto.DB.MSSQL) ==
+      assert Params.finalize(fragments, adapter: SelectoDBMSSQL.Adapter) ==
                {"where id = @p1 and status = @p2", [10, "active"]}
     end
   end
