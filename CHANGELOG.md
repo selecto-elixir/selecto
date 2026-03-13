@@ -1,6 +1,13 @@
 
 # Selecto Library Changelog
 
+## Unreleased
+
+#### Changed
+- Clarified cross-database adapter documentation to distinguish baseline adapter
+  support from advanced feature parity, including more explicit README guidance
+  for non-PostgreSQL backends and future external adapters such as DuckDB.
+
 ## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
 ---------------------------------------------------------
 

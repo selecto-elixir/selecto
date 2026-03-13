@@ -1,208 +1,345 @@
-# Cross-Database Support Plan (MySQL, MSSQL, SQLite)
+# Cross-Database Adapter Support Plan
 
 ## Context
 
-Selecto currently contains partial adapter branching in SQL builders and execution paths. The first pass of concrete `Selecto.DB.*` modules now exists, but execution and pooling parity across non-PostgreSQL backends is still incomplete.
+Selecto now has a real adapter namespace under `Selecto.DB.*` and basic coverage
+for PostgreSQL, MySQL, MariaDB, MSSQL, and SQLite. That foundation is useful,
+but it should not be mistaken for full backend parity. The current adapters prove
+out placeholder handling, identifier quoting, connection bootstrap, normalized
+execution results, and limited baseline query execution. They do not yet
+guarantee that all builder features, execution paths, or advanced query shapes
+behave consistently across engines.
 
-This plan restores a clean adapter foundation and delivers practical cross-database support in phases, starting with core query functionality.
+This document updates the original plan to match the current codebase and to
+define the next steps needed to turn the adapter layer from "present" into
+"dependable".
+
+## Current Status
+
+### What Exists Today
+
+1. Built-in adapter modules exist for:
+   - `Selecto.DB.PostgreSQL`
+   - `Selecto.DB.MySQL`
+   - `Selecto.DB.MariaDB`
+   - `Selecto.DB.MSSQL`
+   - `Selecto.DB.SQLite`
+2. A shared adapter behavior exists at `lib/selecto/db/adapter.ex`.
+3. SQL placeholder generation and identifier quoting are adapter-driven.
+4. `Selecto.Configuration` accepts an explicit adapter and initializes
+   non-PostgreSQL connections through that adapter.
+5. Baseline tests now cover:
+   - adapter contract shape
+   - SQL param placeholder behavior
+   - cross-db smoke execution and simple query-shape checks
+   - explicit stream capability errors for adapters that do not implement
+     `stream/4`
+
+### What Is Still Incomplete
+
+1. "Adapter support" currently means baseline support, not full feature parity.
+2. Many SQL builder branches still reflect PostgreSQL-first assumptions even when
+   adapter hooks exist.
+3. Capability gating is incomplete for advanced PostgreSQL-only features.
+4. Non-PostgreSQL streaming is contract-ready but mostly unimplemented.
+5. Integration coverage is still narrower than the effective surface area of the
+   query builder.
+
+## Planning Principle
+
+Treat adapter support as a capability matrix, not a boolean. An adapter should
+only be considered supported for the feature set that is both implemented and
+tested.
+
+That means:
+
+- "module exists" is not enough
+- "can run `SELECT 1`" is not enough
+- docs must distinguish baseline support from advanced support
+- unsupported features must fail explicitly, not degrade into malformed SQL
 
 ## Goals
 
-1. Make Selecto generate and execute core queries on PostgreSQL, MySQL, MSSQL, and SQLite.
-2. Keep PostgreSQL compatibility stable for existing users.
-3. Provide explicit capability checks for PostgreSQL-only features.
-4. Add clear tests and documentation for supported behavior by adapter.
+1. Keep PostgreSQL stable as the most complete backend.
+2. Make baseline query generation and execution dependable across the current
+   built-in adapters.
+3. Introduce explicit capability gating for backend-specific limitations.
+4. Expand tests so claims in the README are backed by real coverage.
+5. Provide a clean path for additional adapters, including external or
+   experimental ones such as DuckDB.
 
-## Non-Goals (Initial Delivery)
+## Non-Goals
 
-1. Full feature parity for PostgreSQL-only features (JSONB operators, array operators, PG-specific OLAP hints/functions).
-2. Automatic SQL rewrites that emulate all PostgreSQL-specific semantics in other databases.
-3. Performance tuning for every adapter beyond correctness and safe defaults.
+1. Full semantic parity across all backends.
+2. Automatic emulation of every PostgreSQL-specific feature.
+3. Shipping every possible database as a built-in adapter.
+4. Claiming production readiness for an adapter without corresponding coverage.
 
-## Scope Definition
+## Definitions
 
-Initial cross-db support means:
+### Baseline Support
 
-- `select`, `filter`, `order_by`, `group_by`, joins, and pagination generate valid SQL per adapter.
-- Parameters are bound using adapter-specific placeholders.
-- Execution works through adapter modules using a unified result shape.
-- Unsupported features fail fast with structured `Selecto.Error` messages.
+An adapter has baseline support when all of the following are true:
 
-## Design Direction
+1. It implements the `Selecto.DB.Adapter` contract.
+2. It can connect and execute parameterized SQL through Selecto.
+3. It can render and execute common query shapes:
+   - select
+   - filter
+   - order by
+   - group by
+   - pagination
+   - simple joins
+4. Unsupported features return structured errors.
+5. Baseline tests pass in CI or in an opt-in integration job.
 
-Use a first-class adapter behavior under `Selecto.DB.*` and make SQL generation/execution adapter-driven instead of scattered `case` statements.
+### Advanced Support
 
-### Adapter Contract (proposed)
+An adapter has advanced support only after specific higher-level features are
+verified individually, for example:
 
-Each adapter module should implement:
+- recursive CTEs
+- complex subfilters
+- window functions
+- compound queries
+- streaming
+- extension-driven features
+
+## Adapter Model
+
+The adapter contract is already established in `lib/selecto/db/adapter.ex` and
+should remain the core abstraction:
 
 - `name/0`
 - `connect/1`
 - `execute/4`
-- `placeholder/1` (or equivalent placeholder strategy)
+- `stream/4` (optional)
+- `placeholder/1`
 - `quote_identifier/1`
-- `supports?/1` for feature checks
-- `normalize_result/1` (or equivalent helper) to return `%{rows: rows, columns: cols}`
+- `supports?/1`
 
-## Extension Architecture (PostGIS and Similar Features)
+Result normalization should continue to converge on `%{rows: rows, columns:
+columns}` regardless of backend driver.
 
-### Principles
+## Capability Model
 
-1. Keep adapters focused on database engines (PostgreSQL, MySQL, MSSQL, SQLite).
-2. Model database extensions (PostGIS, TimescaleDB-specific features, etc.) as optional extension packages.
-3. Keep core Selecto lightweight and avoid mandatory dependencies for extension-specific capabilities.
+We should formalize feature checks around a stable set of capability names,
+rather than letting support be inferred from scattered conditionals.
 
-### Core Extension API (proposed)
+Recommended capability buckets:
 
-Add an extension behavior in core (for example `Selecto.Extension`) with callbacks such as:
+1. Core SQL shape capabilities
+   - `:basic_select`
+   - `:joins`
+   - `:group_by`
+   - `:pagination`
+2. Advanced query capabilities
+   - `:cte`
+   - `:recursive_cte`
+   - `:window_functions`
+   - `:compound_queries`
+   - `:stream`
+3. PostgreSQL-specific capabilities
+   - `:jsonb_ops`
+   - `:array_ops`
+   - `:pg_text_search`
+   - `:pg_rollup_fix`
+4. Extension capabilities
+   - `:postgis`
+   - `:timescaledb`
 
-- `name/0`
-- `supports_adapter?/1`
-- `capabilities/0`
-- `validate_config/1`
-- `compile_selector/3`
-- `compile_filter/3`
-- `normalize_param/2`
+Builder and executor code should query capabilities through adapter and
+extension boundaries instead of relying on backend name checks whenever
+practical.
 
-### Configuration Shape (proposed)
+## Extension Strategy
 
-Allow extensions on `Selecto.configure/3`:
+Extensions should remain separate from engine adapters.
 
-```elixir
-selecto =
-  Selecto.configure(domain, conn,
-    adapter: Selecto.DB.PostgreSQL,
-    extensions: [SelectoPostGIS.Extension]
-  )
-```
+Principles:
 
-### Package Strategy
+1. Adapters represent database engines.
+2. Extensions represent optional engine features.
+3. Core Selecto should stay usable without extension-specific dependencies.
 
-1. Create `selecto_postgis` as a separate package.
-2. Keep PostGIS dependencies optional and isolated to that package.
-3. Expose helper constructors for geospatial selectors/filters while compiling through Selecto extension hooks.
+Examples:
 
-### Runtime Safety
+- PostGIS belongs in `selecto_postgis`
+- TimescaleDB-specific behavior belongs in a companion package
+- future DuckDB-specific extras should not be conflated with SQLite support
 
-1. If adapter is not supported by an extension, return structured `unsupported_feature` errors.
-2. Optionally verify extension installation during initialization (for PostgreSQL: check `pg_extension` for `postgis`).
-3. Fail fast with adapter/feature metadata, never with malformed SQL.
+## Built-In vs External Adapters
 
-### Test Strategy for Extensions
+Not every adapter needs to live in core.
 
-1. Core: unit tests for extension registration, dispatch, and error handling.
-2. Package: SQL compilation tests for geospatial operators and parameter encoding.
-3. Optional integration tests against a PostGIS-enabled PostgreSQL service.
+### Keep Built In
 
-### Initial PostGIS Capability Set (recommended)
+These are reasonable built-in targets because they already exist and match the
+current test/dependency model:
 
-1. Predicates: `ST_Intersects`, `ST_Contains`, `ST_Within`, `ST_DWithin`.
-2. Measurements: `ST_Distance`, `ST_Area`, `ST_Length`.
-3. Output helpers: `ST_AsText`, `ST_AsGeoJSON`.
-4. Input helpers: `ST_GeomFromText`, `ST_GeomFromGeoJSON`, SRID helpers.
+- PostgreSQL
+- MySQL
+- MariaDB
+- MSSQL
+- SQLite
 
-## Implementation Phases
+### Candidate External Adapters
 
-## Phase 0 - Baseline and Inventory
+Backends such as DuckDB should be evaluated as external adapters first unless
+they reach a high-confidence support level and justify ongoing maintenance in
+core.
 
-1. Capture current behavior with tests for SQL generation and executor adapter path.
-2. Inventory all adapter checks and PostgreSQL assumptions in:
+Reasons:
+
+1. Driver maturity and Elixir ecosystem support vary.
+2. SQL semantics may overlap partially with SQLite but are not identical.
+3. Maintenance cost should scale with actual test coverage and user demand.
+
+For DuckDB specifically, the recommended path is:
+
+1. define a standalone `Selecto.DB.DuckDB` adapter package or internal
+   experimental adapter
+2. implement the adapter contract
+3. validate baseline query-shape coverage
+4. document unsupported features explicitly
+5. only consider core inclusion after stable integration coverage exists
+
+## Workstreams
+
+## Phase 1 - Honest Support Classification
+
+1. Update docs to distinguish:
+   - foundation in place
+   - baseline supported
+   - advanced supported
+2. Remove any wording that implies full parity where only smoke coverage exists.
+3. Publish a capability matrix per adapter.
+
+Deliverable: docs reflect actual support level instead of aspirational support.
+
+## Phase 2 - Capability Audit
+
+1. Inventory PostgreSQL-specific assumptions in:
    - `lib/selecto/builder/sql/*.ex`
-   - `lib/selecto/sql/params.ex`
    - `lib/selecto/executor.ex`
    - `lib/selecto/configuration.ex`
    - `lib/selecto/connection_pool.ex`
-3. Normalize adapter naming to one namespace (`Selecto.DB.*`).
+   - `lib/selecto/sql/params.ex`
+2. Tag each assumption as one of:
+   - portable
+   - adapter-specific
+   - extension-specific
+   - unsupported outside PostgreSQL
+3. Convert ad hoc backend checks into capability checks where practical.
 
-Deliverable: no behavior change yet, only test coverage and adapter naming cleanup map.
+Deliverable: a concrete map of remaining PostgreSQL-first behavior.
 
-## Phase 1 - Adapter Foundation
+## Phase 3 - Baseline Query Parity
 
-1. Add adapter behavior module (for example `lib/selecto/db/adapter.ex`).
-2. Add built-in adapters:
-   - `lib/selecto/db/postgresql.ex`
-   - `lib/selecto/db/mysql.ex`
-   - `lib/selecto/db/mssql.ex`
-   - `lib/selecto/db/sqlite.ex`
-3. Update defaults in configuration to use implemented module references.
-4. Remove references to non-existent adapter namespaces (`Selecto.Adapters.*`).
+1. Expand cross-db query-shape tests beyond smoke assertions.
+2. Cover at minimum:
+   - select
+   - filter combinations
+   - `IN` and `NOT IN`
+   - order by
+   - group by
+   - joins
+   - pagination
+3. Validate generated SQL with adapter-aware expectations.
+4. Execute representative queries against real services where available.
 
-Deliverable: Selecto boots with explicit adapter modules and no missing-module references.
+Deliverable: baseline support means more than placeholder correctness.
 
-## Phase 2 - SQL Portability Core
+## Phase 4 - Fail-Fast Capability Gating
 
-1. Centralize identifier quoting via adapter callbacks.
-2. Centralize placeholder generation in `Selecto.SQL.Params`.
-3. Fix `IN`/`NOT IN` parameter handling so non-PostgreSQL adapters produce valid placeholder lists.
-4. Keep SQL keyword tests case-insensitive.
+1. Add explicit unsupported-feature errors for advanced PostgreSQL-only paths.
+2. Ensure errors include adapter and feature metadata.
+3. Prefer structured validation failures before query execution whenever
+   possible.
 
-Deliverable: core builders generate adapter-valid SQL strings for baseline query shapes.
+Deliverable: non-portable features fail safely and predictably.
 
-## Phase 3 - Execution and Connection Path
+## Phase 5 - Connection and Streaming Hardening
 
-1. Make `Selecto.Executor` adapter-first for non-PostgreSQL execution.
-2. Keep PostgreSQL backward compatibility (`Postgrex` direct and Ecto repo path).
-3. Align/repair connection pooling behavior so module references are valid and behavior is explicit per adapter.
-4. Keep consistent error wrapping into `Selecto.Error`.
+1. Verify pooling behavior per adapter and document which paths are supported.
+2. Keep PostgreSQL direct-connection streaming as the reference implementation.
+3. Either implement real streaming per adapter or clearly mark it unsupported.
+4. Avoid pseudo-streaming that materializes full result sets while claiming
+   cursor semantics.
 
-Deliverable: execute path returns normalized results across adapters and stable errors.
+Deliverable: connection behavior and stream claims are explicit and testable.
 
-## Phase 4 - Feature Capability Gating
+## Phase 6 - External Adapter Onboarding Path
 
-1. Add feature constants (example: `:jsonb_ops`, `:array_ops`, `:pg_text_search`, `:pg_olap_hints`).
-2. Guard builder branches for adapter-incompatible features.
-3. Return clear `unsupported_feature` errors with adapter + feature metadata.
-
-Deliverable: unsupported paths fail safely and predictably.
-
-## Phase 5 - Test Matrix
-
-1. Unit tests for each adapter:
-   - placeholder style
+1. Document how to add a new adapter outside core.
+2. Provide a checklist for experimental adapters such as DuckDB:
+   - driver dependency strategy
+   - placeholder strategy
    - identifier quoting
-   - `IN`/`NOT IN` rendering
-2. SQL generation snapshots for common query patterns per adapter.
-3. Executor tests using fake adapter modules for success/error/timeout behavior.
-4. Optional integration tests (enabled only when adapter deps and services are present).
+   - normalized result shape
+   - feature capability declaration
+   - baseline integration test set
+3. Add guidance for when an external adapter is mature enough for core
+   consideration.
 
-Deliverable: deterministic core test coverage plus opt-in integration coverage.
+Deliverable: new adapter work can progress without overcommitting core support.
 
-## Phase 6 - Docs and Release
+## Testing Strategy
 
-1. Update README with adapter support matrix.
-2. Add migration notes for users relying on PostgreSQL-only features.
-3. Add changelog entry describing scope and known limitations.
+### Unit Coverage
 
-Deliverable: release-ready docs and clear upgrade guidance.
+1. Adapter contract tests for each built-in adapter.
+2. Placeholder and identifier quoting tests.
+3. Builder tests for adapter-specific SQL rendering.
+4. Error-shape tests for unsupported capabilities.
 
-## Proposed Support Matrix (Initial)
+### Integration Coverage
 
-- PostgreSQL: full current functionality (including PG-specific features).
-- MySQL: core query generation and execution; PG-only features gated.
-- MSSQL: core query generation and execution; PG-only features gated.
-- SQLite: core query generation and execution; PG-only features gated.
+1. Continue using adapter-tagged integration tests.
+2. Expand baseline query-shape assertions per backend.
+3. Keep optional service-backed runs for databases that require external setup.
+4. Validate SQL keywords with case-insensitive assertions.
+
+### Release Gate
+
+Before claiming adapter improvements in release notes:
+
+1. `mix compile`
+2. focused adapter unit tests
+3. focused cross-db baseline tests
+4. updated docs and support matrix
+
+## Documentation Requirements
+
+The README and changelog should always distinguish among:
+
+1. adapter foundation exists
+2. baseline execute support exists
+3. advanced features supported
+4. unsupported features and known gaps
+
+This distinction matters because users will reasonably interpret "supports X"
+to mean more than "there is a module for X".
 
 ## Acceptance Criteria
 
-1. `mix test` passes with no new warnings.
-2. Core query builders pass adapter SQL tests for PostgreSQL/MySQL/MSSQL/SQLite.
-3. Unsupported features return structured errors, not malformed SQL.
-4. No references remain to missing adapter modules.
-5. Existing PostgreSQL behavior remains backward compatible.
+This plan is considered complete when:
 
-## Risks and Mitigations
+1. Adapter support language is accurate across docs.
+2. Built-in adapters have explicit capability classification.
+3. Baseline cross-db tests cover representative query shapes, not only smoke
+   execution.
+4. PostgreSQL-only features fail with structured errors on unsupported adapters.
+5. External adapter guidance exists for future backends such as DuckDB.
+6. No adapter is presented as feature-complete without matching tests.
 
-1. Divergent SQL syntax edge cases.
-   - Mitigation: adapter-owned rendering helpers and targeted fixture tests.
-2. Optional dependency sprawl.
-   - Mitigation: keep non-Postgres integrations optional and test-gated.
-3. Regression risk in PostgreSQL behavior.
-   - Mitigation: lock baseline tests first and run full suite each phase.
+## Recommended Near-Term Order
 
-## Execution Order Recommendation
+1. Fix the documentation and support matrix first.
+2. Complete the capability audit next.
+3. Expand baseline cross-db tests after the audit.
+4. Add fail-fast gating for advanced PostgreSQL-only features.
+5. Document the external adapter path for DuckDB and similar backends.
 
-1. Land Phases 0-2 first (safe, mostly SQL generation).
-2. Land Phase 3 separately (execution and pool behavior changes).
-3. Land Phase 4 + docs in final hardening PR.
-
-This staged order keeps risk low while making visible progress early.
+That sequence keeps public claims honest while steadily improving the real
+adapter surface.
