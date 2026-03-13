@@ -11,7 +11,7 @@ defmodule Selecto.SQL.Params do
 
   @spec finalize(iodata() | [fragment], Keyword.t()) :: {String.t(), [any()]}
   def finalize(fragments, opts \\ []) do
-    adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Keyword.get(opts, :adapter, Selecto.AdapterSupport.default_adapter())
 
     {iodata, params, _idx} =
       traverse(List.wrap(fragments), {[], [], 0}, adapter)
@@ -30,7 +30,7 @@ defmodule Selecto.SQL.Params do
   @spec finalize_with_ctes(iodata() | [fragment], Keyword.t()) ::
           {[{String.t(), String.t()}], String.t(), [any()]}
   def finalize_with_ctes(iodata_with_ctes, opts \\ []) do
-    adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Keyword.get(opts, :adapter, Selecto.AdapterSupport.default_adapter())
     {cte_sections, main_iodata, extracted_params} = extract_ctes(List.wrap(iodata_with_ctes))
 
     # Process CTEs first to establish parameter numbering baseline

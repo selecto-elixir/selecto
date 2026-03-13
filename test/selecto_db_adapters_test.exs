@@ -2,7 +2,7 @@ defmodule Selecto.DB.AdaptersTest do
   use ExUnit.Case, async: true
 
   @adapters [
-    Selecto.DB.PostgreSQL,
+    SelectoDBPostgreSQL.Adapter,
     SelectoDBMySQL.Adapter,
     SelectoDBMariaDB.Adapter,
     SelectoDBMSSQL.Adapter,
@@ -30,7 +30,7 @@ defmodule Selecto.DB.AdaptersTest do
   end
 
   test "adapter placeholder strategies are explicit" do
-    assert Selecto.DB.PostgreSQL.placeholder(3) |> IO.iodata_to_binary() == "$3"
+    assert SelectoDBPostgreSQL.Adapter.placeholder(3) |> IO.iodata_to_binary() == "$3"
     assert SelectoDBMySQL.Adapter.placeholder(3) == "?"
     assert SelectoDBMariaDB.Adapter.placeholder(3) == "?"
     assert SelectoDBSQLite.Adapter.placeholder(3) == "?"
@@ -38,7 +38,7 @@ defmodule Selecto.DB.AdaptersTest do
   end
 
   test "adapter identifier quoting differs by backend" do
-    assert Selecto.DB.PostgreSQL.quote_identifier("order") == "\"order\""
+    assert SelectoDBPostgreSQL.Adapter.quote_identifier("order") == "\"order\""
     assert SelectoDBMySQL.Adapter.quote_identifier("order") == "`order`"
     assert SelectoDBMariaDB.Adapter.quote_identifier("order") == "`order`"
     assert SelectoDBSQLite.Adapter.quote_identifier("order") == "\"order\""
@@ -73,7 +73,7 @@ defmodule Selecto.DB.AdaptersTest do
   end
 
   test "postgres adapter returns invalid connection for unsupported value" do
-    assert Selecto.DB.PostgreSQL.execute(123, "select 1", [], []) ==
+    assert SelectoDBPostgreSQL.Adapter.execute(123, "select 1", [], []) ==
              {:error, {:invalid_connection, 123}}
   end
 

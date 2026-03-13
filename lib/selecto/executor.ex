@@ -755,7 +755,7 @@ defmodule Selecto.Executor do
   defp execute_for_context(selecto, query, params, aliases) do
     cond do
       # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
-      selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+      selecto.adapter && not Selecto.AdapterSupport.postgresql_adapter?(selecto.adapter) ->
         execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
 
       # If it's an Ecto repo (module that has __adapter__ function), try to use Ecto.Adapters.SQL.query
@@ -771,7 +771,7 @@ defmodule Selecto.Executor do
 
   defp execute_stream_for_context(selecto, query, params, aliases, opts) do
     cond do
-      selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+      selecto.adapter && not Selecto.AdapterSupport.postgresql_adapter?(selecto.adapter) ->
         execute_with_adapter_stream(
           selecto.adapter,
           selecto.connection,

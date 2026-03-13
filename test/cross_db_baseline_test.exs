@@ -7,14 +7,14 @@ defmodule Selecto.CrossDBBaselineTest do
   @tag :postgres
   test "postgres adapter executes baseline query" do
     assert {:ok, conn} =
-             connect_with_retry(fn -> Selecto.DB.PostgreSQL.connect(postgres_opts()) end)
+             connect_with_retry(fn -> SelectoDBPostgreSQL.Adapter.connect(postgres_opts()) end)
 
     on_exit(fn ->
       close_connection(conn)
     end)
 
-    assert_single_value_query(Selecto.DB.PostgreSQL, conn, "SELECT 1 AS value")
-    assert_query_shape_suite(Selecto.DB.PostgreSQL, conn)
+    assert_single_value_query(SelectoDBPostgreSQL.Adapter, conn, "SELECT 1 AS value")
+    assert_query_shape_suite(SelectoDBPostgreSQL.Adapter, conn)
   end
 
   @tag :mysql

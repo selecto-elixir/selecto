@@ -35,4 +35,5 @@ Selecto.configure(domain, db_opts, adapter: SelectoDBPostgreSQL.Adapter)
 ## Current Direction
 
 PostgreSQL remains the reference backend, but the long-term direction is for all
-database-specific adapters to live outside core `selecto`.
+database-specific adapters to live outside core `selecto`, including
+PostgreSQL itself via `selecto_db_postgresql`.

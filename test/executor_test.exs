@@ -91,7 +91,7 @@ defmodule Selecto.ExecutorTest do
   defp postgrex_stream_selecto(connection) do
     Selecto.configure(domain(), connection)
     |> Selecto.select(["id"])
-    |> Map.put(:adapter, Selecto.DB.PostgreSQL)
+    |> Map.put(:adapter, SelectoDBPostgreSQL.Adapter)
     |> Map.put(:postgrex_opts, connection)
   end
 

@@ -296,7 +296,7 @@ defmodule Selecto.Builder.Sql.Where do
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     # Use adapter-specific syntax for IN/ANY
-    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     in_clause =
       case adapter do
@@ -324,7 +324,7 @@ defmodule Selecto.Builder.Sql.Where do
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     # Use adapter-specific syntax for NOT IN
-    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     not_in_clause =
       case adapter do
@@ -382,7 +382,7 @@ defmodule Selecto.Builder.Sql.Where do
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     # Use adapter-specific syntax for IN/ANY
-    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     in_clause =
       case adapter do
@@ -575,7 +575,7 @@ defmodule Selecto.Builder.Sql.Where do
         # Not a JSONB field, use regular IN
         conf = Selecto.field(selecto, field)
         {sel, join, param} = Select.prep_selector(selecto, field)
-        adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+        adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
         in_clause =
           case adapter do

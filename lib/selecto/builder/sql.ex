@@ -90,7 +90,7 @@ defmodule Selecto.Builder.Sql do
         true ->
           {where_sql, where_sql_params} =
             Params.finalize(where_iolist,
-              adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+              adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
             )
 
           {"\n        where #{where_sql}\n      ", where_sql_params}
@@ -104,7 +104,7 @@ defmodule Selecto.Builder.Sql do
         true ->
           {group_by_sql, group_by_sql_params} =
             Params.finalize(group_by_iodata,
-              adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+              adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
             )
 
           {"\n        group by #{group_by_sql}\n      ", group_by_sql_params}
@@ -127,7 +127,7 @@ defmodule Selecto.Builder.Sql do
               # Already using literal positions, finalize normally
               {order_by_sql, order_by_sql_params} =
                 Params.finalize(order_by_iodata,
-                  adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+                  adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
                 )
 
               {"\n        order by #{order_by_sql}\n      ", order_by_sql_params}
@@ -154,7 +154,7 @@ defmodule Selecto.Builder.Sql do
         true ->
           {order_by_sql, order_by_sql_params} =
             Params.finalize(order_by_iodata,
-              adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+              adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
             )
 
           {"\n        order by #{order_by_sql}\n      ", order_by_sql_params}
@@ -242,7 +242,7 @@ defmodule Selecto.Builder.Sql do
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
     {sql, final_params} =
       Params.finalize(final_query_iodata,
-        adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     # CTE params are already integrated into the iodata, so final_params contains everything
@@ -320,7 +320,9 @@ defmodule Selecto.Builder.Sql do
     _all_params = select_params ++ cte_params ++ from_params ++ join_params
 
     {sql, final_params} =
-      Params.finalize(final_iodata, adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL))
+      Params.finalize(final_iodata,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+      )
 
     {sql, aliases, final_params}
   end
@@ -475,7 +477,7 @@ defmodule Selecto.Builder.Sql do
     # Finalize the SQL
     {sql, final_params} =
       Selecto.SQL.Params.finalize(final_iodata,
-        adapter: Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     # For set operations, we don't return field aliases since the result schema

@@ -22,7 +22,7 @@ defmodule Selecto.Configuration do
   - `:validate` - (boolean, default: true) Whether to validate the domain configuration
   - `:pool` - (boolean, default: false) Whether to enable connection pooling
   - `:pool_options` - Connection pool configuration options
-  - `:adapter` - (module, default: Selecto.DB.PostgreSQL) Database adapter module
+  - `:adapter` - (module, default: `SelectoDBPostgreSQL.Adapter`) Database adapter module
   - `:rollup_sort_fix` - (`true | false | :auto`, default: `:auto`) whether to
     wrap `GROUP BY ROLLUP ... ORDER BY` queries in a compatibility subquery;
     `:auto` disables the wrapper on PostgreSQL 18+
@@ -38,13 +38,13 @@ defmodule Selecto.Configuration do
       # Disable validation for performance
       selecto = Selecto.Configuration.configure(domain, postgrex_opts, validate: false)
   """
-  @spec configure(Selecto.Types.domain(), Postgrex.conn(), keyword()) :: Selecto.Types.t()
+  @spec configure(Selecto.Types.domain(), term(), keyword()) :: Selecto.Types.t()
   def configure(domain, postgrex_opts, opts \\ []) do
     Selecto.OptionsValidator.validate_configure_opts!(opts)
 
     validate? = Keyword.get(opts, :validate, true)
     use_pool? = Keyword.get(opts, :pool, false)
-    adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Keyword.get(opts, :adapter, Selecto.AdapterSupport.default_adapter())
     pool_options = opts |> Keyword.get(:pool_options, []) |> Keyword.put_new(:adapter, adapter)
 
     extension_specs = Selecto.Extensions.from_domain(domain)
@@ -74,7 +74,7 @@ defmodule Selecto.Configuration do
 
     # Initialize connection based on adapter
     connection =
-      if adapter == Selecto.DB.PostgreSQL do
+      if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
         # Backward compatibility: use postgrex_opts directly for PostgreSQL
         final_postgrex_opts
       else
@@ -137,7 +137,7 @@ defmodule Selecto.Configuration do
   end
 
   defp detect_postgres_major_version(adapter, connection) do
-    if adapter == Selecto.DB.PostgreSQL do
+    if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
       with {:ok, version_num} <- fetch_server_version_num(connection),
            true <- is_integer(version_num) and version_num > 0 do
         div(version_num, 10_000)

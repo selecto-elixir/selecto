@@ -16,6 +16,9 @@
   package and updated core tests/docs to validate the external adapter path.
 - Began extracting MSSQL support into the external `selecto_db_mssql` package
   and updated core tests/docs to validate the external adapter path.
+- Began extracting PostgreSQL support into the external
+  `selecto_db_postgresql` package and updated docs/tests toward the external
+  adapter default.
 
 ## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
 ---------------------------------------------------------

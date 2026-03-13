@@ -17,7 +17,7 @@ defmodule Selecto.Builder.Sql.Helpers do
   PostgreSQL uses double quotes, MySQL uses backticks, SQLite uses double quotes.
   """
   def get_quote_char(selecto) do
-    case Map.get(selecto, :adapter, Selecto.DB.PostgreSQL) do
+    case Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter()) do
       Selecto.DB.MySQL -> "`"
       SelectoDBMySQL.Adapter -> "`"
       Selecto.DB.MariaDB -> "`"

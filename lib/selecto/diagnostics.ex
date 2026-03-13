@@ -91,7 +91,7 @@ defmodule Selecto.Diagnostics do
 
   defp execute_raw(selecto, sql, params) do
     cond do
-      selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+      selecto.adapter && not Selecto.AdapterSupport.postgresql_adapter?(selecto.adapter) ->
         case selecto.adapter.execute(selecto.connection, sql, params, []) do
           {:ok, result} ->
             {:ok, Map.get(result, :rows, []), Map.get(result, :columns, [])}

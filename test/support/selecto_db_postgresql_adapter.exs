@@ -1,7 +1,5 @@
-defmodule Selecto.DB.PostgreSQL do
-  @moduledoc """
-  PostgreSQL adapter for Selecto.
-  """
+defmodule SelectoDBPostgreSQL.Adapter do
+  @moduledoc false
 
   @behaviour Selecto.DB.Adapter
 

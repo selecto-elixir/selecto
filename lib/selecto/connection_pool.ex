@@ -107,14 +107,14 @@ defmodule Selecto.ConnectionPool do
   @spec start_pool(connection_config(), pool_options()) :: {:ok, pool_ref()} | {:error, term()}
   def start_pool(connection_config, pool_options \\ []) do
     pool_config = Keyword.merge(@default_pool_config, pool_options)
-    adapter = Keyword.get(pool_options, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Keyword.get(pool_options, :adapter, Selecto.AdapterSupport.default_adapter())
 
     # Create unique pool name based on connection config and adapter
     pool_name = generate_pool_name(%{adapter: adapter, connection_config: connection_config})
 
     with :ok <- ensure_runtime_started() do
       # Check if adapter supports pooling
-      if adapter == Selecto.DB.PostgreSQL do
+      if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
         # Use DBConnection pooling for PostgreSQL
         start_postgrex_pool(connection_config, pool_config, pool_name)
       else
@@ -148,7 +148,7 @@ defmodule Selecto.ConnectionPool do
         case start_postgrex_connection(postgrex_opts) do
           {:ok, pool_pid, started_new_pool?} ->
             manager_opts = [
-              adapter: Selecto.DB.PostgreSQL,
+              adapter: Selecto.AdapterSupport.default_adapter(),
               pool_pid: pool_pid,
               pool_name: pool_name,
               pool_config: pool_config,
@@ -252,12 +252,15 @@ defmodule Selecto.ConnectionPool do
     execute(pool_ref, query, params, opts)
   end
 
-  def execute(%{adapter: adapter, connection: connection}, query, params, opts)
-      when adapter != Selecto.DB.PostgreSQL do
-    if function_exported?(adapter, :execute, 4) do
-      adapter.execute(connection, query, params, opts)
+  def execute(%{adapter: adapter, connection: connection}, query, params, opts) do
+    if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
+      execute(%{adapter: adapter}, query, params, opts)
     else
-      {:error, {:unsupported_adapter, adapter}}
+      if function_exported?(adapter, :execute, 4) do
+        adapter.execute(connection, query, params, opts)
+      else
+        {:error, {:unsupported_adapter, adapter}}
+      end
     end
   end
 
@@ -320,7 +323,7 @@ defmodule Selecto.ConnectionPool do
   def init(opts) do
     pool_pid = Keyword.get(opts, :pool_pid)
     connection = Keyword.get(opts, :connection)
-    adapter = Keyword.get(opts, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Keyword.get(opts, :adapter, Selecto.AdapterSupport.default_adapter())
     pool_name = Keyword.fetch!(opts, :pool_name)
     pool_config = Keyword.fetch!(opts, :pool_config)
     connection_config = Keyword.fetch!(opts, :connection_config)
@@ -350,7 +353,7 @@ defmodule Selecto.ConnectionPool do
   @impl GenServer
   def handle_call(:pool_reference, _from, state) do
     reference =
-      if state.adapter == Selecto.DB.PostgreSQL do
+      if Selecto.AdapterSupport.postgresql_adapter?(state.adapter) do
         %{
           adapter: state.adapter,
           pool: state.pool_pid,

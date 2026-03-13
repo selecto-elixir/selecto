@@ -198,7 +198,7 @@ defmodule Selecto do
       or invalid advanced join configurations.
     - `:pool` - (boolean, default: false) Whether to enable connection pooling
     - `:pool_options` - Connection pool configuration options
-    - `:adapter` - (module, default: Selecto.DB.PostgreSQL) Database adapter module
+    - `:adapter` - (module, default: `SelectoDBPostgreSQL.Adapter`) Database adapter module
 
     ## Validation
 
