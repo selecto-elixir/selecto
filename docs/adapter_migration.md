@@ -20,8 +20,8 @@ Add `selecto` plus the adapter package your app needs:
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.16"},
-    {:selecto_db_postgresql, "~> 0.1"}
+    {:selecto, "~> 0.4.0"},
+    {:selecto_db_postgresql, "~> 0.4.0"}
   ]
 end
 ```

@@ -20,7 +20,7 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
 - [seeken/selecto_northwind](https://github.com/seeken/selecto_northwind) contains tutorials for building Selecto queries and workflows.
 - [testselecto.fly.dev](https://testselecto.fly.dev) runs the `selecto_test` app as a hosted Selecto demo.
 
-## 📌 Release Status (0.3.x)
+## 📌 Release Status (0.4.x)
 
 - **Alpha**: Core query building, join handling, CTE support, and standard
   filter/select/order flows are usable but not yet stable; breaking changes may
@@ -32,7 +32,7 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
   part of `selecto` and are provided by companion packages (`selecto_mix`,
   `selecto_components`).
 
-## ✅ Adapter, Tenant, and Streaming Status (0.3.10)
+## ✅ Adapter, Tenant, and Streaming Status (0.4.0)
 
 - **Adapter foundation**: Selecto uses a shared adapter contract plus external
   packages such as `SelectoDBPostgreSQL.Adapter`, `SelectoDBMySQL.Adapter`,
@@ -88,12 +88,15 @@ your domain config.
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.16"},
+    {:selecto, "~> 0.4.0"},
+    {:selecto_db_postgresql, "~> 0.4.0"},
     # Optional extension package for spatial/map support
     {:selecto_postgis, "~> 0.1"}
   ]
 end
 ```
+
+Replace `selecto_db_postgresql` with the adapter package your application uses.
 
 ### Enable an extension in a domain
 
@@ -507,8 +510,8 @@ See `docs/adapter_migration.md` for the app-owned adapter installation pattern.
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.16"},
-    {:selecto_db_postgresql, "~> 0.1"}
+    {:selecto, "~> 0.4.0"},
+    {:selecto_db_postgresql, "~> 0.4.0"}
   ]
 end
 ```
