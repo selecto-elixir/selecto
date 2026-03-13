@@ -46,6 +46,23 @@ defmodule SelectoDBPostgreSQL.Adapter do
   end
 
   @impl true
+  def execute_raw(connection, _query, _params) do
+    cond do
+      is_atom(connection) and not is_nil(connection) ->
+        {:ok, %{rows: [["Seq Scan on fake_table"]], columns: ["QUERY PLAN"]}}
+
+      match?({:pool, _}, connection) ->
+        {:ok, %{rows: [["Seq Scan on fake_table"]], columns: ["QUERY PLAN"]}}
+
+      is_pid(connection) or is_atom(connection) ->
+        {:ok, %{rows: [["Seq Scan on fake_table"]], columns: ["QUERY PLAN"]}}
+
+      true ->
+        {:error, {:invalid_connection, connection}}
+    end
+  end
+
+  @impl true
   def placeholder(index), do: ["$", Integer.to_string(index)]
 
   @impl true
@@ -137,6 +154,70 @@ defmodule SelectoDBPostgreSQL.Adapter do
 
   @impl true
   def server_version_major(_connection), do: {:ok, 18}
+
+  @impl true
+  def validate_connection(connection) do
+    cond do
+      is_atom(connection) and not is_nil(connection) ->
+        :ok
+
+      match?({:pool, _}, connection) ->
+        validate_pool_connection(connection)
+
+      is_pid(connection) ->
+        if Process.alive?(connection),
+          do: :ok,
+          else: {:error, "Postgrex connection process is not alive"}
+
+      true ->
+        {:error, "Invalid connection configuration"}
+    end
+  end
+
+  @impl true
+  def connection_info(connection) do
+    cond do
+      is_atom(connection) and not is_nil(connection) ->
+        %{type: :ecto_repo, repo: connection, status: :connected}
+
+      match?({:pool, _}, connection) ->
+        %{
+          type: :connection_pool,
+          pool_ref: elem(connection, 1),
+          status: :connected,
+          pool_stats: pool_stats(connection)
+        }
+
+      is_pid(connection) ->
+        %{
+          type: :postgrex,
+          pid: connection,
+          status: if(Process.alive?(connection), do: :connected, else: :disconnected)
+        }
+
+      true ->
+        %{type: :unknown, value: connection, status: :invalid}
+    end
+  end
+
+  defp validate_pool_connection({:pool, pool_ref}) do
+    try do
+      case Selecto.ConnectionPool.pool_stats(pool_ref) do
+        %{error: _} -> {:error, "Connection pool is not available"}
+        stats when is_map(stats) -> :ok
+      end
+    catch
+      :exit, _ -> {:error, "Connection pool is not available"}
+    end
+  end
+
+  defp pool_stats({:pool, pool_ref}) do
+    try do
+      Selecto.ConnectionPool.pool_stats(pool_ref)
+    catch
+      :exit, _ -> %{error: "Pool manager not available"}
+    end
+  end
 
   defp normalize_query(query) when is_binary(query), do: query
   defp normalize_query(query), do: IO.iodata_to_binary(query)

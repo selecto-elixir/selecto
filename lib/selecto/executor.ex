@@ -576,32 +576,14 @@ defmodule Selecto.Executor do
   Returns `:ok` if connection is valid, `{:error, reason}` otherwise.
   """
   def validate_connection(selecto) do
-    case selecto.postgrex_opts do
-      repo when is_atom(repo) and not is_nil(repo) ->
-        # For Ecto repos, we assume they're properly configured
-        # Could be enhanced to ping the database
-        :ok
+    adapter = runtime_adapter(selecto)
+    connection = runtime_connection(selecto)
 
-      {:pool, pool_ref} ->
-        # For pooled connections, validate pool health
-        try do
-          case Selecto.ConnectionPool.pool_stats(pool_ref) do
-            %{error: _} -> {:error, "Connection pool is not available"}
-            stats when is_map(stats) -> :ok
-          end
-        catch
-          :exit, _ -> {:error, "Connection pool is not available"}
-        end
+    cond do
+      function_exported?(adapter, :validate_connection, 1) ->
+        Kernel.apply(adapter, :validate_connection, [connection])
 
-      conn when is_pid(conn) ->
-        # For Postgrex connections, check if process is alive
-        if Process.alive?(conn) do
-          :ok
-        else
-          {:error, "Postgrex connection process is not alive"}
-        end
-
-      _ ->
+      true ->
         {:error, "Invalid connection configuration"}
     end
   end
@@ -612,40 +594,17 @@ defmodule Selecto.Executor do
   Returns information about the current connection state.
   """
   def connection_info(selecto) do
-    case selecto.postgrex_opts do
-      repo when is_atom(repo) and not is_nil(repo) ->
-        %{
-          type: :ecto_repo,
-          repo: repo,
-          status: :connected
-        }
+    adapter = runtime_adapter(selecto)
+    connection = runtime_connection(selecto)
 
-      {:pool, pool_ref} ->
-        stats =
-          try do
-            Selecto.ConnectionPool.pool_stats(pool_ref)
-          catch
-            :exit, _ -> %{error: "Pool manager not available"}
-          end
+    cond do
+      function_exported?(adapter, :connection_info, 1) ->
+        Kernel.apply(adapter, :connection_info, [connection])
 
-        %{
-          type: :connection_pool,
-          pool_ref: pool_ref,
-          status: :connected,
-          pool_stats: stats
-        }
-
-      conn when is_pid(conn) ->
-        %{
-          type: :postgrex,
-          pid: conn,
-          status: if(Process.alive?(conn), do: :connected, else: :disconnected)
-        }
-
-      other ->
+      true ->
         %{
           type: :unknown,
-          value: other,
+          value: connection,
           status: :invalid
         }
     end
@@ -693,6 +652,15 @@ defmodule Selecto.Executor do
   end
 
   defp is_ecto_repo?(_), do: false
+
+  defp runtime_connection(%{connection: nil, postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(%{connection: connection}), do: connection
+  defp runtime_connection(%{postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(_), do: nil
+
+  defp runtime_adapter(%{adapter: nil}), do: Selecto.AdapterSupport.default_adapter()
+  defp runtime_adapter(%{adapter: adapter}) when not is_nil(adapter), do: adapter
+  defp runtime_adapter(_), do: Selecto.AdapterSupport.default_adapter()
 
   defp execute_with_hooks(selecto, opts, query_id, start_time) do
     Selecto.Performance.Hooks.with_hooks(

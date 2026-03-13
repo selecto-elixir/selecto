@@ -90,9 +90,21 @@ defmodule Selecto.Diagnostics do
   end
 
   defp execute_raw(selecto, sql, params) do
+    adapter = runtime_adapter(selecto)
+    connection = runtime_connection(selecto)
+
     cond do
-      selecto.adapter && not Selecto.AdapterSupport.postgresql_adapter?(selecto.adapter) ->
-        case selecto.adapter.execute(selecto.connection, sql, params, []) do
+      function_exported?(adapter, :execute_raw, 3) ->
+        case Kernel.apply(adapter, :execute_raw, [connection, sql, params]) do
+          {:ok, result} ->
+            {:ok, Map.get(result, :rows, []), Map.get(result, :columns, [])}
+
+          {:error, reason} ->
+            {:error, Error.from_reason(reason)}
+        end
+
+      selecto.adapter && function_exported?(adapter, :execute, 4) ->
+        case Kernel.apply(adapter, :execute, [connection, sql, params, []]) do
           {:ok, result} ->
             {:ok, Map.get(result, :rows, []), Map.get(result, :columns, [])}
 
@@ -122,6 +134,15 @@ defmodule Selecto.Diagnostics do
     e ->
       {:error, Error.from_reason(e)}
   end
+
+  defp runtime_connection(%{connection: nil, postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(%{connection: connection}), do: connection
+  defp runtime_connection(%{postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(_), do: nil
+
+  defp runtime_adapter(%{adapter: nil}), do: Selecto.AdapterSupport.default_adapter()
+  defp runtime_adapter(%{adapter: adapter}) when not is_nil(adapter), do: adapter
+  defp runtime_adapter(_), do: Selecto.AdapterSupport.default_adapter()
 
   defp maybe_true_flag(flags, _name, nil), do: flags
   defp maybe_true_flag(flags, _name, false), do: flags
