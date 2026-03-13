@@ -182,12 +182,14 @@ defmodule Selecto do
   """
 
   @doc """
-    Generate a selecto structure from a domain configuration and database connection.
+    Generate a selecto structure from a domain configuration and connection input.
 
     ## Parameters
 
     - `domain` - Domain configuration map (see domain configuration docs)
-    - `postgrex_opts` - Postgrex connection options, PID, or pooled connection
+    - `postgrex_opts` - Connection input retained for backward compatibility.
+      This may be adapter-specific connection options, an Ecto repo, a live
+      connection pid/name, or a pooled connection reference.
     - `opts` - Configuration options
 
     ## Options
@@ -238,7 +240,7 @@ defmodule Selecto do
         :ok = Selecto.DomainValidator.validate_domain!(domain)
         selecto = Selecto.configure(domain, postgrex_opts)
   """
-  @spec configure(Selecto.Types.domain(), Postgrex.conn(), keyword()) :: t()
+  @spec configure(Selecto.Types.domain(), term(), keyword()) :: t()
   def configure(domain, postgrex_opts, opts \\ []) do
     Selecto.OptionsValidator.validate_configure_opts!(opts)
     Selecto.Configuration.configure(domain, postgrex_opts, opts)

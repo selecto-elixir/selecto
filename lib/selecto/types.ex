@@ -303,7 +303,7 @@ defmodule Selecto.Types do
 
   # Main Selecto struct
   @type t :: %Selecto{
-          postgrex_opts: Postgrex.conn() | nil,
+          postgrex_opts: term() | nil,
           adapter: module() | nil,
           connection: term() | nil,
           domain: domain(),
@@ -478,7 +478,7 @@ defmodule Selecto.Types do
         }
 
   # Error types
-  @type sql_error :: Postgrex.Error.t()
+  @type sql_error :: term()
 
   # Utility types for better error messages
   @type maybe(t) :: {:ok, t} | {:error, term()}

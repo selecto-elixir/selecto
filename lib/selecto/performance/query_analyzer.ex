@@ -1,6 +1,6 @@
 defmodule Selecto.Performance.QueryAnalyzer do
   @moduledoc """
-  Query analysis and optimization using PostgreSQL's EXPLAIN ANALYZE.
+  Query analysis and optimization using database EXPLAIN support.
 
   Provides deep insights into query performance by:
   - Running EXPLAIN ANALYZE on queries
@@ -110,7 +110,8 @@ defmodule Selecto.Performance.QueryAnalyzer do
 
     stats =
       Enum.map(tables, fn table ->
-        with {:ok, stats} <- get_table_stats(selecto.postgrex_opts, table) do
+        with {:ok, stats} <-
+               get_table_stats(runtime_adapter(selecto), runtime_connection(selecto), table) do
           {table, stats}
         else
           _ -> {table, %{error: "Could not fetch statistics"}}
@@ -154,27 +155,21 @@ defmodule Selecto.Performance.QueryAnalyzer do
   end
 
   defp execute_explain(selecto, {query, params}) do
+    adapter = runtime_adapter(selecto)
+    connection = runtime_connection(selecto)
+
     try do
-      case selecto.postgrex_opts do
-        conn when is_pid(conn) ->
-          case Postgrex.query(conn, query, params) do
+      cond do
+        invalid_runtime_connection?(connection) ->
+          {:error, :invalid_connection}
+
+        function_exported?(adapter, :execute_raw, 3) ->
+          case Kernel.apply(adapter, :execute_raw, [connection, query, params]) do
             {:ok, result} -> {:ok, result}
             {:error, reason} -> {:error, {:explain_failed, reason}}
           end
 
-        {:pool, pool_ref} ->
-          case Selecto.ConnectionPool.execute(pool_ref, query, params) do
-            {:ok, result} -> {:ok, result}
-            {:error, reason} -> {:error, {:explain_failed, reason}}
-          end
-
-        repo when is_atom(repo) ->
-          case Ecto.Adapters.SQL.query(repo, query, params) do
-            {:ok, result} -> {:ok, result}
-            {:error, reason} -> {:error, {:explain_failed, reason}}
-          end
-
-        _ ->
+        true ->
           {:error, :invalid_connection}
       end
     rescue
@@ -531,7 +526,7 @@ defmodule Selecto.Performance.QueryAnalyzer do
     |> Enum.uniq()
   end
 
-  defp get_table_stats(conn, table_name) do
+  defp get_table_stats(adapter, conn, table_name) do
     query = """
     SELECT 
       n_live_tup as live_rows,
@@ -548,7 +543,7 @@ defmodule Selecto.Performance.QueryAnalyzer do
     WHERE schemaname = 'public' AND tablename = $1
     """
 
-    case execute_raw_query(conn, query, [table_name]) do
+    case execute_raw_query(adapter, conn, query, [table_name]) do
       {:ok, result} ->
         case result.rows do
           [row] ->
@@ -575,21 +570,30 @@ defmodule Selecto.Performance.QueryAnalyzer do
     end
   end
 
-  defp execute_raw_query(conn, query, params) when is_pid(conn) do
-    Postgrex.query(conn, query, params)
+  defp execute_raw_query(adapter, conn, query, params) do
+    cond do
+      invalid_runtime_connection?(conn) ->
+        {:error, :invalid_connection}
+
+      function_exported?(adapter, :execute_raw, 3) ->
+        Kernel.apply(adapter, :execute_raw, [conn, query, params])
+
+      true ->
+        {:error, :invalid_connection}
+    end
   end
 
-  defp execute_raw_query({:pool, pool_ref}, query, params) do
-    Selecto.ConnectionPool.execute(pool_ref, query, params)
-  end
+  defp runtime_connection(%{connection: nil, postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(%{connection: connection}), do: connection
+  defp runtime_connection(%{postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(_), do: nil
 
-  defp execute_raw_query(repo, query, params) when is_atom(repo) do
-    Ecto.Adapters.SQL.query(repo, query, params)
-  end
+  defp runtime_adapter(%{adapter: nil}), do: Selecto.AdapterSupport.default_adapter()
+  defp runtime_adapter(%{adapter: adapter}) when not is_nil(adapter), do: adapter
+  defp runtime_adapter(_), do: Selecto.AdapterSupport.default_adapter()
 
-  defp execute_raw_query(_, _, _) do
-    {:error, :invalid_connection}
-  end
+  defp invalid_runtime_connection?(connection),
+    do: is_nil(connection) or is_list(connection) or is_map(connection)
 
   defp generate_analysis_id do
     :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)

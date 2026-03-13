@@ -356,7 +356,7 @@ defmodule Selecto.Executor do
   Execute a query as a stream of `{row, columns, aliases}` tuples.
 
   Current stream support:
-  - PostgreSQL direct connections (`pid` or registered name) via server-side cursors
+  - The default PostgreSQL adapter via adapter-owned stream hooks
   - Custom adapters that implement `stream/4`
   """
   @spec execute_stream(Selecto.Types.t(), keyword()) :: Selecto.Types.safe_execute_stream_result()

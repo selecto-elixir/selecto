@@ -9,12 +9,14 @@ defmodule Selecto.Configuration do
   require Logger
 
   @doc """
-  Generate a selecto structure from a domain configuration and database connection.
+  Generate a selecto structure from a domain configuration and connection input.
 
   ## Parameters
 
   - `domain` - Domain configuration map (see domain configuration docs)
-  - `postgrex_opts` - Postgrex connection options, PID, or pooled connection
+  - `postgrex_opts` - Connection input retained for backward compatibility.
+    This may be adapter-specific connection options, an Ecto repo, a live
+    connection pid/name, or a pooled connection reference.
   - `opts` - Configuration options
 
   ## Options

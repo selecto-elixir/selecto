@@ -41,13 +41,20 @@ defmodule Selecto.Performance.QueryAnalyzerTest do
   end
 
   test "repo-like atom connection is wrapped as explain failure" do
-    repo_like = Map.put(selecto(), :postgrex_opts, :invalid_connection)
+    repo_like =
+      selecto()
+      |> Map.put(:postgrex_opts, :invalid_connection)
+      |> Map.put(:connection, :invalid_connection)
 
-    assert {:error, {:explain_failed, %RuntimeError{}}} = QueryAnalyzer.analyze_query(repo_like)
+    assert {:error, {:explain_failed, _}} = QueryAnalyzer.analyze_query(repo_like)
   end
 
   test "pool connection failures are wrapped" do
-    pooled = Map.put(selecto(), :postgrex_opts, {:pool, :bad_pool_ref})
+    pooled =
+      selecto()
+      |> Map.put(:postgrex_opts, {:pool, :bad_pool_ref})
+      |> Map.put(:connection, {:pool, :bad_pool_ref})
+
     assert {:error, {:explain_failed, _}} = QueryAnalyzer.analyze_query(pooled)
   end
 

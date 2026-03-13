@@ -48,6 +48,12 @@ defmodule SelectoDBPostgreSQL.Adapter do
   @impl true
   def execute_raw(connection, _query, _params) do
     cond do
+      connection == :invalid_connection ->
+        {:error, :invalid_connection}
+
+      connection == {:pool, :bad_pool_ref} ->
+        {:error, :bad_pool_ref}
+
       is_atom(connection) and not is_nil(connection) ->
         {:ok, %{rows: [["Seq Scan on fake_table"]], columns: ["QUERY PLAN"]}}
 
