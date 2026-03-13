@@ -501,6 +501,8 @@ adapter implementation.
 Applications are expected to add any external adapter package they use; `selecto`
 itself does not bundle SQLite or MySQL adapter packages as runtime deps.
 
+See `docs/adapter_migration.md` for the app-owned adapter installation pattern.
+
 ## 📦 Installation
 
 ```elixir
