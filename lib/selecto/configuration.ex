@@ -117,8 +117,6 @@ defmodule Selecto.Configuration do
     }
   end
 
-  @server_version_num_query "show server_version_num"
-
   defp resolve_rollup_sort_fix(adapter, connection, opts) do
     case Keyword.get(opts, :rollup_sort_fix, :auto) do
       value when value in [true, false] ->
@@ -137,99 +135,20 @@ defmodule Selecto.Configuration do
   end
 
   defp detect_postgres_major_version(adapter, connection) do
-    if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
-      with {:ok, version_num} <- fetch_server_version_num(connection),
-           true <- is_integer(version_num) and version_num > 0 do
-        div(version_num, 10_000)
-      else
-        _ -> nil
-      end
-    else
-      nil
-    end
-  end
-
-  defp fetch_server_version_num(connection)
-
-  defp fetch_server_version_num({:pool, pool_ref}) do
-    try do
-      case Selecto.ConnectionPool.execute(pool_ref, @server_version_num_query, [],
-             prepared: false
-           ) do
-        {:ok, result} -> extract_server_version_num(result)
-        {:error, _reason} = error -> error
-      end
-    catch
-      :exit, _reason -> {:error, :pool_unavailable}
-    end
-  end
-
-  defp fetch_server_version_num(connection) when is_atom(connection) do
     cond do
-      function_exported?(connection, :query, 2) ->
-        case apply(connection, :query, [@server_version_num_query, []]) do
-          {:ok, result} -> extract_server_version_num(result)
-          {:error, _reason} = error -> error
-          _other -> {:error, :invalid_query_result}
+      not Selecto.AdapterSupport.postgresql_adapter?(adapter) ->
+        nil
+
+      function_exported?(adapter, :server_version_major, 1) ->
+        case adapter.server_version_major(connection) do
+          {:ok, major} when is_integer(major) -> major
+          _ -> nil
         end
 
-      is_pid(Process.whereis(connection)) ->
-        fetch_server_version_num_with_postgrex(connection)
-
       true ->
-        {:error, :unsupported_connection}
+        nil
     end
   end
-
-  defp fetch_server_version_num(connection) when is_pid(connection) do
-    fetch_server_version_num_with_postgrex(connection)
-  end
-
-  defp fetch_server_version_num(connection) when is_list(connection) do
-    case Postgrex.start_link(Keyword.put_new(connection, :supervisor, false)) do
-      {:ok, pid} ->
-        result = fetch_server_version_num_with_postgrex(pid)
-        GenServer.stop(pid)
-        result
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp fetch_server_version_num(connection) when is_map(connection) do
-    connection
-    |> Map.to_list()
-    |> fetch_server_version_num()
-  end
-
-  defp fetch_server_version_num(_connection), do: {:error, :unsupported_connection}
-
-  defp fetch_server_version_num_with_postgrex(connection) do
-    case Postgrex.query(connection, @server_version_num_query, []) do
-      {:ok, result} -> extract_server_version_num(result)
-      {:error, _reason} = error -> error
-    end
-  rescue
-    _ -> {:error, :query_failed}
-  end
-
-  defp extract_server_version_num(%{rows: [[value | _] | _]}) do
-    parse_server_version_num(value)
-  end
-
-  defp extract_server_version_num(_result), do: {:error, :missing_server_version_num}
-
-  defp parse_server_version_num(value) when is_integer(value), do: {:ok, value}
-
-  defp parse_server_version_num(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {parsed, ""} -> {:ok, parsed}
-      _ -> {:error, :invalid_server_version_num}
-    end
-  end
-
-  defp parse_server_version_num(_value), do: {:error, :invalid_server_version_num}
 
   @doc """
   Configure Selecto from an Ecto repository and schema.
