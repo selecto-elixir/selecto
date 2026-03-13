@@ -549,22 +549,30 @@ defmodule Selecto.ConnectionPool do
           {:ok, result} | {:error, term()}
         when result: term()
   def with_connection(pool_ref, fun) when is_function(fun, 1) do
-    case get_pool_pid(pool_ref) do
-      {:ok, pool_pid} ->
-        # DBConnection.run handles checkout/checkin automatically
-        try do
-          result = fun.(pool_pid)
-          {:ok, result}
-        rescue
-          e in DBConnection.ConnectionError ->
-            {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
+    adapter = pool_adapter(pool_ref)
 
-          e ->
-            {:error, Selecto.Error.query_error(Exception.message(e), nil, [], %{exception: e})}
+    cond do
+      function_exported?(adapter, :with_connection, 2) ->
+        adapter.with_connection(pool_ref, fun)
+
+      true ->
+        case get_pool_pid(pool_ref) do
+          {:ok, pool_pid} ->
+            try do
+              result = fun.(pool_pid)
+              {:ok, result}
+            rescue
+              e in DBConnection.ConnectionError ->
+                {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
+
+              e ->
+                {:error,
+                 Selecto.Error.query_error(Exception.message(e), nil, [], %{exception: e})}
+            end
+
+          {:error, reason} ->
+            {:error, reason}
         end
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 
@@ -584,14 +592,25 @@ defmodule Selecto.ConnectionPool do
           {:ok, result} | {:error, term()}
         when result: term()
   def transaction(pool_ref, fun, opts \\ []) when is_function(fun, 1) do
-    case get_pool_pid(pool_ref) do
-      {:ok, pool_pid} ->
-        Postgrex.transaction(pool_pid, fun, opts)
+    adapter = pool_adapter(pool_ref)
 
-      {:error, reason} ->
-        {:error, reason}
+    cond do
+      function_exported?(adapter, :transaction, 3) ->
+        adapter.transaction(pool_ref, fun, opts)
+
+      true ->
+        case get_pool_pid(pool_ref) do
+          {:ok, pool_pid} ->
+            Postgrex.transaction(pool_pid, fun, opts)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
     end
   end
+
+  defp pool_adapter(%{adapter: adapter}) when is_atom(adapter), do: adapter
+  defp pool_adapter(_pool_ref), do: Selecto.AdapterSupport.default_adapter()
 
   defp validate_pool_health(%{pool_pid: pool_pid}) when is_pid(pool_pid) do
     try do
