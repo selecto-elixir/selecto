@@ -113,64 +113,16 @@ defmodule Selecto.ConnectionPool do
     pool_name = generate_pool_name(%{adapter: adapter, connection_config: connection_config})
 
     with :ok <- ensure_runtime_started() do
-      # Check if adapter supports pooling
-      if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
-        # Use DBConnection pooling for PostgreSQL
-        start_postgrex_pool(connection_config, pool_config, pool_name)
-      else
-        # For other adapters, create a simple pool manager
-        # Many adapters may have their own pooling mechanisms
-        start_generic_pool(adapter, connection_config, pool_config, pool_name)
+      cond do
+        function_exported?(adapter, :start_pool, 3) ->
+          adapter.start_pool(connection_config, pool_config, pool_name)
+
+        Selecto.AdapterSupport.postgresql_adapter?(adapter) ->
+          {:error, {:adapter_pool_start_unavailable, adapter}}
+
+        true ->
+          start_generic_pool(adapter, connection_config, pool_config, pool_name)
       end
-    end
-  end
-
-  defp start_postgrex_pool(connection_config, pool_config, pool_name) do
-    case get_manager_pid_by_name(pool_name) do
-      {:ok, manager_pid} ->
-        build_pool_ref_from_manager(manager_pid)
-
-      :error ->
-        # Prepare DBConnection configuration
-        dbconnection_opts = [
-          name: pool_name,
-          pool: DBConnection.ConnectionPool,
-          pool_size: pool_config[:pool_size],
-          pool_overflow: pool_config[:max_overflow],
-          timeout: pool_config[:connection_timeout],
-          queue_target: pool_config[:checkout_timeout],
-          queue_interval: 1000
-        ]
-
-        # Merge with Postgrex-specific options
-        postgrex_opts = Keyword.merge(connection_config, dbconnection_opts)
-
-        case start_postgrex_connection(postgrex_opts) do
-          {:ok, pool_pid, started_new_pool?} ->
-            manager_opts = [
-              adapter: Selecto.AdapterSupport.default_adapter(),
-              pool_pid: pool_pid,
-              pool_name: pool_name,
-              pool_config: pool_config,
-              connection_config: connection_config
-            ]
-
-            case start_manager(manager_opts) do
-              {:ok, manager_pid, :started} ->
-                build_pool_ref_from_manager(manager_pid)
-
-              {:ok, manager_pid, :existing} ->
-                if started_new_pool?, do: GenServer.stop(pool_pid)
-                build_pool_ref_from_manager(manager_pid)
-
-              {:error, reason} ->
-                if started_new_pool?, do: GenServer.stop(pool_pid)
-                {:error, reason}
-            end
-
-          {:error, reason} ->
-            {:error, reason}
-        end
     end
   end
 
@@ -675,7 +627,8 @@ defmodule Selecto.ConnectionPool do
     {:via, Registry, {@registry, {:manager, pool_name}}}
   end
 
-  defp get_manager_pid_by_name(pool_name) when is_atom(pool_name) do
+  @doc false
+  def get_manager_pid_by_name(pool_name) when is_atom(pool_name) do
     case Process.whereis(@registry) do
       nil ->
         :error
@@ -688,15 +641,8 @@ defmodule Selecto.ConnectionPool do
     end
   end
 
-  defp start_postgrex_connection(postgrex_opts) do
-    case Postgrex.start_link(postgrex_opts) do
-      {:ok, pool_pid} -> {:ok, pool_pid, true}
-      {:error, {:already_started, pool_pid}} -> {:ok, pool_pid, false}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp start_manager(manager_opts) when is_list(manager_opts) do
+  @doc false
+  def start_manager(manager_opts) when is_list(manager_opts) do
     pool_name = Keyword.fetch!(manager_opts, :pool_name)
 
     case DynamicSupervisor.start_child(@manager_supervisor, {__MODULE__, manager_opts}) do
@@ -717,7 +663,8 @@ defmodule Selecto.ConnectionPool do
     end
   end
 
-  defp build_pool_ref_from_manager(manager_pid) when is_pid(manager_pid) do
+  @doc false
+  def build_pool_ref_from_manager(manager_pid) when is_pid(manager_pid) do
     case GenServer.call(manager_pid, :pool_reference) do
       %{} = reference -> {:ok, reference}
       other -> {:error, {:invalid_pool_reference, other}}

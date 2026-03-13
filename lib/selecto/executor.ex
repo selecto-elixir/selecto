@@ -496,31 +496,29 @@ defmodule Selecto.Executor do
   Execute query using direct Postgrex connection or connection pool.
   """
   def execute_with_postgrex(conn, query, params, aliases) do
-    case conn do
-      # Handle pooled connections
-      {:pool, pool_ref} ->
-        execute_with_connection_pool(pool_ref, query, params, aliases)
+    adapter = Selecto.AdapterSupport.default_adapter()
 
-      # Handle direct Postgrex connections (PID or registered name)
-      conn when is_pid(conn) or is_atom(conn) ->
-        case Postgrex.query(conn, query, params) do
-          {:ok, result} ->
-            {:ok, {result.rows, result.columns, aliases}}
+    case Kernel.apply(adapter, :execute, [conn, query, params, []]) do
+      {:ok, result} ->
+        {:ok, {Map.get(result, :rows, []), Map.get(result, :columns, []), aliases}}
 
-          {:error, reason} ->
-            require Logger
-            alias Selecto.LogSanitizer
-            Logger.error("Postgrex query error: #{LogSanitizer.sanitize_error(reason)}")
-            Logger.error("Query: #{LogSanitizer.sanitize_query(query, params)}")
-            # Note: params are intentionally NOT logged to prevent sensitive data exposure
-            {:error,
-             Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
-        end
+      {:error, %Selecto.Error{} = error} ->
+        {:error, error}
 
-      # Handle invalid connection types
-      _ ->
+      {:error, {:invalid_connection, connection}} ->
         {:error,
-         Selecto.Error.connection_error("Invalid connection type", %{connection: inspect(conn)})}
+         Selecto.Error.connection_error("Invalid connection type", %{
+           connection: inspect(connection)
+         })}
+
+      {:error, reason} ->
+        require Logger
+        alias Selecto.LogSanitizer
+        Logger.error("PostgreSQL adapter query error: #{LogSanitizer.sanitize_error(reason)}")
+        Logger.error("Query: #{LogSanitizer.sanitize_query(query, params)}")
+
+        {:error,
+         Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
     end
   end
 
@@ -548,37 +546,27 @@ defmodule Selecto.Executor do
   Creates a temporary Postgrex connection using Ecto repo configuration.
   """
   def execute_with_ecto_fallback(repo, query, params, aliases) do
-    config = apply(repo, :config, [])
+    adapter = Selecto.AdapterSupport.default_adapter()
 
-    postgrex_opts = [
-      username: config[:username],
-      password: config[:password],
-      hostname: config[:hostname] || "localhost",
-      database: config[:database],
-      port: config[:port] || 5432,
-      supervisor: false
-    ]
+    cond do
+      function_exported?(adapter, :execute_repo_fallback, 3) ->
+        case Kernel.apply(adapter, :execute_repo_fallback, [repo, query, params]) do
+          {:ok, result} ->
+            {:ok, {Map.get(result, :rows, []), Map.get(result, :columns, []), aliases}}
 
-    case Postgrex.start_link(postgrex_opts) do
-      {:ok, conn} ->
-        result =
-          case Postgrex.query(conn, query, params) do
-            {:ok, result} ->
-              {:ok, {result.rows, result.columns, aliases}}
+          {:error, %Selecto.Error{} = error} ->
+            {:error, error}
 
-            {:error, reason} ->
-              {:error,
-               Selecto.Error.query_error("Query execution failed", query, params, %{
-                 reason: reason
-               })}
-          end
+          {:error, reason} ->
+            {:error, Selecto.Error.from_reason(reason)}
+        end
 
-        GenServer.stop(conn)
-        result
-
-      {:error, reason} ->
+      true ->
         {:error,
-         Selecto.Error.connection_error("Failed to connect to database", %{reason: reason})}
+         Selecto.Error.connection_error(
+           "PostgreSQL adapter repo fallback is unavailable",
+           %{adapter: adapter, repo: repo}
+         )}
     end
   end
 
