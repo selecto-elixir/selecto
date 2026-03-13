@@ -112,23 +112,9 @@ defmodule Selecto.Diagnostics do
             {:error, Error.from_reason(reason)}
         end
 
-      is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
-        case apply(Ecto.Adapters.SQL, :query, [selecto.postgrex_opts, sql, params]) do
-          {:ok, result} -> {:ok, result.rows, result.columns}
-          {:error, reason} -> {:error, Error.from_reason(reason)}
-        end
-
-      match?({:pool, _}, selecto.postgrex_opts) ->
-        case Selecto.ConnectionPool.execute(selecto.postgrex_opts, sql, params, prepared: false) do
-          {:ok, result} -> {:ok, result.rows, result.columns}
-          {:error, reason} -> {:error, Error.from_reason(reason)}
-        end
-
       true ->
-        case Postgrex.query(selecto.postgrex_opts, sql, params) do
-          {:ok, result} -> {:ok, result.rows, result.columns}
-          {:error, reason} -> {:error, Error.from_reason(reason)}
-        end
+        {:error,
+         Error.connection_error("Raw execution is unavailable for adapter", %{adapter: adapter})}
     end
   rescue
     e ->

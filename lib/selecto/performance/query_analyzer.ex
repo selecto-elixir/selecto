@@ -1,6 +1,6 @@
 defmodule Selecto.Performance.QueryAnalyzer do
   @moduledoc """
-  Query analysis and optimization using database EXPLAIN support.
+  Query analysis and optimization using adapter-backed EXPLAIN support.
 
   Provides deep insights into query performance by:
   - Running EXPLAIN ANALYZE on queries

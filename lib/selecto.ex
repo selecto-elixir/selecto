@@ -148,7 +148,7 @@ defmodule Selecto do
           # Process successful results
           Enum.map(rows, &process_row/1)
 
-        {:error, %Postgrex.Error{} = error} ->
+        {:error, %Selecto.Error{} = error} ->
           # Handle database errors gracefully
           Logger.error("Query failed: \#{inspect(error)}")
           {:error, :database_error}
@@ -217,28 +217,28 @@ defmodule Selecto do
     ## Examples
 
         # Basic usage (validation enabled by default)
-        selecto = Selecto.configure(domain, postgrex_opts)
+        selecto = Selecto.configure(domain, connection_input)
 
         # With connection pooling
-        selecto = Selecto.configure(domain, postgrex_opts, pool: true)
+        selecto = Selecto.configure(domain, connection_input, pool: true)
 
         # Custom pool configuration
         pool_opts = [pool_size: 20, max_overflow: 10]
-        selecto = Selecto.configure(domain, postgrex_opts, pool: true, pool_options: pool_opts)
+        selecto = Selecto.configure(domain, connection_input, pool: true, pool_options: pool_opts)
 
         # Using existing pooled connection
-        {:ok, pool} = Selecto.ConnectionPool.start_pool(postgrex_opts)
+        {:ok, pool} = Selecto.ConnectionPool.start_pool(connection_input)
         selecto = Selecto.configure(domain, {:pool, pool})
 
         # Disable validation for performance-critical scenarios
-        selecto = Selecto.configure(domain, postgrex_opts, validate: false)
+        selecto = Selecto.configure(domain, connection_input, validate: false)
 
         # With Ecto repository and schema
         selecto = Selecto.from_ecto(MyApp.Repo, MyApp.User)
 
         # Validation can also be called explicitly
         :ok = Selecto.DomainValidator.validate_domain!(domain)
-        selecto = Selecto.configure(domain, postgrex_opts)
+        selecto = Selecto.configure(domain, connection_input)
   """
   @spec configure(Selecto.Types.domain(), term(), keyword()) :: t()
   def configure(domain, postgrex_opts, opts \\ []) do

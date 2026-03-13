@@ -2,8 +2,8 @@ defmodule Selecto.Executor do
   @moduledoc """
   Query execution engine for Selecto.
 
-  Handles the execution of generated SQL queries against Postgrex connections
-  or Ecto repositories, with proper error handling and connection management.
+  Handles execution of generated SQL queries through configured adapter or repo
+  contexts, with proper error handling and connection management.
   """
 
   require Logger
@@ -472,28 +472,31 @@ defmodule Selecto.Executor do
   @doc """
   Execute query using an Ecto repository.
 
-  Attempts to use Ecto.Adapters.SQL.query first, falling back to direct
-  Postgrex connection if Ecto is not available.
+  Routes repository execution through the configured adapter.
   """
   def execute_with_ecto_repo(repo, query, params, aliases) do
-    try do
-      # Use apply to avoid compile-time dependency on Ecto.Adapters.SQL
-      case apply(Ecto.Adapters.SQL, :query, [repo, query, params]) do
-        {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-        {:error, reason} -> {:error, Selecto.Error.from_reason(reason)}
-      end
-    rescue
-      UndefinedFunctionError ->
-        # Ecto.Adapters.SQL not available, fall back to temporary connection
-        execute_with_ecto_fallback(repo, query, params, aliases)
+    adapter = Selecto.AdapterSupport.default_adapter()
 
-      error ->
-        {:error, Selecto.Error.from_reason(error)}
+    cond do
+      function_exported?(adapter, :execute_raw, 3) ->
+        case Kernel.apply(adapter, :execute_raw, [repo, query, params]) do
+          {:ok, result} ->
+            {:ok, {Map.get(result, :rows, []), Map.get(result, :columns, []), aliases}}
+
+          {:error, %Selecto.Error{} = error} ->
+            {:error, error}
+
+          {:error, reason} ->
+            {:error, Selecto.Error.from_reason(reason)}
+        end
+
+      true ->
+        execute_with_ecto_fallback(repo, query, params, aliases)
     end
   end
 
   @doc """
-  Execute query using direct Postgrex connection or connection pool.
+  Execute query using the default PostgreSQL adapter.
   """
   def execute_with_postgrex(conn, query, params, aliases) do
     adapter = Selecto.AdapterSupport.default_adapter()
@@ -541,9 +544,9 @@ defmodule Selecto.Executor do
   end
 
   @doc """
-  Fallback execution when Ecto.Adapters.SQL is not available.
+  Fallback execution when adapter-native repo execution is unavailable.
 
-  Creates a temporary Postgrex connection using Ecto repo configuration.
+  Creates a temporary adapter-managed connection from repo configuration.
   """
   def execute_with_ecto_fallback(repo, query, params, aliases) do
     adapter = Selecto.AdapterSupport.default_adapter()
@@ -714,12 +717,12 @@ defmodule Selecto.Executor do
       selecto.adapter && not Selecto.AdapterSupport.postgresql_adapter?(selecto.adapter) ->
         execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
 
-      # If it's an Ecto repo (module that has __adapter__ function), try to use Ecto.Adapters.SQL.query
+      # If it's an Ecto repo, route through repository execution.
       is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) &&
           is_ecto_repo?(selecto.postgrex_opts) ->
         execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
 
-      # If it's a Postgrex connection or registered name, use Postgrex.query directly (PostgreSQL backward compatibility)
+      # Otherwise route through the default PostgreSQL adapter.
       true ->
         execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
     end
