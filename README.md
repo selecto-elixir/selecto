@@ -34,10 +34,10 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
 
 ## ✅ Adapter, Tenant, and Streaming Status (0.3.10)
 
-- **Adapter foundation**: First-class adapters are available under
-  `Selecto.DB.*` (`PostgreSQL`, `MySQL`, `MariaDB`, `MSSQL`, `SQLite`) with
-  adapter-driven placeholders, identifier quoting, and normalized execution
-  results.
+- **Adapter foundation**: Selecto uses a shared adapter contract plus adapter
+  modules such as `Selecto.DB.PostgreSQL`, `Selecto.DB.MySQL`,
+  `Selecto.DB.MariaDB`, `Selecto.DB.MSSQL`, and external packages such as
+  `SelectoDBSQLite.Adapter`.
 - **Support level**: Non-PostgreSQL adapters currently provide baseline
   cross-database support for SQL generation and execution, not full feature
   parity with PostgreSQL.
@@ -492,7 +492,7 @@ Support levels in this table are intentionally conservative:
 | MySQL (`Selecto.DB.MySQL`) | Yes | Yes (with `myxql`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
 | MariaDB (`Selecto.DB.MariaDB`) | Yes | Yes (with `myxql`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
 | MSSQL (`Selecto.DB.MSSQL`) | Yes | Yes (with `tds`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
-| SQLite (`Selecto.DB.SQLite`) | Yes | Yes (with `exqlite`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
+| SQLite (`SelectoDBSQLite.Adapter` via `selecto_db_sqlite`) | Yes | Yes (with `exqlite`) | No built-in stream support today | External adapter package; baseline support only |
 
 Backends outside this table, such as DuckDB, should currently be treated as
 external or experimental adapters unless and until they have their own tested

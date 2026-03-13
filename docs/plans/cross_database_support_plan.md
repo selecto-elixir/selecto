@@ -23,12 +23,13 @@ define the next steps needed to turn the adapter layer from "present" into
    - `Selecto.DB.MySQL`
    - `Selecto.DB.MariaDB`
    - `Selecto.DB.MSSQL`
-   - `Selecto.DB.SQLite`
-2. A shared adapter behavior exists at `lib/selecto/db/adapter.ex`.
-3. SQL placeholder generation and identifier quoting are adapter-driven.
-4. `Selecto.Configuration` accepts an explicit adapter and initializes
+2. SQLite extraction is underway via external adapter packages such as
+   `SelectoDBSQLite.Adapter` in `selecto_db_sqlite`.
+3. A shared adapter behavior exists and should live in a standalone package.
+4. SQL placeholder generation and identifier quoting are adapter-driven.
+5. `Selecto.Configuration` accepts an explicit adapter and initializes
    non-PostgreSQL connections through that adapter.
-5. Baseline tests now cover:
+6. Baseline tests now cover:
    - adapter contract shape
    - SQL param placeholder behavior
    - cross-db smoke execution and simple query-shape checks
@@ -107,8 +108,8 @@ verified individually, for example:
 
 ## Adapter Model
 
-The adapter contract is already established in `lib/selecto/db/adapter.ex` and
-should remain the core abstraction:
+The adapter contract is already established as `Selecto.DB.Adapter` and should
+remain the core abstraction:
 
 - `name/0`
 - `connect/1`
@@ -172,6 +173,10 @@ Examples:
 
 Not every adapter needs to live in core.
 
+Preferred long-term direction: move database-specific adapters into separate Hex
+packages so `selecto` remains focused on query building, shared execution
+contracts, and capability gating.
+
 ### Keep Built In
 
 These are reasonable built-in targets because they already exist and match the
@@ -181,13 +186,15 @@ current test/dependency model:
 - MySQL
 - MariaDB
 - MSSQL
-- SQLite
 
 ### Candidate External Adapters
 
 Backends such as DuckDB should be evaluated as external adapters first unless
 they reach a high-confidence support level and justify ongoing maintenance in
 core.
+
+The same extraction path should eventually apply to the remaining current
+non-PostgreSQL core adapters as they are split into dedicated packages.
 
 Reasons:
 
@@ -205,6 +212,24 @@ For DuckDB specifically, the recommended path is:
 5. only consider core inclusion after stable integration coverage exists
 
 ## Workstreams
+
+## Migration Constraint
+
+`selecto` cannot directly depend on per-adapter packages while those packages in
+turn depend on `selecto` for `Selecto.DB.Adapter`. That creates a circular
+dependency.
+
+So adapter extraction needs one of these staged approaches:
+
+1. move the adapter behavior into a tiny shared package and have both `selecto`
+   and adapter packages depend on it
+2. keep adapter packages external first, then remove the in-core adapter modules
+   in a coordinated breaking change
+3. introduce a temporary compatibility layer that avoids circular dependency
+   while downstream packages migrate
+
+This constraint should guide the extraction order for SQLite, MySQL, MariaDB,
+MSSQL, and any future adapter packages.
 
 ## Phase 1 - Honest Support Classification
 

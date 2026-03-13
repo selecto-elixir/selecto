@@ -6,7 +6,7 @@ defmodule Selecto.DB.AdaptersTest do
     Selecto.DB.MySQL,
     Selecto.DB.MariaDB,
     Selecto.DB.MSSQL,
-    Selecto.DB.SQLite
+    SelectoDBSQLite.Adapter
   ]
 
   test "adapter modules expose required functions" do
@@ -33,7 +33,7 @@ defmodule Selecto.DB.AdaptersTest do
     assert Selecto.DB.PostgreSQL.placeholder(3) |> IO.iodata_to_binary() == "$3"
     assert Selecto.DB.MySQL.placeholder(3) == "?"
     assert Selecto.DB.MariaDB.placeholder(3) == "?"
-    assert Selecto.DB.SQLite.placeholder(3) == "?"
+    assert SelectoDBSQLite.Adapter.placeholder(3) == "?"
     assert Selecto.DB.MSSQL.placeholder(3) |> IO.iodata_to_binary() == "@p3"
   end
 
@@ -41,7 +41,7 @@ defmodule Selecto.DB.AdaptersTest do
     assert Selecto.DB.PostgreSQL.quote_identifier("order") == "\"order\""
     assert Selecto.DB.MySQL.quote_identifier("order") == "`order`"
     assert Selecto.DB.MariaDB.quote_identifier("order") == "`order`"
-    assert Selecto.DB.SQLite.quote_identifier("order") == "\"order\""
+    assert SelectoDBSQLite.Adapter.quote_identifier("order") == "\"order\""
     assert Selecto.DB.MSSQL.quote_identifier("order") == "[order]"
   end
 
@@ -49,7 +49,7 @@ defmodule Selecto.DB.AdaptersTest do
     mysql_result = Selecto.DB.MySQL.connect([])
     mariadb_result = Selecto.DB.MariaDB.connect([])
     mssql_result = Selecto.DB.MSSQL.connect([])
-    sqlite_result = Selecto.DB.SQLite.connect([])
+    sqlite_result = SelectoDBSQLite.Adapter.connect([])
 
     if Code.ensure_loaded?(MyXQL) do
       assert match?({:ok, _}, mysql_result) or match?({:error, _}, mysql_result)
@@ -77,16 +77,16 @@ defmodule Selecto.DB.AdaptersTest do
              {:error, {:invalid_connection, 123}}
   end
 
-  test "sqlite adapter executes simple query when dependency is available" do
+  test "external sqlite adapter executes simple query when dependency is available" do
     if Code.ensure_loaded?(Exqlite.Sqlite3) do
-      assert {:ok, conn} = Selecto.DB.SQLite.connect(database: ":memory:")
+      assert {:ok, conn} = SelectoDBSQLite.Adapter.connect(database: ":memory:")
 
       assert {:ok, %{rows: [[1]], columns: ["value"]}} =
-               Selecto.DB.SQLite.execute(conn, "SELECT 1 AS value", [], [])
+               SelectoDBSQLite.Adapter.execute(conn, "SELECT 1 AS value", [], [])
 
       _ = Exqlite.Sqlite3.close(conn)
     else
-      assert Selecto.DB.SQLite.execute(:invalid, "SELECT 1", [], []) ==
+      assert SelectoDBSQLite.Adapter.execute(:invalid, "SELECT 1", [], []) ==
                {:error, {:adapter_dependency_missing, :exqlite}}
     end
   end

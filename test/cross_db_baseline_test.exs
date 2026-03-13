@@ -58,15 +58,15 @@ defmodule Selecto.CrossDBBaselineTest do
 
   @tag :sqlite
   test "sqlite adapter executes baseline query" do
-    assert {:ok, conn} = Selecto.DB.SQLite.connect(sqlite_opts())
+    assert {:ok, conn} = SelectoDBSQLite.Adapter.connect(sqlite_opts())
 
     on_exit(fn ->
       close_connection(conn)
     end)
 
-    assert_single_value_query(Selecto.DB.SQLite, conn, "SELECT 1 AS value")
-    assert_query_shape_suite(Selecto.DB.SQLite, conn)
-    assert_stream_capability_error(Selecto.DB.SQLite, conn)
+    assert_single_value_query(SelectoDBSQLite.Adapter, conn, "SELECT 1 AS value")
+    assert_query_shape_suite(SelectoDBSQLite.Adapter, conn)
+    assert_stream_capability_error(SelectoDBSQLite.Adapter, conn)
   end
 
   defp assert_single_value_query(adapter, conn, sql) do

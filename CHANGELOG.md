@@ -7,6 +7,9 @@
 - Clarified cross-database adapter documentation to distinguish baseline adapter
   support from advanced feature parity, including more explicit README guidance
   for non-PostgreSQL backends and future external adapters such as DuckDB.
+- Began extracting SQLite support into the external `selecto_db_sqlite` package
+  and moved the shared `Selecto.DB.Adapter` contract toward a standalone
+  package.
 
 ## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
 ---------------------------------------------------------
