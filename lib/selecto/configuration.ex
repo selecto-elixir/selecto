@@ -77,7 +77,7 @@ defmodule Selecto.Configuration do
     # Initialize connection based on adapter
     connection =
       if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
-        # Backward compatibility: use postgrex_opts directly for PostgreSQL
+        # Backward compatibility: reuse the original connection input for the default PostgreSQL adapter.
         final_postgrex_opts
       else
         # For non-PostgreSQL adapters, reuse pooled adapter reference when available.

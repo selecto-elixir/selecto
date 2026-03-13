@@ -95,8 +95,8 @@ defmodule Selecto.LogSanitizer do
 
   ## Examples
 
-      iex> sanitize_error(%Postgrex.Error{message: "error"})
-      "%Postgrex.Error{message: \\"error\\"}"
+      iex> sanitize_error(%RuntimeError{message: "error"})
+      "Elixir.RuntimeError: error"
   """
   @spec sanitize_error(term()) :: String.t()
   def sanitize_error(error) when is_exception(error) do

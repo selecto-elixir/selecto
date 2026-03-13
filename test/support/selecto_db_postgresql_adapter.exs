@@ -206,6 +206,36 @@ defmodule SelectoDBPostgreSQL.Adapter do
     end
   end
 
+  @impl true
+  def with_connection(pool_ref, fun) when is_function(fun, 1) do
+    case Selecto.ConnectionPool.get_pool_pid(pool_ref) do
+      {:ok, pool_pid} ->
+        try do
+          {:ok, fun.(pool_pid)}
+        rescue
+          e in DBConnection.ConnectionError ->
+            {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
+
+          e ->
+            {:error, Selecto.Error.query_error(Exception.message(e), nil, [], %{exception: e})}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @impl true
+  def transaction(pool_ref, fun, _opts \\ []) when is_function(fun, 1) do
+    case Selecto.ConnectionPool.get_pool_pid(pool_ref) do
+      {:ok, pool_pid} ->
+        {:ok, fun.(pool_pid)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp validate_pool_connection({:pool, pool_ref}) do
     try do
       case Selecto.ConnectionPool.pool_stats(pool_ref) do

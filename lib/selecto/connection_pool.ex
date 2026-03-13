@@ -10,8 +10,8 @@ defmodule Selecto.ConnectionPool do
   - Connection pooling with configurable pool sizes
   - Prepared statement caching for repeated queries
   - Connection health monitoring and automatic recovery
-  - Support for both direct Postgrex and Ecto repository connections
-  - Graceful fallback to single connections when pooling is disabled
+  - Adapter-owned pool startup and pooled execution
+  - Graceful fallback to direct connections when pooling is disabled
 
   ## Configuration
 
@@ -26,13 +26,13 @@ defmodule Selecto.ConnectionPool do
   ## Usage
 
       # Start a connection pool
-      {:ok, pool} = Selecto.ConnectionPool.start_pool(postgrex_opts)
+      {:ok, pool} = Selecto.ConnectionPool.start_pool(connection_input)
       
       # Configure Selecto with pooled connection
       selecto = Selecto.configure(domain, {:pool, pool})
       
       # Or use default pool management
-      selecto = Selecto.configure(domain, postgrex_opts, pool: true)
+      selecto = Selecto.configure(domain, connection_input, pool: true)
   """
 
   use GenServer
@@ -89,7 +89,7 @@ defmodule Selecto.ConnectionPool do
 
   ## Examples
 
-      # Start pool with Postgrex config (default adapter)
+      # Start pool with default adapter config
       config = [
         hostname: "localhost",
         username: "user", 
@@ -392,9 +392,7 @@ defmodule Selecto.ConnectionPool do
 
       {:ok, conn} = Selecto.ConnectionPool.checkout(pool)
       try do
-        Postgrex.query!(conn, "BEGIN", [])
-        Postgrex.query!(conn, "INSERT INTO ...", [...])
-        Postgrex.query!(conn, "COMMIT", [])
+        run_checkout_queries(conn)
       after
         Selecto.ConnectionPool.checkin(pool, conn)
       end
@@ -447,7 +445,7 @@ defmodule Selecto.ConnectionPool do
   ## Examples
 
       Selecto.ConnectionPool.with_connection(pool, fn conn ->
-        Postgrex.query!(conn, "SELECT * FROM users", [])
+        run_queries_with_adapter_connection(conn)
       end)
   """
   @spec with_connection(pool_ref(), (DBConnection.conn() -> result)) ::
@@ -461,23 +459,7 @@ defmodule Selecto.ConnectionPool do
         adapter.with_connection(pool_ref, fun)
 
       true ->
-        case get_pool_pid(pool_ref) do
-          {:ok, pool_pid} ->
-            try do
-              result = fun.(pool_pid)
-              {:ok, result}
-            rescue
-              e in DBConnection.ConnectionError ->
-                {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
-
-              e ->
-                {:error,
-                 Selecto.Error.query_error(Exception.message(e), nil, [], %{exception: e})}
-            end
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        {:error, {:unsupported_adapter, adapter}}
     end
   end
 
@@ -489,8 +471,7 @@ defmodule Selecto.ConnectionPool do
   ## Examples
 
       Selecto.ConnectionPool.transaction(pool, fn conn ->
-        Postgrex.query!(conn, "INSERT INTO orders ...", [...])
-        Postgrex.query!(conn, "UPDATE inventory ...", [...])
+        run_transaction_steps(conn)
       end)
   """
   @spec transaction(pool_ref(), (DBConnection.conn() -> result), Keyword.t()) ::
@@ -504,13 +485,7 @@ defmodule Selecto.ConnectionPool do
         adapter.transaction(pool_ref, fun, opts)
 
       true ->
-        case get_pool_pid(pool_ref) do
-          {:ok, pool_pid} ->
-            Postgrex.transaction(pool_pid, fun, opts)
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+        {:error, {:unsupported_adapter, adapter}}
     end
   end
 

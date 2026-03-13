@@ -297,7 +297,7 @@ defmodule Selecto.Executor do
           params: params
         }
 
-        # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
+        # Handle different execution contexts: adapters, repos, or direct connections
         result =
           execute_for_context(selecto, query, params, aliases)
 
