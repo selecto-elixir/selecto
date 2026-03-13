@@ -43,8 +43,8 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
   parity with PostgreSQL.
 - **Tenant enforcement**: Query execution and filter derivation now enforce
   required tenant scope with explicit validation helpers.
-- **Streaming API**: `Selecto.execute_stream/2` is available. Direct PostgreSQL
-  connections use cursor-backed streaming; adapter-backed streaming requires
+- **Streaming API**: `Selecto.execute_stream/2` is available. The PostgreSQL
+  adapter supports cursor-backed streaming for direct connections; adapter-backed streaming requires
   adapter `stream/4` support and is currently unavailable on the external
   non-PostgreSQL adapters.
 
@@ -473,9 +473,8 @@ SELECTO_POSTGRES_DATABASE=selecto_test
 ## 🚦 System Requirements
 
 - Elixir 1.18+
-- PostgreSQL 12+ with `postgrex` for full first-party integration coverage
-- Optional adapter client libraries for non-PostgreSQL execution paths
-  (`myxql`, `tds`, `exqlite`), depending on adapter selection
+- Adapter client libraries come from the adapter packages your app installs
+  (for example `selecto_db_postgresql`, `selecto_db_mysql`, `selecto_db_sqlite`)
 
 ## 🧱 Adapter Support Matrix
 
@@ -498,8 +497,8 @@ Backends outside this table, such as DuckDB, should currently be treated as
 external or experimental adapters unless and until they have their own tested
 adapter implementation.
 
-Applications are expected to add any external adapter package they use; `selecto`
-itself does not bundle SQLite or MySQL adapter packages as runtime deps.
+Applications are expected to add the adapter package they use; `selecto`
+itself does not bundle database adapter packages as runtime deps.
 
 See `docs/adapter_migration.md` for the app-owned adapter installation pattern.
 
@@ -508,10 +507,13 @@ See `docs/adapter_migration.md` for the app-owned adapter installation pattern.
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.16"}
+    {:selecto, "~> 0.3.16"},
+    {:selecto_db_postgresql, "~> 0.1"}
   ]
 end
 ```
+
+Replace `selecto_db_postgresql` with the adapter package your application uses.
 
 For local multi-repo development against vendored ecosystem packages, set:
 

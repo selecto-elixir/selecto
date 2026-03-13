@@ -1,6 +1,6 @@
 # Adapter Migration
 
-Selecto is moving toward app-owned database adapter packages.
+Selecto now expects app-owned database adapter packages.
 
 ## What This Means
 
@@ -37,3 +37,7 @@ Selecto.configure(domain, db_opts, adapter: SelectoDBPostgreSQL.Adapter)
 PostgreSQL remains the reference backend, but the long-term direction is for all
 database-specific adapters to live outside core `selecto`, including
 PostgreSQL itself via `selecto_db_postgresql`.
+
+The legacy `postgrex_opts` field and parameter name still exist in parts of the
+core API for backward compatibility, but applications should think of them as
+generic connection inputs rather than Postgrex-only configuration.

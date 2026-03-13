@@ -32,13 +32,13 @@ defmodule Selecto.Configuration do
   ## Examples
 
       # Basic usage (validation enabled by default)
-      selecto = Selecto.Configuration.configure(domain, postgrex_opts)
+      selecto = Selecto.Configuration.configure(domain, connection_input)
 
       # With connection pooling
-      selecto = Selecto.Configuration.configure(domain, postgrex_opts, pool: true)
+      selecto = Selecto.Configuration.configure(domain, connection_input, pool: true)
 
       # Disable validation for performance
-      selecto = Selecto.Configuration.configure(domain, postgrex_opts, validate: false)
+      selecto = Selecto.Configuration.configure(domain, connection_input, validate: false)
   """
   @spec configure(Selecto.Types.domain(), term(), keyword()) :: Selecto.Types.t()
   def configure(domain, postgrex_opts, opts \\ []) do
