@@ -1,3 +1,5 @@
+Code.require_file("support/selecto_db_postgresql_adapter.exs", __DIR__)
+
 run_db_tests? =
   System.get_env("SELECTO_RUN_DB_TESTS", "0")
   |> String.downcase()

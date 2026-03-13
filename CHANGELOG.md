@@ -3,10 +3,35 @@
 
 ## Unreleased
 
+## V 0.4.0 - External Adapter Architecture
+---------------------------------------------------------
+
 #### Changed
+- Moved database adapter support to app-owned external packages, including the
+  new `selecto_db_postgresql` reference path and companion packages for SQLite,
+  MySQL, MariaDB, and MSSQL.
+- Routed PostgreSQL execution, pooling, diagnostics, streaming, and query
+  analysis through adapter hooks so core `selecto` no longer owns in-core DB
+  adapter implementations.
+- Clarified installation and migration docs to require explicit `selecto_db_*`
+  dependencies in consumer applications.
+- Bumped package version to `0.4.0`.
+
 - Clarified cross-database adapter documentation to distinguish baseline adapter
   support from advanced feature parity, including more explicit README guidance
   for non-PostgreSQL backends and future external adapters such as DuckDB.
+- Began extracting SQLite support into the external `selecto_db_sqlite` package
+  and moved the shared `Selecto.DB.Adapter` contract toward a standalone
+  package.
+- Began extracting MySQL support into the external `selecto_db_mysql` package
+  and updated core tests/docs to validate the external adapter path.
+- Began extracting MariaDB support into the external `selecto_db_mariadb`
+  package and updated core tests/docs to validate the external adapter path.
+- Began extracting MSSQL support into the external `selecto_db_mssql` package
+  and updated core tests/docs to validate the external adapter path.
+- Began extracting PostgreSQL support into the external
+  `selecto_db_postgresql` package and updated docs/tests toward the external
+  adapter default.
 
 ## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
 ---------------------------------------------------------

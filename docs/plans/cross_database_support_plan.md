@@ -2,13 +2,13 @@
 
 ## Context
 
-Selecto now has a real adapter namespace under `Selecto.DB.*` and basic coverage
+Selecto now relies on a shared adapter contract plus external adapter packages
 for PostgreSQL, MySQL, MariaDB, MSSQL, and SQLite. That foundation is useful,
-but it should not be mistaken for full backend parity. The current adapters prove
-out placeholder handling, identifier quoting, connection bootstrap, normalized
-execution results, and limited baseline query execution. They do not yet
-guarantee that all builder features, execution paths, or advanced query shapes
-behave consistently across engines.
+but it should not be mistaken for full backend parity. The current adapter
+packages prove out placeholder handling, identifier quoting, connection
+bootstrap, normalized execution results, and limited baseline query execution.
+They do not yet guarantee that all builder features, execution paths, or
+advanced query shapes behave consistently across engines.
 
 This document updates the original plan to match the current codebase and to
 define the next steps needed to turn the adapter layer from "present" into
@@ -18,17 +18,18 @@ define the next steps needed to turn the adapter layer from "present" into
 
 ### What Exists Today
 
-1. Built-in adapter modules exist for:
-   - `Selecto.DB.PostgreSQL`
-   - `Selecto.DB.MySQL`
-   - `Selecto.DB.MariaDB`
-   - `Selecto.DB.MSSQL`
-   - `Selecto.DB.SQLite`
-2. A shared adapter behavior exists at `lib/selecto/db/adapter.ex`.
-3. SQL placeholder generation and identifier quoting are adapter-driven.
-4. `Selecto.Configuration` accepts an explicit adapter and initializes
+1. Database adapters live in separate packages and are app-owned dependencies.
+2. PostgreSQL, MySQL, MariaDB, MSSQL, and SQLite are represented by external adapter
+   packages such as `SelectoDBMySQL.Adapter` in `selecto_db_mysql`,
+   `SelectoDBMariaDB.Adapter` in `selecto_db_mariadb`, and
+   `SelectoDBMSSQL.Adapter` in `selecto_db_mssql`,
+   `SelectoDBSQLite.Adapter` in `selecto_db_sqlite`, and
+   `SelectoDBPostgreSQL.Adapter` in `selecto_db_postgresql`.
+3. A shared adapter behavior lives in the standalone `selecto_db_adapter` package.
+4. SQL placeholder generation and identifier quoting are adapter-driven.
+5. `Selecto.Configuration` accepts an explicit adapter and initializes
    non-PostgreSQL connections through that adapter.
-5. Baseline tests now cover:
+6. Baseline tests now cover:
    - adapter contract shape
    - SQL param placeholder behavior
    - cross-db smoke execution and simple query-shape checks
@@ -62,7 +63,7 @@ That means:
 
 1. Keep PostgreSQL stable as the most complete backend.
 2. Make baseline query generation and execution dependable across the current
-   built-in adapters.
+   adapter packages.
 3. Introduce explicit capability gating for backend-specific limitations.
 4. Expand tests so claims in the README are backed by real coverage.
 5. Provide a clean path for additional adapters, including external or
@@ -72,7 +73,7 @@ That means:
 
 1. Full semantic parity across all backends.
 2. Automatic emulation of every PostgreSQL-specific feature.
-3. Shipping every possible database as a built-in adapter.
+3. Shipping every possible database as a core package.
 4. Claiming production readiness for an adapter without corresponding coverage.
 
 ## Definitions
@@ -107,8 +108,8 @@ verified individually, for example:
 
 ## Adapter Model
 
-The adapter contract is already established in `lib/selecto/db/adapter.ex` and
-should remain the core abstraction:
+The adapter contract is already established as `Selecto.DB.Adapter` and should
+remain the core abstraction:
 
 - `name/0`
 - `connect/1`
@@ -172,22 +173,18 @@ Examples:
 
 Not every adapter needs to live in core.
 
-### Keep Built In
-
-These are reasonable built-in targets because they already exist and match the
-current test/dependency model:
-
-- PostgreSQL
-- MySQL
-- MariaDB
-- MSSQL
-- SQLite
+Preferred long-term direction: move database-specific adapters into separate Hex
+packages so `selecto` remains focused on query building, shared execution
+contracts, and capability gating.
 
 ### Candidate External Adapters
 
 Backends such as DuckDB should be evaluated as external adapters first unless
 they reach a high-confidence support level and justify ongoing maintenance in
 core.
+
+This same package-based path should continue for future adapters and adapter
+specializations.
 
 Reasons:
 
@@ -205,6 +202,24 @@ For DuckDB specifically, the recommended path is:
 5. only consider core inclusion after stable integration coverage exists
 
 ## Workstreams
+
+## Migration Constraint
+
+`selecto` cannot directly depend on per-adapter packages while those packages in
+turn depend on `selecto` for `Selecto.DB.Adapter`. That creates a circular
+dependency.
+
+So adapter extraction needs one of these staged approaches:
+
+1. move the adapter behavior into a tiny shared package and have both `selecto`
+   and adapter packages depend on it
+2. keep adapter packages external first, then remove legacy in-core adapter
+   modules in a coordinated breaking change
+3. introduce a temporary compatibility layer that avoids circular dependency
+   while downstream packages migrate
+
+This constraint should guide the extraction order for SQLite, MySQL, MariaDB,
+MSSQL, and any future adapter packages.
 
 ## Phase 1 - Honest Support Classification
 
@@ -288,7 +303,7 @@ Deliverable: new adapter work can progress without overcommitting core support.
 
 ### Unit Coverage
 
-1. Adapter contract tests for each built-in adapter.
+1. Adapter contract tests for each maintained adapter package.
 2. Placeholder and identifier quoting tests.
 3. Builder tests for adapter-specific SQL rendering.
 4. Error-shape tests for unsupported capabilities.

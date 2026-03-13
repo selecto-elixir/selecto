@@ -6,7 +6,7 @@ Complete API documentation for Selecto's advanced query builder with comprehensi
 
 ### `Selecto.configure/2`
 
-Configures a Selecto instance with domain configuration and database connection.
+Configures a Selecto instance with domain configuration and connection input.
 
 ```elixir
 configure(domain, connection) :: %Selecto{}
@@ -14,13 +14,14 @@ configure(domain, connection) :: %Selecto{}
 
 **Parameters:**
 - `domain` - Domain configuration map containing source, schemas, and join definitions
-- `connection` - Postgrex connection for database operations
+- `connection` - Adapter-specific connection input, Ecto repo, live connection,
+  or pooled connection reference
 
 **Returns:** Configured Selecto struct ready for query building
 
 **Example:**
 ```elixir
-selecto = Selecto.configure(domain_config, postgrex_conn)
+selecto = Selecto.configure(domain_config, db_connection)
 ```
 
 ### `Selecto.select/2`

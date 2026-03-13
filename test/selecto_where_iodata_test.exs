@@ -204,7 +204,7 @@ defmodule Selecto.Builder.Sql.WhereTest do
     end
 
     test "mysql in/not_in paths" do
-      mysql_selecto = Map.put(selecto(), :adapter, Selecto.DB.MySQL)
+      mysql_selecto = Map.put(selecto(), :adapter, SelectoDBMySQL.Adapter)
 
       {_joins, in_iodata, _} = Where.build(mysql_selecto, {"id", {:in, [1, 2]}})
       {in_sql, _} = Params.finalize(in_iodata)

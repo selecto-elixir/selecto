@@ -20,7 +20,7 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
 - [seeken/selecto_northwind](https://github.com/seeken/selecto_northwind) contains tutorials for building Selecto queries and workflows.
 - [testselecto.fly.dev](https://testselecto.fly.dev) runs the `selecto_test` app as a hosted Selecto demo.
 
-## 📌 Release Status (0.3.x)
+## 📌 Release Status (0.4.x)
 
 - **Alpha**: Core query building, join handling, CTE support, and standard
   filter/select/order flows are usable but not yet stable; breaking changes may
@@ -32,20 +32,20 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
   part of `selecto` and are provided by companion packages (`selecto_mix`,
   `selecto_components`).
 
-## ✅ Adapter, Tenant, and Streaming Status (0.3.10)
+## ✅ Adapter, Tenant, and Streaming Status (0.4.0)
 
-- **Adapter foundation**: First-class adapters are available under
-  `Selecto.DB.*` (`PostgreSQL`, `MySQL`, `MariaDB`, `MSSQL`, `SQLite`) with
-  adapter-driven placeholders, identifier quoting, and normalized execution
-  results.
+- **Adapter foundation**: Selecto uses a shared adapter contract plus external
+  packages such as `SelectoDBPostgreSQL.Adapter`, `SelectoDBMySQL.Adapter`,
+  `SelectoDBMariaDB.Adapter`, `SelectoDBMSSQL.Adapter`, and
+  `SelectoDBSQLite.Adapter`.
 - **Support level**: Non-PostgreSQL adapters currently provide baseline
   cross-database support for SQL generation and execution, not full feature
   parity with PostgreSQL.
 - **Tenant enforcement**: Query execution and filter derivation now enforce
   required tenant scope with explicit validation helpers.
-- **Streaming API**: `Selecto.execute_stream/2` is available. Direct PostgreSQL
-  connections use cursor-backed streaming; adapter-backed streaming requires
-  adapter `stream/4` support and is currently unavailable on the built-in
+- **Streaming API**: `Selecto.execute_stream/2` is available. The PostgreSQL
+  adapter supports cursor-backed streaming for direct connections; adapter-backed streaming requires
+  adapter `stream/4` support and is currently unavailable on the external
   non-PostgreSQL adapters.
 
 ## ⚠️ Known Limitations (Advanced Subfilters)
@@ -88,12 +88,15 @@ your domain config.
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.16"},
+    {:selecto, "~> 0.4.0"},
+    {:selecto_db_postgresql, "~> 0.4.0"},
     # Optional extension package for spatial/map support
     {:selecto_postgis, "~> 0.1"}
   ]
 end
 ```
+
+Replace `selecto_db_postgresql` with the adapter package your application uses.
 
 ### Enable an extension in a domain
 
@@ -473,9 +476,8 @@ SELECTO_POSTGRES_DATABASE=selecto_test
 ## 🚦 System Requirements
 
 - Elixir 1.18+
-- PostgreSQL 12+ with `postgrex` for full first-party integration coverage
-- Optional adapter client libraries for non-PostgreSQL execution paths
-  (`myxql`, `tds`, `exqlite`), depending on adapter selection
+- Adapter client libraries come from the adapter packages your app installs
+  (for example `selecto_db_postgresql`, `selecto_db_mysql`, `selecto_db_sqlite`)
 
 ## 🧱 Adapter Support Matrix
 
@@ -488,25 +490,33 @@ Support levels in this table are intentionally conservative:
 
 | Adapter | Baseline SQL generation | Baseline execute | Stream | Notes |
 | --- | --- | --- | --- | --- |
-| PostgreSQL (`Selecto.DB.PostgreSQL`) | Yes | Yes | Yes (cursor-backed for direct Postgrex connections) | Most complete backend; PostgreSQL-specific features remain the reference path |
-| MySQL (`Selecto.DB.MySQL`) | Yes | Yes (with `myxql`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
-| MariaDB (`Selecto.DB.MariaDB`) | Yes | Yes (with `myxql`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
-| MSSQL (`Selecto.DB.MSSQL`) | Yes | Yes (with `tds`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
-| SQLite (`Selecto.DB.SQLite`) | Yes | Yes (with `exqlite`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
+| PostgreSQL (`SelectoDBPostgreSQL.Adapter` via `selecto_db_postgresql`) | Yes | Yes | Yes (cursor-backed for direct Postgrex connections) | Most complete backend; PostgreSQL-specific features remain the reference path |
+| MySQL (`SelectoDBMySQL.Adapter` via `selecto_db_mysql`) | Yes | Yes (with `myxql`) | No built-in stream support today | External adapter package; baseline support only |
+| MariaDB (`SelectoDBMariaDB.Adapter` via `selecto_db_mariadb`) | Yes | Yes (with `myxql`) | No built-in stream support today | External adapter package; baseline support only |
+| MSSQL (`SelectoDBMSSQL.Adapter` via `selecto_db_mssql`) | Yes | Yes (with `tds`) | No built-in stream support today | External adapter package; baseline support only |
+| SQLite (`SelectoDBSQLite.Adapter` via `selecto_db_sqlite`) | Yes | Yes (with `exqlite`) | No built-in stream support today | External adapter package; baseline support only |
 
 Backends outside this table, such as DuckDB, should currently be treated as
 external or experimental adapters unless and until they have their own tested
 adapter implementation.
+
+Applications are expected to add the adapter package they use; `selecto`
+itself does not bundle database adapter packages as runtime deps.
+
+See `docs/adapter_migration.md` for the app-owned adapter installation pattern.
 
 ## 📦 Installation
 
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.16"}
+    {:selecto, "~> 0.4.0"},
+    {:selecto_db_postgresql, "~> 0.4.0"}
   ]
 end
 ```
+
+Replace `selecto_db_postgresql` with the adapter package your application uses.
 
 For local multi-repo development against vendored ecosystem packages, set:
 

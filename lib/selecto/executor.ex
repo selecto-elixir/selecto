@@ -2,8 +2,8 @@ defmodule Selecto.Executor do
   @moduledoc """
   Query execution engine for Selecto.
 
-  Handles the execution of generated SQL queries against Postgrex connections
-  or Ecto repositories, with proper error handling and connection management.
+  Handles execution of generated SQL queries through configured adapter or repo
+  contexts, with proper error handling and connection management.
   """
 
   require Logger
@@ -297,7 +297,7 @@ defmodule Selecto.Executor do
           params: params
         }
 
-        # Handle different execution contexts: adapters, Ecto repos, or direct Postgrex connections
+        # Handle different execution contexts: adapters, repos, or direct connections
         result =
           execute_for_context(selecto, query, params, aliases)
 
@@ -356,7 +356,7 @@ defmodule Selecto.Executor do
   Execute a query as a stream of `{row, columns, aliases}` tuples.
 
   Current stream support:
-  - PostgreSQL direct connections (`pid` or registered name) via server-side cursors
+  - The default PostgreSQL adapter via adapter-owned stream hooks
   - Custom adapters that implement `stream/4`
   """
   @spec execute_stream(Selecto.Types.t(), keyword()) :: Selecto.Types.safe_execute_stream_result()
@@ -472,55 +472,56 @@ defmodule Selecto.Executor do
   @doc """
   Execute query using an Ecto repository.
 
-  Attempts to use Ecto.Adapters.SQL.query first, falling back to direct
-  Postgrex connection if Ecto is not available.
+  Routes repository execution through the configured adapter.
   """
   def execute_with_ecto_repo(repo, query, params, aliases) do
-    try do
-      # Use apply to avoid compile-time dependency on Ecto.Adapters.SQL
-      case apply(Ecto.Adapters.SQL, :query, [repo, query, params]) do
-        {:ok, result} -> {:ok, {result.rows, result.columns, aliases}}
-        {:error, reason} -> {:error, Selecto.Error.from_reason(reason)}
-      end
-    rescue
-      UndefinedFunctionError ->
-        # Ecto.Adapters.SQL not available, fall back to temporary connection
-        execute_with_ecto_fallback(repo, query, params, aliases)
+    adapter = Selecto.AdapterSupport.default_adapter()
 
-      error ->
-        {:error, Selecto.Error.from_reason(error)}
+    cond do
+      Selecto.AdapterSupport.callback_available?(adapter, :execute_raw, 3) ->
+        case Kernel.apply(adapter, :execute_raw, [repo, query, params]) do
+          {:ok, result} ->
+            {:ok, {Map.get(result, :rows, []), Map.get(result, :columns, []), aliases}}
+
+          {:error, %Selecto.Error{} = error} ->
+            {:error, error}
+
+          {:error, reason} ->
+            {:error, Selecto.Error.from_reason(reason)}
+        end
+
+      true ->
+        execute_with_ecto_fallback(repo, query, params, aliases)
     end
   end
 
   @doc """
-  Execute query using direct Postgrex connection or connection pool.
+  Execute query using the default PostgreSQL adapter.
   """
   def execute_with_postgrex(conn, query, params, aliases) do
-    case conn do
-      # Handle pooled connections
-      {:pool, pool_ref} ->
-        execute_with_connection_pool(pool_ref, query, params, aliases)
+    adapter = Selecto.AdapterSupport.default_adapter()
 
-      # Handle direct Postgrex connections (PID or registered name)
-      conn when is_pid(conn) or is_atom(conn) ->
-        case Postgrex.query(conn, query, params) do
-          {:ok, result} ->
-            {:ok, {result.rows, result.columns, aliases}}
+    case Kernel.apply(adapter, :execute, [conn, query, params, []]) do
+      {:ok, result} ->
+        {:ok, {Map.get(result, :rows, []), Map.get(result, :columns, []), aliases}}
 
-          {:error, reason} ->
-            require Logger
-            alias Selecto.LogSanitizer
-            Logger.error("Postgrex query error: #{LogSanitizer.sanitize_error(reason)}")
-            Logger.error("Query: #{LogSanitizer.sanitize_query(query, params)}")
-            # Note: params are intentionally NOT logged to prevent sensitive data exposure
-            {:error,
-             Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
-        end
+      {:error, %Selecto.Error{} = error} ->
+        {:error, error}
 
-      # Handle invalid connection types
-      _ ->
+      {:error, {:invalid_connection, connection}} ->
         {:error,
-         Selecto.Error.connection_error("Invalid connection type", %{connection: inspect(conn)})}
+         Selecto.Error.connection_error("Invalid connection type", %{
+           connection: inspect(connection)
+         })}
+
+      {:error, reason} ->
+        require Logger
+        alias Selecto.LogSanitizer
+        Logger.error("PostgreSQL adapter query error: #{LogSanitizer.sanitize_error(reason)}")
+        Logger.error("Query: #{LogSanitizer.sanitize_query(query, params)}")
+
+        {:error,
+         Selecto.Error.query_error("Query execution failed", query, params, %{reason: reason})}
     end
   end
 
@@ -543,42 +544,32 @@ defmodule Selecto.Executor do
   end
 
   @doc """
-  Fallback execution when Ecto.Adapters.SQL is not available.
+  Fallback execution when adapter-native repo execution is unavailable.
 
-  Creates a temporary Postgrex connection using Ecto repo configuration.
+  Creates a temporary adapter-managed connection from repo configuration.
   """
   def execute_with_ecto_fallback(repo, query, params, aliases) do
-    config = apply(repo, :config, [])
+    adapter = Selecto.AdapterSupport.default_adapter()
 
-    postgrex_opts = [
-      username: config[:username],
-      password: config[:password],
-      hostname: config[:hostname] || "localhost",
-      database: config[:database],
-      port: config[:port] || 5432,
-      supervisor: false
-    ]
+    cond do
+      Selecto.AdapterSupport.callback_available?(adapter, :execute_repo_fallback, 3) ->
+        case Kernel.apply(adapter, :execute_repo_fallback, [repo, query, params]) do
+          {:ok, result} ->
+            {:ok, {Map.get(result, :rows, []), Map.get(result, :columns, []), aliases}}
 
-    case Postgrex.start_link(postgrex_opts) do
-      {:ok, conn} ->
-        result =
-          case Postgrex.query(conn, query, params) do
-            {:ok, result} ->
-              {:ok, {result.rows, result.columns, aliases}}
+          {:error, %Selecto.Error{} = error} ->
+            {:error, error}
 
-            {:error, reason} ->
-              {:error,
-               Selecto.Error.query_error("Query execution failed", query, params, %{
-                 reason: reason
-               })}
-          end
+          {:error, reason} ->
+            {:error, Selecto.Error.from_reason(reason)}
+        end
 
-        GenServer.stop(conn)
-        result
-
-      {:error, reason} ->
+      true ->
         {:error,
-         Selecto.Error.connection_error("Failed to connect to database", %{reason: reason})}
+         Selecto.Error.connection_error(
+           "PostgreSQL adapter repo fallback is unavailable",
+           %{adapter: adapter, repo: repo}
+         )}
     end
   end
 
@@ -588,32 +579,14 @@ defmodule Selecto.Executor do
   Returns `:ok` if connection is valid, `{:error, reason}` otherwise.
   """
   def validate_connection(selecto) do
-    case selecto.postgrex_opts do
-      repo when is_atom(repo) and not is_nil(repo) ->
-        # For Ecto repos, we assume they're properly configured
-        # Could be enhanced to ping the database
-        :ok
+    adapter = runtime_adapter(selecto)
+    connection = runtime_connection(selecto)
 
-      {:pool, pool_ref} ->
-        # For pooled connections, validate pool health
-        try do
-          case Selecto.ConnectionPool.pool_stats(pool_ref) do
-            %{error: _} -> {:error, "Connection pool is not available"}
-            stats when is_map(stats) -> :ok
-          end
-        catch
-          :exit, _ -> {:error, "Connection pool is not available"}
-        end
+    cond do
+      Selecto.AdapterSupport.callback_available?(adapter, :validate_connection, 1) ->
+        Kernel.apply(adapter, :validate_connection, [connection])
 
-      conn when is_pid(conn) ->
-        # For Postgrex connections, check if process is alive
-        if Process.alive?(conn) do
-          :ok
-        else
-          {:error, "Postgrex connection process is not alive"}
-        end
-
-      _ ->
+      true ->
         {:error, "Invalid connection configuration"}
     end
   end
@@ -624,40 +597,17 @@ defmodule Selecto.Executor do
   Returns information about the current connection state.
   """
   def connection_info(selecto) do
-    case selecto.postgrex_opts do
-      repo when is_atom(repo) and not is_nil(repo) ->
-        %{
-          type: :ecto_repo,
-          repo: repo,
-          status: :connected
-        }
+    adapter = runtime_adapter(selecto)
+    connection = runtime_connection(selecto)
 
-      {:pool, pool_ref} ->
-        stats =
-          try do
-            Selecto.ConnectionPool.pool_stats(pool_ref)
-          catch
-            :exit, _ -> %{error: "Pool manager not available"}
-          end
+    cond do
+      Selecto.AdapterSupport.callback_available?(adapter, :connection_info, 1) ->
+        Kernel.apply(adapter, :connection_info, [connection])
 
-        %{
-          type: :connection_pool,
-          pool_ref: pool_ref,
-          status: :connected,
-          pool_stats: stats
-        }
-
-      conn when is_pid(conn) ->
-        %{
-          type: :postgrex,
-          pid: conn,
-          status: if(Process.alive?(conn), do: :connected, else: :disconnected)
-        }
-
-      other ->
+      true ->
         %{
           type: :unknown,
-          value: other,
+          value: connection,
           status: :invalid
         }
     end
@@ -705,6 +655,15 @@ defmodule Selecto.Executor do
   end
 
   defp is_ecto_repo?(_), do: false
+
+  defp runtime_connection(%{connection: nil, postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(%{connection: connection}), do: connection
+  defp runtime_connection(%{postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(_), do: nil
+
+  defp runtime_adapter(%{adapter: nil}), do: Selecto.AdapterSupport.default_adapter()
+  defp runtime_adapter(%{adapter: adapter}) when not is_nil(adapter), do: adapter
+  defp runtime_adapter(_), do: Selecto.AdapterSupport.default_adapter()
 
   defp execute_with_hooks(selecto, opts, query_id, start_time) do
     Selecto.Performance.Hooks.with_hooks(
@@ -755,15 +714,15 @@ defmodule Selecto.Executor do
   defp execute_for_context(selecto, query, params, aliases) do
     cond do
       # If we have a database adapter (non-PostgreSQL or new style), use adapter execution
-      selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+      selecto.adapter && not Selecto.AdapterSupport.postgresql_adapter?(selecto.adapter) ->
         execute_with_adapter(selecto.adapter, selecto.connection, query, params, aliases)
 
-      # If it's an Ecto repo (module that has __adapter__ function), try to use Ecto.Adapters.SQL.query
+      # If it's an Ecto repo, route through repository execution.
       is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) &&
           is_ecto_repo?(selecto.postgrex_opts) ->
         execute_with_ecto_repo(selecto.postgrex_opts, query, params, aliases)
 
-      # If it's a Postgrex connection or registered name, use Postgrex.query directly (PostgreSQL backward compatibility)
+      # Otherwise route through the default PostgreSQL adapter.
       true ->
         execute_with_postgrex(selecto.postgrex_opts, query, params, aliases)
     end
@@ -771,7 +730,15 @@ defmodule Selecto.Executor do
 
   defp execute_stream_for_context(selecto, query, params, aliases, opts) do
     cond do
-      selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
+      is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) &&
+          is_ecto_repo?(selecto.postgrex_opts) ->
+        {:error,
+         Selecto.Error.validation_error(
+           "Streaming is not yet implemented for Ecto repository execution",
+           %{repo: selecto.postgrex_opts, stream_context: :ecto_repo}
+         )}
+
+      selecto.adapter && adapter_supports_stream?(selecto.adapter) ->
         execute_with_adapter_stream(
           selecto.adapter,
           selecto.connection,
@@ -781,13 +748,15 @@ defmodule Selecto.Executor do
           opts
         )
 
-      is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) &&
-          is_ecto_repo?(selecto.postgrex_opts) ->
-        {:error,
-         Selecto.Error.validation_error(
-           "Streaming is not yet implemented for Ecto repository execution",
-           %{repo: selecto.postgrex_opts, stream_context: :ecto_repo}
-         )}
+      selecto.adapter && not Selecto.AdapterSupport.postgresql_adapter?(selecto.adapter) ->
+        execute_with_adapter_stream(
+          selecto.adapter,
+          selecto.connection,
+          query,
+          params,
+          aliases,
+          opts
+        )
 
       true ->
         execute_with_postgrex_stream(selecto.postgrex_opts, query, params, aliases, opts)
@@ -808,7 +777,7 @@ defmodule Selecto.Executor do
            }
          )}
 
-      not function_exported?(adapter, :stream, 4) ->
+      not Selecto.AdapterSupport.callback_available?(adapter, :stream, 4) ->
         {:error,
          Selecto.Error.validation_error(
            "Adapter declares stream support but does not implement stream/4",
@@ -823,6 +792,20 @@ defmodule Selecto.Executor do
 
             {:ok, stream} ->
               {:ok, Stream.map(stream, &{&1, [], aliases})}
+
+            {:error, {:invalid_stream_pool, details}} ->
+              {:error,
+               Selecto.Error.validation_error(
+                 "Streaming requires a PostgreSQL pool connection reference",
+                 details
+               )}
+
+            {:error, {:invalid_connection, connection}} ->
+              {:error,
+               Selecto.Error.validation_error(
+                 "Streaming requires adapter stream support for this connection",
+                 %{adapter: adapter, connection: inspect(connection)}
+               )}
 
             {:error, reason} ->
               {:error,
@@ -850,125 +833,46 @@ defmodule Selecto.Executor do
   end
 
   defp adapter_supports_stream?(adapter) do
-    function_exported?(adapter, :supports?, 1) and adapter.supports?(:stream)
+    Selecto.AdapterSupport.callback_available?(adapter, :supports?, 1) and
+      adapter.supports?(:stream)
   rescue
     _ -> false
   end
 
   defp execute_with_postgrex_stream(conn, query, params, aliases, opts) do
-    case conn do
-      {:pool, pool_ref} ->
-        case resolve_stream_pool_connection(pool_ref) do
-          {:ok, pool_conn} ->
-            {:ok, build_postgrex_cursor_stream(pool_conn, query, params, aliases, opts)}
+    if Selecto.AdapterSupport.callback_available?(
+         Selecto.AdapterSupport.default_adapter(),
+         :stream,
+         4
+       ) do
+      execute_with_adapter_stream(
+        Selecto.AdapterSupport.default_adapter(),
+        conn,
+        query,
+        params,
+        aliases,
+        opts
+      )
+    else
+      case conn do
+        {:pool, pool_ref} ->
+          {:error,
+           Selecto.Error.validation_error(
+             "Streaming requires adapter stream support for PostgreSQL pool connections",
+             %{stream_context: :pool, pool_ref: inspect(pool_ref)}
+           )}
 
-          {:error, details} ->
-            {:error,
-             Selecto.Error.validation_error(
-               "Streaming requires a PostgreSQL pool connection reference",
-               details
-             )}
-        end
-
-      conn when is_pid(conn) or is_atom(conn) ->
-        {:ok, build_postgrex_cursor_stream(conn, query, params, aliases, opts)}
-
-      _ ->
-        {:error,
-         Selecto.Error.connection_error("Invalid connection type", %{connection: inspect(conn)})}
-    end
-  end
-
-  defp resolve_stream_pool_connection(pool_ref) when is_pid(pool_ref) or is_atom(pool_ref) do
-    {:ok, pool_ref}
-  end
-
-  defp resolve_stream_pool_connection(%{pool: pool_conn})
-       when is_pid(pool_conn) or is_atom(pool_conn) do
-    {:ok, pool_conn}
-  end
-
-  defp resolve_stream_pool_connection(pool_ref) do
-    {:error, %{stream_context: :pool, pool_ref: inspect(pool_ref)}}
-  end
-
-  defp build_postgrex_cursor_stream(conn, query, params, aliases, opts) do
-    parent = self()
-    ref = make_ref()
-    max_rows = Keyword.get(opts, :max_rows, 500)
-    stream_timeout = Keyword.get(opts, :stream_timeout, 30_000)
-    receive_timeout = Keyword.get(opts, :receive_timeout, 60_000)
-    queue_timeout = Keyword.get(opts, :queue_timeout, 100)
-
-    producer =
-      Keyword.get(opts, :stream_producer, fn send_chunk ->
-        Postgrex.transaction(
-          conn,
-          fn tx_conn ->
-            tx_conn
-            |> Postgrex.stream(query, params, max_rows: max_rows)
-            |> Enum.each(fn %Postgrex.Result{rows: rows, columns: columns} ->
-              send_chunk.(rows, columns)
-            end)
-          end,
-          timeout: stream_timeout
-        )
-      end)
-
-    Stream.resource(
-      fn ->
-        task =
-          Selecto.TaskSupervisor.async(fn ->
-            tx_result =
-              producer.(fn rows, columns ->
-                send(parent, {ref, {:chunk, rows, columns}})
-              end)
-
-            send(parent, {ref, {:done, tx_result}})
-          end)
-
-        %{task: task, ref: ref}
-      end,
-      fn state ->
-        ref = state.ref
-
-        receive do
-          {^ref, {:chunk, rows, columns}} ->
-            stream_rows = Enum.map(rows, &{&1, columns || [], aliases})
-            {stream_rows, state}
-
-          {^ref, {:done, {:ok, _result}}} ->
-            {:halt, state}
-
-          {^ref, {:done, {:error, reason}}} ->
-            raise Selecto.Error.to_exception(
-                    Selecto.Error.query_error(
-                      "PostgreSQL stream query failed",
-                      query,
-                      params,
-                      %{reason: reason}
-                    )
-                  )
-        after
-          receive_timeout ->
-            case Task.yield(state.task, queue_timeout) do
-              {:ok, _} ->
-                {:halt, state}
-
-              nil ->
-                raise Selecto.Error.to_exception(
-                        Selecto.Error.timeout_error(
-                          "Timed out waiting for streamed rows",
-                          %{timeout: receive_timeout}
-                        )
-                      )
-            end
-        end
-      end,
-      fn state ->
-        Task.shutdown(state.task, :brutal_kill)
+        _ ->
+          {:error,
+           Selecto.Error.validation_error(
+             "PostgreSQL adapter stream callback is unavailable",
+             %{
+               adapter: Selecto.AdapterSupport.default_adapter(),
+               stream_context: :postgres_fallback
+             }
+           )}
       end
-    )
+    end
   end
 
   defp result_row_count({:ok, {rows, _columns, _aliases}}) when is_list(rows), do: length(rows)

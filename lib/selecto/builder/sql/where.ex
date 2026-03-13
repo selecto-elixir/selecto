@@ -296,14 +296,20 @@ defmodule Selecto.Builder.Sql.Where do
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     # Use adapter-specific syntax for IN/ANY
-    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     in_clause =
       case adapter do
         Selecto.DB.MySQL ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
+        SelectoDBMySQL.Adapter ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
         Selecto.DB.MariaDB ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
+        SelectoDBMariaDB.Adapter ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
         _ ->
@@ -318,7 +324,7 @@ defmodule Selecto.Builder.Sql.Where do
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     # Use adapter-specific syntax for NOT IN
-    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     not_in_clause =
       case adapter do
@@ -331,7 +337,25 @@ defmodule Selecto.Builder.Sql.Where do
             ") "
           ]
 
+        SelectoDBMySQL.Adapter ->
+          [
+            " ",
+            sel,
+            " NOT IN (",
+            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+            ") "
+          ]
+
         Selecto.DB.MariaDB ->
+          [
+            " ",
+            sel,
+            " NOT IN (",
+            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+            ") "
+          ]
+
+        SelectoDBMariaDB.Adapter ->
           [
             " ",
             sel,
@@ -358,14 +382,20 @@ defmodule Selecto.Builder.Sql.Where do
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     # Use adapter-specific syntax for IN/ANY
-    adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     in_clause =
       case adapter do
         Selecto.DB.MySQL ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
+        SelectoDBMySQL.Adapter ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
         Selecto.DB.MariaDB ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
+        SelectoDBMariaDB.Adapter ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
         _ ->
@@ -545,7 +575,7 @@ defmodule Selecto.Builder.Sql.Where do
         # Not a JSONB field, use regular IN
         conf = Selecto.field(selecto, field)
         {sel, join, param} = Select.prep_selector(selecto, field)
-        adapter = Map.get(selecto, :adapter, Selecto.DB.PostgreSQL)
+        adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
         in_clause =
           case adapter do
@@ -558,7 +588,25 @@ defmodule Selecto.Builder.Sql.Where do
                 ") "
               ]
 
+            SelectoDBMySQL.Adapter ->
+              [
+                " ",
+                sel,
+                " IN (",
+                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+                ") "
+              ]
+
             Selecto.DB.MariaDB ->
+              [
+                " ",
+                sel,
+                " IN (",
+                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+                ") "
+              ]
+
+            SelectoDBMariaDB.Adapter ->
               [
                 " ",
                 sel,

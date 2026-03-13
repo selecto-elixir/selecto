@@ -397,8 +397,8 @@ defmodule Selecto.EctoAdapter do
   defp association_to_join_type(_), do: :left
 
   defp get_db_connection(repo) do
-    # Return the repo itself instead of creating a separate Postgrex connection
-    # This allows Selecto to use Ecto's connection pool
+    # Return the repo itself instead of creating a separate adapter-managed connection.
+    # This allows Selecto to use Ecto's connection pool through the configured adapter.
     repo
   end
 

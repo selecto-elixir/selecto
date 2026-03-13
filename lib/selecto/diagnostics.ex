@@ -90,9 +90,12 @@ defmodule Selecto.Diagnostics do
   end
 
   defp execute_raw(selecto, sql, params) do
+    adapter = runtime_adapter(selecto)
+    connection = runtime_connection(selecto)
+
     cond do
-      selecto.adapter && selecto.adapter != Selecto.DB.PostgreSQL ->
-        case selecto.adapter.execute(selecto.connection, sql, params, []) do
+      Selecto.AdapterSupport.callback_available?(adapter, :execute_raw, 3) ->
+        case Kernel.apply(adapter, :execute_raw, [connection, sql, params]) do
           {:ok, result} ->
             {:ok, Map.get(result, :rows, []), Map.get(result, :columns, [])}
 
@@ -100,28 +103,32 @@ defmodule Selecto.Diagnostics do
             {:error, Error.from_reason(reason)}
         end
 
-      is_atom(selecto.postgrex_opts) && not is_nil(selecto.postgrex_opts) ->
-        case apply(Ecto.Adapters.SQL, :query, [selecto.postgrex_opts, sql, params]) do
-          {:ok, result} -> {:ok, result.rows, result.columns}
-          {:error, reason} -> {:error, Error.from_reason(reason)}
-        end
+      selecto.adapter && Selecto.AdapterSupport.callback_available?(adapter, :execute, 4) ->
+        case Kernel.apply(adapter, :execute, [connection, sql, params, []]) do
+          {:ok, result} ->
+            {:ok, Map.get(result, :rows, []), Map.get(result, :columns, [])}
 
-      match?({:pool, _}, selecto.postgrex_opts) ->
-        case Selecto.ConnectionPool.execute(selecto.postgrex_opts, sql, params, prepared: false) do
-          {:ok, result} -> {:ok, result.rows, result.columns}
-          {:error, reason} -> {:error, Error.from_reason(reason)}
+          {:error, reason} ->
+            {:error, Error.from_reason(reason)}
         end
 
       true ->
-        case Postgrex.query(selecto.postgrex_opts, sql, params) do
-          {:ok, result} -> {:ok, result.rows, result.columns}
-          {:error, reason} -> {:error, Error.from_reason(reason)}
-        end
+        {:error,
+         Error.connection_error("Raw execution is unavailable for adapter", %{adapter: adapter})}
     end
   rescue
     e ->
       {:error, Error.from_reason(e)}
   end
+
+  defp runtime_connection(%{connection: nil, postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(%{connection: connection}), do: connection
+  defp runtime_connection(%{postgrex_opts: postgrex_opts}), do: postgrex_opts
+  defp runtime_connection(_), do: nil
+
+  defp runtime_adapter(%{adapter: nil}), do: Selecto.AdapterSupport.default_adapter()
+  defp runtime_adapter(%{adapter: adapter}) when not is_nil(adapter), do: adapter
+  defp runtime_adapter(_), do: Selecto.AdapterSupport.default_adapter()
 
   defp maybe_true_flag(flags, _name, nil), do: flags
   defp maybe_true_flag(flags, _name, false), do: flags

@@ -29,3 +29,5 @@ selecto-*.tar
 /priv/plts/
 
 /.vscode/
+
+.expert/

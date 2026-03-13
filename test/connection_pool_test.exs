@@ -38,7 +38,7 @@ defmodule Selecto.ConnectionPoolTest do
     test "pool naming can include adapter context" do
       pg_name =
         ConnectionPool.generate_pool_name(%{
-          adapter: Selecto.DB.PostgreSQL,
+          adapter: SelectoDBPostgreSQL.Adapter,
           connection_config: [database: "db"]
         })
 
