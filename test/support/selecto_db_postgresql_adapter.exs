@@ -38,6 +38,14 @@ defmodule SelectoDBPostgreSQL.Adapter do
   def execute(connection, _query, _params, _opts), do: {:error, {:invalid_connection, connection}}
 
   @impl true
+  def execute_pool(pool_ref, _query, _params, _opts) do
+    case Selecto.ConnectionPool.get_pool_pid(pool_ref) do
+      {:ok, _pool_pid} -> {:ok, %{rows: [[1]], columns: ["id"]}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @impl true
   def placeholder(index), do: ["$", Integer.to_string(index)]
 
   @impl true

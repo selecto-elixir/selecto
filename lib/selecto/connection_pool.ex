@@ -197,7 +197,7 @@ defmodule Selecto.ConnectionPool do
   Automatically handles connection checkout/checkin and prepared statement caching.
   """
   @spec execute(pool_ref(), String.t(), list(), Keyword.t()) ::
-          {:ok, Postgrex.Result.t()} | {:error, term()}
+          {:ok, term()} | {:error, term()}
   def execute(pool_ref, query, params, opts \\ [])
 
   def execute({:pool, pool_ref}, query, params, opts) do
@@ -217,15 +217,14 @@ defmodule Selecto.ConnectionPool do
   end
 
   def execute(pool_ref, query, params, opts) do
-    use_prepared = Keyword.get(opts, :prepared, true)
-    cache_key = if use_prepared, do: generate_cache_key(query), else: nil
+    adapter = pool_adapter(pool_ref)
 
-    case get_pool_pid(pool_ref) do
-      {:ok, pool_pid} ->
-        execute_with_pool(pool_pid, query, params, cache_key, opts)
+    cond do
+      function_exported?(adapter, :execute_pool, 4) ->
+        adapter.execute_pool(pool_ref, query, params, opts)
 
-      {:error, reason} ->
-        {:error, reason}
+      true ->
+        {:error, {:unsupported_adapter, adapter}}
     end
   end
 
@@ -372,52 +371,6 @@ defmodule Selecto.ConnectionPool do
   def terminate(_reason, _state), do: :ok
 
   # Private Functions
-
-  defp execute_with_pool(pool_pid, query, params, cache_key, opts) do
-    # DBConnection pools work by passing the pool pid directly to query functions
-    # The pool handles checkout/checkin internally and transparently
-    timeout = Keyword.get(opts, :timeout, 15_000)
-
-    try do
-      if cache_key do
-        execute_with_prepared_cache(pool_pid, query, params, cache_key, timeout)
-      else
-        # Direct query execution - pool handles connection management internally
-        Postgrex.query(pool_pid, query, params, timeout: timeout)
-      end
-    rescue
-      e in DBConnection.ConnectionError ->
-        {:error, Selecto.Error.connection_error(Exception.message(e), %{exception: e})}
-
-      e in Postgrex.Error ->
-        {:error, Selecto.Error.query_error(Exception.message(e), query, params, %{exception: e})}
-
-      e ->
-        {:error, Selecto.Error.query_error(Exception.message(e), query, params, %{exception: e})}
-    end
-  end
-
-  defp execute_with_prepared_cache(pool_pid, query, params, cache_key, timeout) do
-    # For prepared statements, we use Postgrex's built-in prepare/execute mechanism
-    # DBConnection handles the connection pooling transparently
-
-    # Check if we have a cached prepared statement name
-    case prepared_statement_cached?(pool_pid, cache_key) do
-      false ->
-        # No cached statement - use regular query which auto-prepares in Postgrex
-        # Postgrex automatically prepares and caches statements internally
-        result = Postgrex.query(pool_pid, query, params, timeout: timeout)
-
-        # Cache the statement reference for future use (statement is cached in Postgrex)
-        mark_prepared_statement(pool_pid, cache_key)
-
-        result
-
-      true ->
-        # Statement is already prepared in Postgrex's internal cache
-        Postgrex.query(pool_pid, query, params, timeout: timeout)
-    end
-  end
 
   @doc """
   Checkout a connection from the pool for manual management.
@@ -698,6 +651,21 @@ defmodule Selecto.ConnectionPool do
     :crypto.hash(:md5, query) |> Base.encode16(case: :lower)
   end
 
+  @doc false
+  def prepared_statement_cached?(pool_pid, cache_key)
+      when is_pid(pool_pid) and is_binary(cache_key) do
+    table = ensure_prepared_statements_table()
+    :ets.member(table, {pool_pid, cache_key})
+  end
+
+  @doc false
+  def mark_prepared_statement(pool_pid, cache_key)
+      when is_pid(pool_pid) and is_binary(cache_key) do
+    table = ensure_prepared_statements_table()
+    :ets.insert(table, {{pool_pid, cache_key}, true})
+    :ok
+  end
+
   defp maybe_clear_prepared_flags(pool_ref) do
     case get_pool_pid(pool_ref) do
       {:ok, pool_pid} -> clear_prepared_flags(pool_pid)
@@ -714,19 +682,6 @@ defmodule Selecto.ConnectionPool do
   end
 
   defp prepared_cache_size(_), do: 0
-
-  defp prepared_statement_cached?(pool_pid, cache_key)
-       when is_pid(pool_pid) and is_binary(cache_key) do
-    table = ensure_prepared_statements_table()
-    :ets.member(table, {pool_pid, cache_key})
-  end
-
-  defp mark_prepared_statement(pool_pid, cache_key)
-       when is_pid(pool_pid) and is_binary(cache_key) do
-    table = ensure_prepared_statements_table()
-    :ets.insert(table, {{pool_pid, cache_key}, true})
-    :ok
-  end
 
   defp clear_prepared_flags(pool_pid) when is_pid(pool_pid) do
     table = ensure_prepared_statements_table()
