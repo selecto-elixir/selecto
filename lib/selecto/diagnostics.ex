@@ -94,7 +94,7 @@ defmodule Selecto.Diagnostics do
     connection = runtime_connection(selecto)
 
     cond do
-      function_exported?(adapter, :execute_raw, 3) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :execute_raw, 3) ->
         case Kernel.apply(adapter, :execute_raw, [connection, sql, params]) do
           {:ok, result} ->
             {:ok, Map.get(result, :rows, []), Map.get(result, :columns, [])}
@@ -103,7 +103,7 @@ defmodule Selecto.Diagnostics do
             {:error, Error.from_reason(reason)}
         end
 
-      selecto.adapter && function_exported?(adapter, :execute, 4) ->
+      selecto.adapter && Selecto.AdapterSupport.callback_available?(adapter, :execute, 4) ->
         case Kernel.apply(adapter, :execute, [connection, sql, params, []]) do
           {:ok, result} ->
             {:ok, Map.get(result, :rows, []), Map.get(result, :columns, [])}

@@ -134,7 +134,7 @@ defmodule Selecto.SQL.Params do
   defp traverse([], state, _adapter), do: state
 
   defp get_param_placeholder(adapter, idx) when is_atom(adapter) do
-    if function_exported?(adapter, :placeholder, 1) do
+    if Selecto.AdapterSupport.callback_available?(adapter, :placeholder, 1) do
       adapter.placeholder(idx)
     else
       ["$", Integer.to_string(idx)]

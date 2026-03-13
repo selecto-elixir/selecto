@@ -141,7 +141,7 @@ defmodule Selecto.Configuration do
       not Selecto.AdapterSupport.postgresql_adapter?(adapter) ->
         nil
 
-      function_exported?(adapter, :server_version_major, 1) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :server_version_major, 1) ->
         case adapter.server_version_major(connection) do
           {:ok, major} when is_integer(major) -> major
           _ -> nil

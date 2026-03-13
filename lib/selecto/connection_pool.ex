@@ -114,7 +114,7 @@ defmodule Selecto.ConnectionPool do
 
     with :ok <- ensure_runtime_started() do
       cond do
-        function_exported?(adapter, :start_pool, 3) ->
+        Selecto.AdapterSupport.callback_available?(adapter, :start_pool, 3) ->
           adapter.start_pool(connection_config, pool_config, pool_name)
 
         Selecto.AdapterSupport.postgresql_adapter?(adapter) ->
@@ -136,7 +136,7 @@ defmodule Selecto.ConnectionPool do
           not is_atom(adapter) ->
             {:error, {:invalid_adapter, adapter}}
 
-          not function_exported?(adapter, :connect, 1) ->
+          not Selecto.AdapterSupport.callback_available?(adapter, :connect, 1) ->
             {:error, {:unsupported_adapter, adapter}}
 
           true ->
@@ -208,7 +208,7 @@ defmodule Selecto.ConnectionPool do
     if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
       execute(%{adapter: adapter}, query, params, opts)
     else
-      if function_exported?(adapter, :execute, 4) do
+      if Selecto.AdapterSupport.callback_available?(adapter, :execute, 4) do
         adapter.execute(connection, query, params, opts)
       else
         {:error, {:unsupported_adapter, adapter}}
@@ -220,7 +220,7 @@ defmodule Selecto.ConnectionPool do
     adapter = pool_adapter(pool_ref)
 
     cond do
-      function_exported?(adapter, :execute_pool, 4) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :execute_pool, 4) ->
         adapter.execute_pool(pool_ref, query, params, opts)
 
       true ->
@@ -455,7 +455,7 @@ defmodule Selecto.ConnectionPool do
     adapter = pool_adapter(pool_ref)
 
     cond do
-      function_exported?(adapter, :with_connection, 2) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :with_connection, 2) ->
         adapter.with_connection(pool_ref, fun)
 
       true ->
@@ -481,7 +481,7 @@ defmodule Selecto.ConnectionPool do
     adapter = pool_adapter(pool_ref)
 
     cond do
-      function_exported?(adapter, :transaction, 3) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :transaction, 3) ->
         adapter.transaction(pool_ref, fun, opts)
 
       true ->
@@ -509,7 +509,7 @@ defmodule Selecto.ConnectionPool do
       is_nil(connection) ->
         {:error, "Adapter connection not available"}
 
-      function_exported?(adapter, :supports?, 1) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :supports?, 1) ->
         :ok
 
       true ->

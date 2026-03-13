@@ -163,7 +163,7 @@ defmodule Selecto.Performance.QueryAnalyzer do
         invalid_runtime_connection?(connection) ->
           {:error, :invalid_connection}
 
-        function_exported?(adapter, :execute_raw, 3) ->
+        Selecto.AdapterSupport.callback_available?(adapter, :execute_raw, 3) ->
           case Kernel.apply(adapter, :execute_raw, [connection, query, params]) do
             {:ok, result} -> {:ok, result}
             {:error, reason} -> {:error, {:explain_failed, reason}}
@@ -575,7 +575,7 @@ defmodule Selecto.Performance.QueryAnalyzer do
       invalid_runtime_connection?(conn) ->
         {:error, :invalid_connection}
 
-      function_exported?(adapter, :execute_raw, 3) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :execute_raw, 3) ->
         Kernel.apply(adapter, :execute_raw, [conn, query, params])
 
       true ->

@@ -478,7 +478,7 @@ defmodule Selecto.Executor do
     adapter = Selecto.AdapterSupport.default_adapter()
 
     cond do
-      function_exported?(adapter, :execute_raw, 3) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :execute_raw, 3) ->
         case Kernel.apply(adapter, :execute_raw, [repo, query, params]) do
           {:ok, result} ->
             {:ok, {Map.get(result, :rows, []), Map.get(result, :columns, []), aliases}}
@@ -552,7 +552,7 @@ defmodule Selecto.Executor do
     adapter = Selecto.AdapterSupport.default_adapter()
 
     cond do
-      function_exported?(adapter, :execute_repo_fallback, 3) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :execute_repo_fallback, 3) ->
         case Kernel.apply(adapter, :execute_repo_fallback, [repo, query, params]) do
           {:ok, result} ->
             {:ok, {Map.get(result, :rows, []), Map.get(result, :columns, []), aliases}}
@@ -583,7 +583,7 @@ defmodule Selecto.Executor do
     connection = runtime_connection(selecto)
 
     cond do
-      function_exported?(adapter, :validate_connection, 1) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :validate_connection, 1) ->
         Kernel.apply(adapter, :validate_connection, [connection])
 
       true ->
@@ -601,7 +601,7 @@ defmodule Selecto.Executor do
     connection = runtime_connection(selecto)
 
     cond do
-      function_exported?(adapter, :connection_info, 1) ->
+      Selecto.AdapterSupport.callback_available?(adapter, :connection_info, 1) ->
         Kernel.apply(adapter, :connection_info, [connection])
 
       true ->
@@ -777,7 +777,7 @@ defmodule Selecto.Executor do
            }
          )}
 
-      not function_exported?(adapter, :stream, 4) ->
+      not Selecto.AdapterSupport.callback_available?(adapter, :stream, 4) ->
         {:error,
          Selecto.Error.validation_error(
            "Adapter declares stream support but does not implement stream/4",
@@ -833,13 +833,18 @@ defmodule Selecto.Executor do
   end
 
   defp adapter_supports_stream?(adapter) do
-    function_exported?(adapter, :supports?, 1) and adapter.supports?(:stream)
+    Selecto.AdapterSupport.callback_available?(adapter, :supports?, 1) and
+      adapter.supports?(:stream)
   rescue
     _ -> false
   end
 
   defp execute_with_postgrex_stream(conn, query, params, aliases, opts) do
-    if function_exported?(Selecto.AdapterSupport.default_adapter(), :stream, 4) do
+    if Selecto.AdapterSupport.callback_available?(
+         Selecto.AdapterSupport.default_adapter(),
+         :stream,
+         4
+       ) do
       execute_with_adapter_stream(
         Selecto.AdapterSupport.default_adapter(),
         conn,
