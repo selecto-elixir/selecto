@@ -9,6 +9,8 @@ defmodule Selecto.Builder.Pivot do
   alias Selecto.Types
   import Selecto.Builder.Sql.Helpers
 
+  @comparison_operators [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne]
+
   @spec build_pivot_query(Types.t(), keyword()) :: Types.builder_result()
   def build_pivot_query(selecto, opts \\ []) do
     pivot_config = Selecto.Pivot.get_pivot_config(selecto)
@@ -260,43 +262,11 @@ defmodule Selecto.Builder.Pivot do
         []
       end
 
-    # Get post-pivot filters and build additional conditions
-    post_pivot_filters = Map.get(selecto.set, :post_pivot_filters, [])
-
     {post_pivot_conditions, post_pivot_params} =
-      if post_pivot_filters != [] do
-        conditions =
-          Enum.map(post_pivot_filters, fn {field, value} ->
-            field_name = escape_identifier(to_string(field))
-            [target_alias, ".", field_name, " = ", {:param, value}]
-          end)
-
-        where_clause =
-          case conditions do
-            [single] -> single
-            multiple -> Enum.intersperse(multiple, [" AND "])
-          end
-
-        {where_clause, Enum.map(post_pivot_filters, fn {_field, value} -> value end)}
-      else
-        {[], []}
-      end
+      build_post_pivot_conditions(selecto, pivot_config, target_alias)
 
     # Combine IN condition with post-pivot filters
-    where_conditions =
-      cond do
-        in_condition == [] and post_pivot_conditions != [] ->
-          post_pivot_conditions
-
-        in_condition != [] and post_pivot_conditions != [] ->
-          [in_condition, " AND ", post_pivot_conditions]
-
-        in_condition != [] ->
-          in_condition
-
-        true ->
-          []
-      end
+    where_conditions = combine_where_conditions(in_condition, post_pivot_conditions)
 
     # Return FROM clause, WHERE conditions, and params
     from_iodata = [target_table, " ", target_alias]
@@ -342,35 +312,11 @@ defmodule Selecto.Builder.Pivot do
     # Build the EXISTS condition
     exists_condition = ["EXISTS (", subquery_iodata, ")"]
 
-    # Get post-pivot filters and build additional conditions
-    post_pivot_filters = Map.get(selecto.set, :post_pivot_filters, [])
-
     {post_pivot_conditions, post_pivot_params} =
-      if post_pivot_filters != [] do
-        conditions =
-          Enum.map(post_pivot_filters, fn {field, value} ->
-            field_name = escape_identifier(to_string(field))
-            [target_alias, ".", field_name, " = ", {:param, value}]
-          end)
-
-        where_clause =
-          case conditions do
-            [single] -> single
-            multiple -> Enum.intersperse(multiple, [" AND "])
-          end
-
-        {where_clause, Enum.map(post_pivot_filters, fn {_field, value} -> value end)}
-      else
-        {[], []}
-      end
+      build_post_pivot_conditions(selecto, pivot_config, target_alias)
 
     # Combine EXISTS condition with post-pivot filters
-    where_conditions =
-      if post_pivot_conditions != [] do
-        [exists_condition, " AND ", post_pivot_conditions]
-      else
-        exists_condition
-      end
+    where_conditions = combine_where_conditions(exists_condition, post_pivot_conditions)
 
     # Return FROM clause, WHERE conditions, and params
     from_iodata = [target_table, " ", target_alias]
@@ -388,10 +334,14 @@ defmodule Selecto.Builder.Pivot do
     {filter_conditions, filter_params} =
       extract_pivot_conditions(selecto, pivot_config, get_source_alias())
 
+    {post_pivot_conditions, post_pivot_params} =
+      build_post_pivot_conditions(selecto, pivot_config, target_alias)
+
     from_iodata = [target_table, " ", target_alias, join_clauses]
+    where_conditions = combine_where_conditions(filter_conditions, post_pivot_conditions)
 
     # Return FROM clause, WHERE conditions, and params
-    {from_iodata, filter_conditions, join_params ++ filter_params, []}
+    {from_iodata, where_conditions, join_params ++ filter_params ++ post_pivot_params, []}
   end
 
   defp build_cte_strategy(selecto, pivot_config, _opts) do
@@ -433,8 +383,11 @@ defmodule Selecto.Builder.Pivot do
       )
     ]
 
-    # Return FROM clause, empty WHERE (filtering is in CTE), params, and CTE spec
-    {from_iodata, [], cte_params, [{:cte, cte_spec}]}
+    {post_pivot_conditions, post_pivot_params} =
+      build_post_pivot_conditions(selecto, pivot_config, target_alias)
+
+    # Return FROM clause, outer WHERE for post-pivot filters, params, and CTE spec
+    {from_iodata, post_pivot_conditions, cte_params ++ post_pivot_params, [{:cte, cte_spec}]}
   end
 
   defp build_cte_filter_query(selecto, pivot_config) do
@@ -773,6 +726,153 @@ defmodule Selecto.Builder.Pivot do
   defp sql_join_type(:full), do: "FULL"
   # Default
   defp sql_join_type(_), do: "LEFT"
+
+  defp build_post_pivot_conditions(selecto, pivot_config, target_alias) do
+    filters = Map.get(selecto.set, :post_pivot_filters, [])
+
+    build_pivot_filter_group(selecto, pivot_config.target_schema, target_alias, filters)
+  end
+
+  defp build_pivot_filter_group(_selecto, _target_schema, _target_alias, []), do: {[], []}
+
+  defp build_pivot_filter_group(selecto, target_schema, target_alias, filters) when is_list(filters) do
+    {clauses, params} =
+      Enum.reduce(filters, {[], []}, fn filter, {clauses, params} ->
+        {clause, clause_params} =
+          build_pivot_filter(selecto, target_schema, target_alias, filter)
+
+        {clauses ++ [clause], params ++ clause_params}
+      end)
+
+    where_clause =
+      case clauses do
+        [single] ->
+          single
+
+        multiple ->
+          multiple
+          |> Enum.map(&["(", &1, ")"])
+          |> Enum.intersperse(" AND ")
+      end
+
+    {where_clause, params}
+  end
+
+  defp build_pivot_filter(selecto, target_schema, target_alias, {:not, filter}) do
+    {clause, params} = build_pivot_filter(selecto, target_schema, target_alias, filter)
+    {["NOT (", clause, ")"], params}
+  end
+
+  defp build_pivot_filter(selecto, target_schema, target_alias, {conj, filters})
+       when conj in [:and, :or] do
+    {clauses, params} =
+      Enum.reduce(filters, {[], []}, fn filter, {clauses, params} ->
+        {clause, clause_params} =
+          build_pivot_filter(selecto, target_schema, target_alias, filter)
+
+        {clauses ++ [clause], params ++ clause_params}
+      end)
+
+    joined_clause =
+      case clauses do
+        [single] ->
+          single
+
+        multiple ->
+          multiple
+          |> Enum.map(&["(", &1, ")"])
+          |> Enum.intersperse(" #{conj} ")
+      end
+
+    {joined_clause, params}
+  end
+
+  defp build_pivot_filter(selecto, target_schema, target_alias, {field, {:between, [min, max]}}) do
+    build_pivot_filter(selecto, target_schema, target_alias, {field, {:between, min, max}})
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {:between, min, max}}) do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {[selector, " BETWEEN ", {:param, min}, " AND ", {:param, max}], [min, max]}
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {comp, value}})
+       when comp in [:like, :ilike] do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {[selector, " ", to_string(comp), " ", {:param, value}], [value]}
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {:not_like, value}}) do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {[selector, " NOT LIKE ", {:param, value}], [value]}
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {comp, value}})
+       when comp in @comparison_operators do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {[selector, " ", sql_operator(comp), " ", {:param, value}], [value]}
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {:in, values}})
+       when is_list(values) do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {[selector, " = ANY(", {:param, values}, ")"], [values]}
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {:not_in, values}})
+       when is_list(values) do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {["NOT (", selector, " = ANY(", {:param, values}, "))"], [values]}
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, :not_null}) do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {[selector, " IS NOT NULL"], []}
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, nil}) do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {[selector, " IS NULL"], []}
+  end
+
+  defp build_pivot_filter(selecto, target_schema, target_alias, {field, values})
+       when is_list(values) do
+    build_pivot_filter(selecto, target_schema, target_alias, {field, {:in, values}})
+  end
+
+  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, value}) do
+    selector = pivot_target_selector(target_schema, target_alias, field)
+    {[selector, " = ", {:param, value}], [value]}
+  end
+
+  defp pivot_target_selector(target_schema, target_alias, field) do
+    field_name = normalize_pivot_field(target_schema, field)
+    [target_alias, ".", escape_identifier(field_name)]
+  end
+
+  defp normalize_pivot_field(target_schema, field) do
+    field_str = to_string(field)
+    target_prefix = "#{target_schema}."
+
+    if String.starts_with?(field_str, target_prefix) do
+      String.replace_prefix(field_str, target_prefix, "")
+    else
+      field_str
+    end
+  end
+
+  defp combine_where_conditions([], []), do: []
+  defp combine_where_conditions(base, []), do: base
+  defp combine_where_conditions([], extra), do: extra
+  defp combine_where_conditions(base, extra), do: ["(", base, ") AND (", extra, ")"]
+
+  defp sql_operator(:gt), do: ">"
+  defp sql_operator(:lt), do: "<"
+  defp sql_operator(:gte), do: ">="
+  defp sql_operator(:lte), do: "<="
+  defp sql_operator(:eq), do: "="
+  defp sql_operator(:ne), do: "!="
+  defp sql_operator(operator), do: to_string(operator)
 
   # Use escape_identifier as alias for maybe_quote_identifier
   defp escape_identifier(identifier) do

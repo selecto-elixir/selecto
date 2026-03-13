@@ -225,6 +225,40 @@ defmodule Selecto.PivotIntegrationTest do
       # Filter should not be preserved in pivot subquery
       # (Though this depends on implementation details)
     end
+
+    test "compiles qualified post-pivot filters for EXISTS strategy" do
+      selecto =
+        create_test_selecto()
+        |> Selecto.filter([{"event_id", 123}])
+        |> Selecto.select(["orders.product_name", "orders.quantity"])
+        |> Selecto.pivot(:orders, subquery_strategy: :exists)
+        |> Selecto.filter({"orders.quantity", {:gt, 2}})
+
+      {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
+
+      assert sql =~ ~r/from\s+orders\s+t/i
+      assert sql =~ ~r/t\."?quantity"?\s*>\s*\$\d+/i
+      refute sql =~ ~r/t\."orders\.quantity"/i
+      assert 123 in params
+      assert 2 in params
+    end
+
+    test "compiles qualified post-pivot filters for JOIN strategy" do
+      selecto =
+        create_test_selecto()
+        |> Selecto.filter([{"event_id", 123}])
+        |> Selecto.select(["orders.product_name", "orders.quantity"])
+        |> Selecto.pivot(:orders, subquery_strategy: :join)
+        |> Selecto.filter({"orders.quantity", {:gte, 2}})
+
+      {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
+
+      assert sql =~ ~r/from\s+orders\s+t/i
+      assert sql =~ ~r/t\."?quantity"?\s*>=\s*\$\d+/i
+      refute sql =~ ~r/t\."orders\.quantity"/i
+      assert 123 in params
+      assert 2 in params
+    end
   end
 
   describe "error handling" do
