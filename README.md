@@ -498,6 +498,9 @@ Backends outside this table, such as DuckDB, should currently be treated as
 external or experimental adapters unless and until they have their own tested
 adapter implementation.
 
+Applications are expected to add any external adapter package they use; `selecto`
+itself does not bundle SQLite or MySQL adapter packages as runtime deps.
+
 ## 📦 Installation
 
 ```elixir

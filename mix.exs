@@ -125,8 +125,8 @@ defmodule Selecto.MixProject do
 
   defp mysql_adapter_dep do
     case maybe_local_dep_path("selecto_db_mysql") do
-      nil -> {:selecto_db_mysql, ">= 0.1.0 and < 0.2.0", optional: true}
-      path -> {:selecto_db_mysql, path: path, optional: true}
+      nil -> {:selecto_db_mysql, ">= 0.1.0 and < 0.2.0", only: :test, optional: true}
+      path -> {:selecto_db_mysql, path: path, only: :test, optional: true}
     end
   end
 
