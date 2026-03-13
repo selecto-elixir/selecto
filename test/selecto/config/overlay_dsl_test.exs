@@ -290,30 +290,38 @@ defmodule Selecto.Config.OverlayDSLTest do
     end
   end
 
-  describe "domain registry macros" do
-    test "builds joins and schemas from DSL" do
-      defmodule TestJoinSchemaOverlay do
+  describe "detail action macros" do
+    test "builds detail actions from DSL" do
+      defmodule TestDetailActionsOverlay do
         use Selecto.Config.OverlayDSL
 
-        defschema(:initiative, %{
-          source_table: "initiatives",
-          columns: %{id: %{type: :integer}, name: %{type: :string}}
-        })
+        defdetail_action :customer_profile do
+          name("Customer Profile")
+          description("Open the customer profile in a new tab")
+          type(:external_link)
+          required_fields([:customer_id])
+          payload(%{url_template: "https://example.test/customers/{{customer_id}}"})
+        end
 
-        defjoin(:initiative, %{
-          type: :left,
-          schema: :initiative,
-          owner_key: :initiative_id,
-          related_key: :id
-        })
+        defpopup :customer_modal do
+          name("Customer Modal")
+          description("Show customer details in a modal")
+          required_fields([:customer_id, :full_name])
+          payload(%{title: "Customer {{full_name}}", size: :xl})
+        end
       end
 
-      overlay = TestJoinSchemaOverlay.overlay()
+      overlay = TestDetailActionsOverlay.overlay()
 
-      assert overlay.schemas.initiative.source_table == "initiatives"
-      assert overlay.schemas.initiative.columns.name.type == :string
-      assert overlay.joins.initiative.type == :left
-      assert overlay.joins.initiative.owner_key == :initiative_id
+      assert overlay.detail_actions.customer_profile.type == :external_link
+      assert overlay.detail_actions.customer_profile.required_fields == [:customer_id]
+
+      assert overlay.detail_actions.customer_profile.payload.url_template ==
+               "https://example.test/customers/{{customer_id}}"
+
+      assert overlay.detail_actions.customer_modal.type == :modal
+      assert overlay.detail_actions.customer_modal.required_fields == [:customer_id, :full_name]
+      assert overlay.detail_actions.customer_modal.payload.title == "Customer {{full_name}}"
     end
   end
 
@@ -536,6 +544,7 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert :password in merged.source.redact_fields
       assert merged.filters["active"].name == "Active Items"
     end
+
     test "DSL source associations merge correctly with base domain" do
       defmodule TestSourceAssociationIntegration do
         use Selecto.Config.OverlayDSL
@@ -610,7 +619,6 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert merged.schemas.bundle_parent_load.associations.split_parent_load.queryable ==
                :split_parent_load
     end
-
   end
 
   describe "empty overlay" do
@@ -623,6 +631,7 @@ defmodule Selecto.Config.OverlayDSLTest do
 
       assert overlay.columns == %{}
       assert overlay.filters == %{}
+      assert overlay.detail_actions == %{}
       assert overlay.source == %{associations: %{}}
       assert overlay.redact_fields == []
     end

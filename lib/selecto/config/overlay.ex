@@ -127,6 +127,7 @@ defmodule Selecto.Config.Overlay do
     |> merge_columns(overlay)
     |> merge_jsonb_schemas(overlay)
     |> merge_filters(overlay)
+    |> merge_detail_actions(overlay)
     |> merge_query_members(overlay)
     |> merge_schemas(overlay)
     |> merge_joins(overlay)
@@ -191,6 +192,23 @@ defmodule Selecto.Config.Overlay do
       update_in(base, [:filters], fn base_filters ->
         base_filters = base_filters || %{}
         Map.merge(base_filters, overlay_filters)
+      end)
+    else
+      base
+    end
+  end
+
+  # Merges detail-row action definitions from overlay into base.
+  #
+  # Detail actions are deep-merged so overlays can add or override individual
+  # action definitions without replacing sibling actions.
+  defp merge_detail_actions(base, overlay) do
+    overlay_detail_actions = get_in(overlay, [:detail_actions]) || %{}
+
+    if map_size(overlay_detail_actions) > 0 do
+      update_in(base, [:detail_actions], fn base_detail_actions ->
+        base_detail_actions = base_detail_actions || %{}
+        deep_merge(base_detail_actions, overlay_detail_actions)
       end)
     else
       base
@@ -302,6 +320,7 @@ defmodule Selecto.Config.Overlay do
     skip_fields = [
       :columns,
       :filters,
+      :detail_actions,
       :redact_fields,
       :jsonb_schemas,
       :query_members,

@@ -36,12 +36,17 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
 
 - **Adapter foundation**: First-class adapters are available under
   `Selecto.DB.*` (`PostgreSQL`, `MySQL`, `MariaDB`, `MSSQL`, `SQLite`) with
-  adapter-driven placeholders and identifier quoting.
+  adapter-driven placeholders, identifier quoting, and normalized execution
+  results.
+- **Support level**: Non-PostgreSQL adapters currently provide baseline
+  cross-database support for SQL generation and execution, not full feature
+  parity with PostgreSQL.
 - **Tenant enforcement**: Query execution and filter derivation now enforce
   required tenant scope with explicit validation helpers.
 - **Streaming API**: `Selecto.execute_stream/2` is available. Direct PostgreSQL
   connections use cursor-backed streaming; adapter-backed streaming requires
-  adapter `stream/4` support.
+  adapter `stream/4` support and is currently unavailable on the built-in
+  non-PostgreSQL adapters.
 
 ## ⚠️ Known Limitations (Advanced Subfilters)
 
@@ -83,7 +88,7 @@ your domain config.
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.15"},
+    {:selecto, "~> 0.3.16"},
     # Optional extension package for spatial/map support
     {:selecto_postgis, "~> 0.1"}
   ]
@@ -467,27 +472,38 @@ SELECTO_POSTGRES_DATABASE=selecto_test
 
 ## 🚦 System Requirements
 
-- Elixir 1.14+
+- Elixir 1.18+
 - PostgreSQL 12+ with `postgrex` for full first-party integration coverage
 - Optional adapter client libraries for non-PostgreSQL execution paths
   (`myxql`, `tds`, `exqlite`), depending on adapter selection
 
 ## 🧱 Adapter Support Matrix
 
-| Adapter | SQL generation | Execute | Stream |
-| --- | --- | --- | --- |
-| PostgreSQL (`Selecto.DB.PostgreSQL`) | Yes | Yes | Yes (cursor-backed for direct Postgrex connections) |
-| MySQL (`Selecto.DB.MySQL`) | Yes | Yes (with `myxql`) | Adapter-defined (`supports?(:stream)`) |
-| MariaDB (`Selecto.DB.MariaDB`) | Yes | Yes (with `myxql`) | Adapter-defined (`supports?(:stream)`) |
-| MSSQL (`Selecto.DB.MSSQL`) | Yes | Yes (with `tds`) | Adapter-defined (`supports?(:stream)`) |
-| SQLite (`Selecto.DB.SQLite`) | Yes | Yes (with `exqlite`) | Adapter-defined (`supports?(:stream)`) |
+Support levels in this table are intentionally conservative:
+
+- `Baseline` means adapter contract coverage plus tested SQL generation and
+  execution for common query shapes.
+- `Advanced` means higher-level features beyond the baseline surface and should
+  be treated as capability-specific.
+
+| Adapter | Baseline SQL generation | Baseline execute | Stream | Notes |
+| --- | --- | --- | --- | --- |
+| PostgreSQL (`Selecto.DB.PostgreSQL`) | Yes | Yes | Yes (cursor-backed for direct Postgrex connections) | Most complete backend; PostgreSQL-specific features remain the reference path |
+| MySQL (`Selecto.DB.MySQL`) | Yes | Yes (with `myxql`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
+| MariaDB (`Selecto.DB.MariaDB`) | Yes | Yes (with `myxql`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
+| MSSQL (`Selecto.DB.MSSQL`) | Yes | Yes (with `tds`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
+| SQLite (`Selecto.DB.SQLite`) | Yes | Yes (with `exqlite`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
+
+Backends outside this table, such as DuckDB, should currently be treated as
+external or experimental adapters unless and until they have their own tested
+adapter implementation.
 
 ## 📦 Installation
 
 ```elixir
 def deps do
   [
-    {:selecto, "~> 0.3.15"}
+    {:selecto, "~> 0.3.16"}
   ]
 end
 ```

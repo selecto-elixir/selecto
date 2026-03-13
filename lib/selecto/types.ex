@@ -253,6 +253,16 @@ defmodule Selecto.Types do
           optional(:unnests) => %{optional(atom() | String.t()) => map()}
         }
 
+  @type detail_action_type :: :modal | :iframe_modal | :external_link | :live_component
+
+  @type detail_action :: %{
+          required(:name) => String.t(),
+          required(:type) => detail_action_type(),
+          optional(:description) => String.t(),
+          optional(:required_fields) => [field_name()],
+          optional(:payload) => map()
+        }
+
   @type domain :: %{
           required(:name) => String.t(),
           required(:source) => source(),
@@ -264,6 +274,7 @@ defmodule Selecto.Types do
           optional(:required_order_by) => [order_spec()],
           optional(:required_group_by) => [field_name()],
           optional(:filters) => %{String.t() => term()},
+          optional(:detail_actions) => %{optional(atom() | String.t()) => detail_action()},
           optional(:domain_data) => term(),
           optional(:extensions) => [term()],
           optional(:query_members) => query_member_registry()

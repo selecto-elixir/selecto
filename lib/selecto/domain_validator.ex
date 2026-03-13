@@ -31,6 +31,8 @@ defmodule Selecto.DomainValidator do
       end
   """
 
+  @detail_action_types [:modal, :iframe_modal, :external_link, :live_component]
+
   # import Selecto.Types - removed to avoid circular dependency
 
   @doc """
@@ -83,6 +85,7 @@ defmodule Selecto.DomainValidator do
       |> validate_associations(domain)
       |> validate_joins(domain)
       |> validate_query_members(domain)
+      |> validate_detail_actions(domain)
 
     # Only do complex validations if basic structure is sound
     final_errors =
@@ -365,6 +368,126 @@ defmodule Selecto.DomainValidator do
       end
     end)
   end
+
+  defp validate_detail_actions(errors, domain) do
+    detail_actions = Map.get(domain, :detail_actions, %{})
+
+    cond do
+      is_map(detail_actions) and map_size(detail_actions) == 0 ->
+        errors
+
+      is_map(detail_actions) ->
+        field_map = build_complete_field_map(Map.get(domain, :source, %{}), domain)
+
+        Enum.reduce(detail_actions, errors, fn {action_id, action_config}, acc ->
+          validate_detail_action(acc, action_id, action_config, field_map)
+        end)
+
+      true ->
+        errors ++ [{:detail_actions_invalid, {:detail_actions, "must be a map"}}]
+    end
+  end
+
+  defp validate_detail_action(errors, action_id, action_config, field_map)
+       when is_map(action_config) do
+    action_name = detail_action_value(action_config, :name)
+    action_type = normalize_detail_action_type(detail_action_value(action_config, :type))
+    raw_payload = detail_action_value(action_config, :payload, %{})
+    payload = detail_action_payload(raw_payload)
+
+    required_fields =
+      normalize_required_fields(detail_action_value(action_config, :required_fields, []))
+
+    errors
+    |> maybe_add_detail_action_error(action_name in [nil, ""], action_id, "name is required")
+    |> maybe_add_detail_action_error(
+      is_nil(action_type),
+      action_id,
+      "type must be one of #{inspect(@detail_action_types)}"
+    )
+    |> maybe_add_detail_action_error(
+      not is_map(raw_payload),
+      action_id,
+      "payload must be a map"
+    )
+    |> maybe_add_detail_action_error(
+      action_type in [:external_link, :iframe_modal] and
+        not is_binary(detail_action_value(payload, :url_template)),
+      action_id,
+      "#{action_type} actions require payload.url_template"
+    )
+    |> maybe_add_detail_action_error(
+      action_type == :live_component and not is_atom(detail_action_value(payload, :module)),
+      action_id,
+      "live_component actions require payload.module"
+    )
+    |> validate_detail_action_required_fields(action_id, required_fields, field_map)
+  end
+
+  defp validate_detail_action(errors, action_id, _action_config, _field_map) do
+    errors ++ [{:detail_actions_invalid, {action_id, "detail action must be a map"}}]
+  end
+
+  defp validate_detail_action_required_fields(errors, _action_id, [], _field_map), do: errors
+
+  defp validate_detail_action_required_fields(errors, action_id, required_fields, field_map) do
+    Enum.reduce(required_fields, errors, fn field_name, acc ->
+      if Map.has_key?(field_map, field_name) do
+        acc
+      else
+        acc ++
+          [
+            {:detail_actions_invalid,
+             {action_id, "required field '#{field_name}' was not found in domain configuration"}}
+          ]
+      end
+    end)
+  end
+
+  defp maybe_add_detail_action_error(errors, false, _action_id, _message), do: errors
+
+  defp maybe_add_detail_action_error(errors, true, action_id, message) do
+    errors ++ [{:detail_actions_invalid, {action_id, message}}]
+  end
+
+  defp detail_action_payload(payload) do
+    case payload do
+      payload when is_map(payload) -> payload
+      _ -> %{}
+    end
+  end
+
+  defp detail_action_value(config, key, default \\ nil)
+
+  defp detail_action_value(config, key, default) when is_map(config) and is_atom(key) do
+    Map.get(config, key, Map.get(config, Atom.to_string(key), default))
+  end
+
+  defp detail_action_value(_config, _key, default), do: default
+
+  defp normalize_detail_action_type(value) when value in @detail_action_types, do: value
+
+  defp normalize_detail_action_type(value) when is_binary(value) do
+    case String.trim(value) do
+      "modal" -> :modal
+      "iframe_modal" -> :iframe_modal
+      "external_link" -> :external_link
+      "live_component" -> :live_component
+      _ -> nil
+    end
+  end
+
+  defp normalize_detail_action_type(_value), do: nil
+
+  defp normalize_required_fields(required_fields) when is_list(required_fields) do
+    Enum.map(required_fields, &normalize_required_field/1)
+  end
+
+  defp normalize_required_fields(_required_fields), do: []
+
+  defp normalize_required_field(field) when is_atom(field), do: Atom.to_string(field)
+  defp normalize_required_field(field) when is_binary(field), do: field
+  defp normalize_required_field(field), do: to_string(field)
 
   # Validate advanced join types have required keys
   defp validate_advanced_join_requirements(errors, domain) do
@@ -982,6 +1105,10 @@ defmodule Selecto.DomainValidator do
 
   defp format_error({:query_members_invalid, {section, message}}) do
     "Invalid query_members section '#{section}': #{message}"
+  end
+
+  defp format_error({:detail_actions_invalid, {action_id, message}}) do
+    "Invalid detail action '#{action_id}': #{message}"
   end
 
   defp format_error(error) do

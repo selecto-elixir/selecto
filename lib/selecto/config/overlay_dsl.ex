@@ -4,8 +4,9 @@ defmodule Selecto.Config.OverlayDSL do
 
   This module provides a clean, declarative syntax for customizing Selecto domains
   through overlay files. Instead of manually constructing maps, you can use
-  macros like `defcolumn`, `deffilter`, `defcte`, `defvalues`, `defsubquery`,
-  `defjoin`, `defschema`, `defschema_assoc`, and `defsource_assoc`
+  macros like `defcolumn`, `deffilter`, `defdetail_action`, `defcte`,
+  `defvalues`, `defsubquery`, `defjoin`, `defschema`, `defschema_assoc`, and
+  `defsource_assoc`
   along with module attributes.
 
   ## Usage
@@ -107,6 +108,11 @@ defmodule Selecto.Config.OverlayDSL do
   - `default/1` - Default value for the filter
   - `options/1` - List of valid options for select-type filters
 
+  ### Detail Action Macros
+
+  - `defdetail_action id do ... end` - Define a detail-row action under `detail_actions`
+  - `defpopup id do ... end` - Define a modal detail-row action under `detail_actions`
+
   ### Query Member Macros
 
   - `defcte id do ... end` - Define a named CTE preset under `query_members.ctes`
@@ -200,6 +206,7 @@ defmodule Selecto.Config.OverlayDSL do
 
       Module.register_attribute(__MODULE__, :overlay_columns, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_filters, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_detail_actions, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_ctes, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_values, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_subqueries, accumulate: true)
@@ -234,6 +241,7 @@ defmodule Selecto.Config.OverlayDSL do
   defmacro __before_compile__(env) do
     columns = Module.get_attribute(env.module, :overlay_columns) |> Enum.reverse()
     filters = Module.get_attribute(env.module, :overlay_filters) |> Enum.reverse()
+    detail_actions = Module.get_attribute(env.module, :overlay_detail_actions) |> Enum.reverse()
     ctes = Module.get_attribute(env.module, :overlay_ctes) |> Enum.reverse()
     values = Module.get_attribute(env.module, :overlay_values) |> Enum.reverse()
     subqueries = Module.get_attribute(env.module, :overlay_subqueries) |> Enum.reverse()
@@ -259,6 +267,11 @@ defmodule Selecto.Config.OverlayDSL do
 
     filters_map =
       filters
+      |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
+      |> Map.new()
+
+    detail_actions_map =
+      detail_actions
       |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
       |> Map.new()
 
@@ -314,6 +327,7 @@ defmodule Selecto.Config.OverlayDSL do
       %{
         columns: columns_map,
         filters: filters_map,
+        detail_actions: detail_actions_map,
         query_members: %{
           ctes: ctes_map,
           values: values_map,
@@ -371,6 +385,44 @@ defmodule Selecto.Config.OverlayDSL do
 
     quote do
       @overlay_filters {unquote(filter_name), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a detail-row action.
+
+  ## Example
+
+      defdetail_action :customer_profile do
+        name("Customer Profile")
+        description("Open the customer profile in a new tab")
+        type(:external_link)
+        required_fields([:customer_id])
+        payload(%{url_template: "https://app.example.test/customers/{{customer_id}}"})
+      end
+  """
+  defmacro defdetail_action(action_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_detail_actions {unquote(action_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a modal detail-row action.
+
+  This is a convenience wrapper around `defdetail_action` that defaults `type`
+  to `:modal`.
+  """
+  defmacro defpopup(action_id, do: block) do
+    config =
+      block
+      |> extract_config(__CALLER__)
+      |> Map.put_new(:type, :modal)
+
+    quote do
+      @overlay_detail_actions {unquote(action_id), unquote(Macro.escape(config))}
     end
   end
 
@@ -797,6 +849,16 @@ defmodule Selecto.Config.OverlayDSL do
   Sets the valid options for a select-type filter.
   """
   defmacro options(_value), do: quote(do: nil)
+
+  @doc """
+  Sets required fields for a detail-row action.
+  """
+  defmacro required_fields(_value), do: quote(do: nil)
+
+  @doc """
+  Sets a payload map for a detail-row action.
+  """
+  defmacro payload(_value), do: quote(do: nil)
 
   @doc """
   Sets a query builder function for named query members.

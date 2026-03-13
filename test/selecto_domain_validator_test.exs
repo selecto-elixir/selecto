@@ -169,6 +169,130 @@ defmodule Selecto.DomainValidatorTest do
              end)
     end
 
+    test "accepts valid detail actions configuration" do
+      domain_with_detail_actions = %{
+        source: %{
+          source_table: "customers",
+          primary_key: :id,
+          fields: [:id, :customer_id, :full_name],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :integer},
+            customer_id: %{type: :integer},
+            full_name: %{type: :string}
+          },
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        name: "Customers",
+        detail_actions: %{
+          customer_modal: %{
+            name: "Customer Modal",
+            type: :modal,
+            required_fields: [:customer_id, :full_name],
+            payload: %{title: "Customer {{full_name}}"}
+          },
+          customer_profile: %{
+            name: "Customer Profile",
+            type: :external_link,
+            required_fields: [:customer_id],
+            payload: %{url_template: "https://example.test/customers/{{customer_id}}"}
+          },
+          customer_preview: %{
+            name: "Customer Preview",
+            type: :iframe_modal,
+            required_fields: [:customer_id],
+            payload: %{url_template: "https://example.test/customers/{{customer_id}}/preview"}
+          },
+          customer_card: %{
+            name: "Customer Card",
+            type: :live_component,
+            required_fields: [:customer_id, :full_name],
+            payload: %{
+              module: MyApp.CustomerCardComponent,
+              assigns: %{customer_id: {:field, "customer_id"}}
+            }
+          }
+        }
+      }
+
+      assert DomainValidator.validate_domain(domain_with_detail_actions) == :ok
+    end
+
+    test "validates invalid detail actions configuration" do
+      invalid_domain = %{
+        source: %{
+          source_table: "customers",
+          primary_key: :id,
+          fields: [:id, :customer_id],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, customer_id: %{type: :integer}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        name: "Customers",
+        detail_actions: %{
+          bad_link: %{
+            name: "Bad Link",
+            type: :external_link,
+            required_fields: [:missing_field],
+            payload: %{}
+          },
+          bad_iframe: %{
+            name: "Bad Iframe",
+            type: :iframe_modal,
+            payload: %{}
+          },
+          bad_component: %{
+            name: "Bad Component",
+            type: :live_component,
+            payload: %{}
+          },
+          bad_type: %{
+            name: "Bad Type",
+            type: :made_up,
+            payload: %{}
+          }
+        }
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
+
+      assert Enum.any?(errors, fn
+               {:detail_actions_invalid,
+                {:bad_link, "external_link actions require payload.url_template"}} ->
+                 true
+
+               {:detail_actions_invalid,
+                {:bad_iframe, "iframe_modal actions require payload.url_template"}} ->
+                 true
+
+               {:detail_actions_invalid,
+                {:bad_component, "live_component actions require payload.module"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:detail_actions_invalid,
+                {:bad_link,
+                 "required field 'missing_field' was not found in domain configuration"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:detail_actions_invalid, {:bad_type, _message}} -> true
+               _ -> false
+             end)
+    end
+
     test "validates missing required keys" do
       invalid_domain = %{
         # Missing :source and :schemas
