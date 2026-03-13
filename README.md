@@ -35,9 +35,9 @@ hierarchical relationships, OLAP dimensions, and Common Table Expressions
 ## ✅ Adapter, Tenant, and Streaming Status (0.3.10)
 
 - **Adapter foundation**: Selecto uses a shared adapter contract plus adapter
-  modules such as `Selecto.DB.PostgreSQL`, `Selecto.DB.MySQL`,
-  `Selecto.DB.MariaDB`, `Selecto.DB.MSSQL`, and external packages such as
-  `SelectoDBSQLite.Adapter`.
+  modules such as `Selecto.DB.PostgreSQL`, `Selecto.DB.MariaDB`,
+  `Selecto.DB.MSSQL`, and external packages such as `SelectoDBMySQL.Adapter`
+  and `SelectoDBSQLite.Adapter`.
 - **Support level**: Non-PostgreSQL adapters currently provide baseline
   cross-database support for SQL generation and execution, not full feature
   parity with PostgreSQL.
@@ -489,7 +489,7 @@ Support levels in this table are intentionally conservative:
 | Adapter | Baseline SQL generation | Baseline execute | Stream | Notes |
 | --- | --- | --- | --- | --- |
 | PostgreSQL (`Selecto.DB.PostgreSQL`) | Yes | Yes | Yes (cursor-backed for direct Postgrex connections) | Most complete backend; PostgreSQL-specific features remain the reference path |
-| MySQL (`Selecto.DB.MySQL`) | Yes | Yes (with `myxql`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
+| MySQL (`SelectoDBMySQL.Adapter` via `selecto_db_mysql`) | Yes | Yes (with `myxql`) | No built-in stream support today | External adapter package; baseline support only |
 | MariaDB (`Selecto.DB.MariaDB`) | Yes | Yes (with `myxql`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
 | MSSQL (`Selecto.DB.MSSQL`) | Yes | Yes (with `tds`) | No built-in stream support today | Baseline support only; advanced PostgreSQL-specific features are not implied |
 | SQLite (`SelectoDBSQLite.Adapter` via `selecto_db_sqlite`) | Yes | Yes (with `exqlite`) | No built-in stream support today | External adapter package; baseline support only |

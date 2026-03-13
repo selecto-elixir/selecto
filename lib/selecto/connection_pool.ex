@@ -101,7 +101,7 @@ defmodule Selecto.ConnectionPool do
       # Start pool with custom options and adapter
       {:ok, pool} = Selecto.ConnectionPool.start_pool(config, 
         pool_size: 20,
-        adapter: Selecto.DB.MySQL
+        adapter: SelectoDBMySQL.Adapter
       )
   """
   @spec start_pool(connection_config(), pool_options()) :: {:ok, pool_ref()} | {:error, term()}

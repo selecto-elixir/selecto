@@ -10,6 +10,8 @@
 - Began extracting SQLite support into the external `selecto_db_sqlite` package
   and moved the shared `Selecto.DB.Adapter` contract toward a standalone
   package.
+- Began extracting MySQL support into the external `selecto_db_mysql` package
+  and updated core tests/docs to validate the external adapter path.
 
 ## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
 ---------------------------------------------------------

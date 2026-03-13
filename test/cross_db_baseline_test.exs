@@ -19,15 +19,16 @@ defmodule Selecto.CrossDBBaselineTest do
 
   @tag :mysql
   test "mysql adapter executes baseline query" do
-    assert {:ok, conn} = connect_with_retry(fn -> Selecto.DB.MySQL.connect(mysql_opts()) end)
+    assert {:ok, conn} =
+             connect_with_retry(fn -> SelectoDBMySQL.Adapter.connect(mysql_opts()) end)
 
     on_exit(fn ->
       close_connection(conn)
     end)
 
-    assert_single_value_query(Selecto.DB.MySQL, conn, "SELECT 1 AS value")
-    assert_query_shape_suite(Selecto.DB.MySQL, conn)
-    assert_stream_capability_error(Selecto.DB.MySQL, conn)
+    assert_single_value_query(SelectoDBMySQL.Adapter, conn, "SELECT 1 AS value")
+    assert_query_shape_suite(SelectoDBMySQL.Adapter, conn)
+    assert_stream_capability_error(SelectoDBMySQL.Adapter, conn)
   end
 
   @tag :mariadb

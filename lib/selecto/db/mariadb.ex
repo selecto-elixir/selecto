@@ -11,19 +11,19 @@ defmodule Selecto.DB.MariaDB do
   def name, do: :mariadb
 
   @impl true
-  def connect(opts), do: Selecto.DB.MySQL.connect(opts)
+  def connect(opts), do: SelectoDBMySQL.Adapter.connect(opts)
 
   @impl true
   def execute(connection, query, params, opts) do
-    Selecto.DB.MySQL.execute(connection, query, params, opts)
+    SelectoDBMySQL.Adapter.execute(connection, query, params, opts)
   end
 
   @impl true
   def placeholder(_index), do: "?"
 
   @impl true
-  def quote_identifier(identifier), do: Selecto.DB.MySQL.quote_identifier(identifier)
+  def quote_identifier(identifier), do: SelectoDBMySQL.Adapter.quote_identifier(identifier)
 
   @impl true
-  def supports?(feature), do: Selecto.DB.MySQL.supports?(feature)
+  def supports?(feature), do: SelectoDBMySQL.Adapter.supports?(feature)
 end

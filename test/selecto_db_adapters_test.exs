@@ -3,7 +3,7 @@ defmodule Selecto.DB.AdaptersTest do
 
   @adapters [
     Selecto.DB.PostgreSQL,
-    Selecto.DB.MySQL,
+    SelectoDBMySQL.Adapter,
     Selecto.DB.MariaDB,
     Selecto.DB.MSSQL,
     SelectoDBSQLite.Adapter
@@ -31,7 +31,7 @@ defmodule Selecto.DB.AdaptersTest do
 
   test "adapter placeholder strategies are explicit" do
     assert Selecto.DB.PostgreSQL.placeholder(3) |> IO.iodata_to_binary() == "$3"
-    assert Selecto.DB.MySQL.placeholder(3) == "?"
+    assert SelectoDBMySQL.Adapter.placeholder(3) == "?"
     assert Selecto.DB.MariaDB.placeholder(3) == "?"
     assert SelectoDBSQLite.Adapter.placeholder(3) == "?"
     assert Selecto.DB.MSSQL.placeholder(3) |> IO.iodata_to_binary() == "@p3"
@@ -39,14 +39,14 @@ defmodule Selecto.DB.AdaptersTest do
 
   test "adapter identifier quoting differs by backend" do
     assert Selecto.DB.PostgreSQL.quote_identifier("order") == "\"order\""
-    assert Selecto.DB.MySQL.quote_identifier("order") == "`order`"
+    assert SelectoDBMySQL.Adapter.quote_identifier("order") == "`order`"
     assert Selecto.DB.MariaDB.quote_identifier("order") == "`order`"
     assert SelectoDBSQLite.Adapter.quote_identifier("order") == "\"order\""
     assert Selecto.DB.MSSQL.quote_identifier("order") == "[order]"
   end
 
   test "non-postgresql adapters return dependency errors when driver is unavailable" do
-    mysql_result = Selecto.DB.MySQL.connect([])
+    mysql_result = SelectoDBMySQL.Adapter.connect([])
     mariadb_result = Selecto.DB.MariaDB.connect([])
     mssql_result = Selecto.DB.MSSQL.connect([])
     sqlite_result = SelectoDBSQLite.Adapter.connect([])

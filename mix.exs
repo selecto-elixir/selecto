@@ -97,7 +97,7 @@ defmodule Selecto.MixProject do
       {:ex_doc, "~> 0.29", only: :dev, runtime: false},
       {:timex, "~> 3.7.9"},
       {:mneme, ">= 0.0.0", only: [:dev, :test]},
-      {:myxql, "~> 0.7.0", only: :test, optional: true},
+      mysql_adapter_dep(),
       {:tds, "~> 2.3", only: :test, optional: true},
       sqlite_adapter_dep(),
       {:benchee, "~> 1.0", only: [:dev, :test], optional: true},
@@ -120,6 +120,13 @@ defmodule Selecto.MixProject do
     case maybe_local_dep_path("selecto_db_sqlite") do
       nil -> {:selecto_db_sqlite, ">= 0.1.0 and < 0.2.0", only: :test, optional: true}
       path -> {:selecto_db_sqlite, path: path, only: :test, optional: true}
+    end
+  end
+
+  defp mysql_adapter_dep do
+    case maybe_local_dep_path("selecto_db_mysql") do
+      nil -> {:selecto_db_mysql, ">= 0.1.0 and < 0.2.0", optional: true}
+      path -> {:selecto_db_mysql, path: path, optional: true}
     end
   end
 

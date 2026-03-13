@@ -303,6 +303,9 @@ defmodule Selecto.Builder.Sql.Where do
         Selecto.DB.MySQL ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
+        SelectoDBMySQL.Adapter ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
         Selecto.DB.MariaDB ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
@@ -323,6 +326,15 @@ defmodule Selecto.Builder.Sql.Where do
     not_in_clause =
       case adapter do
         Selecto.DB.MySQL ->
+          [
+            " ",
+            sel,
+            " NOT IN (",
+            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+            ") "
+          ]
+
+        SelectoDBMySQL.Adapter ->
           [
             " ",
             sel,
@@ -363,6 +375,9 @@ defmodule Selecto.Builder.Sql.Where do
     in_clause =
       case adapter do
         Selecto.DB.MySQL ->
+          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
+
+        SelectoDBMySQL.Adapter ->
           [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
 
         Selecto.DB.MariaDB ->
@@ -550,6 +565,15 @@ defmodule Selecto.Builder.Sql.Where do
         in_clause =
           case adapter do
             Selecto.DB.MySQL ->
+              [
+                " ",
+                sel,
+                " IN (",
+                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
+                ") "
+              ]
+
+            SelectoDBMySQL.Adapter ->
               [
                 " ",
                 sel,

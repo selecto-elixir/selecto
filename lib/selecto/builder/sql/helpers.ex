@@ -19,6 +19,7 @@ defmodule Selecto.Builder.Sql.Helpers do
   def get_quote_char(selecto) do
     case Map.get(selecto, :adapter, Selecto.DB.PostgreSQL) do
       Selecto.DB.MySQL -> "`"
+      SelectoDBMySQL.Adapter -> "`"
       Selecto.DB.MariaDB -> "`"
       _ -> "\""
     end
