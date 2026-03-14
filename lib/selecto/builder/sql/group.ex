@@ -8,7 +8,12 @@ defmodule Selecto.Builder.Sql.Group do
 
   def group(selecto, rollup: groups) do
     {joins, clauses_iodata, params} = group(selecto, groups)
-    {joins, ["rollup( ", clauses_iodata, " )"], params}
+
+    if Selecto.AdapterSupport.supports_feature?(Map.get(selecto, :adapter), :rollup) do
+      {joins, ["rollup( ", clauses_iodata, " )"], params}
+    else
+      {joins, clauses_iodata, params}
+    end
   end
 
   def group(selecto, groups) when is_list(groups) do

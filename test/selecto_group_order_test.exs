@@ -7,6 +7,14 @@ defmodule Selecto.GroupOrderTest do
     end
   end
 
+  defmodule NoRollupAdapter do
+    def connect(connection), do: {:ok, connection}
+    def supports?(:rollup), do: false
+    def supports?(_feature), do: false
+    def placeholder(_index), do: "?"
+    def quote_identifier(identifier), do: to_string(identifier)
+  end
+
   test "GROUP BY and ORDER BY with new iodata parameterization (phase 2)" do
     # Domain configuration
     domain = %{
@@ -129,6 +137,41 @@ defmodule Selecto.GroupOrderTest do
 
     assert String.contains?(sql, "rollup")
     refute String.contains?(sql, "select * from (")
+    refute String.contains?(sql, ") as rollupfix")
+  end
+
+  test "ROLLUP falls back to plain grouping for adapters without rollup support" do
+    domain = %{
+      source: %{
+        source_table: "sales",
+        primary_key: :id,
+        fields: [:id, :region, :amount],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          region: %{type: :string},
+          amount: %{type: :decimal}
+        },
+        associations: %{}
+      },
+      schemas: %{},
+      joins: %{},
+      name: "Sales"
+    }
+
+    selecto =
+      Selecto.configure(domain, :mock_connection, adapter: NoRollupAdapter, validate: false)
+
+    selecto =
+      selecto
+      |> Selecto.select([{:sum, "amount"}])
+      |> Selecto.group_by(rollup: ["region"])
+      |> Selecto.order_by([{"region", :asc}])
+
+    {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
+
+    assert String.contains?(String.downcase(sql), "group by")
+    refute String.contains?(String.downcase(sql), "rollup")
     refute String.contains?(sql, ") as rollupfix")
   end
 end
