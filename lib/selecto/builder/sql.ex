@@ -140,7 +140,7 @@ defmodule Selecto.Builder.Sql do
                 selecto.set.order_by
                 |> Enum.with_index(1)
                 |> Enum.map(fn {_order_spec, index} ->
-                  "#{index} asc nulls first"
+                  rollup_literal_order_sql(selecto, index)
                 end)
                 |> Enum.join(", ")
 
@@ -215,7 +215,7 @@ defmodule Selecto.Builder.Sql do
           where_iodata_section,
           group_by_iodata_section,
           ") as rollupfix",
-          order_by_iodata_section,
+          order_by_section,
           limit_iodata_section,
           offset_iodata_section
         ]
@@ -255,6 +255,13 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp rollup_sort_fix_enabled?(_), do: true
+
+  defp rollup_literal_order_sql(selecto, index) do
+    case Selecto.AdapterSupport.adapter_name(Map.get(selecto, :adapter)) do
+      :postgresql -> "#{index} asc nulls first"
+      _ -> "#{index} asc"
+    end
+  end
 
   defp build_pivot_query(selecto, _opts) do
     # Use Pivot builder to construct the entire query
