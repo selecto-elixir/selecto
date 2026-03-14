@@ -3,7 +3,6 @@ defmodule Selecto.AdapterSupport do
 
   @default_adapter SelectoDBPostgreSQL.Adapter
   @legacy_postgresql_adapter Selecto.DB.PostgreSQL
-  @postgres_rollup_features [:rollup]
 
   def default_adapter, do: @default_adapter
 
@@ -14,15 +13,10 @@ defmodule Selecto.AdapterSupport do
   def supports_feature?(nil, feature), do: supports_feature?(@default_adapter, feature)
 
   def supports_feature?(adapter, feature) when is_atom(adapter) and is_atom(feature) do
-    cond do
-      postgresql_adapter?(adapter) and feature in @postgres_rollup_features ->
-        true
-
-      callback_available?(adapter, :supports?, 1) ->
-        adapter.supports?(feature)
-
-      true ->
-        false
+    if callback_available?(adapter, :supports?, 1) do
+      adapter.supports?(feature)
+    else
+      false
     end
   end
 
