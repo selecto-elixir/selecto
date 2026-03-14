@@ -130,9 +130,13 @@ defmodule Selecto.Configuration do
   end
 
   defp auto_rollup_sort_fix(adapter, connection) do
-    case detect_postgres_major_version(adapter, connection) do
-      major when is_integer(major) and major >= 18 -> false
-      _ -> true
+    if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
+      case detect_postgres_major_version(adapter, connection) do
+        major when is_integer(major) and major >= 18 -> false
+        _ -> true
+      end
+    else
+      false
     end
   end
 
