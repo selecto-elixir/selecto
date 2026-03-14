@@ -175,6 +175,9 @@ defmodule Selecto.Builder.Sql do
       combined_from_iodata
     ]
 
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+    mssql_pagination? = Selecto.AdapterSupport.adapter_name(adapter) == :mssql
+
     # Convert sections to iodata
     where_iodata_section =
       if where_section == "", do: [], else: ["\n        where ", where_iolist, "\n      "]
@@ -185,22 +188,21 @@ defmodule Selecto.Builder.Sql do
         else: ["\n        group by ", group_by_iodata, "\n      "]
 
     order_by_iodata_section =
-      if order_by_section == "",
-        do: [],
-        else: ["\n        order by ", order_by_iodata, "\n      "]
+      cond do
+        order_by_section != "" ->
+          ["\n        order by ", order_by_iodata, "\n      "]
 
-    # Add LIMIT and OFFSET sections
-    limit_iodata_section =
-      case Map.get(selecto.set, :limit) do
-        nil -> []
-        limit_value -> ["\n        limit ", Integer.to_string(limit_value), "\n      "]
+        mssql_pagination? and
+            (not is_nil(Map.get(selecto.set, :limit)) or
+               not is_nil(Map.get(selecto.set, :offset))) ->
+          ["\n        order by (select 1)\n      "]
+
+        true ->
+          []
       end
 
-    offset_iodata_section =
-      case Map.get(selecto.set, :offset) do
-        nil -> []
-        offset_value -> ["\n        offset ", Integer.to_string(offset_value), "\n      "]
-      end
+    {limit_iodata_section, offset_iodata_section} =
+      pagination_sections(selecto, adapter)
 
     # Build base query iodata
     rollup_sort_fix_enabled? = rollup_sort_fix_enabled?(selecto)
@@ -242,7 +244,7 @@ defmodule Selecto.Builder.Sql do
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
     {sql, final_params} =
       Params.finalize(final_query_iodata,
-        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+        adapter: adapter
       )
 
     # CTE params are already integrated into the iodata, so final_params contains everything
@@ -465,17 +467,8 @@ defmodule Selecto.Builder.Sql do
         {[], []}
       end
 
-    limit_iodata =
-      case Map.get(selecto.set, :limit) do
-        nil -> []
-        limit_value -> ["\nLIMIT ", Integer.to_string(limit_value)]
-      end
-
-    offset_iodata =
-      case Map.get(selecto.set, :offset) do
-        nil -> []
-        offset_value -> ["\nOFFSET ", Integer.to_string(offset_value)]
-      end
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+    {limit_iodata, offset_iodata} = pagination_sections(selecto, adapter, "\n")
 
     # Combine set operations with any outer ORDER BY/LIMIT/OFFSET
     final_iodata = [set_op_iodata] ++ order_by_iodata ++ limit_iodata ++ offset_iodata
@@ -484,7 +477,7 @@ defmodule Selecto.Builder.Sql do
     # Finalize the SQL
     {sql, final_params} =
       Selecto.SQL.Params.finalize(final_iodata,
-        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+        adapter: adapter
       )
 
     # For set operations, we don't return field aliases since the result schema
@@ -492,6 +485,48 @@ defmodule Selecto.Builder.Sql do
     aliases = %{}
 
     {sql, aliases, final_params}
+  end
+
+  defp pagination_sections(selecto, adapter, prefix \\ "\n        ") do
+    limit_value = Map.get(selecto.set, :limit)
+    offset_value = Map.get(selecto.set, :offset)
+
+    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
+      pagination_iodata =
+        cond do
+          is_nil(limit_value) and is_nil(offset_value) ->
+            []
+
+          is_nil(limit_value) ->
+            [prefix, "offset ", Integer.to_string(offset_value), " rows"]
+
+          true ->
+            [
+              prefix,
+              "offset ",
+              Integer.to_string(offset_value || 0),
+              " rows fetch next ",
+              Integer.to_string(limit_value),
+              " rows only"
+            ]
+        end
+
+      {[], pagination_iodata}
+    else
+      limit_iodata =
+        case limit_value do
+          nil -> []
+          value -> [prefix, "limit ", Integer.to_string(value)]
+        end
+
+      offset_iodata =
+        case offset_value do
+          nil -> []
+          value -> [prefix, "offset ", Integer.to_string(value)]
+        end
+
+      {limit_iodata, offset_iodata}
+    end
   end
 
   # Enhanced SELECT builder that includes subselects
