@@ -1,7 +1,21 @@
 
 # Selecto Library Changelog
 
-## Unreleased
+## V NEXT
+
+#### Added
+- Added baseline DuckDB external adapter coverage in core adapter tests and
+  test-only optional dependency wiring for `selecto_db_duckdb`.
+
+#### Changed
+- Added MSSQL-specific `{:to_char, ...}` SQL compilation for common datetime
+  formats (`YYYY-MM-DD`, `YYYY-MM`, `YYYY`, `YYYY-WW`, `YYYY-Q`, `MM`, `DD`,
+  `D`, `HH24`) so formatter selectors compile to SQL Server-compatible
+  expressions instead of PostgreSQL `to_char(...)` syntax.
+- Expanded MSSQL pagination coverage with datetime-format compilation
+  expectations to guard cross-adapter SQL generation behavior.
+- Updated adapter migration and support-level documentation to list DuckDB as a
+  shipped external adapter package.
 
 ## V 0.4.0 - External Adapter Architecture
 ---------------------------------------------------------
