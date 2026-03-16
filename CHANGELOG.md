@@ -1,7 +1,8 @@
 
 # Selecto Library Changelog
 
-## V NEXT
+## V 0.4.0 - External Adapter Architecture (Unreleased)
+---------------------------------------------------------
 
 #### Added
 - Added baseline DuckDB external adapter coverage in core adapter tests and
@@ -22,9 +23,6 @@
   expectations to guard cross-adapter SQL generation behavior.
 - Updated adapter migration and support-level documentation to list DuckDB as a
   shipped external adapter package.
-
-## V 0.4.0 - External Adapter Architecture
----------------------------------------------------------
 
 #### Changed
 - Moved database adapter support to app-owned external packages, including the
