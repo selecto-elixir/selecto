@@ -52,6 +52,10 @@ defmodule Selecto.DB.Adapter do
 
   @callback placeholder(pos_integer()) :: iodata()
   @callback quote_identifier(String.t()) :: String.t()
+  @callback format_datetime(iodata(), String.t()) :: iodata()
+  @callback rollup_sql(iodata()) :: iodata()
+  @callback rollup_literal_order(pos_integer()) :: iodata() | String.t()
+  @callback rollup_sort_fix(connection()) :: boolean()
   @callback supports?(atom()) :: boolean()
 
   @optional_callbacks stream: 4,
@@ -63,5 +67,9 @@ defmodule Selecto.DB.Adapter do
                       execute_pool: 4,
                       execute_raw: 3,
                       execute_repo_fallback: 3,
-                      start_pool: 3
+                      start_pool: 3,
+                      format_datetime: 2,
+                      rollup_sql: 1,
+                      rollup_literal_order: 1,
+                      rollup_sort_fix: 1
 end

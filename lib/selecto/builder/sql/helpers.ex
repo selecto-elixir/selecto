@@ -17,12 +17,17 @@ defmodule Selecto.Builder.Sql.Helpers do
   PostgreSQL uses double quotes, MySQL uses backticks, SQLite uses double quotes.
   """
   def get_quote_char(selecto) do
-    case Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter()) do
-      Selecto.DB.MySQL -> "`"
-      SelectoDBMySQL.Adapter -> "`"
-      Selecto.DB.MariaDB -> "`"
-      SelectoDBMariaDB.Adapter -> "`"
-      _ -> "\""
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+
+    cond do
+      Selecto.AdapterSupport.callback_available?(adapter, :quote_identifier, 1) ->
+        case adapter.quote_identifier("selecto_probe") do
+          <<quote::binary-size(1), _rest::binary>> -> quote
+          _ -> "\""
+        end
+
+      true ->
+        "\""
     end
   end
 
@@ -78,6 +83,32 @@ defmodule Selecto.Builder.Sql.Helpers do
   end
 
   def maybe_quote_identifier(other), do: to_string(other)
+
+  @doc """
+  Always quote an identifier through the active adapter.
+  """
+  def force_quote_identifier(selecto, str) when is_integer(str),
+    do: force_quote_identifier(selecto, to_string(str))
+
+  def force_quote_identifier(selecto, str) when is_float(str),
+    do: force_quote_identifier(selecto, to_string(str))
+
+  def force_quote_identifier(selecto, str) when is_atom(str) do
+    force_quote_identifier(selecto, Atom.to_string(str))
+  end
+
+  def force_quote_identifier(selecto, str) when is_binary(str) do
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+
+    if Selecto.AdapterSupport.callback_available?(adapter, :quote_identifier, 1) do
+      adapter.quote_identifier(str)
+    else
+      maybe_quote_identifier(str)
+    end
+  end
+
+  def force_quote_identifier(selecto, other),
+    do: force_quote_identifier(selecto, to_string(other))
 
   def check_string(nil), do: nil
   def check_string(str) when is_integer(str), do: check_string(to_string(str))
@@ -168,8 +199,14 @@ defmodule Selecto.Builder.Sql.Helpers do
 
     # Only quote if necessary
     if needs_quoting?(str) do
-      quote = get_quote_char(selecto)
-      "#{quote}#{str}#{quote}"
+      adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+
+      if Selecto.AdapterSupport.callback_available?(adapter, :quote_identifier, 1) do
+        adapter.quote_identifier(str)
+      else
+        quote = get_quote_char(selecto)
+        "#{quote}#{str}#{quote}"
+      end
     else
       str
     end

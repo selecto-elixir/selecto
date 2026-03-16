@@ -13,6 +13,7 @@ defmodule Selecto.Builder.Sql do
   import Selecto.Builder.Sql.Helpers
   # import Selecto.Types - removed to avoid circular dependency
 
+  alias Selecto.AdapterSQL
   alias Selecto.SQL.Params
   alias Selecto.Builder.CteSql, as: Cte
   alias Selecto.Builder.Sql.Hierarchy
@@ -176,7 +177,7 @@ defmodule Selecto.Builder.Sql do
     ]
 
     adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
-    mssql_pagination? = Selecto.AdapterSupport.adapter_name(adapter) == :mssql
+    requires_order_for_pagination? = AdapterSQL.requires_order_for_pagination?(selecto)
 
     # Convert sections to iodata
     where_iodata_section =
@@ -192,7 +193,7 @@ defmodule Selecto.Builder.Sql do
         order_by_section != "" ->
           ["\n        order by ", order_by_iodata, "\n      "]
 
-        mssql_pagination? and
+        requires_order_for_pagination? and
             (not is_nil(Map.get(selecto.set, :limit)) or
                not is_nil(Map.get(selecto.set, :offset))) ->
           ["\n        order by (select 1)\n      "]
@@ -259,10 +260,9 @@ defmodule Selecto.Builder.Sql do
   defp rollup_sort_fix_enabled?(_), do: true
 
   defp rollup_literal_order_sql(selecto, index) do
-    case Selecto.AdapterSupport.adapter_name(Map.get(selecto, :adapter)) do
-      :postgresql -> "#{index} asc nulls first"
-      _ -> "#{index} asc"
-    end
+    selecto
+    |> AdapterSQL.rollup_literal_order(index)
+    |> IO.iodata_to_binary()
   end
 
   defp build_pivot_query(selecto, _opts) do
@@ -491,7 +491,7 @@ defmodule Selecto.Builder.Sql do
     limit_value = Map.get(selecto.set, :limit)
     offset_value = Map.get(selecto.set, :offset)
 
-    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
+    if AdapterSQL.offset_fetch_pagination?(adapter) do
       pagination_iodata =
         cond do
           is_nil(limit_value) and is_nil(offset_value) ->
@@ -1154,8 +1154,14 @@ defmodule Selecto.Builder.Sql do
       case field do
         f when is_binary(f) ->
           # Simple field reference - use adapter-aware quoting
-          quote = Selecto.Builder.Sql.Helpers.get_quote_char(selecto)
-          {[quote, "selecto_root", quote, ".", quote, field, quote], []}
+          {
+            [
+              force_quote_identifier(selecto, "selecto_root"),
+              ".",
+              force_quote_identifier(selecto, field)
+            ],
+            []
+          }
 
         {:array, _} = array_expr ->
           # Array construction expression

@@ -15,13 +15,11 @@ defmodule Selecto.Builder.ArrayOperations do
     case String.split(column, ".", parts: 2) do
       [table, field] when selecto != nil ->
         # Qualified column with selecto context - quote both parts
-        quote_char = get_quote_char(selecto)
-        "#{quote_char}#{table}#{quote_char}.#{quote_char}#{field}#{quote_char}"
+        "#{force_quote_identifier(selecto, table)}.#{force_quote_identifier(selecto, field)}"
 
       [field] when selecto != nil ->
         # Unqualified field with selecto context - add source table alias with quotes
-        quote_char = get_quote_char(selecto)
-        "#{quote_char}selecto_root#{quote_char}.#{quote_char}#{field}#{quote_char}"
+        "#{force_quote_identifier(selecto, "selecto_root")}.#{force_quote_identifier(selecto, field)}"
 
       [table, field] ->
         # Qualified column without selecto (unit test) - use as-is

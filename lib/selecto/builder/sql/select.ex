@@ -9,6 +9,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   import Selecto.Builder.Sql.Helpers
 
+  alias Selecto.AdapterSQL
   alias Selecto.Jsonb
 
   ### TODO alter prep_selector to return the data type
@@ -710,14 +711,7 @@ defmodule Selecto.Builder.Sql.Select do
   def prep_selector(selecto, {:to_char, {field, format}}, pivot_aliases) do
     {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
 
-    to_char_iodata =
-      case Selecto.AdapterSupport.adapter_name(Map.get(selecto, :adapter)) do
-        :mssql -> mssql_to_char_iodata(sel_iodata, format)
-        :duckdb -> duckdb_to_char_iodata(sel_iodata, format)
-        _ -> ["to_char(", sel_iodata, ", ", single_wrap(format), ")"]
-      end
-
-    {to_char_iodata, join, param}
+    {AdapterSQL.format_datetime(selecto, sel_iodata, format), join, param}
   end
 
   def prep_selector(selecto, {:field, selector}, pivot_aliases) do
@@ -1323,103 +1317,5 @@ defmodule Selecto.Builder.Sql.Select do
       true ->
         nil
     end
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "YYYY-MM-DD") do
-    ["CONVERT(varchar(10), CAST(", sel_iodata, " AS datetime2), 23)"]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "YYYY-MM") do
-    ["LEFT(CONVERT(varchar(10), CAST(", sel_iodata, " AS datetime2), 23), 7)"]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "YYYY") do
-    ["FORMAT(CAST(", sel_iodata, " AS datetime2), 'yyyy')"]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "YYYY-WW") do
-    [
-      "CONCAT(FORMAT(CAST(",
-      sel_iodata,
-      " AS datetime2), 'yyyy'), '-', RIGHT('0' + CAST(DATEPART(ISO_WEEK, CAST(",
-      sel_iodata,
-      " AS datetime2)) AS varchar(2)), 2))"
-    ]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "YYYY-Q") do
-    [
-      "CONCAT(FORMAT(CAST(",
-      sel_iodata,
-      " AS datetime2), 'yyyy'), '-', DATEPART(QUARTER, CAST(",
-      sel_iodata,
-      " AS datetime2)))"
-    ]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "MM") do
-    ["FORMAT(CAST(", sel_iodata, " AS datetime2), 'MM')"]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "DD") do
-    ["FORMAT(CAST(", sel_iodata, " AS datetime2), 'dd')"]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "D") do
-    ["CAST(DATEPART(WEEKDAY, CAST(", sel_iodata, " AS datetime2)) AS varchar(2))"]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, "HH24") do
-    ["FORMAT(CAST(", sel_iodata, " AS datetime2), 'HH')"]
-  end
-
-  defp mssql_to_char_iodata(sel_iodata, _format) do
-    ["CONVERT(varchar(33), CAST(", sel_iodata, " AS datetime2), 126)"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "YYYY-MM-DD") do
-    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%Y-%m-%d')"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "YYYY-MM") do
-    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%Y-%m')"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "YYYY") do
-    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%Y')"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "YYYY-WW") do
-    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%G-%V')"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "YYYY-Q") do
-    [
-      "strftime(CAST(",
-      sel_iodata,
-      " AS TIMESTAMP), '%Y') || '-' || CAST(quarter(CAST(",
-      sel_iodata,
-      " AS TIMESTAMP)) AS VARCHAR)"
-    ]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "MM") do
-    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%m')"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "DD") do
-    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%d')"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "D") do
-    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%u')"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, "HH24") do
-    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%H')"]
-  end
-
-  defp duckdb_to_char_iodata(sel_iodata, _format) do
-    ["CAST(", sel_iodata, " AS VARCHAR)"]
   end
 end

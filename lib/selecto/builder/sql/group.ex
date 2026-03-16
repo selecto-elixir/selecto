@@ -6,21 +6,12 @@ defmodule Selecto.Builder.Sql.Group do
   emitted either as standard grouped columns or wrapped in SQL `ROLLUP(...)`.
   """
 
+  alias Selecto.AdapterSQL
+
   def group(selecto, rollup: groups) do
     {joins, clauses_iodata, params} = group(selecto, groups)
 
-    adapter = Map.get(selecto, :adapter)
-
-    cond do
-      not Selecto.AdapterSupport.supports_feature?(adapter, :rollup) ->
-        {joins, clauses_iodata, params}
-
-      Selecto.AdapterSupport.adapter_name(adapter) in [:mysql, :mariadb] ->
-        {joins, [clauses_iodata, " with rollup"], params}
-
-      true ->
-        {joins, ["rollup( ", clauses_iodata, " )"], params}
-    end
+    {joins, AdapterSQL.rollup_sql(selecto, clauses_iodata), params}
   end
 
   def group(selecto, groups) when is_list(groups) do

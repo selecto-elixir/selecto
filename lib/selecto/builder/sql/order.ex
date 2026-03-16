@@ -7,7 +7,7 @@ defmodule Selecto.Builder.Sql.Order do
   fragments, and bind parameters for the ordering clause.
   """
 
-  alias Selecto.AdapterSupport
+  alias Selecto.AdapterSQL
 
   @dirs %{
     asc: "asc",
@@ -157,6 +157,6 @@ defmodule Selecto.Builder.Sql.Order do
   defp order_params(params, _dir), do: params
 
   defp native_null_ordering?(selecto) do
-    AdapterSupport.adapter_name(Map.get(selecto, :adapter)) == :postgresql
+    AdapterSQL.native_null_ordering?(selecto)
   end
 end

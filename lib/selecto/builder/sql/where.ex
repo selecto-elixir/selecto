@@ -10,6 +10,7 @@ defmodule Selecto.Builder.Sql.Where do
 
   import Selecto.Builder.Sql.Helpers
 
+  alias Selecto.AdapterSQL
   alias Selecto.Builder.Sql.Select
   alias Selecto.Jsonb
 
@@ -295,26 +296,8 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    # Use adapter-specific syntax for IN/ANY
-    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
-
-    in_clause =
-      case adapter do
-        Selecto.DB.MySQL ->
-          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-
-        SelectoDBMySQL.Adapter ->
-          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-
-        Selecto.DB.MariaDB ->
-          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-
-        SelectoDBMariaDB.Adapter ->
-          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-
-        _ ->
-          [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-      end
+    typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
+    in_clause = build_list_clause(selecto, sel, typed_values, false)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
   end
@@ -323,56 +306,8 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    # Use adapter-specific syntax for NOT IN
-    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
-
-    not_in_clause =
-      case adapter do
-        Selecto.DB.MySQL ->
-          [
-            " ",
-            sel,
-            " NOT IN (",
-            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-            ") "
-          ]
-
-        SelectoDBMySQL.Adapter ->
-          [
-            " ",
-            sel,
-            " NOT IN (",
-            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-            ") "
-          ]
-
-        Selecto.DB.MariaDB ->
-          [
-            " ",
-            sel,
-            " NOT IN (",
-            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-            ") "
-          ]
-
-        SelectoDBMariaDB.Adapter ->
-          [
-            " ",
-            sel,
-            " NOT IN (",
-            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-            ") "
-          ]
-
-        _ ->
-          [
-            " NOT (",
-            sel,
-            " = ANY(",
-            {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-            ")) "
-          ]
-      end
+    typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
+    not_in_clause = build_list_clause(selecto, sel, typed_values, true)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), not_in_clause, param}
   end
@@ -381,26 +316,8 @@ defmodule Selecto.Builder.Sql.Where do
     conf = Selecto.field(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    # Use adapter-specific syntax for IN/ANY
-    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
-
-    in_clause =
-      case adapter do
-        Selecto.DB.MySQL ->
-          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-
-        SelectoDBMySQL.Adapter ->
-          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-
-        Selecto.DB.MariaDB ->
-          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-
-        SelectoDBMariaDB.Adapter ->
-          [" ", sel, " IN (", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-
-        _ ->
-          [" ", sel, " = ANY(", {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)}, ") "]
-      end
+    typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
+    in_clause = build_list_clause(selecto, sel, typed_values, false)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
   end
@@ -575,55 +492,8 @@ defmodule Selecto.Builder.Sql.Where do
         # Not a JSONB field, use regular IN
         conf = Selecto.field(selecto, field)
         {sel, join, param} = Select.prep_selector(selecto, field)
-        adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
-
-        in_clause =
-          case adapter do
-            Selecto.DB.MySQL ->
-              [
-                " ",
-                sel,
-                " IN (",
-                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-                ") "
-              ]
-
-            SelectoDBMySQL.Adapter ->
-              [
-                " ",
-                sel,
-                " IN (",
-                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-                ") "
-              ]
-
-            Selecto.DB.MariaDB ->
-              [
-                " ",
-                sel,
-                " IN (",
-                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-                ") "
-              ]
-
-            SelectoDBMariaDB.Adapter ->
-              [
-                " ",
-                sel,
-                " IN (",
-                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-                ") "
-              ]
-
-            _ ->
-              [
-                " ",
-                sel,
-                " = ANY(",
-                {:param, Enum.map(list, fn i -> to_type(conf.type, i) end)},
-                ") "
-              ]
-          end
+        typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
+        in_clause = build_list_clause(selecto, sel, typed_values, false)
 
         {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
     end
@@ -720,6 +590,19 @@ defmodule Selecto.Builder.Sql.Where do
     Logger.error("Debug: Enable debug logging with safe inspection for more details")
 
     raise "WHERE clause builder error: Unrecognized filter structure (type: #{type_name}). This usually means an aggregate or filter configuration is generating an invalid filter format."
+  end
+
+  defp build_list_clause(selecto, selector, typed_values, negate?) do
+    if AdapterSQL.array_any_comparison?(selecto) do
+      if negate? do
+        [" NOT (", selector, " = ANY(", {:param, typed_values}, ")) "]
+      else
+        [" ", selector, " = ANY(", {:param, typed_values}, ") "]
+      end
+    else
+      operator = if negate?, do: " NOT IN (", else: " IN ("
+      [" ", selector, operator, {:param, typed_values}, ") "]
+    end
   end
 
   # ---------------------------------------------------------------------------

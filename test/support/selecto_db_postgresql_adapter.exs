@@ -85,12 +85,25 @@ defmodule SelectoDBPostgreSQL.Adapter do
       :cte,
       :jsonb,
       :array_ops,
+      :array_any_comparison,
+      :native_null_ordering,
       :returning,
       :window_functions,
       :lateral_join,
       :prefix,
       :stream
     ]
+  end
+
+  @impl true
+  def rollup_literal_order(index), do: [Integer.to_string(index), " asc nulls first"]
+
+  @impl true
+  def rollup_sort_fix(connection) do
+    case server_version_major(connection) do
+      {:ok, major} when is_integer(major) and major >= 18 -> false
+      _ -> true
+    end
   end
 
   @impl true

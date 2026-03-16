@@ -9,7 +9,10 @@ defmodule SelectoDBMySQL.Adapter do
 
   def placeholder(_index), do: "?"
   def quote_identifier(identifier), do: "`#{String.replace(to_string(identifier), "`", "``")}`"
+  def supports?(:rollup_with_rollup), do: true
   def supports?(_feature), do: false
+
+  def rollup_sql(grouped_clauses), do: [grouped_clauses, " with rollup"]
 end
 
 defmodule SelectoDBMariaDB.Adapter do
@@ -23,7 +26,10 @@ defmodule SelectoDBMariaDB.Adapter do
 
   def placeholder(_index), do: "?"
   def quote_identifier(identifier), do: "`#{String.replace(to_string(identifier), "`", "``")}`"
+  def supports?(:rollup_with_rollup), do: true
   def supports?(_feature), do: false
+
+  def rollup_sql(grouped_clauses), do: [grouped_clauses, " with rollup"]
 end
 
 defmodule SelectoDBMSSQL.Adapter do
@@ -48,7 +54,61 @@ defmodule SelectoDBMSSQL.Adapter do
     "[#{escaped}]"
   end
 
+  def supports?(:offset_fetch_pagination), do: true
+  def supports?(:requires_order_for_pagination), do: true
   def supports?(_feature), do: false
+
+  def format_datetime(sel_iodata, "YYYY-MM-DD") do
+    ["CONVERT(varchar(10), CAST(", sel_iodata, " AS datetime2), 23)"]
+  end
+
+  def format_datetime(sel_iodata, "YYYY-MM") do
+    ["LEFT(CONVERT(varchar(10), CAST(", sel_iodata, " AS datetime2), 23), 7)"]
+  end
+
+  def format_datetime(sel_iodata, "YYYY") do
+    ["FORMAT(CAST(", sel_iodata, " AS datetime2), 'yyyy')"]
+  end
+
+  def format_datetime(sel_iodata, "YYYY-WW") do
+    [
+      "CONCAT(FORMAT(CAST(",
+      sel_iodata,
+      " AS datetime2), 'yyyy'), '-', RIGHT('0' + CAST(DATEPART(ISO_WEEK, CAST(",
+      sel_iodata,
+      " AS datetime2)) AS varchar(2)), 2))"
+    ]
+  end
+
+  def format_datetime(sel_iodata, "YYYY-Q") do
+    [
+      "CONCAT(FORMAT(CAST(",
+      sel_iodata,
+      " AS datetime2), 'yyyy'), '-', DATEPART(QUARTER, CAST(",
+      sel_iodata,
+      " AS datetime2)))"
+    ]
+  end
+
+  def format_datetime(sel_iodata, "MM") do
+    ["FORMAT(CAST(", sel_iodata, " AS datetime2), 'MM')"]
+  end
+
+  def format_datetime(sel_iodata, "DD") do
+    ["FORMAT(CAST(", sel_iodata, " AS datetime2), 'dd')"]
+  end
+
+  def format_datetime(sel_iodata, "D") do
+    ["CAST(DATEPART(WEEKDAY, CAST(", sel_iodata, " AS datetime2)) AS varchar(2))"]
+  end
+
+  def format_datetime(sel_iodata, "HH24") do
+    ["FORMAT(CAST(", sel_iodata, " AS datetime2), 'HH')"]
+  end
+
+  def format_datetime(sel_iodata, _format) do
+    ["CONVERT(varchar(33), CAST(", sel_iodata, " AS datetime2), 126)"]
+  end
 end
 
 defmodule SelectoDBDuckDB.Adapter do
@@ -68,6 +128,52 @@ defmodule SelectoDBDuckDB.Adapter do
   end
 
   def supports?(_feature), do: false
+
+  def format_datetime(sel_iodata, "YYYY-MM-DD") do
+    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%Y-%m-%d')"]
+  end
+
+  def format_datetime(sel_iodata, "YYYY-MM") do
+    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%Y-%m')"]
+  end
+
+  def format_datetime(sel_iodata, "YYYY") do
+    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%Y')"]
+  end
+
+  def format_datetime(sel_iodata, "YYYY-WW") do
+    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%G-%V')"]
+  end
+
+  def format_datetime(sel_iodata, "YYYY-Q") do
+    [
+      "strftime(CAST(",
+      sel_iodata,
+      " AS TIMESTAMP), '%Y') || '-' || CAST(quarter(CAST(",
+      sel_iodata,
+      " AS TIMESTAMP)) AS VARCHAR)"
+    ]
+  end
+
+  def format_datetime(sel_iodata, "MM") do
+    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%m')"]
+  end
+
+  def format_datetime(sel_iodata, "DD") do
+    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%d')"]
+  end
+
+  def format_datetime(sel_iodata, "D") do
+    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%u')"]
+  end
+
+  def format_datetime(sel_iodata, "HH24") do
+    ["strftime(CAST(", sel_iodata, " AS TIMESTAMP), '%H')"]
+  end
+
+  def format_datetime(sel_iodata, _format) do
+    ["CAST(", sel_iodata, " AS VARCHAR)"]
+  end
 end
 
 defmodule SelectoDBSQLite.Adapter do
