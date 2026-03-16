@@ -8,6 +8,12 @@
   test-only optional dependency wiring for `selecto_db_duckdb`.
 
 #### Changed
+- Moved `Selecto.DB.Adapter` into core `selecto` so consumer installs no longer
+  pull adapter packages just to access the shared contract.
+- Removed direct adapter package dependencies from core and replaced them with
+  test-only adapter stubs so `selecto` stays adapter-agnostic at install time.
+- Updated subselect alias and field quoting to use adapter-owned identifier
+  quoting, fixing MSSQL subselect SQL generation.
 - Added MSSQL-specific `{:to_char, ...}` SQL compilation for common datetime
   formats (`YYYY-MM-DD`, `YYYY-MM`, `YYYY`, `YYYY-WW`, `YYYY-Q`, `MM`, `DD`,
   `D`, `HH24`) so formatter selectors compile to SQL Server-compatible
