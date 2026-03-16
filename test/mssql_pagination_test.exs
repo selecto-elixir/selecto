@@ -57,6 +57,27 @@ defmodule Selecto.MSSQLPaginationTest do
     refute normalized_sql =~ " limit "
   end
 
+  test "datetime formatting compiles to SQL Server compatible expressions" do
+    query =
+      domain()
+      |> Selecto.configure(:mock_connection, adapter: SelectoDBMSSQL.Adapter, validate: false)
+      |> Selecto.select([
+        {:to_char, {:inserted_at, "YYYY-MM"}},
+        {:to_char, {:inserted_at, "YYYY-Q"}},
+        {:to_char, {:inserted_at, "HH24"}}
+      ])
+
+    {sql, _params} = Selecto.to_sql(query)
+    normalized_sql = normalize_sql(sql)
+
+    assert normalized_sql =~
+             "left(convert(varchar(10), cast(selecto_root.inserted_at as datetime2), 23), 7)"
+
+    assert normalized_sql =~ "datepart(quarter, cast(selecto_root.inserted_at as datetime2))"
+    assert normalized_sql =~ "format(cast(selecto_root.inserted_at as datetime2), 'hh')"
+    refute normalized_sql =~ "to_char("
+  end
+
   defp normalize_sql(sql) do
     sql
     |> String.downcase()
@@ -70,11 +91,12 @@ defmodule Selecto.MSSQLPaginationTest do
       source: %{
         source_table: "items",
         primary_key: :id,
-        fields: [:id, :name],
+        fields: [:id, :name, :inserted_at],
         redact_fields: [],
         columns: %{
           id: %{type: :integer},
-          name: %{type: :string}
+          name: %{type: :string},
+          inserted_at: %{type: :utc_datetime}
         },
         associations: %{}
       },

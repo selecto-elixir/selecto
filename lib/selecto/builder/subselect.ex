@@ -7,7 +7,7 @@ defmodule Selecto.Builder.Subselect do
   or other aggregate formats.
   """
 
-  # import Selecto.Builder.Sql.Helpers
+  import Selecto.Builder.Sql.Helpers, only: [quote_identifier: 2]
   # alias Selecto.SQL.Params
   alias Selecto.Types
   alias Selecto.AdapterSupport
@@ -87,7 +87,7 @@ defmodule Selecto.Builder.Subselect do
       "(",
       subselect_iodata,
       ") AS ",
-      escape_identifier(subselect_config.alias)
+      adapter_quote_identifier(selecto, subselect_config.alias)
     ]
 
     {field_with_alias, subselect_params}
@@ -183,6 +183,7 @@ defmodule Selecto.Builder.Subselect do
     # Build additional filters if specified
     {additional_where, additional_params} =
       build_additional_filters(
+        selecto,
         subselect_config,
         target_alias
       )
@@ -231,6 +232,7 @@ defmodule Selecto.Builder.Subselect do
 
     {additional_where, additional_params} =
       build_additional_filters(
+        selecto,
         subselect_config,
         target_alias
       )
@@ -245,7 +247,8 @@ defmodule Selecto.Builder.Subselect do
         multiple -> Enum.intersperse(multiple, [" AND "])
       end
 
-    select_fields = build_mssql_json_path_select_fields(subselect_config.fields, target_alias)
+    select_fields =
+      build_mssql_json_path_select_fields(selecto, subselect_config.fields, target_alias)
 
     subselect_iodata = [
       "SELECT COALESCE((SELECT ",
@@ -262,11 +265,11 @@ defmodule Selecto.Builder.Subselect do
     {subselect_iodata, correlation_params ++ additional_params}
   end
 
-  defp build_mssql_json_path_select_fields(fields, target_alias) do
+  defp build_mssql_json_path_select_fields(selecto, fields, target_alias) do
     fields
     |> Enum.map(fn field ->
-      field_name = escape_identifier(to_string(field))
-      field_alias = escape_identifier(mssql_json_field_alias(field))
+      field_name = adapter_quote_identifier(selecto, to_string(field))
+      field_alias = adapter_quote_identifier(selecto, mssql_json_field_alias(field))
       [target_alias, ".", field_name, " AS ", field_alias]
     end)
     |> Enum.intersperse([", "])
@@ -305,7 +308,8 @@ defmodule Selecto.Builder.Subselect do
     target_alias = generate_subquery_alias(subselect_config.target_schema)
 
     # Build SELECT fields for the subquery
-    {select_fields, select_params} = build_subquery_select_fields(subselect_config, target_alias)
+    {select_fields, select_params} =
+      build_subquery_select_fields(selecto, subselect_config, target_alias)
 
     # Build correlation WHERE clause
     {correlation_where, correlation_params} =
@@ -319,6 +323,7 @@ defmodule Selecto.Builder.Subselect do
     # Build additional filters if specified
     {additional_where, additional_params} =
       build_additional_filters(
+        selecto,
         subselect_config,
         target_alias
       )
@@ -326,6 +331,7 @@ defmodule Selecto.Builder.Subselect do
     # Build ORDER BY if specified
     {order_clause, order_params} =
       build_subquery_order_by(
+        selecto,
         subselect_config,
         target_alias
       )
@@ -489,11 +495,11 @@ defmodule Selecto.Builder.Subselect do
       condition = [
         target_alias,
         ".",
-        escape_identifier(target_field),
+        adapter_quote_identifier(selecto, target_field),
         " = ",
         source_alias,
         ".",
-        escape_identifier(source_field)
+        adapter_quote_identifier(selecto, source_field)
       ]
 
       {:ok, condition}
@@ -533,11 +539,11 @@ defmodule Selecto.Builder.Subselect do
       condition = [
         target_alias,
         ".",
-        escape_identifier(target_field),
+        adapter_quote_identifier(selecto, target_field),
         " = ",
         source_alias,
         ".",
-        escape_identifier(source_field)
+        adapter_quote_identifier(selecto, source_field)
       ]
 
       {:ok, condition}
@@ -782,11 +788,11 @@ defmodule Selecto.Builder.Subselect do
             start_corr = [
               join_alias,
               ".",
-              escape_identifier(to_string(association.related_key)),
+              adapter_quote_identifier(selecto, to_string(association.related_key)),
               " = ",
               source_alias,
               ".",
-              escape_identifier(to_string(association.owner_key))
+              adapter_quote_identifier(selecto, to_string(association.owner_key))
             ]
 
             {[table_name, " ", join_alias], start_corr}
@@ -802,11 +808,11 @@ defmodule Selecto.Builder.Subselect do
               " ON ",
               prev_alias,
               ".",
-              escape_identifier(to_string(prev_association.owner_key)),
+              adapter_quote_identifier(selecto, to_string(prev_association.owner_key)),
               " = ",
               join_alias,
               ".",
-              escape_identifier(to_string(prev_association.related_key))
+              adapter_quote_identifier(selecto, to_string(prev_association.related_key))
             ]
 
             # Pass through the start correlation from first join
@@ -822,11 +828,11 @@ defmodule Selecto.Builder.Subselect do
           end_correlation = [
             join_alias,
             ".",
-            escape_identifier(to_string(next_schema_config.primary_key || :id)),
+            adapter_quote_identifier(selecto, to_string(next_schema_config.primary_key || :id)),
             " = ",
             target_alias,
             ".",
-            escape_identifier(to_string(next_schema_config.primary_key || :id))
+            adapter_quote_identifier(selecto, to_string(next_schema_config.primary_key || :id))
           ]
 
           # Return complete chain
@@ -854,32 +860,32 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_subquery_select_fields(subselect_config, target_alias) do
+  defp build_subquery_select_fields(selecto, subselect_config, target_alias) do
     case subselect_config.format do
       :json_agg ->
-        build_json_select_fields(subselect_config.fields, target_alias)
+        build_json_select_fields(selecto, subselect_config.fields, target_alias)
 
       :count ->
         # For count, we just need any field
         {["1"], []}
 
       _ ->
-        build_simple_select_fields(subselect_config.fields, target_alias)
+        build_simple_select_fields(selecto, subselect_config.fields, target_alias)
     end
   end
 
-  defp build_json_select_fields(fields, target_alias) do
+  defp build_json_select_fields(selecto, fields, target_alias) do
     case fields do
       [single_field] ->
         # Single field - return the value directly for json_agg
-        field_name = escape_identifier(to_string(single_field))
+        field_name = adapter_quote_identifier(selecto, to_string(single_field))
         {[target_alias, ".", field_name], []}
 
       multiple_fields ->
         # Multiple fields - build JSON object
         json_pairs =
           Enum.map(multiple_fields, fn field ->
-            field_name = escape_identifier(to_string(field))
+            field_name = adapter_quote_identifier(selecto, to_string(field))
             # Use literal string for field key, not parameter
             field_key = escape_string(to_string(field))
             [field_key, ", ", target_alias, ".", field_name]
@@ -896,10 +902,10 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_simple_select_fields(fields, target_alias) do
+  defp build_simple_select_fields(selecto, fields, target_alias) do
     field_clauses =
       Enum.map(fields, fn field ->
-        field_name = escape_identifier(to_string(field))
+        field_name = adapter_quote_identifier(selecto, to_string(field))
         [target_alias, ".", field_name]
       end)
 
@@ -924,18 +930,18 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_additional_filters(subselect_config, target_alias) do
+  defp build_additional_filters(selecto, subselect_config, target_alias) do
     case subselect_config.filters do
       [] ->
         {[], []}
 
       filters ->
         # Build WHERE conditions for additional filters
-        build_filter_conditions(filters, target_alias)
+        build_filter_conditions(selecto, filters, target_alias)
     end
   end
 
-  defp build_subquery_order_by(subselect_config, target_alias) do
+  defp build_subquery_order_by(selecto, subselect_config, target_alias) do
     case subselect_config.order_by do
       [] ->
         {[], []}
@@ -944,7 +950,7 @@ defmodule Selecto.Builder.Subselect do
         order_clauses =
           Enum.map(order_specs, fn
             {direction, field} ->
-              field_name = escape_identifier(to_string(field))
+              field_name = adapter_quote_identifier(selecto, to_string(field))
 
               direction_sql =
                 case direction do
@@ -956,11 +962,11 @@ defmodule Selecto.Builder.Subselect do
               [target_alias, ".", field_name, " ", direction_sql]
 
             field when is_atom(field) ->
-              field_name = escape_identifier(to_string(field))
+              field_name = adapter_quote_identifier(selecto, to_string(field))
               [target_alias, ".", field_name]
 
             field when is_binary(field) ->
-              field_name = escape_identifier(field)
+              field_name = adapter_quote_identifier(selecto, field)
               [target_alias, ".", field_name]
           end)
 
@@ -969,13 +975,13 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_filter_conditions(filters, target_alias) do
+  defp build_filter_conditions(selecto, filters, target_alias) do
     # Use existing filter building logic, adapted for subquery context
     # This is simplified - in reality, we'd reuse Selecto.Builder.Sql.Where logic
     condition_clauses =
       Enum.map(filters, fn
         {field, value} ->
-          field_name = escape_identifier(to_string(field))
+          field_name = adapter_quote_identifier(selecto, to_string(field))
           value_param = {:param, value}
           [target_alias, ".", field_name, " = ", value_param]
       end)
@@ -1058,5 +1064,15 @@ defmodule Selecto.Builder.Subselect do
   defp escape_identifier(identifier) do
     # Escape SQL identifiers - simplified implementation
     "\"#{identifier}\""
+  end
+
+  defp adapter_quote_identifier(selecto, identifier) do
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+
+    if Selecto.AdapterSupport.callback_available?(adapter, :quote_identifier, 1) do
+      adapter.quote_identifier(to_string(identifier))
+    else
+      quote_identifier(selecto, identifier)
+    end
   end
 end

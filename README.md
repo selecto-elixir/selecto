@@ -494,9 +494,11 @@ Support levels in this table are intentionally conservative:
 | MySQL (`SelectoDBMySQL.Adapter` via `selecto_db_mysql`) | Yes | Yes (with `myxql`) | No built-in stream support today | External adapter package; baseline support only |
 | MariaDB (`SelectoDBMariaDB.Adapter` via `selecto_db_mariadb`) | Yes | Yes (with `myxql`) | No built-in stream support today | External adapter package; baseline support only |
 | MSSQL (`SelectoDBMSSQL.Adapter` via `selecto_db_mssql`) | Yes | Yes (with `tds`) | No built-in stream support today | External adapter package; baseline support only |
+| DuckDB (`SelectoDBDuckDB.Adapter` via `selecto_db_duckdb`) | Yes | Yes (with `duckdbex`) | No built-in stream support today | External adapter package; baseline support only |
 | SQLite (`SelectoDBSQLite.Adapter` via `selecto_db_sqlite`) | Yes | Yes (with `exqlite`) | No built-in stream support today | External adapter package; baseline support only |
 
-Backends outside this table, such as DuckDB, should currently be treated as
+Backends outside this table, beyond packages that already ship tested adapters,
+should currently be treated as
 external or experimental adapters unless and until they have their own tested
 adapter implementation.
 

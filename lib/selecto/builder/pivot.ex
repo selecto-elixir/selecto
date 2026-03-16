@@ -735,7 +735,8 @@ defmodule Selecto.Builder.Pivot do
 
   defp build_pivot_filter_group(_selecto, _target_schema, _target_alias, []), do: {[], []}
 
-  defp build_pivot_filter_group(selecto, target_schema, target_alias, filters) when is_list(filters) do
+  defp build_pivot_filter_group(selecto, target_schema, target_alias, filters)
+       when is_list(filters) do
     {clauses, params} =
       Enum.reduce(filters, {[], []}, fn filter, {clauses, params} ->
         {clause, clause_params} =
