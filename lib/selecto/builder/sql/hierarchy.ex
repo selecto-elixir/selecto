@@ -10,6 +10,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
   """
 
   import Selecto.Builder.Sql.Helpers
+  alias Selecto.SQL.Params
   # Hierarchy CTE definitions are emitted as raw CTE entries consumed by Selecto.Builder.CteSql.
 
   @doc """
@@ -158,7 +159,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
 
   Returns: {cte_iodata, params}
   """
-  def build_adjacency_list_cte(_selecto, join, config) do
+  def build_adjacency_list_cte(selecto, join, config) do
     # Get configuration values
     source_table = config.source
     depth_limit = Map.get(config, :hierarchy_depth, 5)
@@ -187,10 +188,16 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     ]
 
     # Build CTE definition body (WITH keyword added by CTE builder)
-    cte_iodata = [cte_name, " AS (", base_case_iodata, " UNION ALL ", recursive_case_iodata, ")"]
+    cte_template = [
+      cte_name,
+      " AS (",
+      base_case_iodata,
+      " UNION ALL ",
+      recursive_case_iodata,
+      ")"
+    ]
 
-    # Parameters are embedded in iodata via {:param, value} markers.
-    {cte_iodata, []}
+    finalize_fragment(selecto, cte_template)
   end
 
   @doc """
@@ -212,7 +219,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
 
   Returns: {query_iodata, params}
   """
-  def build_materialized_path_query(_selecto, join, config) do
+  def build_materialized_path_query(selecto, join, config) do
     source_table = config.source
     path_field = Map.get(config, :path_field, "path")
     path_separator = Map.get(config, :path_separator, "/")
@@ -231,7 +238,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
     # Build query that includes depth calculation
     query_name = "#{join}_materialized_path"
 
-    query_iodata = [
+    query_template = [
       query_name,
       " AS (",
       "SELECT *, ",
@@ -243,7 +250,7 @@ defmodule Selecto.Builder.Sql.Hierarchy do
       ")"
     ]
 
-    {query_iodata, []}
+    finalize_fragment(selecto, query_template)
   end
 
   @doc """
@@ -288,6 +295,17 @@ defmodule Selecto.Builder.Sql.Hierarchy do
 
     # No parameters needed for basic closure table query
     {query_iodata, []}
+  end
+
+  defp finalize_fragment(selecto, fragment) do
+    adapter =
+      case selecto do
+        %{adapter: adapter} when not is_nil(adapter) -> adapter
+        _ -> Selecto.AdapterSupport.default_adapter()
+      end
+
+    {sql, params} = Params.finalize(fragment, adapter: adapter)
+    {[sql], params}
   end
 
   @doc """
