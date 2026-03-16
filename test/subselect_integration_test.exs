@@ -56,6 +56,11 @@ defmodule Selecto.SubselectIntegrationTest do
     Selecto.configure(domain, postgrex_opts, validate: false)
   end
 
+  def create_mssql_test_selecto do
+    domain = test_domain()
+    Selecto.configure(domain, :mock_connection, adapter: SelectoDBMSSQL.Adapter, validate: false)
+  end
+
   describe "build_subselect_clauses/1" do
     test "builds JSON aggregation subselect" do
       selecto =
@@ -78,6 +83,28 @@ defmodule Selecto.SubselectIntegrationTest do
       assert clause_sql =~ ~r/as\s+"order_items"/i
       assert clause_sql =~ ~r/from\s+orders/i
       assert clause_sql =~ ~r/where/i
+      assert params == finalized_params
+    end
+
+    test "builds MSSQL JSON aggregation subselect without postgres JSON functions" do
+      selecto =
+        create_mssql_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name", "quantity"],
+            target_schema: :orders,
+            format: :json_agg,
+            alias: "order_items"
+          }
+        ])
+
+      {clauses, params} = Subselect.build_subselect_clauses(selecto)
+      {clause_sql, finalized_params} = Params.finalize(clauses)
+
+      assert clause_sql =~ ~r/for json path/i
+      refute clause_sql =~ ~r/json_build_object/i
+      refute clause_sql =~ ~r/json_agg/i
+      assert clause_sql =~ ~r/as\s+\[order_items\]/i
       assert params == finalized_params
     end
 
