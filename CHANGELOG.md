@@ -1,30 +1,13 @@
 
 # Selecto Library Changelog
 
-## V 0.4.0 - External Adapter Architecture (Unreleased)
+## V 0.4.0 - External Adapter Architecture
 ---------------------------------------------------------
 
 #### Added
 - Added baseline DuckDB external adapter coverage in core adapter tests and
   test-only optional dependency wiring for `selecto_db_duckdb`.
 
-#### Changed
-- Moved `Selecto.DB.Adapter` into core `selecto` so consumer installs no longer
-  pull adapter packages just to access the shared contract.
-- Removed direct adapter package dependencies from core and replaced them with
-  test-only adapter stubs so `selecto` stays adapter-agnostic at install time.
-- Updated subselect alias and field quoting to use adapter-owned identifier
-  quoting, fixing MSSQL subselect SQL generation.
-- Added MSSQL-specific `{:to_char, ...}` SQL compilation for common datetime
-  formats (`YYYY-MM-DD`, `YYYY-MM`, `YYYY`, `YYYY-WW`, `YYYY-Q`, `MM`, `DD`,
-  `D`, `HH24`) so formatter selectors compile to SQL Server-compatible
-  expressions instead of PostgreSQL `to_char(...)` syntax.
-- Expanded MSSQL pagination coverage with datetime-format compilation
-  expectations to guard cross-adapter SQL generation behavior.
-- Updated adapter migration and support-level documentation to list DuckDB as a
-  shipped external adapter package.
-
-#### Changed
 - Moved database adapter support to app-owned external packages, including the
   new `selecto_db_postgresql` reference path and companion packages for SQLite,
   MySQL, MariaDB, and MSSQL.
@@ -50,6 +33,20 @@
 - Began extracting PostgreSQL support into the external
   `selecto_db_postgresql` package and updated docs/tests toward the external
   adapter default.
+- Moved `Selecto.DB.Adapter` into core `selecto` so consumer installs no longer
+  pull adapter packages just to access the shared contract.
+- Removed direct adapter package dependencies from core and replaced them with
+  test-only adapter stubs so `selecto` stays adapter-agnostic at install time.
+- Updated subselect alias and field quoting to use adapter-owned identifier
+  quoting, fixing MSSQL subselect SQL generation.
+- Added MSSQL-specific `{:to_char, ...}` SQL compilation for common datetime
+  formats (`YYYY-MM-DD`, `YYYY-MM`, `YYYY`, `YYYY-WW`, `YYYY-Q`, `MM`, `DD`,
+  `D`, `HH24`) so formatter selectors compile to SQL Server-compatible
+  expressions instead of PostgreSQL `to_char(...)` syntax.
+- Expanded MSSQL pagination coverage with datetime-format compilation
+  expectations to guard cross-adapter SQL generation behavior.
+- Updated adapter migration and support-level documentation to list DuckDB as a
+  shipped external adapter package.
 
 ## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
 ---------------------------------------------------------
