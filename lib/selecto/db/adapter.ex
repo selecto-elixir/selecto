@@ -24,6 +24,8 @@ defmodule Selecto.DB.Adapter do
   @type params :: [term()]
   @type execute_options :: keyword()
   @type result :: %{required(:rows) => list(), required(:columns) => [String.t()]}
+  @type introspection_options :: keyword()
+  @type schema_metadata :: map()
   @type stream_result ::
           {:ok, Enumerable.t()}
           | {:ok, Enumerable.t(), [String.t()]}
@@ -50,6 +52,12 @@ defmodule Selecto.DB.Adapter do
               {:ok, result()} | {:error, term()}
   @callback start_pool(keyword(), keyword(), atom()) :: {:ok, term()} | {:error, term()}
 
+  @callback list_tables(connection(), introspection_options()) ::
+              {:ok, [String.t()]} | {:error, term()}
+
+  @callback introspect_table(connection(), String.t(), introspection_options()) ::
+              {:ok, schema_metadata()} | {:error, term()}
+
   @callback placeholder(pos_integer()) :: iodata()
   @callback quote_identifier(String.t()) :: String.t()
   @callback format_datetime(iodata(), String.t()) :: iodata()
@@ -68,6 +76,8 @@ defmodule Selecto.DB.Adapter do
                       execute_raw: 3,
                       execute_repo_fallback: 3,
                       start_pool: 3,
+                      list_tables: 2,
+                      introspect_table: 3,
                       format_datetime: 2,
                       rollup_sql: 1,
                       rollup_literal_order: 1,
