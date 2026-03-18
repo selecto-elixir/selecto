@@ -305,12 +305,12 @@
 ---------------------------------------------------------
 
 #### Added
-- Added explicit pre/post pivot filter APIs:
-  - `Selecto.pre_pivot_filter/2`
-  - `Selecto.post_pivot_filter/2`
+- Added explicit pre/post retarget filter APIs:
+  - `Selecto.pre_retarget_filter/2`
+  - `Selecto.post_retarget_filter/2`
 - Added query filter introspection helpers:
-  - `Selecto.pre_pivot_filters/1`
-  - `Selecto.post_pivot_filters/1`
+  - `Selecto.pre_retarget_filters/1`
+  - `Selecto.post_retarget_filters/1`
   - `Selecto.query_filters/2`
 - Added SQL output utilities:
   - `Selecto.SQL.Formatter`
@@ -427,7 +427,7 @@
   - `Selecto.Performance.Optimizer`
 - Removed obsolete examples/tests tied to those modules.
 - Notes:
-  - `Selecto.AutoPivot`, `Selecto.Config.Overlay`, and `Selecto.Performance.Hooks` remain supported.
+  - `Selecto.AutoRetarget`, `Selecto.Config.Overlay`, and `Selecto.Performance.Hooks` remain supported.
   - Workspace runtime and test suites were revalidated after cleanup.
 
 ### PHASE 4: Domain Validation Layer Implementation

@@ -1,8 +1,8 @@
-defmodule Selecto.PivotTest do
+defmodule Selecto.RetargetTest do
   use ExUnit.Case, async: true
-  doctest Selecto.Pivot
+  doctest Selecto.Retarget
 
-  alias Selecto.Pivot
+  alias Selecto.Retarget
 
   # Test domain configuration for event/attendee/order scenario
   def test_domain do
@@ -80,23 +80,23 @@ defmodule Selecto.PivotTest do
     Selecto.configure(domain, postgrex_opts, validate: false)
   end
 
-  describe "pivot/3" do
-    test "adds pivot configuration to selecto struct" do
+  describe "retarget/3" do
+    test "adds retarget configuration to selecto struct" do
       selecto = create_test_selecto()
 
-      pivoted = Pivot.pivot(selecto, :orders)
+      retargeted = Retarget.retarget(selecto, :orders)
 
-      assert Pivot.has_pivot?(pivoted)
-      pivot_config = Pivot.get_pivot_config(pivoted)
-      assert pivot_config.target_schema == :orders
-      assert pivot_config.preserve_filters == true
-      assert pivot_config.subquery_strategy == :in
+      assert Retarget.has_retarget?(retargeted)
+      retarget_config = Retarget.get_retarget_config(retargeted)
+      assert retarget_config.target_schema == :orders
+      assert retarget_config.preserve_filters == true
+      assert retarget_config.subquery_strategy == :in
     end
 
     test "calculates join path correctly for direct relationship" do
       selecto = create_test_selecto()
 
-      {:ok, path} = Pivot.calculate_join_path(selecto, :attendees)
+      {:ok, path} = Retarget.calculate_join_path(selecto, :attendees)
 
       assert path == [:attendees]
     end
@@ -104,7 +104,7 @@ defmodule Selecto.PivotTest do
     test "calculates join path correctly for nested relationship" do
       selecto = create_test_selecto()
 
-      {:ok, path} = Pivot.calculate_join_path(selecto, :orders)
+      {:ok, path} = Retarget.calculate_join_path(selecto, :orders)
 
       assert path == [:attendees, :orders]
     end
@@ -112,79 +112,79 @@ defmodule Selecto.PivotTest do
     test "fails for non-existent target schema" do
       selecto = create_test_selecto()
 
-      assert_raise ArgumentError, ~r/Invalid pivot configuration/, fn ->
-        Pivot.pivot(selecto, :non_existent)
+      assert_raise ArgumentError, ~r/Invalid retarget configuration/, fn ->
+        Retarget.retarget(selecto, :non_existent)
       end
     end
 
     test "supports custom options" do
       selecto = create_test_selecto()
 
-      pivoted =
-        Pivot.pivot(selecto, :orders,
+      retargeted =
+        Retarget.retarget(selecto, :orders,
           preserve_filters: false,
           subquery_strategy: :exists
         )
 
-      pivot_config = Pivot.get_pivot_config(pivoted)
-      assert pivot_config.preserve_filters == false
-      assert pivot_config.subquery_strategy == :exists
+      retarget_config = Retarget.get_retarget_config(retargeted)
+      assert retarget_config.preserve_filters == false
+      assert retarget_config.subquery_strategy == :exists
     end
   end
 
-  describe "validate_pivot_path/2" do
+  describe "validate_retarget_path/2" do
     test "validates existing join path" do
       selecto = create_test_selecto()
       join_path = [:attendees, :orders]
 
-      assert :ok = Pivot.validate_pivot_path(selecto, join_path)
+      assert :ok = Retarget.validate_retarget_path(selecto, join_path)
     end
 
     test "fails for invalid join path" do
       selecto = create_test_selecto()
       join_path = [:invalid_join]
 
-      assert {:error, _reason} = Pivot.validate_pivot_path(selecto, join_path)
+      assert {:error, _reason} = Retarget.validate_retarget_path(selecto, join_path)
     end
   end
 
-  describe "reset_pivot/1" do
-    test "removes pivot configuration" do
+  describe "reset_retarget/1" do
+    test "removes retarget configuration" do
       selecto = create_test_selecto()
 
-      pivoted = Pivot.pivot(selecto, :orders)
-      assert Pivot.has_pivot?(pivoted)
+      retargeted = Retarget.retarget(selecto, :orders)
+      assert Retarget.has_retarget?(retargeted)
 
-      reset = Pivot.reset_pivot(pivoted)
-      refute Pivot.has_pivot?(reset)
-      assert Pivot.get_pivot_config(reset) == nil
+      reset = Retarget.reset_retarget(retargeted)
+      refute Retarget.has_retarget?(reset)
+      assert Retarget.get_retarget_config(reset) == nil
     end
   end
 
-  describe "has_pivot?/1" do
-    test "returns false for non-pivoted query" do
+  describe "has_retarget?/1" do
+    test "returns false for non-retargeted query" do
       selecto = create_test_selecto()
 
-      refute Pivot.has_pivot?(selecto)
+      refute Retarget.has_retarget?(selecto)
     end
 
-    test "returns true for pivoted query" do
+    test "returns true for retargeted query" do
       selecto = create_test_selecto()
-      pivoted = Pivot.pivot(selecto, :orders)
+      retargeted = Retarget.retarget(selecto, :orders)
 
-      assert Pivot.has_pivot?(pivoted)
+      assert Retarget.has_retarget?(retargeted)
     end
   end
 
   describe "integration with filtering" do
-    test "pivot preserves existing filters in configuration" do
+    test "retarget preserves existing filters in configuration" do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
-        |> Pivot.pivot(:orders)
+        |> Retarget.retarget(:orders)
 
-      pivot_config = Pivot.get_pivot_config(selecto)
-      assert pivot_config.preserve_filters == true
+      retarget_config = Retarget.get_retarget_config(selecto)
+      assert retarget_config.preserve_filters == true
 
       # Original filters should still be in the selecto struct
       assert selecto.set.filtered == [{"event_id", 123}]

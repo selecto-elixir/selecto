@@ -106,7 +106,7 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
     |> check_in_clause_size(selecto, max_in_size)
     |> check_like_patterns(selecto)
     |> check_missing_filters(selecto)
-    |> check_post_pivot_complexity(selecto)
+    |> check_post_retarget_complexity(selecto)
     |> check_aggregate_complexity(selecto)
     |> finalize_analysis(max_score, opts)
   end
@@ -282,23 +282,23 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
     end
   end
 
-  # Check post-pivot filter complexity
-  defp check_post_pivot_complexity(analysis, selecto) do
-    post_pivot_filters = Map.get(selecto.set, :post_pivot_filters, [])
+  # Check post-retarget filter complexity
+  defp check_post_retarget_complexity(analysis, selecto) do
+    post_retarget_filters = Map.get(selecto.set, :post_retarget_filters) || Map.get(selecto.set, :post_pivot_filters, []) || []
 
-    if length(post_pivot_filters) > 0 do
+    if length(post_retarget_filters) > 0 do
       %{
         analysis
         | score: analysis.score + 10,
           warnings:
             analysis.warnings ++
               [
-                "Query contains #{length(post_pivot_filters)} post-pivot filter(s)"
+                "Query contains #{length(post_retarget_filters)} post-retarget filter(s)"
               ],
-          details: Map.put(analysis.details, :post_pivot_filter_count, length(post_pivot_filters))
+          details: Map.put(analysis.details, :post_retarget_filter_count, length(post_retarget_filters))
       }
     else
-      %{analysis | details: Map.put(analysis.details, :post_pivot_filter_count, 0)}
+      %{analysis | details: Map.put(analysis.details, :post_retarget_filter_count, 0)}
     end
   end
 

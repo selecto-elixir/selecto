@@ -38,27 +38,25 @@ defmodule Selecto.Query do
     required_filters = required_filters(selecto)
 
     # Track whether this filter is applied before or after pivot
-    has_pivot = Selecto.Pivot.has_pivot?(selecto)
-    pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+    has_retarget = Selecto.Retarget.has_retarget?(selecto)
+    retarget_config = Selecto.Retarget.get_retarget_config(selecto)
 
-    # Separate filters into pre-pivot and post-pivot
-    {pre_pivot_filters, post_pivot_filters} =
-      case {has_pivot, pivot_config} do
+    # Separate filters into pre-retarget and post-retarget
+    {pre_retarget_filters, post_retarget_filters} =
+      case {has_retarget, retarget_config} do
         {false, _} ->
-          # No pivot yet, all filters are pre-pivot
           {uniq_filters(selecto.set.filtered ++ filters ++ required_filters), []}
 
         {true, _} ->
-          # Pivot exists, new filters are post-pivot
           {selecto.set.filtered, filters}
       end
 
     # Update the set with new filter lists
     updated_set =
       selecto.set
-      |> Map.put(:filtered, pre_pivot_filters)
+      |> Map.put(:filtered, pre_retarget_filters)
       |> Map.put(:required_filters, required_filters)
-      |> Map.put(:post_pivot_filters, post_pivot_filters)
+      |> Map.put(:post_retarget_filters, post_retarget_filters)
 
     %{selecto | set: updated_set}
   end
@@ -69,13 +67,13 @@ defmodule Selecto.Query do
   end
 
   @doc """
-  Explicitly append filters to the pre-pivot filter list (`set.filtered`).
+  Explicitly append filters to the pre-retarget filter list (`set.filtered`).
 
   Use this when you want filters to be preserved as source-root constraints even
-  when composing a pivoted query.
+  when composing a retargeted query.
   """
-  @spec pre_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
-  def pre_pivot_filter(selecto, filters) when is_list(filters) do
+  @spec pre_retarget_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
+  def pre_retarget_filter(selecto, filters) when is_list(filters) do
     current_required = required_filters(selecto)
 
     put_in(
@@ -84,43 +82,52 @@ defmodule Selecto.Query do
     )
   end
 
-  @spec pre_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
-  def pre_pivot_filter(selecto, filter) do
-    pre_pivot_filter(selecto, [filter])
+  @spec pre_retarget_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
+  def pre_retarget_filter(selecto, filter) do
+    pre_retarget_filter(selecto, [filter])
   end
 
   @doc """
-  Explicitly append filters to the post-pivot filter list (`set.post_pivot_filters`).
+  Explicitly append filters to the post-retarget filter list (`set.post_retarget_filters`).
 
-  Use this when constraints should apply to the pivoted target root.
+  Use this when constraints should apply to the retargeted target root.
   """
-  @spec post_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
-  def post_pivot_filter(selecto, filters) when is_list(filters) do
-    current = Map.get(selecto.set, :post_pivot_filters, [])
-    put_in(selecto.set[:post_pivot_filters], current ++ filters)
+  @spec post_retarget_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
+  def post_retarget_filter(selecto, filters) when is_list(filters) do
+    current =
+      Map.get(selecto.set, :post_retarget_filters) ||
+        Map.get(selecto.set, :post_pivot_filters, []) || []
+
+    updated_set =
+      selecto.set
+      |> Map.put(:post_retarget_filters, current ++ filters)
+      |> Map.delete(:post_pivot_filters)
+
+    %{selecto | set: updated_set}
   end
 
-  @spec post_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
-  def post_pivot_filter(selecto, filter) do
-    post_pivot_filter(selecto, [filter])
+  @spec post_retarget_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
+  def post_retarget_filter(selecto, filter) do
+    post_retarget_filter(selecto, [filter])
   end
 
   @doc """
-  Return only pre-pivot filters currently attached to the query.
+  Return only pre-retarget filters currently attached to the query.
 
-  This reads `set.filtered` and does not include post-pivot buckets.
+  This reads `set.filtered` and does not include post-retarget buckets.
   """
-  @spec pre_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
-  def pre_pivot_filters(selecto) do
+  @spec pre_retarget_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
+  def pre_retarget_filters(selecto) do
     Map.get(selecto.set, :filtered, [])
   end
 
   @doc """
-  Return only post-pivot filters currently attached to the query.
+  Return only post-retarget filters currently attached to the query.
   """
-  @spec post_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
-  def post_pivot_filters(selecto) do
-    Map.get(selecto.set, :post_pivot_filters, [])
+  @spec post_retarget_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
+  def post_retarget_filters(selecto) do
+    Map.get(selecto.set, :post_retarget_filters) || Map.get(selecto.set, :post_pivot_filters, []) ||
+      []
   end
 
   @doc """
@@ -152,11 +159,13 @@ defmodule Selecto.Query do
 
   ## Options
 
-  - `:include_post_pivot` - include `set.post_pivot_filters` (default: `true`)
+  - `:include_post_retarget` - include `set.post_retarget_filters` (default: `true`)
   """
   @spec query_filters(Selecto.Types.t(), keyword()) :: [Selecto.Types.filter()]
   def query_filters(selecto, opts \\ []) do
-    include_post_pivot = Keyword.get(opts, :include_post_pivot, true)
+    include_post_retarget =
+      Keyword.get(opts, :include_post_retarget, Keyword.get(opts, :include_post_pivot, true))
+
     validate_tenant = Keyword.get(opts, :validate_tenant, true)
 
     if validate_tenant do
@@ -169,23 +178,58 @@ defmodule Selecto.Query do
         _ -> []
       end
 
-    post_pivot_filters =
-      if include_post_pivot do
+    post_retarget_filters =
+      if include_post_retarget do
         case Map.get(selecto, :set) do
-          %{} = set -> Map.get(set, :post_pivot_filters) || []
-          _ -> []
+          %{} = set ->
+            Map.get(set, :post_retarget_filters) || Map.get(set, :post_pivot_filters) || []
+
+          _ ->
+            []
         end
       else
         []
       end
 
-    [required_filters(selecto), set_filters, post_pivot_filters]
+    [required_filters(selecto), set_filters, post_retarget_filters]
     |> Enum.flat_map(fn
       filters when is_list(filters) -> filters
       _ -> []
     end)
     |> uniq_filters()
   end
+
+  @doc false
+  @deprecated "Use pre_retarget_filter/2 instead."
+  @spec pre_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
+  def pre_pivot_filter(selecto, filters) when is_list(filters),
+    do: pre_retarget_filter(selecto, filters)
+
+  @doc false
+  @deprecated "Use pre_retarget_filter/2 instead."
+  @spec pre_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
+  def pre_pivot_filter(selecto, filter), do: pre_retarget_filter(selecto, filter)
+
+  @doc false
+  @deprecated "Use post_retarget_filter/2 instead."
+  @spec post_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
+  def post_pivot_filter(selecto, filters) when is_list(filters),
+    do: post_retarget_filter(selecto, filters)
+
+  @doc false
+  @deprecated "Use post_retarget_filter/2 instead."
+  @spec post_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
+  def post_pivot_filter(selecto, filter), do: post_retarget_filter(selecto, filter)
+
+  @doc false
+  @deprecated "Use pre_retarget_filters/1 instead."
+  @spec pre_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
+  def pre_pivot_filters(selecto), do: pre_retarget_filters(selecto)
+
+  @doc false
+  @deprecated "Use post_retarget_filters/1 instead."
+  @spec post_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
+  def post_pivot_filters(selecto), do: post_retarget_filters(selecto)
 
   defp uniq_filters(filters) do
     Enum.reduce(filters, [], fn filter, acc ->

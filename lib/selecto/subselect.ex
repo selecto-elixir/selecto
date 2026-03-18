@@ -140,24 +140,24 @@ defmodule Selecto.Subselect do
   @doc """
   Resolve the join path needed to reach a target schema from the current context.
 
-  If we're in a pivoted context, the path is calculated from the pivot target.
+  If we're in a retargeted context, the path is calculated from the retarget target.
   Otherwise, the path is calculated from the source.
   """
   @spec resolve_join_path(Types.t(), atom()) :: {:ok, [atom()]} | {:error, String.t()}
   def resolve_join_path(selecto, target_schema) do
-    if Selecto.Pivot.has_pivot?(selecto) do
-      # In pivot context - calculate path from pivot target to target schema
-      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
-      pivot_target = pivot_config.target_schema
+    if Selecto.Retarget.has_retarget?(selecto) do
+      # In retarget context - calculate path from retarget target to target schema
+      retarget_config = Selecto.Retarget.get_retarget_config(selecto)
+      retarget_target = retarget_config.target_schema
 
-      # Use the path-finding logic starting from pivot target
-      case find_join_path_from_schema(selecto.domain, pivot_target, target_schema, []) do
+      # Use the path-finding logic starting from the retarget target
+      case find_join_path_from_schema(selecto.domain, retarget_target, target_schema, []) do
         {:ok, path} -> {:ok, path}
-        :not_found -> {:error, "No join path found from #{pivot_target} to #{target_schema}"}
+        :not_found -> {:error, "No join path found from #{retarget_target} to #{target_schema}"}
       end
     else
       # Normal context - use standard path calculation from source
-      Selecto.Pivot.calculate_join_path(selecto, target_schema)
+      Selecto.Retarget.calculate_join_path(selecto, target_schema)
     end
   end
 

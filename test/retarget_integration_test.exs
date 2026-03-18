@@ -1,8 +1,8 @@
-defmodule Selecto.PivotIntegrationTest do
+defmodule Selecto.RetargetIntegrationTest do
   use ExUnit.Case, async: true
-  doctest Selecto.Builder.Pivot
+  doctest Selecto.Builder.Retarget
 
-  alias Selecto.Builder.Pivot
+  alias Selecto.Builder.Retarget
   alias Selecto.SQL.Params
 
   def test_domain do
@@ -80,14 +80,14 @@ defmodule Selecto.PivotIntegrationTest do
     Selecto.configure(domain, postgrex_opts, validate: false)
   end
 
-  describe "build_pivot_query/2" do
+  describe "build_retarget_query/2" do
     test "builds IN subquery strategy" do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
-        |> Selecto.pivot(:orders, subquery_strategy: :in)
+        |> Selecto.retarget(:orders, subquery_strategy: :in)
 
-      {from_iodata, where_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
+      {from_iodata, where_iodata, params, _deps} = Retarget.build_retarget_query(selecto, [])
 
       {from_sql, _from_params} = Params.finalize(from_iodata)
       {where_sql, _where_params} = Params.finalize(where_iodata)
@@ -101,9 +101,9 @@ defmodule Selecto.PivotIntegrationTest do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
-        |> Selecto.pivot(:orders, subquery_strategy: :exists)
+        |> Selecto.retarget(:orders, subquery_strategy: :exists)
 
-      {from_iodata, where_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
+      {from_iodata, where_iodata, params, _deps} = Retarget.build_retarget_query(selecto, [])
 
       {from_sql, _from_params} = Params.finalize(from_iodata)
       {where_sql, _where_params} = Params.finalize(where_iodata)
@@ -117,9 +117,9 @@ defmodule Selecto.PivotIntegrationTest do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
-        |> Selecto.pivot(:orders, subquery_strategy: :join)
+        |> Selecto.retarget(:orders, subquery_strategy: :join)
 
-      {from_iodata, where_iodata, params, _deps} = Pivot.build_pivot_query(selecto, [])
+      {from_iodata, where_iodata, params, _deps} = Retarget.build_retarget_query(selecto, [])
 
       {from_sql, _from_params} = Params.finalize(from_iodata)
       {where_sql, _where_params} = Params.finalize(where_iodata)
@@ -136,12 +136,12 @@ defmodule Selecto.PivotIntegrationTest do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
-        |> Selecto.pivot(:orders)
+        |> Selecto.retarget(:orders)
 
-      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      retarget_config = Selecto.Retarget.get_retarget_config(selecto)
       join_path = [:attendees, :orders]
 
-      {subquery, params} = Pivot.build_join_chain_subquery(selecto, pivot_config, join_path)
+      {subquery, params} = Retarget.build_join_chain_subquery(selecto, retarget_config, join_path)
 
       {subquery_sql, _subquery_params} = Params.finalize(subquery)
 
@@ -153,12 +153,12 @@ defmodule Selecto.PivotIntegrationTest do
   end
 
   describe "full SQL generation integration" do
-    test "generates complete pivot SQL with IN strategy" do
+    test "generates complete retarget SQL with IN strategy" do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
         |> Selecto.select(["orders.product_name", "orders.quantity"])
-        |> Selecto.pivot(:orders, subquery_strategy: :in)
+        |> Selecto.retarget(:orders, subquery_strategy: :in)
 
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
 
@@ -174,12 +174,12 @@ defmodule Selecto.PivotIntegrationTest do
       assert 123 in params
     end
 
-    test "generates complete pivot SQL with EXISTS strategy" do
+    test "generates complete retarget SQL with EXISTS strategy" do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
         |> Selecto.select(["orders.product_name"])
-        |> Selecto.pivot(:orders, subquery_strategy: :exists)
+        |> Selecto.retarget(:orders, subquery_strategy: :exists)
 
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
 
@@ -193,12 +193,12 @@ defmodule Selecto.PivotIntegrationTest do
       assert 123 in params
     end
 
-    test "handles pivot with multiple filters" do
+    test "handles retarget with multiple filters" do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}, {"name", "Test Event"}])
         |> Selecto.select(["orders.product_name"])
-        |> Selecto.pivot(:orders)
+        |> Selecto.retarget(:orders)
 
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
 
@@ -210,28 +210,28 @@ defmodule Selecto.PivotIntegrationTest do
       assert "Test Event" in params
     end
 
-    test "handles pivot without preserving filters" do
+    test "handles retarget without preserving filters" do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
         |> Selecto.select(["orders.product_name"])
-        |> Selecto.pivot(:orders, preserve_filters: false)
+        |> Selecto.retarget(:orders, preserve_filters: false)
 
       {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
 
       assert sql =~ ~r/select/i
       assert sql =~ ~r/from\s+orders/i
 
-      # Filter should not be preserved in pivot subquery
+      # Filter should not be preserved in retarget subquery
       # (Though this depends on implementation details)
     end
 
-    test "compiles qualified post-pivot filters for EXISTS strategy" do
+    test "compiles qualified post-retarget filters for EXISTS strategy" do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
         |> Selecto.select(["orders.product_name", "orders.quantity"])
-        |> Selecto.pivot(:orders, subquery_strategy: :exists)
+        |> Selecto.retarget(:orders, subquery_strategy: :exists)
         |> Selecto.filter({"orders.quantity", {:gt, 2}})
 
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
@@ -243,12 +243,12 @@ defmodule Selecto.PivotIntegrationTest do
       assert 2 in params
     end
 
-    test "compiles qualified post-pivot filters for JOIN strategy" do
+    test "compiles qualified post-retarget filters for JOIN strategy" do
       selecto =
         create_test_selecto()
         |> Selecto.filter([{"event_id", 123}])
         |> Selecto.select(["orders.product_name", "orders.quantity"])
-        |> Selecto.pivot(:orders, subquery_strategy: :join)
+        |> Selecto.retarget(:orders, subquery_strategy: :join)
         |> Selecto.filter({"orders.quantity", {:gte, 2}})
 
       {sql, _aliases, params} = Selecto.gen_sql(selecto, [])
@@ -262,9 +262,9 @@ defmodule Selecto.PivotIntegrationTest do
   end
 
   describe "error handling" do
-    test "handles invalid pivot target gracefully in SQL generation" do
+    test "handles invalid retarget target gracefully in SQL generation" do
       # This test would need to be more specific based on actual error handling
-      # For now, we assume the pivot validation catches these at configuration time
+      # For now, we assume the retarget validation catches these at configuration time
     end
   end
 end

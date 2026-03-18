@@ -4,7 +4,7 @@ defmodule Selecto.Builder.Sql do
 
   This module orchestrates the full query pipeline by composing SELECT, FROM,
   JOIN, WHERE, GROUP BY, ORDER BY, LIMIT/OFFSET, and optional advanced features
-  such as CTEs, pivot queries, set operations, lateral joins, and UNNEST clauses.
+  such as CTEs, retarget queries, set operations, lateral joins, and UNNEST clauses.
 
   The public `build/2` function returns `{sql, aliases, params}` where `sql` is
   the finalized query string and `params` is the ordered bind parameter list.
@@ -28,8 +28,8 @@ defmodule Selecto.Builder.Sql do
       Selecto.Builder.SetOperations.has_set_operations?(selecto) ->
         build_set_operation_query(selecto, opts)
 
-      Selecto.Pivot.has_pivot?(selecto) ->
-        build_pivot_query(selecto, opts)
+      Selecto.Retarget.has_retarget?(selecto) ->
+        build_retarget_query(selecto, opts)
 
       true ->
         build_standard_query(selecto, opts)
@@ -432,20 +432,20 @@ defmodule Selecto.Builder.Sql do
     |> IO.iodata_to_binary()
   end
 
-  defp build_pivot_query(selecto, _opts) do
-    # Use Pivot builder to construct the entire query
-    pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+  defp build_retarget_query(selecto, _opts) do
+    # Use Retarget builder to construct the entire query
+    retarget_config = Selecto.Retarget.get_retarget_config(selecto)
 
-    # Build pivot-specific SELECT with subselects if needed
-    # Pass pivot alias information to SELECT builder
-    pivot_aliases = get_pivot_aliases(pivot_config)
+    # Build retarget-specific SELECT with subselects if needed
+    # Pass retarget alias information to SELECT builder
+    pivot_aliases = get_pivot_aliases(retarget_config)
 
     {aliases, sel_joins, select_iodata, select_params} =
       build_select_with_subselects(selecto, pivot_aliases)
 
-    # Build pivot FROM clause and WHERE conditions
+    # Build retarget FROM clause and WHERE conditions
     {from_iodata, pivot_where_iodata, from_params, join_deps} =
-      Selecto.Builder.Pivot.build_pivot_query(selecto, [])
+      Selecto.Builder.Retarget.build_retarget_query(selecto, [])
 
     # Check if we have a CTE spec
     {cte_clause, cte_params} =
@@ -468,7 +468,7 @@ defmodule Selecto.Builder.Sql do
 
     # Build any necessary JOINs for the selected columns after pivoting
     # These are joins from the pivot target to other tables needed for selected columns
-    {join_iodata, join_params} = build_pivot_joins(selecto, sel_joins, pivot_config)
+    {join_iodata, join_params} = build_pivot_joins(selecto, sel_joins, retarget_config)
 
     # Assemble final query
     base_iodata =

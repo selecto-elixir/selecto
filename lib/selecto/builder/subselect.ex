@@ -20,10 +20,10 @@ defmodule Selecto.Builder.Subselect do
   """
   @spec build_subselect_clauses(Types.t()) :: {[Types.iodata_with_markers()], Types.sql_params()}
   def build_subselect_clauses(selecto) do
-    # Determine the correct source alias based on pivot context
+    # Determine the correct source alias based on retarget context
     source_alias =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context, use "s" for source table
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context, use "s" for source table
         "s"
       else
         # In standard context, use "selecto_root"
@@ -62,10 +62,10 @@ defmodule Selecto.Builder.Subselect do
   @spec build_single_subselect(Types.t(), Types.subselect_selector()) ::
           {Types.iodata_with_markers(), Types.sql_params()}
   def build_single_subselect(selecto, subselect_config) do
-    # Determine the correct source alias based on pivot context
+    # Determine the correct source alias based on retarget context
     source_alias =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context, use "s" for source table
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context, use "s" for source table
         "s"
       else
         # In standard context, use "selecto_root"
@@ -288,10 +288,10 @@ defmodule Selecto.Builder.Subselect do
   @spec build_correlated_subquery(Types.t(), Types.subselect_selector()) ::
           {Types.iodata_with_markers(), Types.sql_params()}
   def build_correlated_subquery(selecto, subselect_config) do
-    # Determine the correct source alias based on pivot context
+    # Determine the correct source alias based on retarget context
     source_alias =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context, use "s" for source table
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context, use "s" for source table
         "s"
       else
         # In standard context, use "selecto_root"
@@ -425,10 +425,10 @@ defmodule Selecto.Builder.Subselect do
   @spec resolve_join_condition_with_path(Types.t(), atom()) ::
           {:ok, Types.iodata_with_markers()} | {:error, String.t()}
   def resolve_join_condition_with_path(selecto, target_schema) do
-    # Determine the correct source alias based on pivot context
+    # Determine the correct source alias based on retarget context
     source_alias =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context, use "s" for source table
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context, use "s" for source table
         "s"
       else
         # In standard context, use "selecto_root"
@@ -468,15 +468,15 @@ defmodule Selecto.Builder.Subselect do
   defp build_direct_correlation(selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
 
-    # Determine the current context - if pivoted, use pivot target schema
+    # Determine the current context - if retargeted, use retarget target schema
     {current_schema_config, association} =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context - the source is the pivot target table
-        pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context - the source is the retarget target table
+        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
         pivot_target = pivot_config.target_schema
         pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
 
-        # Find the association from pivot target to the subselect target
+        # Find the association from retarget target to the subselect target
         assoc = Map.get(pivot_schema_config.associations, target_schema)
         {pivot_schema_config, assoc}
       else
@@ -514,11 +514,11 @@ defmodule Selecto.Builder.Subselect do
   defp build_direct_correlation_with_assoc(selecto, target_schema, assoc_name, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
 
-    # Determine the current context - if pivoted, use pivot target schema
+    # Determine the current context - if retargeted, use retarget target schema
     {current_schema_config, association} =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context - the source is the pivot target table
-        pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context - the source is the retarget target table
+        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
         pivot_target = pivot_config.target_schema
         pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
 
@@ -583,15 +583,15 @@ defmodule Selecto.Builder.Subselect do
     # Get junction table name
     junction_table = get_target_table(selecto, junction_schema)
 
-    # Determine the current context - if pivoted, use pivot target as source
+    # Determine the current context - if retargeted, use retarget target as source
     {_source_schema_config, source_to_junction_assoc} =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context - the source is the pivot target table
-        pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context - the source is the retarget target table
+        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
         pivot_target = pivot_config.target_schema
         pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
 
-        # Find the association from pivot target to junction
+        # Find the association from retarget target to junction
         # For film → film_actors, we need to reverse lookup
         assoc = find_association_to_junction(pivot_schema_config, selecto.domain, junction_schema)
         {pivot_schema_config, assoc}
@@ -637,7 +637,7 @@ defmodule Selecto.Builder.Subselect do
   end
 
   # Find the association from a schema back to a junction table
-  # This is needed for pivot scenarios where we need to reverse-correlate
+  # This is needed for retarget scenarios where we need to reverse-correlate
   defp find_association_to_junction(schema_config, domain, junction_schema) do
     # Look for an association where the queryable matches junction_schema
     # For film → film_actors, this would be the film_actors association
@@ -693,14 +693,14 @@ defmodule Selecto.Builder.Subselect do
     # Build: EXISTS (SELECT 1 FROM orders j1 INNER JOIN order_items j2 ON ... INNER JOIN products j3 ON ...)
     target_alias = generate_subquery_alias(target_schema)
 
-    # Get the starting point (either source or pivot target)
+    # Get the starting point (either source or retarget target)
     {source_schema_config, _source_key_field} =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      if Selecto.Retarget.has_retarget?(selecto) do
+        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
         pivot_target = pivot_config.target_schema
         pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
 
-        # Get the primary key of the pivot target to use as correlation point
+        # Get the primary key of the retarget target to use as correlation point
         pk = pivot_schema_config.primary_key || :id
         {pivot_schema_config, to_string(pk)}
       else
