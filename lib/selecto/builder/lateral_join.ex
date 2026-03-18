@@ -26,8 +26,9 @@ defmodule Selecto.Builder.LateralJoin do
     lateral_specs
     |> Enum.map(&build_lateral_join/1)
     |> Enum.reduce({[], []}, fn {sql, params}, {acc_sql, acc_params} ->
-      {acc_sql ++ [sql], acc_params ++ params}
+      {[sql | acc_sql], Enum.reverse(params, acc_params)}
     end)
+    |> then(fn {sql, params} -> {Enum.reverse(sql), Enum.reverse(params)} end)
   end
 
   @doc """

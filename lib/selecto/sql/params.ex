@@ -12,11 +12,12 @@ defmodule Selecto.SQL.Params do
   @spec finalize(iodata() | [fragment], Keyword.t()) :: {String.t(), [any()]}
   def finalize(fragments, opts \\ []) do
     adapter = Keyword.get(opts, :adapter, Selecto.AdapterSupport.default_adapter())
+    placeholder_fun = placeholder_fun(adapter)
 
     {iodata, params, _idx} =
-      traverse(List.wrap(fragments), {[], [], 0}, adapter)
+      traverse(List.wrap(fragments), {[], [], 0}, placeholder_fun)
 
-    {IO.iodata_to_binary(iodata), params}
+    {IO.iodata_to_binary(:lists.reverse(iodata)), :lists.reverse(params)}
   end
 
   @doc """
@@ -31,18 +32,22 @@ defmodule Selecto.SQL.Params do
           {[{String.t(), String.t()}], String.t(), [any()]}
   def finalize_with_ctes(iodata_with_ctes, opts \\ []) do
     adapter = Keyword.get(opts, :adapter, Selecto.AdapterSupport.default_adapter())
+    placeholder_fun = placeholder_fun(adapter)
     {cte_sections, main_iodata, extracted_params} = extract_ctes(List.wrap(iodata_with_ctes))
 
     # Process CTEs first to establish parameter numbering baseline
     {processed_ctes, cte_params} =
       Enum.map_reduce(cte_sections, [], fn {cte_name, cte_iodata}, acc_params ->
         {cte_sql, cte_specific_params} = finalize(cte_iodata, adapter: adapter)
+
         {{cte_name, cte_sql}, acc_params ++ cte_specific_params}
       end)
 
     # Process main query with parameter offset to avoid conflicts
     param_offset = length(cte_params)
-    {main_sql, main_specific_params} = finalize_with_offset(main_iodata, param_offset, adapter)
+
+    {main_sql, main_specific_params} =
+      finalize_with_offset(main_iodata, param_offset, placeholder_fun)
 
     # Combine all parameters in correct order
     final_params = cte_params ++ main_specific_params ++ extracted_params
@@ -50,11 +55,11 @@ defmodule Selecto.SQL.Params do
   end
 
   # Process iodata with parameter offset for coordinated numbering
-  defp finalize_with_offset(fragments, offset, adapter) do
+  defp finalize_with_offset(fragments, offset, placeholder_fun) do
     {iodata, params, _idx} =
-      traverse_with_offset(List.wrap(fragments), {[], [], offset}, adapter)
+      traverse_with_offset(List.wrap(fragments), {[], [], offset}, placeholder_fun)
 
-    {IO.iodata_to_binary(iodata), params}
+    {IO.iodata_to_binary(:lists.reverse(iodata)), :lists.reverse(params)}
   end
 
   # Extract CTE markers from iodata structure
@@ -78,7 +83,7 @@ defmodule Selecto.SQL.Params do
     {inner_ctes, inner_main, inner_params} = extract_ctes_recursive(head, {[], [], []})
     combined_ctes = inner_ctes ++ ctes
     combined_main = [inner_main | main_iodata]
-    combined_params = inner_params ++ params
+    combined_params = Enum.reverse(inner_params) ++ params
     extract_ctes_recursive(rest, {combined_ctes, combined_main, combined_params})
   end
 
@@ -87,59 +92,70 @@ defmodule Selecto.SQL.Params do
   end
 
   # Traverse with parameter offset support
-  defp traverse_with_offset([h | t], {acc_io, acc_params, idx}, adapter) do
+  defp traverse_with_offset([h | t], {acc_io, acc_params, idx}, placeholder_fun) do
     case h do
       {:param, v} ->
-        placeholder = get_param_placeholder(adapter, idx + 1)
-        traverse_with_offset(t, {acc_io ++ [placeholder], acc_params ++ [v], idx + 1}, adapter)
-
-      list when is_list(list) ->
-        {inner_io, inner_params, inner_idx} = traverse_with_offset(list, {[], [], idx}, adapter)
+        placeholder = placeholder_fun.(idx + 1)
 
         traverse_with_offset(
           t,
-          {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx},
-          adapter
+          {[placeholder | acc_io], [v | acc_params], idx + 1},
+          placeholder_fun
+        )
+
+      list when is_list(list) ->
+        {inner_io, inner_params, inner_idx} =
+          traverse_with_offset(list, {[], [], idx}, placeholder_fun)
+
+        traverse_with_offset(
+          t,
+          {[Enum.reverse(inner_io) | acc_io], inner_params ++ acc_params, inner_idx},
+          placeholder_fun
         )
 
       bin when is_binary(bin) ->
-        traverse_with_offset(t, {acc_io ++ [bin], acc_params, idx}, adapter)
+        traverse_with_offset(t, {[bin | acc_io], acc_params, idx}, placeholder_fun)
 
       other ->
-        traverse_with_offset(t, {acc_io ++ [to_string(other)], acc_params, idx}, adapter)
+        traverse_with_offset(t, {[to_string(other) | acc_io], acc_params, idx}, placeholder_fun)
     end
   end
 
-  defp traverse_with_offset([], state, _adapter), do: state
+  defp traverse_with_offset([], state, _placeholder_fun), do: state
 
-  defp traverse([h | t], {acc_io, acc_params, idx}, adapter) do
+  defp traverse([h | t], {acc_io, acc_params, idx}, placeholder_fun) do
     case h do
       {:param, v} ->
-        placeholder = get_param_placeholder(adapter, idx + 1)
-        traverse(t, {acc_io ++ [placeholder], acc_params ++ [v], idx + 1}, adapter)
+        placeholder = placeholder_fun.(idx + 1)
+        traverse(t, {[placeholder | acc_io], [v | acc_params], idx + 1}, placeholder_fun)
 
       list when is_list(list) ->
-        {inner_io, inner_params, inner_idx} = traverse(list, {[], [], idx}, adapter)
-        traverse(t, {acc_io ++ [inner_io], acc_params ++ inner_params, inner_idx}, adapter)
+        {inner_io, inner_params, inner_idx} = traverse(list, {[], [], idx}, placeholder_fun)
+
+        traverse(
+          t,
+          {[Enum.reverse(inner_io) | acc_io], inner_params ++ acc_params, inner_idx},
+          placeholder_fun
+        )
 
       bin when is_binary(bin) ->
-        traverse(t, {acc_io ++ [bin], acc_params, idx}, adapter)
+        traverse(t, {[bin | acc_io], acc_params, idx}, placeholder_fun)
 
       other ->
         # Allow numbers/atoms to be coerced; they should rarely appear directly.
-        traverse(t, {acc_io ++ [to_string(other)], acc_params, idx}, adapter)
+        traverse(t, {[to_string(other) | acc_io], acc_params, idx}, placeholder_fun)
     end
   end
 
-  defp traverse([], state, _adapter), do: state
+  defp traverse([], state, _placeholder_fun), do: state
 
-  defp get_param_placeholder(adapter, idx) when is_atom(adapter) do
+  defp placeholder_fun(adapter) when is_atom(adapter) do
     if Selecto.AdapterSupport.callback_available?(adapter, :placeholder, 1) do
-      adapter.placeholder(idx)
+      &adapter.placeholder/1
     else
-      ["$", Integer.to_string(idx)]
+      &["$", Integer.to_string(&1)]
     end
   end
 
-  defp get_param_placeholder(_adapter, idx), do: ["$", Integer.to_string(idx)]
+  defp placeholder_fun(_adapter), do: &["$", Integer.to_string(&1)]
 end

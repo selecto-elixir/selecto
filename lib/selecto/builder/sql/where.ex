@@ -63,7 +63,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {:text_search, value}}) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     # Extract actual field name, not display name
     field_name = extract_database_field(field, conf)
 
@@ -78,7 +78,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {:subquery, :in, %Selecto{} = query_selecto}}) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     query_iodata = selecto_subquery_to_iodata(query_selecto)
 
@@ -87,7 +87,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {:subquery, :in, query, params}}) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     query_iodata = convert_sql_placeholders_to_iodata(query, params)
 
@@ -96,7 +96,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {:subquery, :in, query}}) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
@@ -105,7 +105,7 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(selecto, {field, comp, {:subquery, agg, %Selecto{} = query_selecto}})
       when agg in [:any, :all] do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     query_iodata = selecto_subquery_to_iodata(query_selecto)
 
@@ -114,7 +114,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, comp, {:subquery, agg, query, params}}) when agg in [:any, :all] do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     query_iodata = convert_sql_placeholders_to_iodata(query, params)
 
@@ -123,7 +123,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, comp, {:subquery, agg, query}}) when agg in [:any, :all] do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
@@ -154,12 +154,16 @@ defmodule Selecto.Builder.Sql.Where do
     if Enum.empty?(filters) do
       {[], [], []}
     else
-      {joins, clauses, params} =
+      {joins, clauses, param_chunks} =
         Enum.reduce(filters, {[], [], []}, fn
-          f, {joins, clauses, params} ->
+          f, {joins, clauses, param_chunks} ->
             {j, c, p} = build(selecto, f)
-            {joins ++ [j], clauses ++ [c], params ++ p}
+            {[j | joins], [c | clauses], [p | param_chunks]}
         end)
+
+      joins = Enum.reverse(joins)
+      clauses = Enum.reverse(clauses)
+      params = param_chunks |> Enum.reverse() |> List.flatten()
 
       clause_parts = Enum.map(clauses, fn c -> ["(", c, ")"] end)
       conj_str = " #{conj} "
@@ -182,7 +186,7 @@ defmodule Selecto.Builder.Sql.Where do
   # Handle :between with list format [{min, max}]
   # For datetime types, use >= start AND < end for better boundary handling
   def build(selecto, {field, {:between, [min, max]}}) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     # Extract actual field name, not display name
     field_name = extract_database_field(field, conf)
 
@@ -218,7 +222,7 @@ defmodule Selecto.Builder.Sql.Where do
   # Handle :between with separate min, max parameters
   # For datetime types, use >= start AND < end for better boundary handling
   def build(selecto, {field, {:between, min, max}}) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     # Extract actual field name, not display name
     field_name = extract_database_field(field, conf)
 
@@ -265,7 +269,7 @@ defmodule Selecto.Builder.Sql.Where do
 
   def build(selecto, {field, {comp, value}})
       when comp in [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne] do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     # Convert alternative operator names to SQL operators
@@ -285,7 +289,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
@@ -293,7 +297,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {:in, list}}) when is_list(list) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
@@ -303,7 +307,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, {:not_in, list}}) when is_list(list) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
@@ -313,7 +317,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, list}) when is_list(list) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
@@ -328,13 +332,13 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   def build(selecto, {field, :not_null}) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " is not null "], param}
   end
 
   def build(selecto, {field, value}) when is_nil(value) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " is null "], param}
   end
@@ -490,7 +494,7 @@ defmodule Selecto.Builder.Sql.Where do
 
       {:regular, _} ->
         # Not a JSONB field, use regular IN
-        conf = Selecto.field(selecto, field)
+        conf = field_conf(selecto, field)
         {sel, join, param} = Select.prep_selector(selecto, field)
         typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
         in_clause = build_list_clause(selecto, sel, typed_values, false)
@@ -509,7 +513,7 @@ defmodule Selecto.Builder.Sql.Where do
 
       {:regular, _} ->
         # Not a JSONB field, delegate to regular between handler
-        conf = Selecto.field(selecto, field)
+        conf = field_conf(selecto, field)
         field_name = extract_database_field(field, conf)
 
         if conf.type in [:date, :naive_datetime, :utc_datetime, :datetime] do
@@ -704,7 +708,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   defp build_regular_comparison(selecto, field, comp, value) do
-    conf = Selecto.field(selecto, field)
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     sql_op =
@@ -825,6 +829,51 @@ defmodule Selecto.Builder.Sql.Where do
   defp to_type(_t, val) do
     val
   end
+
+  defp field_conf(selecto, field) do
+    case fast_config_column(selecto, field) do
+      nil -> Selecto.field(selecto, field)
+      conf -> conf
+    end
+  end
+
+  defp fast_config_column(selecto, field) do
+    columns = Map.get(selecto.config, :columns, %{})
+
+    conf =
+      Map.get(columns, field) ||
+        case safe_existing_atom(field) do
+          nil -> nil
+          atom_key -> Map.get(columns, atom_key)
+        end
+
+    case conf do
+      nil ->
+        nil
+
+      value ->
+        value
+        |> Map.put_new(:requires_join, :selecto_root)
+        |> Map.put_new(:field, field_name(value, field))
+    end
+  end
+
+  defp field_name(conf, field) do
+    case Map.get(conf, :field) do
+      nil -> Map.get(conf, :name, field)
+      value -> value
+    end
+  end
+
+  defp safe_existing_atom(field) when is_binary(field) do
+    try do
+      String.to_existing_atom(field)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp safe_existing_atom(_field), do: nil
 
   defp convert_sql_placeholders_to_iodata(sql, params)
        when is_binary(sql) and is_list(params) do

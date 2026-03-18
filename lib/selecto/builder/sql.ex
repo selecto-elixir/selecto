@@ -36,6 +36,141 @@ defmodule Selecto.Builder.Sql do
     end
   end
 
+  @doc false
+  def benchmark_components(selecto) do
+    {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
+
+    {window_joins, window_iodata, window_params} =
+      Selecto.Builder.Window.build_window_functions(selecto)
+
+    {filter_joins, where_iolist, _where_params} = build_where(selecto)
+    {group_by_joins, group_by_iodata, _group_by_params} = build_group_by(selecto)
+    {order_by_joins, order_by_iodata, _order_by_params} = build_order_by(selecto)
+
+    requested_joins =
+      List.flatten(sel_joins ++ window_joins ++ filter_joins ++ group_by_joins ++ order_by_joins)
+
+    joins_in_order = Selecto.Builder.Join.get_join_order(Selecto.joins(selecto), requested_joins)
+    {from_iodata, from_params, required_ctes} = build_from_with_ctes(selecto, joins_in_order)
+
+    values_ctes = build_values_clauses_as_ctes(selecto)
+
+    user_ctes =
+      case Map.get(selecto.set, :ctes) do
+        nil -> []
+        ctes when is_list(ctes) -> Enum.map(ctes, &convert_user_cte_spec/1)
+      end
+
+    all_required_ctes = required_ctes ++ values_ctes ++ user_ctes
+    {lateral_join_iodata, lateral_join_params} = build_lateral_joins(selecto)
+    {unnest_iodata, unnest_params} = build_unnest_operations(selecto)
+
+    combined_from_iodata =
+      combine_from_with_lateral_and_unnest(from_iodata, lateral_join_iodata, unnest_iodata)
+
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+
+    {where_section, where_finalized_params} = finalize_section(where_iolist, adapter, :where)
+
+    {group_by_section, group_by_finalized_params} =
+      finalize_section(group_by_iodata, adapter, :group_by)
+
+    is_rollup_query = group_by_section != "" and String.contains?(group_by_section, "rollup")
+
+    {order_by_section, order_by_finalized_params} =
+      finalize_order_section(selecto, order_by_iodata, adapter, is_rollup_query)
+
+    combined_select_iodata =
+      case window_iodata do
+        [] -> select_iodata
+        _ -> [select_iodata, ", ", window_iodata]
+      end
+
+    base_iodata = [
+      "\n        select ",
+      combined_select_iodata,
+      "\n        from ",
+      combined_from_iodata
+    ]
+
+    requires_order_for_pagination? = AdapterSQL.requires_order_for_pagination?(selecto)
+
+    where_iodata_section =
+      if where_section == "", do: [], else: ["\n        where ", where_iolist, "\n      "]
+
+    group_by_iodata_section =
+      if group_by_section == "",
+        do: [],
+        else: ["\n        group by ", group_by_iodata, "\n      "]
+
+    order_by_iodata_section =
+      cond do
+        order_by_section != "" ->
+          ["\n        order by ", order_by_iodata, "\n      "]
+
+        requires_order_for_pagination? and
+            (not is_nil(Map.get(selecto.set, :limit)) or not is_nil(Map.get(selecto.set, :offset))) ->
+          ["\n        order by (select 1)\n      "]
+
+        true ->
+          []
+      end
+
+    {limit_iodata_section, offset_iodata_section} = pagination_sections(selecto, adapter)
+    rollup_sort_fix_enabled? = rollup_sort_fix_enabled?(selecto)
+
+    base_query_iodata =
+      if group_by_section != "" and String.contains?(group_by_section, "rollup") and
+           order_by_section != "" and rollup_sort_fix_enabled? do
+        [
+          "select * from (",
+          base_iodata,
+          where_iodata_section,
+          group_by_iodata_section,
+          ") as rollupfix",
+          order_by_section,
+          limit_iodata_section,
+          offset_iodata_section
+        ]
+      else
+        base_iodata ++
+          where_iodata_section ++
+          group_by_iodata_section ++
+          order_by_iodata_section ++ limit_iodata_section ++ offset_iodata_section
+      end
+
+    all_base_params =
+      select_params ++
+        window_params ++
+        from_params ++
+        lateral_join_params ++
+        unnest_params ++
+        where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
+
+    {final_query_iodata, _cte_integrated_params} =
+      Cte.integrate_ctes_with_query(all_required_ctes, base_query_iodata, all_base_params)
+
+    %{
+      aliases: aliases,
+      requested_joins: requested_joins,
+      joins_in_order: joins_in_order,
+      from_iodata: from_iodata,
+      combined_from_iodata: combined_from_iodata,
+      final_query_iodata: final_query_iodata,
+      adapter: adapter
+    }
+  end
+
+  @doc false
+  def benchmark_join_order(selecto, requested_joins) do
+    Selecto.Builder.Join.get_join_order(Selecto.joins(selecto), requested_joins)
+  end
+
+  @doc false
+  def benchmark_build_from(selecto, joins_in_order) do
+    build_from_with_ctes(selecto, joins_in_order)
+  end
+
   defp build_standard_query(selecto, _opts) do
     # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
     {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
@@ -251,6 +386,38 @@ defmodule Selecto.Builder.Sql do
     # CTE params are already integrated into the iodata, so final_params contains everything
     # Don't double-count parameters
     {sql, aliases, final_params}
+  end
+
+  defp finalize_section(iodata, _adapter, _type) when iodata in [[], [""], ["()"], "", "()"],
+    do: {"", []}
+
+  defp finalize_section(iodata, adapter, _type) do
+    Params.finalize(iodata, adapter: adapter)
+  end
+
+  defp finalize_order_section(selecto, order_by_iodata, adapter, is_rollup_query) do
+    cond do
+      order_by_iodata in [[], [""]] ->
+        {"", []}
+
+      is_rollup_query ->
+        case selecto.set.order_by do
+          [{:literal_position, _} | _] ->
+            Params.finalize(order_by_iodata, adapter: adapter)
+
+          _ ->
+            rollup_order_parts =
+              selecto.set.order_by
+              |> Enum.with_index(1)
+              |> Enum.map(fn {_order_spec, index} -> rollup_literal_order_sql(selecto, index) end)
+              |> Enum.join(", ")
+
+            if rollup_order_parts == "", do: {"", []}, else: {rollup_order_parts, []}
+        end
+
+      true ->
+        Params.finalize(order_by_iodata, adapter: adapter)
+    end
   end
 
   defp rollup_sort_fix_enabled?(%{config: config}) when is_map(config) do
@@ -669,13 +836,7 @@ defmodule Selecto.Builder.Sql do
 
     regular_filters =
       (domain_required_filters ++ set_required_filters ++ set_filters)
-      |> Enum.reduce([], fn filter, acc ->
-        if filter in acc do
-          acc
-        else
-          acc ++ [filter]
-        end
-      end)
+      |> Enum.uniq()
 
     # Add JSON filters if they exist
     json_filters =
@@ -741,7 +902,10 @@ defmodule Selecto.Builder.Sql do
             {[], [json_sql, dir_str], []}
           end)
           |> Enum.reduce({[], [], []}, fn {j, c, p}, {acc_j, acc_c, acc_p} ->
-            {acc_j ++ j, acc_c ++ [c], acc_p ++ p}
+            {Enum.reverse(j, acc_j), [c | acc_c], Enum.reverse(p, acc_p)}
+          end)
+          |> then(fn {joins, clauses, params} ->
+            {Enum.reverse(joins), Enum.reverse(clauses), Enum.reverse(params)}
           end)
       end
 
@@ -768,18 +932,31 @@ defmodule Selecto.Builder.Sql do
       |> Enum.reduce(
         {[], [], [], []},
         fn {select_iodata, j, p, as}, {aliases, joins, selects, params} ->
-          {aliases ++ [as], joins ++ [j], selects ++ [select_iodata], params ++ p}
+          {[as | aliases], [j | joins], [select_iodata | selects], Enum.reverse(p, params)}
         end
       )
+
+    aliases = Enum.reverse(aliases)
+    joins = Enum.reverse(joins)
+    selects_iodata = Enum.reverse(selects_iodata)
+    params = Enum.reverse(params)
 
     # SELECT clauses are now native iodata, just intersperse with commas
     final_select_iodata = Enum.intersperse(selects_iodata, ", ")
 
-    {aliases, joins, final_select_iodata, List.flatten(params)}
+    {aliases, joins, final_select_iodata, params}
   end
 
   # Phase 1: Enhanced FROM builder with CTE detection and hierarchy support
   defp build_from_with_ctes(selecto, joins) do
+    if basic_from_path?(selecto, joins) do
+      build_basic_from_with_ctes(selecto, joins)
+    else
+      build_from_with_ctes_generic(selecto, joins)
+    end
+  end
+
+  defp build_from_with_ctes_generic(selecto, joins) do
     Enum.reduce(joins, {[], [], []}, fn
       :selecto_root, {fc, p, ctes} ->
         root_table = Selecto.source_table(selecto)
@@ -835,6 +1012,52 @@ defmodule Selecto.Builder.Sql do
           end
         end
     end)
+  end
+
+  defp basic_from_path?(selecto, joins) do
+    joins
+    |> Enum.all?(fn
+      :selecto_root ->
+        true
+
+      join ->
+        case Selecto.joins(selecto)[join] do
+          nil -> true
+          %{join_type: :subquery} -> false
+          config -> detect_advanced_join_pattern(config) == :basic
+        end
+    end)
+  end
+
+  defp build_basic_from_with_ctes(selecto, joins) do
+    from_clauses =
+      Enum.reduce(joins, [], fn
+        :selecto_root, acc ->
+          root_table = Selecto.source_table(selecto)
+          quoted_table = quote_identifier(selecto, root_table)
+          root_alias = build_join_string(selecto, "selecto_root")
+          [[quoted_table, " ", root_alias] | acc]
+
+        join, acc ->
+          case Selecto.joins(selecto)[join] do
+            nil ->
+              acc
+
+            config ->
+              join_iodata = [
+                sql_join_keyword(config),
+                quote_identifier(selecto, config.source),
+                " ",
+                build_join_string(selecto, join),
+                " on ",
+                build_join_on_clause(selecto, join, config)
+              ]
+
+              [join_iodata | acc]
+          end
+      end)
+
+    {Enum.reverse(from_clauses), [], []}
   end
 
   # Dynamic subquery joins registered by Selecto.DynamicJoin.join_subquery/4.

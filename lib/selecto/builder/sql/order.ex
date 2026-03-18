@@ -50,13 +50,13 @@ defmodule Selecto.Builder.Sql.Order do
   end
 
   def order(selecto, {dir, order}) when dir in @dir_list do
-    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
+    {c, j, p} = build_order_selector(selecto, order)
     {j, build_order_clause(selecto, c, dir), order_params(p, dir)}
   end
 
   def order(selecto, {order, dir}) when dir in @dir_list do
     # Handle {field, direction} format which is the standard in this codebase
-    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
+    {c, j, p} = build_order_selector(selecto, order)
     {j, build_order_clause(selecto, c, dir), order_params(p, dir)}
   end
 
@@ -71,9 +71,13 @@ defmodule Selecto.Builder.Sql.Order do
         {[], [], []},
         fn g, {joins, clauses, params} ->
           {j, c, p} = order(selecto, g)
-          {joins ++ [j], clauses ++ [c], params ++ p}
+          {[j | joins], [c | clauses], Enum.reverse(p, params)}
         end
       )
+
+    joins = Enum.reverse(joins)
+    clauses_iodata = Enum.reverse(clauses_iodata)
+    params = Enum.reverse(params)
 
     # Join clauses with ", " separator as iodata
     clause_parts = Enum.intersperse(clauses_iodata, ", ")
@@ -123,6 +127,15 @@ defmodule Selecto.Builder.Sql.Order do
     case_iodata = ["CASE ", Enum.intersperse(when_parts, " ")] ++ else_iodata ++ [" END"]
 
     {case_iodata, all_joins, all_params ++ else_params}
+  end
+
+  defp build_order_selector(selecto, order) when is_binary(order) or is_atom(order) do
+    Selecto.Builder.Sql.Select.prep_selector(selecto, order)
+  end
+
+  defp build_order_selector(selecto, order) do
+    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
+    {c, j, p}
   end
 
   defp build_order_clause(selecto, order_iodata, dir) do
