@@ -8,6 +8,7 @@ defmodule Selecto.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      cli: cli(),
       name: "Selecto",
       description:
         "Alpha: composable SQL query builder for Elixir domains with joins, CTEs, OLAP, and hierarchical patterns",

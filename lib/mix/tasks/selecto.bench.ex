@@ -95,11 +95,12 @@ defmodule Mix.Tasks.Selecto.Bench do
     Mix.shell().info("Running Selecto/Ecto benchmark")
     Mix.shell().info("This reports separate build and sql phases; no DB calls are made.\n")
 
-    Benchee.run(jobs,
+    Kernel.apply(Benchee, :run, [
+      jobs,
       time: Keyword.get(opts, :time, @default_time),
       memory_time: Keyword.get(opts, :memory_time, @default_memory_time),
       print: [benchmarking: true, configuration: true, fast_warning: false]
-    )
+    ])
   end
 
   defp run_with_fallback(jobs, opts) do

@@ -1,13 +1,25 @@
 defmodule Selecto.AdapterSupport do
   @moduledoc false
 
-  @default_adapter SelectoDBPostgreSQL.Adapter
+  @default_adapter Selecto.DB.PostgreSQL
+  @external_postgresql_adapter SelectoDBPostgreSQL.Adapter
   @legacy_postgresql_adapter Selecto.DB.PostgreSQL
 
-  def default_adapter, do: @default_adapter
+  def default_adapter do
+    cond do
+      callback_available?(@external_postgresql_adapter, :name, 0) ->
+        @external_postgresql_adapter
+
+      callback_available?(@default_adapter, :name, 0) ->
+        @default_adapter
+
+      true ->
+        @default_adapter
+    end
+  end
 
   def postgresql_adapter?(adapter) do
-    adapter in [@default_adapter, @legacy_postgresql_adapter]
+    adapter in [default_adapter(), @external_postgresql_adapter, @legacy_postgresql_adapter]
   end
 
   def adapter_name(nil), do: adapter_name(@default_adapter)

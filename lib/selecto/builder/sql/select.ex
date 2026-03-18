@@ -1302,7 +1302,7 @@ defmodule Selecto.Builder.Sql.Select do
       field_ref in available_fields ->
         :ok
 
-      String.contains?(field_ref, ".") ->
+      is_binary(field_ref) and String.contains?(field_ref, ".") ->
         # Check if it's a valid qualified field reference, including permissive CTE fields
         case String.split(field_ref, ".", parts: 2) do
           [prefix, field_name] ->
@@ -1346,10 +1346,10 @@ defmodule Selecto.Builder.Sql.Select do
 
       spec ->
         case Map.get(spec, :columns) do
-          nil -> true
-          [] -> true
+          nil -> false
+          [] -> false
           cols when is_list(cols) -> field_name in Enum.map(cols, &to_string/1)
-          _ -> true
+          _ -> false
         end
     end
   end
@@ -1362,12 +1362,26 @@ defmodule Selecto.Builder.Sql.Select do
     end)
   end
 
-  defp build_safe_field_reference(field_ref, _selecto) do
-    # Phase 1: Basic field reference building
-    # Phase 2+: More sophisticated reference building with join aliases
-    cond do
-      String.contains?(field_ref, ".") -> field_ref
-      true -> "selecto_root.#{field_ref}"
+  defp build_safe_field_reference(field_ref, selecto) do
+    case String.split(to_string(field_ref), ".", parts: 2) do
+      [field] ->
+        [
+          Selecto.Builder.Sql.Helpers.quote_identifier(selecto, "selecto_root"),
+          ".",
+          Selecto.Builder.Sql.Helpers.quote_identifier(selecto, field)
+        ]
+        |> IO.iodata_to_binary()
+
+      [source, field] ->
+        [
+          Selecto.Builder.Sql.Helpers.quote_identifier(selecto, source),
+          ".",
+          Selecto.Builder.Sql.Helpers.quote_identifier(selecto, field)
+        ]
+        |> IO.iodata_to_binary()
+
+      _ ->
+        raise ArgumentError, "Invalid field reference '#{inspect(field_ref)}' in custom SQL"
     end
   end
 

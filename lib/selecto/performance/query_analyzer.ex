@@ -134,7 +134,7 @@ defmodule Selecto.Performance.QueryAnalyzer do
   end
 
   defp build_explain_options(options) do
-    format = Keyword.get(options, :format, :json)
+    format = normalize_explain_format(Keyword.get(options, :format, :json))
 
     opts = []
     opts = if Keyword.get(options, :analyze, true), do: ["ANALYZE" | opts], else: opts
@@ -153,6 +153,24 @@ defmodule Selecto.Performance.QueryAnalyzer do
       "(#{Enum.join(opts, ", ")}, #{format_opt})"
     end
   end
+
+  defp normalize_explain_format(format) when format in [:text, :json, :xml, :yaml], do: format
+
+  defp normalize_explain_format(format) when is_binary(format) do
+    format
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "text" -> :text
+      "json" -> :json
+      "xml" -> :xml
+      "yaml" -> :yaml
+      _ -> raise ArgumentError, "invalid EXPLAIN format #{inspect(format)}"
+    end
+  end
+
+  defp normalize_explain_format(format),
+    do: raise(ArgumentError, "invalid EXPLAIN format #{inspect(format)}")
 
   defp execute_explain(selecto, {query, params}) do
     adapter = runtime_adapter(selecto)
