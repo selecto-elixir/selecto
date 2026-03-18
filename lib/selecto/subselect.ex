@@ -321,7 +321,7 @@ defmodule Selecto.Subselect do
     cond do
       match = Regex.run(~r/^([^.]+)\.([^.]+(?:\s*,\s*[^.]+)*)$/, field_string) ->
         [_, table_part, field_part] = match
-        target_schema = String.to_atom(table_part)
+        target_schema = normalize_schema_reference(table_part)
         fields = String.split(field_part, ",") |> Enum.map(&String.trim/1)
 
         %{
@@ -352,24 +352,28 @@ defmodule Selecto.Subselect do
   end
 
   defp generate_alias(target_schema, prefix) do
-    base_name = Atom.to_string(target_schema)
+    base_name = to_string(target_schema)
     if prefix != "", do: "#{prefix}_#{base_name}", else: base_name
   end
 
   defp validate_target_schema(selecto, target_schema) do
-    case Map.get(selecto.domain.schemas, target_schema) do
+    case fetch_schema_config(selecto.domain.schemas, target_schema) do
       nil -> {:error, "Target schema #{target_schema} not found in domain"}
       _ -> :ok
     end
   end
 
   defp validate_fields_exist(selecto, subselect_config) do
-    target_schema_config = Map.get(selecto.domain.schemas, subselect_config.target_schema)
+    target_schema_config =
+      fetch_schema_config(selecto.domain.schemas, subselect_config.target_schema)
 
     invalid_fields =
       Enum.filter(subselect_config.fields, fn field_name ->
-        field_atom = if is_binary(field_name), do: String.to_atom(field_name), else: field_name
-        not Enum.member?(target_schema_config.fields, field_atom)
+        field_name_string = to_string(field_name)
+
+        not Enum.any?(target_schema_config.fields, fn existing_field ->
+          to_string(existing_field) == field_name_string
+        end)
       end)
 
     case invalid_fields do
@@ -387,5 +391,20 @@ defmodule Selecto.Subselect do
       {:ok, _path} -> :ok
       {:error, reason} -> {:error, "Cannot reach target schema: #{reason}"}
     end
+  end
+
+  defp normalize_schema_reference(schema) when is_atom(schema), do: schema
+
+  defp normalize_schema_reference(schema) when is_binary(schema) do
+    try do
+      String.to_existing_atom(schema)
+    rescue
+      ArgumentError -> schema
+    end
+  end
+
+  defp fetch_schema_config(schemas, schema_key) when is_map(schemas) do
+    normalized_key = normalize_schema_reference(to_string(schema_key))
+    Map.get(schemas, schema_key) || Map.get(schemas, normalized_key)
   end
 end
