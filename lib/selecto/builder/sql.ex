@@ -949,14 +949,15 @@ defmodule Selecto.Builder.Sql do
 
   # Phase 1: Enhanced FROM builder with CTE detection and hierarchy support
   defp build_from_with_ctes(selecto, joins) do
-    if basic_from_path?(selecto, joins) do
-      build_basic_from_with_ctes(selecto, joins)
-    else
-      build_from_with_ctes_generic(selecto, joins)
+    joins_config = Selecto.joins(selecto)
+
+    case build_basic_from_with_ctes(selecto, joins, joins_config) do
+      {:ok, result} -> result
+      :generic -> build_from_with_ctes_generic(selecto, joins, joins_config)
     end
   end
 
-  defp build_from_with_ctes_generic(selecto, joins) do
+  defp build_from_with_ctes_generic(selecto, joins, joins_config) do
     Enum.reduce(joins, {[], [], []}, fn
       :selecto_root, {fc, p, ctes} ->
         root_table = Selecto.source_table(selecto)
@@ -966,7 +967,7 @@ defmodule Selecto.Builder.Sql do
         {fc ++ [[quoted_table, " ", root_alias]], p, ctes}
 
       join, {fc, p, ctes} ->
-        config = Selecto.joins(selecto)[join]
+        config = joins_config[join]
 
         # Skip if join doesn't exist in config
         if config == nil do
@@ -1014,36 +1015,25 @@ defmodule Selecto.Builder.Sql do
     end)
   end
 
-  defp basic_from_path?(selecto, joins) do
+  defp build_basic_from_with_ctes(selecto, joins, joins_config) do
     joins
-    |> Enum.all?(fn
-      :selecto_root ->
-        true
+    |> Enum.reduce_while([], fn
+      :selecto_root, acc ->
+        root_table = Selecto.source_table(selecto)
+        quoted_table = quote_identifier(selecto, root_table)
+        root_alias = build_join_string(selecto, "selecto_root")
+        {:cont, [[quoted_table, " ", root_alias] | acc]}
 
-      join ->
-        case Selecto.joins(selecto)[join] do
-          nil -> true
-          %{join_type: :subquery} -> false
-          config -> detect_advanced_join_pattern(config) == :basic
-        end
-    end)
-  end
+      join, acc ->
+        case joins_config[join] do
+          nil ->
+            {:cont, acc}
 
-  defp build_basic_from_with_ctes(selecto, joins) do
-    from_clauses =
-      Enum.reduce(joins, [], fn
-        :selecto_root, acc ->
-          root_table = Selecto.source_table(selecto)
-          quoted_table = quote_identifier(selecto, root_table)
-          root_alias = build_join_string(selecto, "selecto_root")
-          [[quoted_table, " ", root_alias] | acc]
+          %{join_type: :subquery} ->
+            {:halt, :generic}
 
-        join, acc ->
-          case Selecto.joins(selecto)[join] do
-            nil ->
-              acc
-
-            config ->
+          config ->
+            if detect_advanced_join_pattern(config) == :basic do
               join_iodata = [
                 sql_join_keyword(config),
                 quote_identifier(selecto, config.source),
@@ -1053,11 +1043,16 @@ defmodule Selecto.Builder.Sql do
                 build_join_on_clause(selecto, join, config)
               ]
 
-              [join_iodata | acc]
-          end
-      end)
-
-    {Enum.reverse(from_clauses), [], []}
+              {:cont, [join_iodata | acc]}
+            else
+              {:halt, :generic}
+            end
+        end
+    end)
+    |> case do
+      :generic -> :generic
+      from_clauses -> {:ok, {Enum.reverse(from_clauses), [], []}}
+    end
   end
 
   # Dynamic subquery joins registered by Selecto.DynamicJoin.join_subquery/4.

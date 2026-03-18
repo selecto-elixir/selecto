@@ -838,17 +838,16 @@ defmodule Selecto.Builder.Sql.Select do
       when is_binary(selector) or is_atom(selector) do
     selector = if is_atom(selector), do: Atom.to_string(selector), else: selector
 
-    # First check if this is a JSONB path (e.g., "attributes.color")
-    domain = selecto.config
+    if regular_selector?(selector, selecto.config) do
+      prep_regular_selector(selecto, selector, pivot_aliases)
+    else
+      case Jsonb.parse_field_reference(selector, selecto.config) do
+        {:jsonb, column, path} ->
+          prep_jsonb_selector(selecto, column, path, pivot_aliases)
 
-    case Jsonb.parse_field_reference(selector, domain) do
-      {:jsonb, column, path} ->
-        # This is a JSONB path - generate extraction SQL
-        prep_jsonb_selector(selecto, column, path, pivot_aliases)
-
-      {:regular, _} ->
-        # Not a JSONB path, use standard field resolution
-        prep_regular_selector(selecto, selector, pivot_aliases)
+        {:regular, _} ->
+          prep_regular_selector(selecto, selector, pivot_aliases)
+      end
     end
   end
 
@@ -1230,6 +1229,21 @@ defmodule Selecto.Builder.Sql.Select do
 
   defp to_boolean(value) when value in [true, false], do: value
   defp to_boolean(_value), do: false
+
+  defp regular_selector?(selector, domain) when is_binary(selector) do
+    case :binary.match(selector, ".") do
+      :nomatch ->
+        true
+
+      {dot_index, 1} ->
+        first = binary_part(selector, 0, dot_index)
+
+        case Map.get(Map.get(domain, :columns, %{}), first) do
+          %{type: type} when type in [:jsonb, :json] -> false
+          _ -> true
+        end
+    end
+  end
 
   defp generated_alias do
     UUID.uuid4()

@@ -7,6 +7,14 @@
 #### Added
 - Added baseline DuckDB external adapter coverage in core adapter tests and
   test-only optional dependency wiring for `selecto_db_duckdb`.
+- Added `mix selecto.bench` to compare Selecto SQL generation against Ecto and
+  break the cost down into build, clause, and orchestration stages for ongoing
+  performance work.
+
+#### Changed
+- Reduced SQL builder overhead across select, where, order, from, and parameter
+  finalization paths, and used the new benchmark to profile the remaining
+  joined-query hotspots.
 
 - Moved database adapter support to app-owned external packages, including the
   new `selecto_db_postgresql` reference path and companion packages for SQLite,
