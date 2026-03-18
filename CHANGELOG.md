@@ -10,6 +10,9 @@
 - Added `mix selecto.bench` to compare Selecto SQL generation against Ecto and
   break the cost down into build, clause, and orchestration stages for ongoing
   performance work.
+- Added `retarget` as the preferred public name for query-root retargeting,
+  including new `Selecto.Retarget`, `Selecto.Builder.Retarget`, and
+  `Selecto.AutoRetarget` modules plus deprecated `pivot` compatibility wrappers.
 
 #### Changed
 - Reduced SQL builder overhead across select, where, order, from, and parameter
@@ -24,7 +27,8 @@
   adapter implementations.
 - Clarified installation and migration docs to require explicit `selecto_db_*`
   dependencies in consumer applications.
-- Bumped package version to `0.4.0`.
+- Renamed pre/post-pivot query state and filter APIs to `retarget` terminology
+  while preserving backward compatibility for legacy `pivot` keys and helpers.
 
 - Clarified cross-database adapter documentation to distinguish baseline adapter
   support from advanced feature parity, including more explicit README guidance
