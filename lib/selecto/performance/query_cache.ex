@@ -771,7 +771,7 @@ defmodule Selecto.Performance.QueryCache do
   defp decompress_result(compressed) do
     compressed
     |> :zlib.uncompress()
-    |> :erlang.binary_to_term()
+    |> :erlang.binary_to_term([:safe])
   end
 
   @impl true
