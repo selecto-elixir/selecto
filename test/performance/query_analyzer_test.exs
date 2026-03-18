@@ -40,6 +40,12 @@ defmodule Selecto.Performance.QueryAnalyzerTest do
              )
   end
 
+  test "analyze_query rejects unsupported explain formats" do
+    assert_raise ArgumentError, ~r/invalid EXPLAIN format/, fn ->
+      QueryAnalyzer.analyze_query(selecto(), format: "pdf")
+    end
+  end
+
   test "repo-like atom connection is wrapped as explain failure" do
     repo_like =
       selecto()

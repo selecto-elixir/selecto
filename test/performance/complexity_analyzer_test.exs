@@ -137,13 +137,13 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
       assert analysis.details.leading_wildcard_count == 0
     end
 
-    test "detects post-pivot filters" do
+    test "detects post-retarget filters" do
       selecto =
         build_simple_selecto()
         |> Map.put(:set, %{
           selected: ["id", "name"],
           filtered: [{"status", "active"}],
-          post_pivot_filters: [
+          post_retarget_filters: [
             {"aggregated_total", {:gt, 1000}}
           ],
           order_by: [],
@@ -151,8 +151,8 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
         })
 
       assert {:ok, analysis} = ComplexityAnalyzer.analyze(selecto)
-      assert Enum.any?(analysis.warnings, &String.contains?(&1, "post-pivot"))
-      assert analysis.details.post_pivot_filter_count == 1
+      assert Enum.any?(analysis.warnings, &String.contains?(&1, "post-retarget"))
+      assert analysis.details.post_retarget_filter_count == 1
     end
 
     test "warns on high GROUP BY count" do
@@ -212,7 +212,7 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
               {"id", {:in, large_list}},
               {"name", {:like, "%smith"}}
             ])
-            |> Map.put(:post_pivot_filters, [{"total", {:gt, 100}}])
+            |> Map.put(:post_retarget_filters, [{"total", {:gt, 100}}])
             |> Map.put(:group_by, ["cat1", "cat2", "cat3", "cat4", "cat5", "cat6"])
       }
 

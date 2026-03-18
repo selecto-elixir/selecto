@@ -1,12 +1,24 @@
 
 # Selecto Library Changelog
 
-## Unreleased
-
 ## V 0.4.0 - External Adapter Architecture
 ---------------------------------------------------------
 
+#### Added
+- Added baseline DuckDB external adapter coverage in core adapter tests and
+  test-only optional dependency wiring for `selecto_db_duckdb`.
+- Added `mix selecto.bench` to compare Selecto SQL generation against Ecto and
+  break the cost down into build, clause, and orchestration stages for ongoing
+  performance work.
+- Added `retarget` as the preferred public name for query-root retargeting,
+  including new `Selecto.Retarget`, `Selecto.Builder.Retarget`, and
+  `Selecto.AutoRetarget` modules plus deprecated `pivot` compatibility wrappers.
+
 #### Changed
+- Reduced SQL builder overhead across select, where, order, from, and parameter
+  finalization paths, and used the new benchmark to profile the remaining
+  joined-query hotspots.
+
 - Moved database adapter support to app-owned external packages, including the
   new `selecto_db_postgresql` reference path and companion packages for SQLite,
   MySQL, MariaDB, and MSSQL.
@@ -15,7 +27,8 @@
   adapter implementations.
 - Clarified installation and migration docs to require explicit `selecto_db_*`
   dependencies in consumer applications.
-- Bumped package version to `0.4.0`.
+- Renamed pre/post-pivot query state and filter APIs to `retarget` terminology
+  while preserving backward compatibility for legacy `pivot` keys and helpers.
 
 - Clarified cross-database adapter documentation to distinguish baseline adapter
   support from advanced feature parity, including more explicit README guidance
@@ -32,6 +45,20 @@
 - Began extracting PostgreSQL support into the external
   `selecto_db_postgresql` package and updated docs/tests toward the external
   adapter default.
+- Moved `Selecto.DB.Adapter` into core `selecto` so consumer installs no longer
+  pull adapter packages just to access the shared contract.
+- Removed direct adapter package dependencies from core and replaced them with
+  test-only adapter stubs so `selecto` stays adapter-agnostic at install time.
+- Updated subselect alias and field quoting to use adapter-owned identifier
+  quoting, fixing MSSQL subselect SQL generation.
+- Added MSSQL-specific `{:to_char, ...}` SQL compilation for common datetime
+  formats (`YYYY-MM-DD`, `YYYY-MM`, `YYYY`, `YYYY-WW`, `YYYY-Q`, `MM`, `DD`,
+  `D`, `HH24`) so formatter selectors compile to SQL Server-compatible
+  expressions instead of PostgreSQL `to_char(...)` syntax.
+- Expanded MSSQL pagination coverage with datetime-format compilation
+  expectations to guard cross-adapter SQL generation behavior.
+- Updated adapter migration and support-level documentation to list DuckDB as a
+  shipped external adapter package.
 
 ## V 0.3.16 - Overlay Safety, Detail Actions, and SQL Alias Reliability
 ---------------------------------------------------------
@@ -282,12 +309,12 @@
 ---------------------------------------------------------
 
 #### Added
-- Added explicit pre/post pivot filter APIs:
-  - `Selecto.pre_pivot_filter/2`
-  - `Selecto.post_pivot_filter/2`
+- Added explicit pre/post retarget filter APIs:
+  - `Selecto.pre_retarget_filter/2`
+  - `Selecto.post_retarget_filter/2`
 - Added query filter introspection helpers:
-  - `Selecto.pre_pivot_filters/1`
-  - `Selecto.post_pivot_filters/1`
+  - `Selecto.pre_retarget_filters/1`
+  - `Selecto.post_retarget_filters/1`
   - `Selecto.query_filters/2`
 - Added SQL output utilities:
   - `Selecto.SQL.Formatter`
@@ -404,7 +431,7 @@
   - `Selecto.Performance.Optimizer`
 - Removed obsolete examples/tests tied to those modules.
 - Notes:
-  - `Selecto.AutoPivot`, `Selecto.Config.Overlay`, and `Selecto.Performance.Hooks` remain supported.
+  - `Selecto.AutoRetarget`, `Selecto.Config.Overlay`, and `Selecto.Performance.Hooks` remain supported.
   - Workspace runtime and test suites were revalidated after cleanup.
 
 ### PHASE 4: Domain Validation Layer Implementation

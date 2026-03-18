@@ -140,24 +140,24 @@ defmodule Selecto.Subselect do
   @doc """
   Resolve the join path needed to reach a target schema from the current context.
 
-  If we're in a pivoted context, the path is calculated from the pivot target.
+  If we're in a retargeted context, the path is calculated from the retarget target.
   Otherwise, the path is calculated from the source.
   """
   @spec resolve_join_path(Types.t(), atom()) :: {:ok, [atom()]} | {:error, String.t()}
   def resolve_join_path(selecto, target_schema) do
-    if Selecto.Pivot.has_pivot?(selecto) do
-      # In pivot context - calculate path from pivot target to target schema
-      pivot_config = Selecto.Pivot.get_pivot_config(selecto)
-      pivot_target = pivot_config.target_schema
+    if Selecto.Retarget.has_retarget?(selecto) do
+      # In retarget context - calculate path from retarget target to target schema
+      retarget_config = Selecto.Retarget.get_retarget_config(selecto)
+      retarget_target = retarget_config.target_schema
 
-      # Use the path-finding logic starting from pivot target
-      case find_join_path_from_schema(selecto.domain, pivot_target, target_schema, []) do
+      # Use the path-finding logic starting from the retarget target
+      case find_join_path_from_schema(selecto.domain, retarget_target, target_schema, []) do
         {:ok, path} -> {:ok, path}
-        :not_found -> {:error, "No join path found from #{pivot_target} to #{target_schema}"}
+        :not_found -> {:error, "No join path found from #{retarget_target} to #{target_schema}"}
       end
     else
       # Normal context - use standard path calculation from source
-      Selecto.Pivot.calculate_join_path(selecto, target_schema)
+      Selecto.Retarget.calculate_join_path(selecto, target_schema)
     end
   end
 
@@ -321,7 +321,7 @@ defmodule Selecto.Subselect do
     cond do
       match = Regex.run(~r/^([^.]+)\.([^.]+(?:\s*,\s*[^.]+)*)$/, field_string) ->
         [_, table_part, field_part] = match
-        target_schema = String.to_atom(table_part)
+        target_schema = normalize_schema_reference(table_part)
         fields = String.split(field_part, ",") |> Enum.map(&String.trim/1)
 
         %{
@@ -352,24 +352,28 @@ defmodule Selecto.Subselect do
   end
 
   defp generate_alias(target_schema, prefix) do
-    base_name = Atom.to_string(target_schema)
+    base_name = to_string(target_schema)
     if prefix != "", do: "#{prefix}_#{base_name}", else: base_name
   end
 
   defp validate_target_schema(selecto, target_schema) do
-    case Map.get(selecto.domain.schemas, target_schema) do
+    case fetch_schema_config(selecto.domain.schemas, target_schema) do
       nil -> {:error, "Target schema #{target_schema} not found in domain"}
       _ -> :ok
     end
   end
 
   defp validate_fields_exist(selecto, subselect_config) do
-    target_schema_config = Map.get(selecto.domain.schemas, subselect_config.target_schema)
+    target_schema_config =
+      fetch_schema_config(selecto.domain.schemas, subselect_config.target_schema)
 
     invalid_fields =
       Enum.filter(subselect_config.fields, fn field_name ->
-        field_atom = if is_binary(field_name), do: String.to_atom(field_name), else: field_name
-        not Enum.member?(target_schema_config.fields, field_atom)
+        field_name_string = to_string(field_name)
+
+        not Enum.any?(target_schema_config.fields, fn existing_field ->
+          to_string(existing_field) == field_name_string
+        end)
       end)
 
     case invalid_fields do
@@ -387,5 +391,20 @@ defmodule Selecto.Subselect do
       {:ok, _path} -> :ok
       {:error, reason} -> {:error, "Cannot reach target schema: #{reason}"}
     end
+  end
+
+  defp normalize_schema_reference(schema) when is_atom(schema), do: schema
+
+  defp normalize_schema_reference(schema) when is_binary(schema) do
+    try do
+      String.to_existing_atom(schema)
+    rescue
+      ArgumentError -> schema
+    end
+  end
+
+  defp fetch_schema_config(schemas, schema_key) when is_map(schemas) do
+    normalized_key = normalize_schema_reference(to_string(schema_key))
+    Map.get(schemas, schema_key) || Map.get(schemas, normalized_key)
   end
 end

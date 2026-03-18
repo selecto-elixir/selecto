@@ -7,9 +7,10 @@ defmodule Selecto.Builder.Subselect do
   or other aggregate formats.
   """
 
-  # import Selecto.Builder.Sql.Helpers
+  import Selecto.Builder.Sql.Helpers, only: [quote_identifier: 2]
   # alias Selecto.SQL.Params
   alias Selecto.Types
+  alias Selecto.AdapterSupport
 
   @doc """
   Build subselect clauses for the SELECT portion of the query.
@@ -19,10 +20,10 @@ defmodule Selecto.Builder.Subselect do
   """
   @spec build_subselect_clauses(Types.t()) :: {[Types.iodata_with_markers()], Types.sql_params()}
   def build_subselect_clauses(selecto) do
-    # Determine the correct source alias based on pivot context
+    # Determine the correct source alias based on retarget context
     source_alias =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context, use "s" for source table
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context, use "s" for source table
         "s"
       else
         # In standard context, use "selecto_root"
@@ -61,10 +62,10 @@ defmodule Selecto.Builder.Subselect do
   @spec build_single_subselect(Types.t(), Types.subselect_selector()) ::
           {Types.iodata_with_markers(), Types.sql_params()}
   def build_single_subselect(selecto, subselect_config) do
-    # Determine the correct source alias based on pivot context
+    # Determine the correct source alias based on retarget context
     source_alias =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context, use "s" for source table
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context, use "s" for source table
         "s"
       else
         # In standard context, use "selecto_root"
@@ -86,7 +87,7 @@ defmodule Selecto.Builder.Subselect do
       "(",
       subselect_iodata,
       ") AS ",
-      escape_identifier(subselect_config.alias)
+      adapter_quote_identifier(selecto, subselect_config.alias)
     ]
 
     {field_with_alias, subselect_params}
@@ -95,7 +96,34 @@ defmodule Selecto.Builder.Subselect do
   defp build_aggregated_subselect(selecto, subselect_config, source_alias) do
     target_table = get_target_table(selecto, subselect_config.target_schema)
     target_alias = generate_subquery_alias(subselect_config.target_schema)
+    adapter_name = AdapterSupport.adapter_name(Map.get(selecto, :adapter))
 
+    if subselect_config.format == :json_agg and adapter_name == :mssql do
+      build_mssql_json_agg_subselect(
+        selecto,
+        subselect_config,
+        source_alias,
+        target_table,
+        target_alias
+      )
+    else
+      do_build_aggregated_subselect(
+        selecto,
+        subselect_config,
+        source_alias,
+        target_table,
+        target_alias
+      )
+    end
+  end
+
+  defp do_build_aggregated_subselect(
+         selecto,
+         subselect_config,
+         source_alias,
+         target_table,
+         target_alias
+       ) do
     # Build SELECT fields for the subquery based on aggregation type
     {select_clause, select_params} =
       case subselect_config.format do
@@ -155,6 +183,7 @@ defmodule Selecto.Builder.Subselect do
     # Build additional filters if specified
     {additional_where, additional_params} =
       build_additional_filters(
+        selecto,
         subselect_config,
         target_alias
       )
@@ -186,16 +215,83 @@ defmodule Selecto.Builder.Subselect do
     {subselect_iodata, all_params}
   end
 
+  defp build_mssql_json_agg_subselect(
+         selecto,
+         subselect_config,
+         source_alias,
+         target_table,
+         target_alias
+       ) do
+    {correlation_where, correlation_params} =
+      build_correlation_condition(
+        selecto,
+        subselect_config,
+        target_alias,
+        source_alias
+      )
+
+    {additional_where, additional_params} =
+      build_additional_filters(
+        selecto,
+        subselect_config,
+        target_alias
+      )
+
+    all_where_conditions =
+      [correlation_where] ++
+        if additional_where != [], do: [additional_where], else: []
+
+    where_clause =
+      case all_where_conditions do
+        [single] -> single
+        multiple -> Enum.intersperse(multiple, [" AND "])
+      end
+
+    select_fields =
+      build_mssql_json_path_select_fields(selecto, subselect_config.fields, target_alias)
+
+    subselect_iodata = [
+      "SELECT COALESCE((SELECT ",
+      select_fields,
+      " FROM ",
+      target_table,
+      " ",
+      target_alias,
+      " WHERE ",
+      where_clause,
+      " FOR JSON PATH), '[]')"
+    ]
+
+    {subselect_iodata, correlation_params ++ additional_params}
+  end
+
+  defp build_mssql_json_path_select_fields(selecto, fields, target_alias) do
+    fields
+    |> Enum.map(fn field ->
+      field_name = adapter_quote_identifier(selecto, to_string(field))
+      field_alias = adapter_quote_identifier(selecto, mssql_json_field_alias(field))
+      [target_alias, ".", field_name, " AS ", field_alias]
+    end)
+    |> Enum.intersperse([", "])
+  end
+
+  defp mssql_json_field_alias(field) do
+    field
+    |> to_string()
+    |> String.split(".")
+    |> List.last()
+  end
+
   @doc """
   Build the correlated subquery that fetches related data.
   """
   @spec build_correlated_subquery(Types.t(), Types.subselect_selector()) ::
           {Types.iodata_with_markers(), Types.sql_params()}
   def build_correlated_subquery(selecto, subselect_config) do
-    # Determine the correct source alias based on pivot context
+    # Determine the correct source alias based on retarget context
     source_alias =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context, use "s" for source table
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context, use "s" for source table
         "s"
       else
         # In standard context, use "selecto_root"
@@ -212,7 +308,8 @@ defmodule Selecto.Builder.Subselect do
     target_alias = generate_subquery_alias(subselect_config.target_schema)
 
     # Build SELECT fields for the subquery
-    {select_fields, select_params} = build_subquery_select_fields(subselect_config, target_alias)
+    {select_fields, select_params} =
+      build_subquery_select_fields(selecto, subselect_config, target_alias)
 
     # Build correlation WHERE clause
     {correlation_where, correlation_params} =
@@ -226,6 +323,7 @@ defmodule Selecto.Builder.Subselect do
     # Build additional filters if specified
     {additional_where, additional_params} =
       build_additional_filters(
+        selecto,
         subselect_config,
         target_alias
       )
@@ -233,6 +331,7 @@ defmodule Selecto.Builder.Subselect do
     # Build ORDER BY if specified
     {order_clause, order_params} =
       build_subquery_order_by(
+        selecto,
         subselect_config,
         target_alias
       )
@@ -326,10 +425,10 @@ defmodule Selecto.Builder.Subselect do
   @spec resolve_join_condition_with_path(Types.t(), atom()) ::
           {:ok, Types.iodata_with_markers()} | {:error, String.t()}
   def resolve_join_condition_with_path(selecto, target_schema) do
-    # Determine the correct source alias based on pivot context
+    # Determine the correct source alias based on retarget context
     source_alias =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context, use "s" for source table
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context, use "s" for source table
         "s"
       else
         # In standard context, use "selecto_root"
@@ -369,15 +468,15 @@ defmodule Selecto.Builder.Subselect do
   defp build_direct_correlation(selecto, target_schema, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
 
-    # Determine the current context - if pivoted, use pivot target schema
+    # Determine the current context - if retargeted, use retarget target schema
     {current_schema_config, association} =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context - the source is the pivot target table
-        pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context - the source is the retarget target table
+        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
         pivot_target = pivot_config.target_schema
         pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
 
-        # Find the association from pivot target to the subselect target
+        # Find the association from retarget target to the subselect target
         assoc = Map.get(pivot_schema_config.associations, target_schema)
         {pivot_schema_config, assoc}
       else
@@ -396,11 +495,11 @@ defmodule Selecto.Builder.Subselect do
       condition = [
         target_alias,
         ".",
-        escape_identifier(target_field),
+        adapter_quote_identifier(selecto, target_field),
         " = ",
         source_alias,
         ".",
-        escape_identifier(source_field)
+        adapter_quote_identifier(selecto, source_field)
       ]
 
       {:ok, condition}
@@ -415,11 +514,11 @@ defmodule Selecto.Builder.Subselect do
   defp build_direct_correlation_with_assoc(selecto, target_schema, assoc_name, source_alias) do
     target_alias = generate_subquery_alias(target_schema)
 
-    # Determine the current context - if pivoted, use pivot target schema
+    # Determine the current context - if retargeted, use retarget target schema
     {current_schema_config, association} =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context - the source is the pivot target table
-        pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context - the source is the retarget target table
+        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
         pivot_target = pivot_config.target_schema
         pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
 
@@ -440,11 +539,11 @@ defmodule Selecto.Builder.Subselect do
       condition = [
         target_alias,
         ".",
-        escape_identifier(target_field),
+        adapter_quote_identifier(selecto, target_field),
         " = ",
         source_alias,
         ".",
-        escape_identifier(source_field)
+        adapter_quote_identifier(selecto, source_field)
       ]
 
       {:ok, condition}
@@ -484,15 +583,15 @@ defmodule Selecto.Builder.Subselect do
     # Get junction table name
     junction_table = get_target_table(selecto, junction_schema)
 
-    # Determine the current context - if pivoted, use pivot target as source
+    # Determine the current context - if retargeted, use retarget target as source
     {_source_schema_config, source_to_junction_assoc} =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        # In pivot context - the source is the pivot target table
-        pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      if Selecto.Retarget.has_retarget?(selecto) do
+        # In retarget context - the source is the retarget target table
+        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
         pivot_target = pivot_config.target_schema
         pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
 
-        # Find the association from pivot target to junction
+        # Find the association from retarget target to junction
         # For film → film_actors, we need to reverse lookup
         assoc = find_association_to_junction(pivot_schema_config, selecto.domain, junction_schema)
         {pivot_schema_config, assoc}
@@ -538,7 +637,7 @@ defmodule Selecto.Builder.Subselect do
   end
 
   # Find the association from a schema back to a junction table
-  # This is needed for pivot scenarios where we need to reverse-correlate
+  # This is needed for retarget scenarios where we need to reverse-correlate
   defp find_association_to_junction(schema_config, domain, junction_schema) do
     # Look for an association where the queryable matches junction_schema
     # For film → film_actors, this would be the film_actors association
@@ -594,14 +693,14 @@ defmodule Selecto.Builder.Subselect do
     # Build: EXISTS (SELECT 1 FROM orders j1 INNER JOIN order_items j2 ON ... INNER JOIN products j3 ON ...)
     target_alias = generate_subquery_alias(target_schema)
 
-    # Get the starting point (either source or pivot target)
+    # Get the starting point (either source or retarget target)
     {source_schema_config, _source_key_field} =
-      if Selecto.Pivot.has_pivot?(selecto) do
-        pivot_config = Selecto.Pivot.get_pivot_config(selecto)
+      if Selecto.Retarget.has_retarget?(selecto) do
+        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
         pivot_target = pivot_config.target_schema
         pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
 
-        # Get the primary key of the pivot target to use as correlation point
+        # Get the primary key of the retarget target to use as correlation point
         pk = pivot_schema_config.primary_key || :id
         {pivot_schema_config, to_string(pk)}
       else
@@ -689,11 +788,11 @@ defmodule Selecto.Builder.Subselect do
             start_corr = [
               join_alias,
               ".",
-              escape_identifier(to_string(association.related_key)),
+              adapter_quote_identifier(selecto, to_string(association.related_key)),
               " = ",
               source_alias,
               ".",
-              escape_identifier(to_string(association.owner_key))
+              adapter_quote_identifier(selecto, to_string(association.owner_key))
             ]
 
             {[table_name, " ", join_alias], start_corr}
@@ -709,11 +808,11 @@ defmodule Selecto.Builder.Subselect do
               " ON ",
               prev_alias,
               ".",
-              escape_identifier(to_string(prev_association.owner_key)),
+              adapter_quote_identifier(selecto, to_string(prev_association.owner_key)),
               " = ",
               join_alias,
               ".",
-              escape_identifier(to_string(prev_association.related_key))
+              adapter_quote_identifier(selecto, to_string(prev_association.related_key))
             ]
 
             # Pass through the start correlation from first join
@@ -729,11 +828,11 @@ defmodule Selecto.Builder.Subselect do
           end_correlation = [
             join_alias,
             ".",
-            escape_identifier(to_string(next_schema_config.primary_key || :id)),
+            adapter_quote_identifier(selecto, to_string(next_schema_config.primary_key || :id)),
             " = ",
             target_alias,
             ".",
-            escape_identifier(to_string(next_schema_config.primary_key || :id))
+            adapter_quote_identifier(selecto, to_string(next_schema_config.primary_key || :id))
           ]
 
           # Return complete chain
@@ -761,32 +860,32 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_subquery_select_fields(subselect_config, target_alias) do
+  defp build_subquery_select_fields(selecto, subselect_config, target_alias) do
     case subselect_config.format do
       :json_agg ->
-        build_json_select_fields(subselect_config.fields, target_alias)
+        build_json_select_fields(selecto, subselect_config.fields, target_alias)
 
       :count ->
         # For count, we just need any field
         {["1"], []}
 
       _ ->
-        build_simple_select_fields(subselect_config.fields, target_alias)
+        build_simple_select_fields(selecto, subselect_config.fields, target_alias)
     end
   end
 
-  defp build_json_select_fields(fields, target_alias) do
+  defp build_json_select_fields(selecto, fields, target_alias) do
     case fields do
       [single_field] ->
         # Single field - return the value directly for json_agg
-        field_name = escape_identifier(to_string(single_field))
+        field_name = adapter_quote_identifier(selecto, to_string(single_field))
         {[target_alias, ".", field_name], []}
 
       multiple_fields ->
         # Multiple fields - build JSON object
         json_pairs =
           Enum.map(multiple_fields, fn field ->
-            field_name = escape_identifier(to_string(field))
+            field_name = adapter_quote_identifier(selecto, to_string(field))
             # Use literal string for field key, not parameter
             field_key = escape_string(to_string(field))
             [field_key, ", ", target_alias, ".", field_name]
@@ -803,10 +902,10 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_simple_select_fields(fields, target_alias) do
+  defp build_simple_select_fields(selecto, fields, target_alias) do
     field_clauses =
       Enum.map(fields, fn field ->
-        field_name = escape_identifier(to_string(field))
+        field_name = adapter_quote_identifier(selecto, to_string(field))
         [target_alias, ".", field_name]
       end)
 
@@ -831,18 +930,18 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_additional_filters(subselect_config, target_alias) do
+  defp build_additional_filters(selecto, subselect_config, target_alias) do
     case subselect_config.filters do
       [] ->
         {[], []}
 
       filters ->
         # Build WHERE conditions for additional filters
-        build_filter_conditions(filters, target_alias)
+        build_filter_conditions(selecto, filters, target_alias)
     end
   end
 
-  defp build_subquery_order_by(subselect_config, target_alias) do
+  defp build_subquery_order_by(selecto, subselect_config, target_alias) do
     case subselect_config.order_by do
       [] ->
         {[], []}
@@ -851,7 +950,7 @@ defmodule Selecto.Builder.Subselect do
         order_clauses =
           Enum.map(order_specs, fn
             {direction, field} ->
-              field_name = escape_identifier(to_string(field))
+              field_name = adapter_quote_identifier(selecto, to_string(field))
 
               direction_sql =
                 case direction do
@@ -863,11 +962,11 @@ defmodule Selecto.Builder.Subselect do
               [target_alias, ".", field_name, " ", direction_sql]
 
             field when is_atom(field) ->
-              field_name = escape_identifier(to_string(field))
+              field_name = adapter_quote_identifier(selecto, to_string(field))
               [target_alias, ".", field_name]
 
             field when is_binary(field) ->
-              field_name = escape_identifier(field)
+              field_name = adapter_quote_identifier(selecto, field)
               [target_alias, ".", field_name]
           end)
 
@@ -876,13 +975,13 @@ defmodule Selecto.Builder.Subselect do
     end
   end
 
-  defp build_filter_conditions(filters, target_alias) do
+  defp build_filter_conditions(selecto, filters, target_alias) do
     # Use existing filter building logic, adapted for subquery context
     # This is simplified - in reality, we'd reuse Selecto.Builder.Sql.Where logic
     condition_clauses =
       Enum.map(filters, fn
         {field, value} ->
-          field_name = escape_identifier(to_string(field))
+          field_name = adapter_quote_identifier(selecto, to_string(field))
           value_param = {:param, value}
           [target_alias, ".", field_name, " = ", value_param]
       end)
@@ -965,5 +1064,15 @@ defmodule Selecto.Builder.Subselect do
   defp escape_identifier(identifier) do
     # Escape SQL identifiers - simplified implementation
     "\"#{identifier}\""
+  end
+
+  defp adapter_quote_identifier(selecto, identifier) do
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+
+    if Selecto.AdapterSupport.callback_available?(adapter, :quote_identifier, 1) do
+      adapter.quote_identifier(to_string(identifier))
+    else
+      quote_identifier(selecto, identifier)
+    end
   end
 end

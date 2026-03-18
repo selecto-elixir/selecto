@@ -11,6 +11,7 @@ Selecto now expects app-owned database adapter packages.
   - `selecto_db_mysql`
   - `selecto_db_mariadb`
   - `selecto_db_mssql`
+  - `selecto_db_duckdb`
   - `selecto_db_sqlite`
 
 ## Installation Pattern

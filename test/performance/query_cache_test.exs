@@ -5,8 +5,19 @@ defmodule Selecto.Performance.QueryCacheTest do
 
   setup do
     case Process.whereis(QueryCache) do
-      nil -> :ok
-      pid -> GenServer.stop(pid)
+      nil ->
+        :ok
+
+      pid ->
+        if Process.alive?(pid) do
+          try do
+            GenServer.stop(pid)
+          catch
+            :exit, _reason -> :ok
+          end
+        else
+          :ok
+        end
     end
 
     {:ok, _pid} = QueryCache.start_link(max_size: 10, default_ttl: 1000)

@@ -6,9 +6,12 @@ defmodule Selecto.Builder.Sql.Group do
   emitted either as standard grouped columns or wrapped in SQL `ROLLUP(...)`.
   """
 
+  alias Selecto.AdapterSQL
+
   def group(selecto, rollup: groups) do
     {joins, clauses_iodata, params} = group(selecto, groups)
-    {joins, ["rollup( ", clauses_iodata, " )"], params}
+
+    {joins, AdapterSQL.rollup_sql(selecto, clauses_iodata), params}
   end
 
   def group(selecto, groups) when is_list(groups) do

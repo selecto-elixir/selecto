@@ -91,35 +91,35 @@ defmodule Selecto.QueryEnhancementsTest do
     assert String.contains?(highlighted_sql, "\e[")
   end
 
-  test "pre_pivot_filter and post_pivot_filter update explicit filter buckets" do
+  test "pre_retarget_filter and post_retarget_filter update explicit filter buckets" do
     query =
       domain()
       |> selecto()
-      |> Selecto.pre_pivot_filter({"status", "delivered"})
-      |> Selecto.pivot(:order_items)
-      |> Selecto.post_pivot_filter({"order_items.quantity", {:gt, 2}})
+      |> Selecto.pre_retarget_filter({"status", "delivered"})
+      |> Selecto.retarget(:order_items)
+      |> Selecto.post_retarget_filter({"order_items.quantity", {:gt, 2}})
 
     assert query.set.filtered == [{"status", "delivered"}]
-    assert query.set.post_pivot_filters == [{"order_items.quantity", {:gt, 2}}]
+    assert query.set.post_retarget_filters == [{"order_items.quantity", {:gt, 2}}]
   end
 
-  test "query_filters exposes unified filters with optional post-pivot inclusion" do
+  test "query_filters exposes unified filters with optional post-retarget inclusion" do
     query =
       domain()
       |> selecto()
-      |> Selecto.pre_pivot_filter({"status", "delivered"})
-      |> Selecto.pivot(:order_items)
-      |> Selecto.post_pivot_filter({"order_items.quantity", {:gt, 2}})
+      |> Selecto.pre_retarget_filter({"status", "delivered"})
+      |> Selecto.retarget(:order_items)
+      |> Selecto.post_retarget_filter({"order_items.quantity", {:gt, 2}})
 
-    assert Selecto.pre_pivot_filters(query) == [{"status", "delivered"}]
-    assert Selecto.post_pivot_filters(query) == [{"order_items.quantity", {:gt, 2}}]
+    assert Selecto.pre_retarget_filters(query) == [{"status", "delivered"}]
+    assert Selecto.post_retarget_filters(query) == [{"order_items.quantity", {:gt, 2}}]
 
     assert Selecto.query_filters(query) == [
              {"status", "delivered"},
              {"order_items.quantity", {:gt, 2}}
            ]
 
-    assert Selecto.query_filters(query, include_post_pivot: false) == [
+    assert Selecto.query_filters(query, include_post_retarget: false) == [
              {"status", "delivered"}
            ]
   end

@@ -632,40 +632,64 @@ defmodule Selecto do
   end
 
   @doc """
-  Append filters explicitly to the pre-pivot filter list.
+  Append filters explicitly to the pre-retarget filter list.
 
-  These filters stay attached to the original root side when using `pivot/3`.
+  These filters stay attached to the original root side when using `retarget/3`.
   """
+  @spec pre_retarget_filter(t(), [Selecto.Types.filter()]) :: t()
+  @spec pre_retarget_filter(t(), Selecto.Types.filter()) :: t()
+  defdelegate pre_retarget_filter(selecto, filters_or_filter), to: Selecto.Query
+
+  @doc """
+  Append filters explicitly to the post-retarget filter list.
+
+  These filters apply to the retargeted target root.
+  """
+  @spec post_retarget_filter(t(), [Selecto.Types.filter()]) :: t()
+  @spec post_retarget_filter(t(), Selecto.Types.filter()) :: t()
+  defdelegate post_retarget_filter(selecto, filters_or_filter), to: Selecto.Query
+
+  @doc """
+  Read pre-retarget filters from the query set (`set.filtered`).
+  """
+  @spec pre_retarget_filters(t()) :: [Selecto.Types.filter()]
+  defdelegate pre_retarget_filters(selecto), to: Selecto.Query
+
+  @doc """
+  Read post-retarget filters from the query set (`set.post_retarget_filters`).
+  """
+  @spec post_retarget_filters(t()) :: [Selecto.Types.filter()]
+  defdelegate post_retarget_filters(selecto), to: Selecto.Query
+
+  @doc false
+  @deprecated "Use pre_retarget_filter/2 instead."
   @spec pre_pivot_filter(t(), [Selecto.Types.filter()]) :: t()
   @spec pre_pivot_filter(t(), Selecto.Types.filter()) :: t()
-  defdelegate pre_pivot_filter(selecto, filters_or_filter), to: Selecto.Query
+  def pre_pivot_filter(selecto, filters_or_filter),
+    do: Selecto.Query.pre_retarget_filter(selecto, filters_or_filter)
 
-  @doc """
-  Append filters explicitly to the post-pivot filter list.
-
-  These filters apply to the pivoted target root.
-  """
+  @doc false
+  @deprecated "Use post_retarget_filter/2 instead."
   @spec post_pivot_filter(t(), [Selecto.Types.filter()]) :: t()
   @spec post_pivot_filter(t(), Selecto.Types.filter()) :: t()
-  defdelegate post_pivot_filter(selecto, filters_or_filter), to: Selecto.Query
+  def post_pivot_filter(selecto, filters_or_filter),
+    do: Selecto.Query.post_retarget_filter(selecto, filters_or_filter)
 
-  @doc """
-  Read pre-pivot filters from the query set (`set.filtered`).
-  """
+  @doc false
+  @deprecated "Use pre_retarget_filters/1 instead."
   @spec pre_pivot_filters(t()) :: [Selecto.Types.filter()]
-  defdelegate pre_pivot_filters(selecto), to: Selecto.Query
+  def pre_pivot_filters(selecto), do: Selecto.Query.pre_retarget_filters(selecto)
 
-  @doc """
-  Read post-pivot filters from the query set (`set.post_pivot_filters`).
-  """
+  @doc false
+  @deprecated "Use post_retarget_filters/1 instead."
   @spec post_pivot_filters(t()) :: [Selecto.Types.filter()]
-  defdelegate post_pivot_filters(selecto), to: Selecto.Query
+  def post_pivot_filters(selecto), do: Selecto.Query.post_retarget_filters(selecto)
 
   @doc """
   Return query filters from current filter buckets.
 
   Options:
-  - `:include_post_pivot` (default: `true`)
+  - `:include_post_retarget` (default: `true`)
   """
   @spec query_filters(t(), keyword()) :: [Selecto.Types.filter()]
   defdelegate query_filters(selecto, opts \\ []), to: Selecto.Query
@@ -731,17 +755,17 @@ defmodule Selecto do
   defdelegate offset(selecto, offset_value), to: Selecto.Query
 
   @doc """
-  Pivot the query to focus on a different table while preserving existing context.
+  Retarget the query to focus on a different table while preserving existing context.
 
   This allows you to retarget a Selecto query from the source table to any joined
   table, while preserving existing filters through subqueries.
 
   ## Examples
 
-      # Pivot from events to orders while preserving event filters
+      # Retarget from events to orders while preserving event filters
       selecto
       |> Selecto.filter([{"event_id", 123}])
-      |> Selecto.pivot(:orders)
+      |> Selecto.retarget(:orders)
       |> Selecto.select(["product_name", "quantity"])
 
   ## Options
@@ -749,10 +773,16 @@ defmodule Selecto do
   - `:preserve_filters` - Whether to preserve existing filters (default: true)
   - `:subquery_strategy` - How to generate the subquery (`:in`, `:exists`, `:join`)
 
-  See `Selecto.Pivot` module for more details.
+  See `Selecto.Retarget` module for more details.
   """
+  def retarget(selecto, target_schema, opts \\ []) do
+    Selecto.Retarget.retarget(selecto, target_schema, opts)
+  end
+
+  @doc false
+  @deprecated "Use retarget/3 instead."
   def pivot(selecto, target_schema, opts \\ []) do
-    Selecto.Pivot.pivot(selecto, target_schema, opts)
+    Selecto.Retarget.retarget(selecto, target_schema, opts)
   end
 
   @doc """

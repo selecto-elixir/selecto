@@ -112,7 +112,7 @@ defmodule Selecto.Configuration do
         selected: Map.get(domain, :required_selected, []),
         filtered: [],
         required_filters: Map.get(domain, :required_filters, []),
-        post_pivot_filters: [],
+        post_retarget_filters: [],
         order_by: Map.get(domain, :required_order_by, []),
         group_by: Map.get(domain, :required_group_by, [])
       }
@@ -130,25 +130,10 @@ defmodule Selecto.Configuration do
   end
 
   defp auto_rollup_sort_fix(adapter, connection) do
-    case detect_postgres_major_version(adapter, connection) do
-      major when is_integer(major) and major >= 18 -> false
-      _ -> true
-    end
-  end
-
-  defp detect_postgres_major_version(adapter, connection) do
-    cond do
-      not Selecto.AdapterSupport.postgresql_adapter?(adapter) ->
-        nil
-
-      Selecto.AdapterSupport.callback_available?(adapter, :server_version_major, 1) ->
-        case adapter.server_version_major(connection) do
-          {:ok, major} when is_integer(major) -> major
-          _ -> nil
-        end
-
-      true ->
-        nil
+    if Selecto.AdapterSupport.callback_available?(adapter, :rollup_sort_fix, 1) do
+      adapter.rollup_sort_fix(connection)
+    else
+      false
     end
   end
 

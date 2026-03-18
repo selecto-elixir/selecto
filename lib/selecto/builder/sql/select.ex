@@ -9,6 +9,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   import Selecto.Builder.Sql.Helpers
 
+  alias Selecto.AdapterSQL
   alias Selecto.Jsonb
 
   ### TODO alter prep_selector to return the data type
@@ -432,8 +433,11 @@ defmodule Selecto.Builder.Sql.Select do
         end
       end)
       |> Enum.reduce({[], []}, fn {io, p}, {acc_io, acc_p} ->
-        {acc_io ++ [io], acc_p ++ p}
+        {[io | acc_io], Enum.reverse(p, acc_p)}
       end)
+
+    values_iodata = Enum.reverse(values_iodata)
+    values_params = Enum.reverse(values_params)
 
     array_elements = Enum.intersperse(values_iodata, ", ")
     iodata = ["ARRAY[", array_elements, "]"]
@@ -709,8 +713,8 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {:to_char, {field, format}}, pivot_aliases) do
     {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
-    to_char_iodata = ["to_char(", sel_iodata, ", ", single_wrap(format), ")"]
-    {to_char_iodata, join, param}
+
+    {AdapterSQL.format_datetime(selecto, sel_iodata, format), join, param}
   end
 
   def prep_selector(selecto, {:field, selector}, pivot_aliases) do
@@ -834,17 +838,16 @@ defmodule Selecto.Builder.Sql.Select do
       when is_binary(selector) or is_atom(selector) do
     selector = if is_atom(selector), do: Atom.to_string(selector), else: selector
 
-    # First check if this is a JSONB path (e.g., "attributes.color")
-    domain = selecto.config
+    if regular_selector?(selector, selecto.config) do
+      prep_regular_selector(selecto, selector, pivot_aliases)
+    else
+      case Jsonb.parse_field_reference(selector, selecto.config) do
+        {:jsonb, column, path} ->
+          prep_jsonb_selector(selecto, column, path, pivot_aliases)
 
-    case Jsonb.parse_field_reference(selector, domain) do
-      {:jsonb, column, path} ->
-        # This is a JSONB path - generate extraction SQL
-        prep_jsonb_selector(selecto, column, path, pivot_aliases)
-
-      {:regular, _} ->
-        # Not a JSONB path, use standard field resolution
-        prep_regular_selector(selecto, selector, pivot_aliases)
+        {:regular, _} ->
+          prep_regular_selector(selecto, selector, pivot_aliases)
+      end
     end
   end
 
@@ -899,18 +902,7 @@ defmodule Selecto.Builder.Sql.Select do
     set = Map.get(selecto, :set) || %{}
     dynamic_columns = if is_map(set), do: Map.get(set, :dynamic_columns, %{}), else: %{}
 
-    conf =
-      if Map.has_key?(dynamic_columns, selector) do
-        # Create a minimal field config for dynamic columns
-        %{
-          name: selector,
-          field: selector,
-          requires_join: nil,
-          select: nil
-        }
-      else
-        Selecto.field(selecto, selector)
-      end
+    conf = fast_field_config(selecto, selector, dynamic_columns)
 
     # Handle case where field configuration doesn't exist
     if conf == nil do
@@ -943,6 +935,62 @@ defmodule Selecto.Builder.Sql.Select do
         prep_selector(selecto, sub, pivot_aliases)
     end
   end
+
+  defp fast_field_config(selecto, selector, dynamic_columns) do
+    cond do
+      Map.has_key?(dynamic_columns, selector) ->
+        %{
+          name: selector,
+          field: selector,
+          requires_join: nil,
+          select: nil
+        }
+
+      true ->
+        case fast_config_column(selecto, selector) do
+          nil -> Selecto.field(selecto, selector)
+          conf -> conf
+        end
+    end
+  end
+
+  defp fast_config_column(selecto, selector) do
+    columns = Map.get(selecto.config, :columns, %{})
+
+    conf =
+      Map.get(columns, selector) ||
+        case safe_existing_atom(selector) do
+          nil -> nil
+          atom_key -> Map.get(columns, atom_key)
+        end
+
+    normalize_fast_column_conf(conf, selector)
+  end
+
+  defp normalize_fast_column_conf(nil, _selector), do: nil
+
+  defp normalize_fast_column_conf(conf, selector) do
+    conf
+    |> Map.put_new(:requires_join, :selecto_root)
+    |> Map.put_new(:field, fallback_field_name(conf, selector))
+  end
+
+  defp fallback_field_name(conf, selector) do
+    case Map.get(conf, :field) do
+      nil -> Map.get(conf, :name, selector)
+      value -> value
+    end
+  end
+
+  defp safe_existing_atom(selector) when is_binary(selector) do
+    try do
+      String.to_existing_atom(selector)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp safe_existing_atom(_selector), do: nil
 
   defp build_missing_field_error(selecto, selector, dynamic_columns) do
     selector_str = to_string(selector)
@@ -1057,8 +1105,12 @@ defmodule Selecto.Builder.Sql.Select do
     {select_parts, join, param} =
       Enum.reduce(List.wrap(fields), {[], [], []}, fn f, {select, join, param} ->
         {s_iodata, j, p} = prep_selector(selecto, f, pivot_aliases)
-        {select ++ [s_iodata], join ++ List.wrap(j), param ++ p}
+        {[s_iodata | select], Enum.reverse(List.wrap(j), join), Enum.reverse(p, param)}
       end)
+
+    select_parts = Enum.reverse(select_parts)
+    join = Enum.reverse(join)
+    param = Enum.reverse(param)
 
     row_iodata = ["row( ", Enum.intersperse(select_parts, ", "), " )"]
     {row_iodata, join, param, as}
@@ -1070,7 +1122,7 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def build(selecto, {:func, func_name, args, opts}, pivot_aliases) when is_list(opts) do
-    as = Keyword.get(opts, :as, UUID.uuid4())
+    as = Keyword.get(opts, :as, generated_alias())
 
     {select_iodata, join, param} =
       prep_selector(selecto, {:func, func_name, args, opts}, pivot_aliases)
@@ -1078,9 +1130,14 @@ defmodule Selecto.Builder.Sql.Select do
     {select_iodata, join, param, as}
   end
 
+  def build(selecto, field, pivot_aliases) when is_binary(field) or is_atom(field) do
+    {select_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+    {select_iodata, join, param, alias_from_selector(field)}
+  end
+
   def build(selecto, field, pivot_aliases) do
     {select_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
-    {select_iodata, join, param, UUID.uuid4()}
+    {select_iodata, join, param, generated_alias()}
   end
 
   # build/4 functions
@@ -1130,8 +1187,17 @@ defmodule Selecto.Builder.Sql.Select do
     {arg_iodata_parts, join, param} =
       Enum.reduce(args, {[], [], []}, fn arg, {select_acc, join_acc, param_acc} ->
         {s_iodata, j, p} = prep_selector(selecto, arg, pivot_aliases)
-        {select_acc ++ [s_iodata], join_acc ++ List.wrap(j), param_acc ++ p}
+
+        {
+          [s_iodata | select_acc],
+          Enum.reverse(List.wrap(j), join_acc),
+          Enum.reverse(p, param_acc)
+        }
       end)
+
+    arg_iodata_parts = Enum.reverse(arg_iodata_parts)
+    join = Enum.reverse(join)
+    param = Enum.reverse(param)
 
     function_name = func_name |> to_string() |> check_string()
 
@@ -1163,6 +1229,34 @@ defmodule Selecto.Builder.Sql.Select do
 
   defp to_boolean(value) when value in [true, false], do: value
   defp to_boolean(_value), do: false
+
+  defp regular_selector?(selector, domain) when is_binary(selector) do
+    case :binary.match(selector, ".") do
+      :nomatch ->
+        true
+
+      {dot_index, 1} ->
+        first = binary_part(selector, 0, dot_index)
+
+        case Map.get(Map.get(domain, :columns, %{}), first) do
+          %{type: type} when type in [:jsonb, :json] -> false
+          _ -> true
+        end
+    end
+  end
+
+  defp generated_alias do
+    UUID.uuid4()
+  end
+
+  defp alias_from_selector(field) when is_atom(field),
+    do: alias_from_selector(Atom.to_string(field))
+
+  defp alias_from_selector(field) when is_binary(field) do
+    field
+    |> String.split(".")
+    |> List.last()
+  end
 
   defp get_join_fields(joins) do
     Enum.flat_map(joins, fn {join_id, join_config} ->
@@ -1208,7 +1302,7 @@ defmodule Selecto.Builder.Sql.Select do
       field_ref in available_fields ->
         :ok
 
-      String.contains?(field_ref, ".") ->
+      is_binary(field_ref) and String.contains?(field_ref, ".") ->
         # Check if it's a valid qualified field reference, including permissive CTE fields
         case String.split(field_ref, ".", parts: 2) do
           [prefix, field_name] ->
@@ -1252,10 +1346,10 @@ defmodule Selecto.Builder.Sql.Select do
 
       spec ->
         case Map.get(spec, :columns) do
-          nil -> true
-          [] -> true
+          nil -> false
+          [] -> false
           cols when is_list(cols) -> field_name in Enum.map(cols, &to_string/1)
-          _ -> true
+          _ -> false
         end
     end
   end
@@ -1268,12 +1362,26 @@ defmodule Selecto.Builder.Sql.Select do
     end)
   end
 
-  defp build_safe_field_reference(field_ref, _selecto) do
-    # Phase 1: Basic field reference building
-    # Phase 2+: More sophisticated reference building with join aliases
-    cond do
-      String.contains?(field_ref, ".") -> field_ref
-      true -> "selecto_root.#{field_ref}"
+  defp build_safe_field_reference(field_ref, selecto) do
+    case String.split(to_string(field_ref), ".", parts: 2) do
+      [field] ->
+        [
+          Selecto.Builder.Sql.Helpers.quote_identifier(selecto, "selecto_root"),
+          ".",
+          Selecto.Builder.Sql.Helpers.quote_identifier(selecto, field)
+        ]
+        |> IO.iodata_to_binary()
+
+      [source, field] ->
+        [
+          Selecto.Builder.Sql.Helpers.quote_identifier(selecto, source),
+          ".",
+          Selecto.Builder.Sql.Helpers.quote_identifier(selecto, field)
+        ]
+        |> IO.iodata_to_binary()
+
+      _ ->
+        raise ArgumentError, "Invalid field reference '#{inspect(field_ref)}' in custom SQL"
     end
   end
 

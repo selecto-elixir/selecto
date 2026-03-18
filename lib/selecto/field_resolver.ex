@@ -213,27 +213,27 @@ defmodule Selecto.FieldResolver do
 
           :not_cte ->
             # Check if the join exists
-            if Map.has_key?(selecto.config.joins, String.to_atom(join_name)) do
-              join_atom = String.to_atom(join_name)
-              join_info = selecto.config.joins[join_atom]
-              available_join_fields = Map.keys(join_info.fields || %{})
+            case lookup_join_config(selecto.config.joins, join_name) do
+              {:ok, join_key, join_info} ->
+                available_join_fields = Map.keys(join_info.fields || %{})
 
-              {:error,
-               Error.field_resolution_error(
-                 "Field '#{field_name}' not found in join '#{join_name}'",
-                 qualified_name,
-                 %{available_fields_in_join: available_join_fields}
-               )}
-            else
-              available_joins = Map.keys(selecto.config.joins)
-              available_ctes = get_cte_names(selecto)
+                {:error,
+                 Error.field_resolution_error(
+                   "Field '#{field_name}' not found in join '#{join_name}'",
+                   qualified_name,
+                   %{available_fields_in_join: available_join_fields, join_key: join_key}
+                 )}
 
-              {:error,
-               Error.field_resolution_error(
-                 "Join '#{join_name}' not found",
-                 qualified_name,
-                 %{available_joins: available_joins, available_ctes: available_ctes}
-               )}
+              :error ->
+                available_joins = Map.keys(selecto.config.joins)
+                available_ctes = get_cte_names(selecto)
+
+                {:error,
+                 Error.field_resolution_error(
+                   "Join '#{join_name}' not found",
+                   qualified_name,
+                   %{available_joins: available_joins, available_ctes: available_ctes}
+                 )}
             end
 
           {:error, error} ->
@@ -286,10 +286,8 @@ defmodule Selecto.FieldResolver do
          parameters: parameters
        }) do
     # Handle parameterized joins
-    join_atom = String.to_atom(join_name)
-
-    case Map.get(selecto.config.joins, join_atom) do
-      nil ->
+    case lookup_join_config(selecto.config.joins, join_name) do
+      :error ->
         available_joins = Map.keys(selecto.config.joins)
 
         {:error,
@@ -299,7 +297,7 @@ defmodule Selecto.FieldResolver do
            %{available_joins: available_joins}
          )}
 
-      join_config ->
+      {:ok, _join_key, join_config} ->
         # Validate parameters against join configuration
         case validate_join_parameters(join_config, parameters) do
           {:ok, validated_params} ->
@@ -310,11 +308,13 @@ defmodule Selecto.FieldResolver do
             # Check if field exists in the join
             case get_field_from_join(join_config, field_name) do
               {:ok, field_type} ->
+                source_join = existing_atom(join_name) || join_name
+
                 {:ok,
                  %{
                    name: field_name,
                    qualified_name: qualified_name,
-                   source_join: join_atom,
+                   source_join: source_join,
                    type: field_type,
                    alias: nil,
                    table_alias: join_name,
@@ -467,7 +467,7 @@ defmodule Selecto.FieldResolver do
           source_join: join_name,
           type: Map.get(field_config, :type, field_config[:type]) || :string,
           alias: Map.get(field_config, :alias, field_config[:alias]),
-          table_alias: Atom.to_string(join_name),
+          table_alias: to_string(join_name),
           field: database_field_name,
           parameters: nil,
           parameter_signature: nil
@@ -620,13 +620,10 @@ defmodule Selecto.FieldResolver do
         {:error, "No fields defined for this join"}
 
       fields ->
-        # Try to find the field in various formats
-        field_atom = String.to_atom(field_name)
-
         field_key =
-          Enum.find([field_name, field_atom, "#{join_config.id}.#{field_name}"], fn key ->
-            Map.has_key?(fields, key)
-          end)
+          [field_name, existing_atom(field_name), "#{join_config.id}.#{field_name}"]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.find(&Map.has_key?(fields, &1))
 
         case field_key do
           nil ->
@@ -648,4 +645,32 @@ defmodule Selecto.FieldResolver do
         end
     end
   end
+
+  defp lookup_join_config(joins, join_name) when is_map(joins) do
+    join_name_string = to_string(join_name)
+
+    candidate_keys =
+      [join_name, join_name_string, existing_atom(join_name_string)]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case Enum.find(candidate_keys, &Map.has_key?(joins, &1)) do
+      nil -> :error
+      key -> {:ok, key, Map.fetch!(joins, key)}
+    end
+  end
+
+  defp lookup_join_config(_joins, _join_name), do: :error
+
+  defp existing_atom(value) when is_atom(value), do: value
+
+  defp existing_atom(value) when is_binary(value) do
+    try do
+      String.to_existing_atom(value)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp existing_atom(_value), do: nil
 end

@@ -74,6 +74,16 @@ defmodule Selecto.FieldResolverTest do
       assert field_info.table_alias == "posts"
     end
 
+    test "resolves qualified field when joins are keyed by strings", %{selecto: selecto} do
+      string_join_selecto = put_in(selecto.config.joins, %{"posts" => selecto.config.joins.posts})
+
+      {:ok, field_info} = FieldResolver.resolve_field(string_join_selecto, "posts.title")
+
+      assert field_info.qualified_name == "posts.title"
+      assert field_info.source_join == "posts"
+      assert field_info.type == :string
+    end
+
     test "resolves aliased field reference", %{selecto: selecto} do
       {:ok, field_info} =
         FieldResolver.resolve_field(selecto, {:field, "name", alias: "user_name"})

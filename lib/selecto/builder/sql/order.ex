@@ -7,6 +7,8 @@ defmodule Selecto.Builder.Sql.Order do
   fragments, and bind parameters for the ordering clause.
   """
 
+  alias Selecto.AdapterSQL
+
   @dirs %{
     asc: "asc",
     desc: "desc",
@@ -39,7 +41,7 @@ defmodule Selecto.Builder.Sql.Order do
   def order(selecto, {{:case, when_clauses, else_clause}, dir})
       when dir in @dir_list and is_list(when_clauses) do
     {case_iodata, joins, params} = build_order_case_expression(selecto, when_clauses, else_clause)
-    {joins, [case_iodata, " ", @dirs[dir]], params}
+    {joins, build_order_clause(selecto, case_iodata, dir), order_params(params, dir)}
   end
 
   def order(selecto, {{:case, when_clauses}, dir})
@@ -48,14 +50,14 @@ defmodule Selecto.Builder.Sql.Order do
   end
 
   def order(selecto, {dir, order}) when dir in @dir_list do
-    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
-    {j, [c, " ", @dirs[dir]], p}
+    {c, j, p} = build_order_selector(selecto, order)
+    {j, build_order_clause(selecto, c, dir), order_params(p, dir)}
   end
 
   def order(selecto, {order, dir}) when dir in @dir_list do
     # Handle {field, direction} format which is the standard in this codebase
-    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
-    {j, [c, " ", @dirs[dir]], p}
+    {c, j, p} = build_order_selector(selecto, order)
+    {j, build_order_clause(selecto, c, dir), order_params(p, dir)}
   end
 
   def order(selecto, order_by) do
@@ -69,9 +71,13 @@ defmodule Selecto.Builder.Sql.Order do
         {[], [], []},
         fn g, {joins, clauses, params} ->
           {j, c, p} = order(selecto, g)
-          {joins ++ [j], clauses ++ [c], params ++ p}
+          {[j | joins], [c | clauses], Enum.reverse(p, params)}
         end
       )
+
+    joins = Enum.reverse(joins)
+    clauses_iodata = Enum.reverse(clauses_iodata)
+    params = Enum.reverse(params)
 
     # Join clauses with ", " separator as iodata
     clause_parts = Enum.intersperse(clauses_iodata, ", ")
@@ -121,5 +127,49 @@ defmodule Selecto.Builder.Sql.Order do
     case_iodata = ["CASE ", Enum.intersperse(when_parts, " ")] ++ else_iodata ++ [" END"]
 
     {case_iodata, all_joins, all_params ++ else_params}
+  end
+
+  defp build_order_selector(selecto, order) when is_binary(order) or is_atom(order) do
+    Selecto.Builder.Sql.Select.prep_selector(selecto, order)
+  end
+
+  defp build_order_selector(selecto, order) do
+    {c, j, p, _a} = Selecto.Builder.Sql.Select.build(selecto, order)
+    {c, j, p}
+  end
+
+  defp build_order_clause(selecto, order_iodata, dir) do
+    if native_null_ordering?(selecto) do
+      [order_iodata, " ", @dirs[dir]]
+    else
+      case dir do
+        :asc ->
+          [order_iodata, " asc"]
+
+        :desc ->
+          [order_iodata, " desc"]
+
+        :asc_nulls_first ->
+          [order_iodata, " asc"]
+
+        :desc_nulls_last ->
+          [order_iodata, " desc"]
+
+        :asc_nulls_last ->
+          ["CASE WHEN ", order_iodata, " IS NULL THEN 1 ELSE 0 END asc, ", order_iodata, " asc"]
+
+        :desc_nulls_first ->
+          ["CASE WHEN ", order_iodata, " IS NULL THEN 0 ELSE 1 END asc, ", order_iodata, " desc"]
+      end
+    end
+  end
+
+  defp order_params(params, dir) when dir in [:asc_nulls_last, :desc_nulls_first],
+    do: params ++ params
+
+  defp order_params(params, _dir), do: params
+
+  defp native_null_ordering?(selecto) do
+    AdapterSQL.native_null_ordering?(selecto)
   end
 end
