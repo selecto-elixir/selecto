@@ -81,6 +81,73 @@ defmodule Selecto.SubselectTest do
     Selecto.configure(domain, postgrex_opts, validate: false)
   end
 
+  def repeated_target_selecto do
+    domain = %{
+      source: %{
+        source_table: "workspaces",
+        primary_key: :id,
+        fields: [:id, :name],
+        redact_fields: [],
+        columns: %{id: %{type: :integer}, name: %{type: :string}},
+        associations: %{
+          members: %{
+            queryable: :employee,
+            field: :members,
+            owner_key: :id,
+            related_key: :workspace_id
+          }
+        }
+      },
+      schemas: %{
+        employee: %{
+          source_table: "employees",
+          primary_key: :id,
+          fields: [:id, :full_name, :workspace_id, :manager_id],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :integer},
+            full_name: %{type: :string},
+            workspace_id: %{type: :integer},
+            manager_id: %{type: :integer}
+          },
+          associations: %{
+            manager: %{
+              queryable: :employee,
+              field: :manager,
+              owner_key: :manager_id,
+              related_key: :id
+            }
+          }
+        }
+      },
+      name: "Workspace",
+      joins: %{members: %{type: :left, name: "members"}}
+    }
+
+    base = Selecto.configure(domain, [hostname: "localhost"], validate: false)
+
+    joins = %{
+      members: %{
+        type: :left,
+        name: "members",
+        source: "employees",
+        my_key: :workspace_id,
+        requires_join: :selecto_root,
+        fields: %{}
+      },
+      manager: %{
+        type: :left,
+        name: "manager",
+        source: "employees",
+        my_key: :manager_id,
+        requires_join: :members,
+        fields: %{}
+      }
+    }
+
+    %{base | config: Map.put(base.config, :joins, joins)}
+  end
+
   describe "subselect/3" do
     test "adds subselect configuration with string field specs" do
       selecto = create_test_selecto()
@@ -235,6 +302,28 @@ defmodule Selecto.SubselectTest do
       assert_raise ArgumentError, ~r/Target schema invalid not found/, fn ->
         Subselect.validate_subselect_config(selecto, config)
       end
+    end
+  end
+
+  describe "resolve_join_condition_with_path/4" do
+    test "uses explicit nested join paths for repeated target schemas" do
+      selecto = repeated_target_selecto()
+
+      {:ok, condition} =
+        Selecto.Builder.Subselect.resolve_join_condition_with_path(
+          selecto,
+          :employee,
+          "selecto_root",
+          [:members, :manager]
+        )
+
+      sql = IO.iodata_to_binary(condition)
+
+      assert sql =~ ~r/j_members\./i
+      assert sql =~ ~r/j_manager\./i
+      assert sql =~ ~r/j_members\."workspace_id" = selecto_root\."id"/i
+      assert sql =~ ~r/j_members\."manager_id" = j_manager\."id"/i
+      assert sql =~ ~r/j_manager\."id" = sub_employee\."id"/i
     end
   end
 

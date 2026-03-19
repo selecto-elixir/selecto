@@ -127,6 +127,7 @@ defmodule Selecto.Types do
           required(:target_schema) => atom(),
           required(:format) => subselect_format(),
           optional(:alias) => String.t(),
+          optional(:join_path) => [atom() | String.t()],
           optional(:separator) => String.t(),
           optional(:order_by) => [order_spec()],
           optional(:filters) => [filter()]

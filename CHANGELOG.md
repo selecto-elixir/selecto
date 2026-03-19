@@ -1,6 +1,17 @@
 
 # Selecto Library Changelog
 
+## V 0.4.1 - Nested Subselect Correlation Fix
+---------------------------------------------------------
+
+#### Changed
+- Fixed subselect correlation to honor explicit nested join paths when multiple
+  relationship chains target the same schema, preventing repeated-schema paths
+  from collapsing into the same `EXISTS` / `json_agg(...)` SQL.
+- Added support for preserving `join_path` metadata on subselect configs so
+  upstream builders can pass exact ancestry into SQL compilation.
+- Bumped package version to `0.4.1`.
+
 ## V 0.4.0 - External Adapter Architecture
 ---------------------------------------------------------
 

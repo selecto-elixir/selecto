@@ -435,12 +435,26 @@ defmodule Selecto.Builder.Subselect do
         "selecto_root"
       end
 
-    resolve_join_condition_with_path(selecto, target_schema, source_alias)
+    resolve_join_condition_with_path(selecto, target_schema, source_alias, nil)
   end
 
   @spec resolve_join_condition_with_path(Types.t(), atom(), String.t()) ::
           {:ok, Types.iodata_with_markers()} | {:error, String.t()}
   def resolve_join_condition_with_path(selecto, target_schema, source_alias) do
+    resolve_join_condition_with_path(selecto, target_schema, source_alias, nil)
+  end
+
+  @spec resolve_join_condition_with_path(Types.t(), atom(), String.t(), [atom()] | nil) ::
+          {:ok, Types.iodata_with_markers()} | {:error, String.t()}
+  def resolve_join_condition_with_path(selecto, target_schema, source_alias, explicit_join_path) do
+    if is_list(explicit_join_path) and explicit_join_path != [] do
+      build_join_condition_from_path(selecto, target_schema, explicit_join_path, source_alias)
+    else
+      do_resolve_join_condition_with_path(selecto, target_schema, source_alias)
+    end
+  end
+
+  defp do_resolve_join_condition_with_path(selecto, target_schema, source_alias) do
     # Use join path resolution for all cases
     case Selecto.Subselect.resolve_join_path(selecto, target_schema) do
       {:ok, []} ->
@@ -458,6 +472,14 @@ defmodule Selecto.Builder.Subselect do
       {:error, reason} ->
         {:error, "Cannot resolve join condition: #{reason}"}
     end
+  end
+
+  defp build_join_condition_from_path(selecto, target_schema, [assoc_name], source_alias) do
+    build_direct_correlation_with_assoc(selecto, target_schema, assoc_name, source_alias)
+  end
+
+  defp build_join_condition_from_path(selecto, target_schema, join_path, source_alias) do
+    build_exists_correlation(selecto, target_schema, join_path, source_alias)
   end
 
   # Private helper functions
@@ -919,7 +941,12 @@ defmodule Selecto.Builder.Subselect do
   end
 
   defp build_correlation_condition(selecto, subselect_config, _target_alias, source_alias) do
-    case resolve_join_condition_with_path(selecto, subselect_config.target_schema, source_alias) do
+    case resolve_join_condition_with_path(
+           selecto,
+           subselect_config.target_schema,
+           source_alias,
+           Map.get(subselect_config, :join_path)
+         ) do
       {:ok, condition_sql} ->
         {condition_sql, []}
 
