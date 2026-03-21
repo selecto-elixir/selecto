@@ -17,6 +17,7 @@ defmodule Selecto.Query do
   """
   @spec select(Selecto.Types.t(), [Selecto.Types.selector()]) :: Selecto.Types.t()
   def select(selecto, fields) when is_list(fields) do
+    Selecto.QueryValidator.validate_selectors!(selecto, fields)
     put_in(selecto.set.selected, Enum.uniq(selecto.set.selected ++ fields))
   end
 
@@ -35,6 +36,7 @@ defmodule Selecto.Query do
   """
   @spec filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def filter(selecto, filters) when is_list(filters) do
+    Selecto.QueryValidator.validate_filters!(selecto, filters)
     required_filters = required_filters(selecto)
 
     # Track whether this filter is applied before or after pivot
@@ -74,6 +76,7 @@ defmodule Selecto.Query do
   """
   @spec pre_retarget_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def pre_retarget_filter(selecto, filters) when is_list(filters) do
+    Selecto.QueryValidator.validate_filters!(selecto, filters)
     current_required = required_filters(selecto)
 
     put_in(
@@ -94,6 +97,8 @@ defmodule Selecto.Query do
   """
   @spec post_retarget_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def post_retarget_filter(selecto, filters) when is_list(filters) do
+    Selecto.QueryValidator.validate_filters!(selecto, filters)
+
     current =
       Map.get(selecto.set, :post_retarget_filters) ||
         Map.get(selecto.set, :post_pivot_filters, []) || []
@@ -251,11 +256,13 @@ defmodule Selecto.Query do
   """
   @spec order_by(Selecto.Types.t(), [Selecto.Types.order_spec()]) :: Selecto.Types.t()
   def order_by(selecto, orders) when is_list(orders) do
+    Selecto.QueryValidator.validate_order_specs!(selecto, orders)
     put_in(selecto.set.order_by, selecto.set.order_by ++ orders)
   end
 
   @spec order_by(Selecto.Types.t(), Selecto.Types.order_spec()) :: Selecto.Types.t()
   def order_by(selecto, orders) do
+    Selecto.QueryValidator.validate_order_specs!(selecto, orders)
     put_in(selecto.set.order_by, selecto.set.order_by ++ [orders])
   end
 
@@ -269,11 +276,13 @@ defmodule Selecto.Query do
   """
   @spec group_by(Selecto.Types.t(), [Selecto.Types.field_name()]) :: Selecto.Types.t()
   def group_by(selecto, groups) when is_list(groups) do
+    Selecto.QueryValidator.validate_group_specs!(selecto, groups)
     put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
   end
 
   @spec group_by(Selecto.Types.t(), Selecto.Types.field_name()) :: Selecto.Types.t()
   def group_by(selecto, groups) do
+    Selecto.QueryValidator.validate_group_specs!(selecto, groups)
     put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
   end
 
