@@ -1,6 +1,21 @@
 
 # Selecto Library Changelog
 
+## Unreleased
+---------------------------------------------------------
+
+#### Added
+- Added eager query-field validation through `Selecto.QueryValidator`, so core
+  query-building APIs now reject invalid field references before SQL generation.
+- Added focused regression coverage for eager validation across selectors,
+  filters, ordering, grouping, dynamic columns, CTE references, and subquery
+  placeholder binding.
+
+#### Changed
+- Updated `Selecto.Query` to validate field references eagerly in `select/2`,
+  `filter/2`, `pre_retarget_filter/2`, `post_retarget_filter/2`, `order_by/2`,
+  and `group_by/2` while preserving build-time SQL validation as a safety net.
+
 ## V 0.4.1 - Nested Subselect Correlation Fix
 ---------------------------------------------------------
 
