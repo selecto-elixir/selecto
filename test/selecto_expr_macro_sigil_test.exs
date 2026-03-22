@@ -19,6 +19,23 @@ defmodule Selecto.ExprMacroSigilTest do
              {:or, [{"deleted_at", :not_null}, {"name", {:ilike, "%chair%"}}]}
   end
 
+  test "where macro supports starts_with and ends_with helpers" do
+    prefix = "Ch"
+    suffix = "air"
+
+    assert where(starts_with(name, ^prefix) and ends_with(name, ^suffix)) ==
+             {:and, [{"name", {:like, "Ch%"}}, {"name", {:like, "%air"}}]}
+  end
+
+  test "select macro compiles helper-friendly selector lists" do
+    assert select([name, sum(price), coalesce(nickname, name), as(count(), "total")]) == [
+             {:field, "name"},
+             {:func, "SUM", [{:field, "price"}]},
+             {:coalesce, [{:field, "nickname"}, {:field, "name"}]},
+             {:field, {:count, "*"}, "total"}
+           ]
+  end
+
   test "uppercase ~SELECTO sigil compiles filter AST" do
     min_price = 50
     pattern = "%lamp%"
@@ -31,5 +48,13 @@ defmodule Selecto.ExprMacroSigilTest do
     status = "paid"
 
     assert ~SELECTO"orders.status == ^status" == {"orders.status", "paid"}
+  end
+
+  test "uppercase ~SELECTO sigil reports unsupported functions clearly" do
+    assert_raise ArgumentError,
+                 ~r/Unsupported Selecto filter expression: unknown_fun\(name\)/,
+                 fn ->
+                   Code.eval_quoted(quote(do: ~SELECTO"unknown_fun(name)"), [], __ENV__)
+                 end
   end
 end

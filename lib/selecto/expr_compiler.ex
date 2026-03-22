@@ -1,8 +1,23 @@
 defmodule Selecto.ExprCompiler do
   @moduledoc false
 
+  @supported_filter_functions [
+    :between,
+    :contains,
+    :ends_with,
+    :ilike,
+    :in,
+    :is_nil,
+    :like,
+    :starts_with
+  ]
+
   def compile_filter!(ast) do
     do_compile_filter(ast)
+  end
+
+  def compile_select!(ast) do
+    do_compile_select(ast)
   end
 
   def parse_filter!(string, opts \\ []) when is_binary(string) do
@@ -62,6 +77,14 @@ defmodule Selecto.ExprCompiler do
     compile_call(:contains, [field_ast, value_ast])
   end
 
+  defp do_compile_filter({:starts_with, _, [field_ast, value_ast]}) do
+    compile_call(:starts_with, [field_ast, value_ast])
+  end
+
+  defp do_compile_filter({:ends_with, _, [field_ast, value_ast]}) do
+    compile_call(:ends_with, [field_ast, value_ast])
+  end
+
   defp do_compile_filter({:in, _, [field_ast, value_ast]}) do
     compile_call(:in, [field_ast, value_ast])
   end
@@ -85,8 +108,75 @@ defmodule Selecto.ExprCompiler do
   end
 
   defp do_compile_filter(ast) do
+    raise_unsupported_filter!(ast)
+  end
+
+  defp do_compile_select(list_ast) when is_list(list_ast) do
+    quote do
+      [unquote_splicing(Enum.map(list_ast, &do_compile_select_item/1))]
+    end
+  end
+
+  defp do_compile_select(ast) do
+    do_compile_select_item(ast)
+  end
+
+  defp do_compile_select_item({name, _, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)) do
+    field_name = Atom.to_string(name)
+
+    quote do
+      Selecto.Expr.field(unquote(field_name))
+    end
+  end
+
+  defp do_compile_select_item({:field, _, [field_ast]}) do
+    field_name = compile_field_ref!(field_ast)
+
+    quote do
+      Selecto.Expr.field(unquote(field_name))
+    end
+  end
+
+  defp do_compile_select_item({:as, _, [expression_ast, alias_ast]}) do
+    alias_value = compile_select_value!(alias_ast)
+
+    quote do
+      Selecto.Expr.as(unquote(do_compile_select_item(expression_ast)), unquote(alias_value))
+    end
+  end
+
+  defp do_compile_select_item({:count, _, []}) do
+    quote do
+      Selecto.Expr.count("*")
+    end
+  end
+
+  defp do_compile_select_item({:coalesce, _, args}) when is_list(args) do
+    quote do
+      Selecto.Expr.coalesce([unquote_splicing(Enum.map(args, &compile_select_value!/1))])
+    end
+  end
+
+  defp do_compile_select_item({fun_name, _, args})
+       when fun_name in [:avg, :count, :max, :min, :sum] and is_list(args) do
+    quote do
+      apply(Selecto.Expr, unquote(fun_name), [
+        unquote_splicing(Enum.map(args, &compile_select_value!/1))
+      ])
+    end
+  end
+
+  defp do_compile_select_item(ast) do
     raise ArgumentError,
-          "Unsupported Selecto filter expression: #{Macro.to_string(ast)}"
+          "Unsupported Selecto select expression: #{Macro.to_string(ast)}"
+  end
+
+  defp raise_unsupported_filter!(ast) do
+    supported = Enum.map_join(@supported_filter_functions, ", ", &to_string/1)
+
+    raise ArgumentError,
+          "Unsupported Selecto filter expression: #{Macro.to_string(ast)}. Supported helpers: #{supported}"
   end
 
   defp compile_comparison(operator, field_ast, nil) when operator in [:==, :!=] do
@@ -157,4 +247,17 @@ defmodule Selecto.ExprCompiler do
   end
 
   defp compile_value!(ast), do: ast
+
+  defp compile_select_value!({name, _, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)) do
+    field_name = Atom.to_string(name)
+
+    quote do
+      Selecto.Expr.field(unquote(field_name))
+    end
+  end
+
+  defp compile_select_value!({:^, _, [value_ast]}), do: value_ast
+  defp compile_select_value!(ast) when is_tuple(ast), do: do_compile_select_item(ast)
+  defp compile_select_value!(ast), do: ast
 end

@@ -9,4 +9,8 @@ defmodule Selecto.ExprMacros do
   defmacro where(expression) do
     Selecto.ExprCompiler.compile_filter!(expression)
   end
+
+  defmacro select(expression) do
+    Selecto.ExprCompiler.compile_select!(expression)
+  end
 end
