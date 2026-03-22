@@ -152,6 +152,30 @@ defmodule Selecto.ExprCompiler do
     end
   end
 
+  defp do_compile_select_item({:window, _, [window_call_ast, opts_ast]}) when is_list(opts_ast) do
+    {function_name, arguments} = compile_window_call!(window_call_ast)
+    normalized_opts = compile_window_opts!(opts_ast)
+
+    quote do
+      Selecto.Expr.window(unquote(function_name), unquote(arguments), unquote(normalized_opts))
+    end
+  end
+
+  defp do_compile_select_item({fun_name, _, args})
+       when fun_name in [:json_extract, :json_extract_text] and is_list(args) do
+    compile_json_extract(fun_name, args)
+  end
+
+  defp do_compile_select_item({fun_name, _, args})
+       when fun_name in [:json_agg] and is_list(args) do
+    compile_json_agg(fun_name, args)
+  end
+
+  defp do_compile_select_item({fun_name, _, args})
+       when fun_name in [:json_object_agg] and is_list(args) do
+    compile_json_object_agg(fun_name, args)
+  end
+
   defp do_compile_select_item({:coalesce, _, args}) when is_list(args) do
     quote do
       Selecto.Expr.coalesce([unquote_splicing(Enum.map(args, &compile_select_value!/1))])
@@ -258,6 +282,146 @@ defmodule Selecto.ExprCompiler do
   end
 
   defp compile_select_value!({:^, _, [value_ast]}), do: value_ast
+
+  defp compile_select_value!({fun_name, _, [arg]}) when fun_name in [:asc, :desc] do
+    quote do
+      Selecto.Expr.unquote(fun_name)(unquote(compile_select_value!(arg)))
+    end
+  end
+
   defp compile_select_value!(ast) when is_tuple(ast), do: do_compile_select_item(ast)
   defp compile_select_value!(ast), do: ast
+
+  defp compile_window_call!({function_name, _, args})
+       when is_atom(function_name) and is_list(args) do
+    {function_name, Enum.map(args, &compile_select_value!/1)}
+  end
+
+  defp compile_window_call!(ast) do
+    raise ArgumentError,
+          "Unsupported Selecto window expression: #{Macro.to_string(ast)}"
+  end
+
+  defp compile_window_opts!(opts) do
+    Enum.map(opts, fn
+      {:over, over_opts} when is_list(over_opts) ->
+        {:over, compile_over_opts!(over_opts)}
+
+      {:as, alias_name} ->
+        {:as, alias_name}
+
+      other ->
+        other
+    end)
+  end
+
+  defp compile_over_opts!(over_opts) do
+    Enum.map(over_opts, fn
+      {:partition_by, fields} ->
+        {:partition_by, Enum.map(List.wrap(fields), &compile_field_string!/1)}
+
+      {:order_by, orders} ->
+        {:order_by, Enum.map(List.wrap(orders), &compile_order_expr!/1)}
+
+      {:frame, frame_spec} ->
+        {:frame, frame_spec}
+
+      other ->
+        other
+    end)
+  end
+
+  defp compile_order_expr!({direction, _, [value_ast]}) when direction in [:asc, :desc] do
+    quote do
+      Selecto.Expr.unquote(direction)(unquote(compile_order_value!(value_ast)))
+    end
+  end
+
+  defp compile_order_expr!(ast) do
+    compile_order_value!(ast)
+  end
+
+  defp compile_json_extract(fun_name, [column_ast, path_ast]) do
+    quote do
+      Selecto.Expr.unquote(fun_name)(
+        unquote(compile_field_string!(column_ast)),
+        unquote(compile_literal_or_value!(path_ast))
+      )
+    end
+  end
+
+  defp compile_json_extract(fun_name, [column_ast, path_ast, opts_ast]) when is_list(opts_ast) do
+    quote do
+      Selecto.Expr.unquote(fun_name)(
+        unquote(compile_field_string!(column_ast)),
+        unquote(compile_literal_or_value!(path_ast)),
+        unquote(compile_json_opts!(opts_ast))
+      )
+    end
+  end
+
+  defp compile_json_extract(fun_name, args) do
+    raise ArgumentError,
+          "Unsupported Selecto #{fun_name} expression: #{Macro.to_string({fun_name, [], args})}"
+  end
+
+  defp compile_json_agg(fun_name, [field_ast]) do
+    quote do
+      Selecto.Expr.unquote(fun_name)(unquote(compile_field_string!(field_ast)))
+    end
+  end
+
+  defp compile_json_agg(fun_name, [field_ast, opts_ast]) when is_list(opts_ast) do
+    quote do
+      Selecto.Expr.unquote(fun_name)(
+        unquote(compile_field_string!(field_ast)),
+        unquote(compile_json_opts!(opts_ast))
+      )
+    end
+  end
+
+  defp compile_json_object_agg(fun_name, [key_ast, value_ast]) do
+    quote do
+      Selecto.Expr.unquote(fun_name)(
+        unquote(compile_field_string!(key_ast)),
+        unquote(compile_field_string!(value_ast))
+      )
+    end
+  end
+
+  defp compile_json_object_agg(fun_name, [key_ast, value_ast, opts_ast]) when is_list(opts_ast) do
+    quote do
+      Selecto.Expr.unquote(fun_name)(
+        unquote(compile_field_string!(key_ast)),
+        unquote(compile_field_string!(value_ast)),
+        unquote(compile_json_opts!(opts_ast))
+      )
+    end
+  end
+
+  defp compile_json_object_agg(fun_name, args) do
+    raise ArgumentError,
+          "Unsupported Selecto #{fun_name} expression: #{Macro.to_string({fun_name, [], args})}"
+  end
+
+  defp compile_json_opts!(opts) do
+    Enum.map(opts, fn
+      {:as, alias_name} -> {:as, alias_name}
+      other -> other
+    end)
+  end
+
+  defp compile_field_string!(ast) do
+    compile_field_ref!(ast)
+  end
+
+  defp compile_order_value!({name, _, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)) do
+    compile_field_string!({name, [], context})
+  end
+
+  defp compile_order_value!(ast), do: compile_literal_or_value!(ast)
+
+  defp compile_literal_or_value!({:^, _, [value_ast]}), do: value_ast
+  defp compile_literal_or_value!(ast), do: ast
 end

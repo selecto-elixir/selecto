@@ -36,6 +36,24 @@ defmodule Selecto.ExprMacroSigilTest do
            ]
   end
 
+  test "select macro compiles window and json helper selectors" do
+    assert select([
+             window(row_number(),
+               over: [partition_by: [status], order_by: [desc(price)]],
+               as: "row_num"
+             ),
+             json_extract_text(metadata, "$.warehouse.zone", as: "zone"),
+             json_agg(name, as: "names"),
+             json_object_agg(id, name, as: "name_map")
+           ]) == [
+             {:window, {:row_number},
+              over: [partition_by: ["status"], order_by: [{"price", :desc}]], as: "row_num"},
+             {:json_extract_text, "metadata", "$.warehouse.zone", as: "zone"},
+             {:json_agg, "name", as: "names"},
+             {:json_object_agg, "id", "name", as: "name_map"}
+           ]
+  end
+
   test "uppercase ~SELECTO sigil compiles filter AST" do
     min_price = 50
     pattern = "%lamp%"
