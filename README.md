@@ -78,6 +78,61 @@ Selecto examples and tests now standardize on dot notation for joined paths:
 Use this notation consistently across `select`, `filter`, `group_by`, and
 `order_by` field references.
 
+## 🧱 Expression Helpers (0.4.x)
+
+Selecto now includes a composable expression layer for building query AST with
+plain Elixir values before SQL generation.
+
+```elixir
+alias Selecto.Expr, as: X
+
+query =
+  selecto
+  |> Selecto.filter(
+    X.compact_and([
+      X.eq("status", "active"),
+      X.when_present(search, &X.ilike("customer.name", "%#{&1}%")),
+      X.gte("total", 100)
+    ])
+  )
+  |> Selecto.select([
+    X.field("id"),
+    X.field("customer.name"),
+    X.as(X.count("*"), "total_rows")
+  ])
+```
+
+- Use `Selecto.Expr` when you want data-first, dynamically assembled filters or
+  selectors.
+- Helper output normalizes into the same AST accepted by `Selecto.select/2`,
+  `Selecto.filter/2`, `Selecto.order_by/2`, and `Selecto.group_by/2`.
+
+### Macro and sigil DSL
+
+For lighter-weight authoring, Selecto also ships an initial macro/sigil layer:
+
+```elixir
+import Selecto.ExprMacros
+import Selecto.Sigil
+
+where_ast = where(status == ^status and ilike(customer.name, ^pattern))
+
+select_ast =
+  select([
+    customer.name,
+    sum(total),
+    window(row_number(), over: [partition_by: [status], order_by: [desc(created_at)]], as: "row_num"),
+    json_extract_text(metadata, "$.warehouse.zone", as: "zone")
+  ])
+
+sigil_ast = ~SELECTO"total >= ^min_total and starts_with(customer.name, ^prefix)"
+```
+
+- `where/1` compiles a small Elixir-expression subset into Selecto filter AST.
+- `select/1` compiles helper-friendly selector lists, including aggregate,
+  window, and JSON select forms.
+- `~SELECTO` currently targets filter expressions only.
+
 ## 🧩 Extensions (0.3.3+)
 
 Selecto supports package-provided extensions through the `:extensions` key in

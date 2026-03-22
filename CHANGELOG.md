@@ -10,11 +10,20 @@
 - Added focused regression coverage for eager validation across selectors,
   filters, ordering, grouping, dynamic columns, CTE references, and subquery
   placeholder binding.
+- Added a composable expression layer with `Selecto.Expr`, including helper
+  constructors for filters, selectors, ordering, window specs, and JSON select
+  operations that normalize into Selecto's existing query AST.
+- Added `Selecto.ExprMacros.where/1`, `Selecto.ExprMacros.select/1`, and the
+  uppercase `~SELECTO` sigil for an initial Elixir-AST-based expression DSL,
+  with focused coverage for helper composition and diagnostics.
 
 #### Changed
 - Updated `Selecto.Query` to validate field references eagerly in `select/2`,
   `filter/2`, `pre_retarget_filter/2`, `post_retarget_filter/2`, `order_by/2`,
   and `group_by/2` while preserving build-time SQL validation as a safety net.
+- Updated `Selecto.Query` to normalize helper-shaped inputs before validation so
+  `Selecto.Expr` values can flow through the standard query-building APIs
+  without adding a separate execution path.
 
 ## V 0.4.1 - Nested Subselect Correlation Fix
 ---------------------------------------------------------
