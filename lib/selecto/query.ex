@@ -17,8 +17,9 @@ defmodule Selecto.Query do
   """
   @spec select(Selecto.Types.t(), [Selecto.Types.selector()]) :: Selecto.Types.t()
   def select(selecto, fields) when is_list(fields) do
-    Selecto.QueryValidator.validate_selectors!(selecto, fields)
-    put_in(selecto.set.selected, Enum.uniq(selecto.set.selected ++ fields))
+    normalized_fields = Selecto.Expr.normalize(fields)
+    Selecto.QueryValidator.validate_selectors!(selecto, normalized_fields)
+    put_in(selecto.set.selected, Enum.uniq(selecto.set.selected ++ normalized_fields))
   end
 
   @spec select(Selecto.Types.t(), Selecto.Types.selector()) :: Selecto.Types.t()
@@ -36,7 +37,8 @@ defmodule Selecto.Query do
   """
   @spec filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def filter(selecto, filters) when is_list(filters) do
-    Selecto.QueryValidator.validate_filters!(selecto, filters)
+    normalized_filters = Selecto.Expr.normalize(filters)
+    Selecto.QueryValidator.validate_filters!(selecto, normalized_filters)
     required_filters = required_filters(selecto)
 
     # Track whether this filter is applied before or after pivot
@@ -47,10 +49,10 @@ defmodule Selecto.Query do
     {pre_retarget_filters, post_retarget_filters} =
       case {has_retarget, retarget_config} do
         {false, _} ->
-          {uniq_filters(selecto.set.filtered ++ filters ++ required_filters), []}
+          {uniq_filters(selecto.set.filtered ++ normalized_filters ++ required_filters), []}
 
         {true, _} ->
-          {selecto.set.filtered, filters}
+          {selecto.set.filtered, normalized_filters}
       end
 
     # Update the set with new filter lists
@@ -76,12 +78,13 @@ defmodule Selecto.Query do
   """
   @spec pre_retarget_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def pre_retarget_filter(selecto, filters) when is_list(filters) do
-    Selecto.QueryValidator.validate_filters!(selecto, filters)
+    normalized_filters = Selecto.Expr.normalize(filters)
+    Selecto.QueryValidator.validate_filters!(selecto, normalized_filters)
     current_required = required_filters(selecto)
 
     put_in(
       selecto.set.filtered,
-      uniq_filters(selecto.set.filtered ++ filters ++ current_required)
+      uniq_filters(selecto.set.filtered ++ normalized_filters ++ current_required)
     )
   end
 
@@ -97,7 +100,8 @@ defmodule Selecto.Query do
   """
   @spec post_retarget_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def post_retarget_filter(selecto, filters) when is_list(filters) do
-    Selecto.QueryValidator.validate_filters!(selecto, filters)
+    normalized_filters = Selecto.Expr.normalize(filters)
+    Selecto.QueryValidator.validate_filters!(selecto, normalized_filters)
 
     current =
       Map.get(selecto.set, :post_retarget_filters) ||
@@ -105,7 +109,7 @@ defmodule Selecto.Query do
 
     updated_set =
       selecto.set
-      |> Map.put(:post_retarget_filters, current ++ filters)
+      |> Map.put(:post_retarget_filters, current ++ normalized_filters)
       |> Map.delete(:post_pivot_filters)
 
     %{selecto | set: updated_set}
@@ -256,14 +260,16 @@ defmodule Selecto.Query do
   """
   @spec order_by(Selecto.Types.t(), [Selecto.Types.order_spec()]) :: Selecto.Types.t()
   def order_by(selecto, orders) when is_list(orders) do
-    Selecto.QueryValidator.validate_order_specs!(selecto, orders)
-    put_in(selecto.set.order_by, selecto.set.order_by ++ orders)
+    normalized_orders = Selecto.Expr.normalize(orders)
+    Selecto.QueryValidator.validate_order_specs!(selecto, normalized_orders)
+    put_in(selecto.set.order_by, selecto.set.order_by ++ normalized_orders)
   end
 
   @spec order_by(Selecto.Types.t(), Selecto.Types.order_spec()) :: Selecto.Types.t()
   def order_by(selecto, orders) do
-    Selecto.QueryValidator.validate_order_specs!(selecto, orders)
-    put_in(selecto.set.order_by, selecto.set.order_by ++ [orders])
+    normalized_order = Selecto.Expr.normalize(orders)
+    Selecto.QueryValidator.validate_order_specs!(selecto, normalized_order)
+    put_in(selecto.set.order_by, selecto.set.order_by ++ [normalized_order])
   end
 
   @doc """
@@ -276,14 +282,16 @@ defmodule Selecto.Query do
   """
   @spec group_by(Selecto.Types.t(), [Selecto.Types.field_name()]) :: Selecto.Types.t()
   def group_by(selecto, groups) when is_list(groups) do
-    Selecto.QueryValidator.validate_group_specs!(selecto, groups)
-    put_in(selecto.set.group_by, selecto.set.group_by ++ groups)
+    normalized_groups = Selecto.Expr.normalize(groups)
+    Selecto.QueryValidator.validate_group_specs!(selecto, normalized_groups)
+    put_in(selecto.set.group_by, selecto.set.group_by ++ normalized_groups)
   end
 
   @spec group_by(Selecto.Types.t(), Selecto.Types.field_name()) :: Selecto.Types.t()
   def group_by(selecto, groups) do
-    Selecto.QueryValidator.validate_group_specs!(selecto, groups)
-    put_in(selecto.set.group_by, selecto.set.group_by ++ [groups])
+    normalized_group = Selecto.Expr.normalize(groups)
+    Selecto.QueryValidator.validate_group_specs!(selecto, normalized_group)
+    put_in(selecto.set.group_by, selecto.set.group_by ++ [normalized_group])
   end
 
   @doc """
