@@ -7,14 +7,15 @@ defmodule Selecto.QueryEagerValidationTest do
       source: %{
         source_table: "orders",
         primary_key: :id,
-        fields: [:id, :status, :total, :active, :tags],
+        fields: [:id, :status, :total, :active, :tags, :metadata],
         redact_fields: [],
         columns: %{
           id: %{type: :integer},
           status: %{type: :string},
           total: %{type: :decimal},
           active: %{type: :boolean},
-          tags: %{type: :array}
+          tags: %{type: :array},
+          metadata: %{type: :jsonb}
         },
         associations: %{
           order_items: %{
@@ -176,6 +177,37 @@ defmodule Selecto.QueryEagerValidationTest do
     assert query.set.selected == ["dyn_col"]
   end
 
+  test "array predicate filters validate their field references eagerly" do
+    query =
+      selecto()
+      |> Selecto.filter({:array_contains, "tags", ["featured"]})
+
+    assert query.set.filtered == [{:array_contains, "tags", ["featured"]}]
+
+    assert_raise ArgumentError, ~r/missing_tags/, fn ->
+      selecto()
+      |> Selecto.filter({:array_overlap, "missing_tags", ["featured"]})
+    end
+  end
+
+  test "json path selectors and filters validate eagerly against jsonb roots" do
+    query =
+      selecto()
+      |> Selecto.select(["metadata.warehouse.zone"])
+      |> Selecto.filter({"metadata.warehouse.zone", :exists})
+
+    assert query.set.selected == ["metadata.warehouse.zone"]
+    assert query.set.filtered == [{"metadata.warehouse.zone", :exists}]
+  end
+
+  test "raw sql group specs are not misclassified as keyword group wrappers" do
+    query =
+      selecto()
+      |> Selecto.group_by([{:raw_sql, "UPPER(selecto_root.status)"}])
+
+    assert query.set.group_by == [{:raw_sql, "UPPER(selecto_root.status)"}]
+  end
+
   test "raw sql field aliases remain deferred for later query steps" do
     query =
       selecto()
@@ -185,5 +217,6 @@ defmodule Selecto.QueryEagerValidationTest do
     {sql, _params} = Selecto.to_sql(query)
 
     assert sql =~ "product_tag"
+    refute sql =~ "nil.product_tag"
   end
 end

@@ -3,6 +3,7 @@ defmodule Selecto.QueryValidator do
 
   @skip_function_args ["*", "DISTINCT", "ALL"]
   @skip_function_arg_atoms [:*, :distinct, :all]
+  @group_wrapper_keys [:rollup]
   @order_directions [
     :asc,
     :desc,
@@ -46,7 +47,7 @@ defmodule Selecto.QueryValidator do
 
   @spec validate_group_specs!(Selecto.Types.t(), [term()] | term()) :: :ok
   def validate_group_specs!(selecto, group_specs) when is_list(group_specs) do
-    if Keyword.keyword?(group_specs) do
+    if keyword_group_specs?(group_specs) do
       Enum.each(group_specs, fn
         {:rollup, groups} -> validate_group_specs!(selecto, groups)
         {_key, groups} -> validate_group_specs!(selecto, groups)
@@ -255,6 +256,12 @@ defmodule Selecto.QueryValidator do
     validate_filter!(selecto, filter)
   end
 
+  defp validate_filter!(selecto, {op, field, values})
+       when op in [:array_contains, :array_contained, :array_overlap, :array_eq] and
+              (is_binary(field) or is_atom(field)) and is_list(values) do
+    validate_field_reference!(selecto, field)
+  end
+
   defp validate_filter!(_selecto, {:exists, _query}), do: :ok
   defp validate_filter!(_selecto, {:exists, _query, _params}), do: :ok
   defp validate_filter!(_selecto, {:raw_sql_filter, _filter_iodata}), do: :ok
@@ -321,6 +328,11 @@ defmodule Selecto.QueryValidator do
 
   defp validate_function_arg!(_selecto, _arg), do: :ok
 
+  defp keyword_group_specs?(group_specs) when is_list(group_specs) do
+    Keyword.keyword?(group_specs) and
+      Enum.all?(group_specs, fn {key, _value} -> key in @group_wrapper_keys end)
+  end
+
   defp validate_case_pair!(selecto, {condition, result}) do
     validate_filter!(selecto, condition)
     validate_case_result!(selecto, result)
@@ -340,11 +352,19 @@ defmodule Selecto.QueryValidator do
 
   defp validate_field_reference!(selecto, field_ref)
        when is_binary(field_ref) or is_atom(field_ref) do
+    json_field_ref = if is_atom(field_ref), do: Atom.to_string(field_ref), else: field_ref
+
     cond do
       dynamic_field?(selecto, field_ref) ->
         :ok
 
       computed_alias?(selecto, field_ref) ->
+        :ok
+
+      match?(
+        {:jsonb, _, [_ | _]},
+        Selecto.Jsonb.parse_field_reference(json_field_ref, selecto.config)
+      ) ->
         :ok
 
       Selecto.field(selecto, field_ref) != nil ->
