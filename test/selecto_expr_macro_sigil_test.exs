@@ -36,6 +36,26 @@ defmodule Selecto.ExprMacroSigilTest do
            ]
   end
 
+  test "select macro supports additional selector helpers" do
+    status = "active"
+
+    assert select([
+             field(customer.name),
+             lit("Open"),
+             count_distinct(customer.id),
+             case_when([{status == ^status, "Open"}], "Other"),
+             greatest(total, discount_total),
+             nullif(nickname, name)
+           ]) == [
+             {:field, "customer.name"},
+             {:literal, "Open"},
+             {:count_distinct, {:field, "customer.id"}},
+             {:case, [{{"status", "active"}, {:literal, "Open"}}], {:literal, "Other"}},
+             {:greatest, [{:field, "total"}, {:field, "discount_total"}]},
+             {:nullif, [{:field, "nickname"}, {:field, "name"}]}
+           ]
+  end
+
   test "select macro compiles window and json helper selectors" do
     assert select([
              window(row_number(),
@@ -51,6 +71,20 @@ defmodule Selecto.ExprMacroSigilTest do
              {:json_extract_text, "metadata", "$.warehouse.zone", as: "zone"},
              {:json_agg, "name", as: "names"},
              {:json_object_agg, "id", "name", as: "name_map"}
+           ]
+  end
+
+  test "order_by macro compiles fields, selector expressions, and null ordering helpers" do
+    assert order_by([
+             price,
+             desc_nulls_last(total),
+             coalesce(nickname, name),
+             asc(customer.name)
+           ]) == [
+             "price",
+             {"total", :desc_nulls_last},
+             {:coalesce, [{:field, "nickname"}, {:field, "name"}]},
+             {"customer.name", :asc}
            ]
   end
 

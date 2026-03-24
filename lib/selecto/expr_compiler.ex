@@ -12,12 +12,27 @@ defmodule Selecto.ExprCompiler do
     :starts_with
   ]
 
+  @order_directions [
+    :asc,
+    :desc,
+    :asc_nulls_first,
+    :asc_nulls_last,
+    :desc_nulls_first,
+    :desc_nulls_last
+  ]
+
+  @wrapper_selector_functions [:concat, :greatest, :least, :nullif]
+
   def compile_filter!(ast) do
     do_compile_filter(ast)
   end
 
   def compile_select!(ast) do
     do_compile_select(ast)
+  end
+
+  def compile_order!(ast) do
+    do_compile_order(ast)
   end
 
   def parse_filter!(string, opts \\ []) when is_binary(string) do
@@ -121,9 +136,27 @@ defmodule Selecto.ExprCompiler do
     do_compile_select_item(ast)
   end
 
+  defp do_compile_order(list_ast) when is_list(list_ast) do
+    quote do
+      [unquote_splicing(Enum.map(list_ast, &compile_order_expr!/1))]
+    end
+  end
+
+  defp do_compile_order(ast) do
+    compile_order_expr!(ast)
+  end
+
   defp do_compile_select_item({name, _, context})
        when is_atom(name) and (is_atom(context) or is_nil(context)) do
     field_name = Atom.to_string(name)
+
+    quote do
+      Selecto.Expr.field(unquote(field_name))
+    end
+  end
+
+  defp do_compile_select_item({{:., _, _}, _, []} = field_ast) do
+    field_name = compile_field_ref!(field_ast)
 
     quote do
       Selecto.Expr.field(unquote(field_name))
@@ -138,6 +171,12 @@ defmodule Selecto.ExprCompiler do
     end
   end
 
+  defp do_compile_select_item({:lit, _, [value_ast]}) do
+    quote do
+      Selecto.Expr.lit(unquote(compile_literal_or_value!(value_ast)))
+    end
+  end
+
   defp do_compile_select_item({:as, _, [expression_ast, alias_ast]}) do
     alias_value = compile_select_value!(alias_ast)
 
@@ -149,6 +188,27 @@ defmodule Selecto.ExprCompiler do
   defp do_compile_select_item({:count, _, []}) do
     quote do
       Selecto.Expr.count("*")
+    end
+  end
+
+  defp do_compile_select_item({:count_distinct, _, [value_ast]}) do
+    quote do
+      {:count_distinct, unquote(compile_select_value!(value_ast))}
+    end
+  end
+
+  defp do_compile_select_item({:case_when, _, [pairs_ast]}) when is_list(pairs_ast) do
+    quote do
+      Selecto.Expr.case_when(unquote(compile_case_pairs!(pairs_ast)))
+    end
+  end
+
+  defp do_compile_select_item({:case_when, _, [pairs_ast, else_ast]}) when is_list(pairs_ast) do
+    quote do
+      Selecto.Expr.case_when(
+        unquote(compile_case_pairs!(pairs_ast)),
+        unquote(compile_case_result!(else_ast))
+      )
     end
   end
 
@@ -179,6 +239,13 @@ defmodule Selecto.ExprCompiler do
   defp do_compile_select_item({:coalesce, _, args}) when is_list(args) do
     quote do
       Selecto.Expr.coalesce([unquote_splicing(Enum.map(args, &compile_select_value!/1))])
+    end
+  end
+
+  defp do_compile_select_item({fun_name, _, args})
+       when fun_name in @wrapper_selector_functions and is_list(args) do
+    quote do
+      {unquote(fun_name), [unquote_splicing(Enum.map(args, &compile_select_value!/1))]}
     end
   end
 
@@ -331,7 +398,7 @@ defmodule Selecto.ExprCompiler do
     end)
   end
 
-  defp compile_order_expr!({direction, _, [value_ast]}) when direction in [:asc, :desc] do
+  defp compile_order_expr!({direction, _, [value_ast]}) when direction in @order_directions do
     quote do
       Selecto.Expr.unquote(direction)(unquote(compile_order_value!(value_ast)))
     end
@@ -415,11 +482,31 @@ defmodule Selecto.ExprCompiler do
     compile_field_ref!(ast)
   end
 
+  defp compile_case_pairs!(pairs_ast) when is_list(pairs_ast) do
+    Enum.map(pairs_ast, fn
+      {condition_ast, result_ast} ->
+        quote do
+          {unquote(do_compile_filter(condition_ast)), unquote(compile_case_result!(result_ast))}
+        end
+
+      other ->
+        raise ArgumentError,
+              "Expected {condition, result} pairs in case_when/2, got: #{Macro.to_string(other)}"
+    end)
+  end
+
+  defp compile_case_result!(result_ast), do: compile_select_value!(result_ast)
+
   defp compile_order_value!({name, _, context})
        when is_atom(name) and (is_atom(context) or is_nil(context)) do
     compile_field_string!({name, [], context})
   end
 
+  defp compile_order_value!({{:., _, _}, _, []} = field_ast) do
+    compile_field_string!(field_ast)
+  end
+
+  defp compile_order_value!(ast) when is_tuple(ast), do: do_compile_select_item(ast)
   defp compile_order_value!(ast), do: compile_literal_or_value!(ast)
 
   defp compile_literal_or_value!({:^, _, [value_ast]}), do: value_ast

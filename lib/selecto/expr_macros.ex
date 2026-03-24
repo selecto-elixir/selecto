@@ -13,4 +13,8 @@ defmodule Selecto.ExprMacros do
   defmacro select(expression) do
     Selecto.ExprCompiler.compile_select!(expression)
   end
+
+  defmacro order_by(expression) do
+    Selecto.ExprCompiler.compile_order!(expression)
+  end
 end
