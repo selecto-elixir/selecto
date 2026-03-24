@@ -125,13 +125,18 @@ select_ast =
     json_extract_text(metadata, "$.warehouse.zone", as: "zone")
   ])
 
+order_ast = order_by([desc_nulls_last(total), asc(customer.name)])
+
 sigil_ast = ~SELECTO"total >= ^min_total and starts_with(customer.name, ^prefix)"
 ```
 
 - `where/1` compiles a small Elixir-expression subset into Selecto filter AST.
 - `select/1` compiles helper-friendly selector lists, including aggregate,
   window, and JSON select forms.
+- `order_by/1` compiles field and selector ordering expressions, including null
+  ordering helpers.
 - `~SELECTO` currently targets filter expressions only.
+- See `docs/expression_dsl.md` for the fuller guide and coverage snapshot.
 
 ## 🧩 Extensions (0.3.3+)
 
