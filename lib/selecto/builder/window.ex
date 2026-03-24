@@ -10,6 +10,7 @@ defmodule Selecto.Builder.Window do
   """
 
   alias Selecto.Window.{Spec, Frame}
+  alias Selecto.AdapterSupport
 
   @doc """
   Build window function SQL for SELECT clause.
@@ -48,7 +49,12 @@ defmodule Selecto.Builder.Window do
     {function_iodata, function_params} = build_function_call(selecto, window_spec)
     {over_iodata, over_params} = build_over_clause(selecto, window_spec)
 
-    alias_part = if window_spec.alias, do: [" AS ", window_spec.alias], else: []
+    alias_part =
+      if window_spec.alias do
+        [" AS ", quote_alias(selecto, window_spec.alias)]
+      else
+        []
+      end
 
     iodata = [function_iodata, " OVER (", over_iodata, ")", alias_part]
     params = function_params ++ over_params
@@ -345,4 +351,14 @@ defmodule Selecto.Builder.Window do
   end
 
   defp is_empty_iodata(_), do: false
+
+  defp quote_alias(selecto, alias_name) do
+    adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+
+    if AdapterSupport.callback_available?(adapter, :quote_identifier, 1) do
+      adapter.quote_identifier(alias_name)
+    else
+      alias_name
+    end
+  end
 end

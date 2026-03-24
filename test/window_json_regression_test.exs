@@ -238,13 +238,36 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert params == []
 
     assert sql =~
-             "ROW_NUMBER() OVER (PARTITION BY selecto_root.department ORDER BY selecto_root.salary DESC) AS department_salary_rank"
+             "ROW_NUMBER() OVER (PARTITION BY selecto_root.department ORDER BY selecto_root.salary DESC) AS \"department_salary_rank\""
 
     assert sql =~
-             "AVG(selecto_root.salary) OVER (PARTITION BY selecto_root.department) AS department_avg_salary"
+             "AVG(selecto_root.salary) OVER (PARTITION BY selecto_root.department) AS \"department_avg_salary\""
 
     refute sql =~ "PARTITION BY employees.department"
     refute sql =~ "ORDER BY employees.salary"
+  end
+
+  test "mssql window aliases use adapter quoting" do
+    query =
+      Selecto.configure(employee_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["first_name", "department", "salary"])
+      |> Selecto.window_function(:row_number, [],
+        over: [partition_by: ["department"], order_by: [{"salary", :desc}]],
+        as: "department salary rank"
+      )
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "ROW_NUMBER() OVER (PARTITION BY selecto_root.department ORDER BY selecto_root.salary DESC) AS [department salary rank]"
+
+    refute sql =~ "AS department salary rank"
   end
 
   test "json_select + json_filter build valid SQL in SELECT and WHERE" do
