@@ -8,20 +8,22 @@ defmodule Selecto.Builder.JsonOperations do
   """
 
   alias Selecto.Advanced.JsonOperations.Spec
+  alias Selecto.AdapterSupport
+  alias Selecto.Jsonb
 
   @doc """
   Generate SQL for a JSON operation in SELECT clauses.
 
   Returns SQL iodata with proper function calls and parameter binding.
   """
-  def build_json_select(%Spec{} = spec) do
+  def build_json_select(%Spec{} = spec, opts \\ []) do
     case spec.validated do
       false ->
         raise ArgumentError,
               "JSON operation specification must be validated before SQL generation"
 
       true ->
-        generate_select_sql(spec)
+        generate_select_sql(spec, opts)
     end
   end
 
@@ -30,14 +32,14 @@ defmodule Selecto.Builder.JsonOperations do
 
   Returns SQL iodata suitable for filtering conditions.
   """
-  def build_json_filter(%Spec{} = spec) do
+  def build_json_filter(%Spec{} = spec, opts \\ []) do
     case spec.validated do
       false ->
         raise ArgumentError,
               "JSON operation specification must be validated before SQL generation"
 
       true ->
-        generate_filter_sql(spec)
+        generate_filter_sql(spec, opts)
     end
   end
 
@@ -46,28 +48,28 @@ defmodule Selecto.Builder.JsonOperations do
 
   Returns {sql_iodata, parameters} tuple for batch operations.
   """
-  def build_json_operations(specs) when is_list(specs) do
-    sql_parts = Enum.map(specs, &build_json_select/1)
+  def build_json_operations(specs, opts \\ []) when is_list(specs) do
+    sql_parts = Enum.map(specs, &build_json_select(&1, opts))
     combined_sql = Enum.intersperse(sql_parts, ", ")
     # Parameters handled individually by each operation
     {combined_sql, []}
   end
 
   # Generate SELECT clause SQL for JSON operations
-  defp generate_select_sql(%Spec{operation: operation} = spec) do
+  defp generate_select_sql(%Spec{operation: operation} = spec, opts) do
     case operation do
       # Extraction operations
       :json_extract ->
-        build_json_extract(spec)
+        build_json_extract(spec, opts)
 
       :json_extract_text ->
-        build_json_extract_text(spec)
+        build_json_extract_text(spec, opts)
 
       :json_extract_path ->
-        build_json_extract_path(spec)
+        build_json_extract_path(spec, opts)
 
       :json_extract_path_text ->
-        build_json_extract_path_text(spec)
+        build_json_extract_path_text(spec, opts)
 
       # Aggregation operations
       :json_agg ->
@@ -127,28 +129,28 @@ defmodule Selecto.Builder.JsonOperations do
   end
 
   # Generate WHERE clause SQL for JSON operations
-  defp generate_filter_sql(%Spec{operation: operation} = spec) do
+  defp generate_filter_sql(%Spec{operation: operation} = spec, opts) do
     case operation do
       # Containment operations
       :json_contains ->
-        build_json_contains(spec)
+        build_json_contains(spec, opts)
 
       :json_contained ->
         build_json_contained(spec)
 
       # Existence operations
       :json_exists ->
-        build_json_exists(spec)
+        build_json_exists(spec, opts)
 
       :json_path_exists ->
-        build_json_path_exists(spec)
+        build_json_path_exists(spec, opts)
 
       # Extraction operations (for comparison)
       :json_extract ->
-        build_json_extract(spec)
+        build_json_extract(spec, opts)
 
       :json_extract_text ->
-        build_json_extract_text(spec)
+        build_json_extract_text(spec, opts)
 
       _ ->
         raise ArgumentError, "Unsupported JSON operation for WHERE: #{operation}"
@@ -156,53 +158,31 @@ defmodule Selecto.Builder.JsonOperations do
   end
 
   # JSON extraction using -> operator (returns JSON)
-  defp build_json_extract(%Spec{column: column, path: path} = spec) do
-    sql_parts = [
-      column,
-      build_json_path_operator(path, :json)
-    ]
+  defp build_json_extract(%Spec{column: column, path: path} = spec, opts) do
+    sql_parts = extraction_sql(column, path, :json, opts)
 
-    add_alias(sql_parts, spec.alias)
+    add_alias(sql_parts, spec.alias, opts)
   end
 
   # JSON extraction using ->> operator (returns text)
-  defp build_json_extract_text(%Spec{column: column, path: path} = spec) do
-    sql_parts = [
-      column,
-      build_json_path_operator(path, :text)
-    ]
+  defp build_json_extract_text(%Spec{column: column, path: path} = spec, opts) do
+    sql_parts = extraction_sql(column, path, :text, opts)
 
-    add_alias(sql_parts, spec.alias)
+    add_alias(sql_parts, spec.alias, opts)
   end
 
   # JSON path extraction using json_extract_path()
-  defp build_json_extract_path(%Spec{column: column, path: path} = spec) do
-    path_elements = parse_json_path(path)
+  defp build_json_extract_path(%Spec{column: column, path: path} = spec, opts) do
+    sql_parts = extraction_sql(column, path, :json, opts)
 
-    sql_parts = [
-      "json_extract_path(",
-      column,
-      ", ",
-      format_path_elements(path_elements),
-      ")"
-    ]
-
-    add_alias(sql_parts, spec.alias)
+    add_alias(sql_parts, spec.alias, opts)
   end
 
   # JSON path extraction using json_extract_path_text()
-  defp build_json_extract_path_text(%Spec{column: column, path: path} = spec) do
-    path_elements = parse_json_path(path)
+  defp build_json_extract_path_text(%Spec{column: column, path: path} = spec, opts) do
+    sql_parts = extraction_sql(column, path, :text, opts)
 
-    sql_parts = [
-      "json_extract_path_text(",
-      column,
-      ", ",
-      format_path_elements(path_elements),
-      ")"
-    ]
-
-    add_alias(sql_parts, spec.alias)
+    add_alias(sql_parts, spec.alias, opts)
   end
 
   # JSON aggregation
@@ -386,12 +366,11 @@ defmodule Selecto.Builder.JsonOperations do
   end
 
   # JSON containment (@> operator)
-  defp build_json_contains(%Spec{column: column, value: value}) do
-    [
-      column,
-      " @> ",
-      format_json_value(value)
-    ]
+  defp build_json_contains(%Spec{column: column, value: value}, opts) do
+    adapter = Keyword.get(opts, :adapter)
+    table_alias = Keyword.get(opts, :table_alias)
+
+    Jsonb.build_contains(column, value, adapter: adapter, table_alias: table_alias)
   end
 
   # JSON contained (<@ operator)  
@@ -404,23 +383,19 @@ defmodule Selecto.Builder.JsonOperations do
   end
 
   # JSON exists (? operator)
-  defp build_json_exists(%Spec{column: column, path: path}) do
-    [
-      column,
-      " ? ",
-      "'#{path}'"
-    ]
+  defp build_json_exists(%Spec{column: column, path: path}, opts) do
+    adapter = Keyword.get(opts, :adapter)
+    table_alias = Keyword.get(opts, :table_alias)
+
+    Jsonb.build_key_exists(column, path, adapter: adapter, table_alias: table_alias)
   end
 
   # JSON path exists
-  defp build_json_path_exists(%Spec{column: column, path: path}) do
-    [
-      "JSONB_PATH_EXISTS(",
-      column,
-      ", '",
-      path,
-      "')"
-    ]
+  defp build_json_path_exists(%Spec{column: column, path: path}, opts) do
+    adapter = Keyword.get(opts, :adapter)
+    table_alias = Keyword.get(opts, :table_alias)
+
+    Jsonb.build_key_exists(column, path_to_list(path), adapter: adapter, table_alias: table_alias)
   end
 
   # JSON typeof
@@ -524,13 +499,6 @@ defmodule Selecto.Builder.JsonOperations do
     |> String.split(".")
   end
 
-  # Format path elements for function calls
-  defp format_path_elements(elements) do
-    elements
-    |> Enum.map(fn element -> "'#{element}'" end)
-    |> Enum.intersperse(", ")
-  end
-
   # Format JSON path as PostgreSQL array literal
   defp format_json_path_array(path) do
     elements = parse_json_path(path)
@@ -564,9 +532,44 @@ defmodule Selecto.Builder.JsonOperations do
   defp format_json_value(value), do: "'#{inspect(value)}'"
 
   # Add alias to SQL parts if present
-  defp add_alias(sql_parts, nil), do: sql_parts
+  defp extraction_sql(column, path, kind, opts) do
+    adapter = Keyword.get(opts, :adapter)
+    table_alias = Keyword.get(opts, :table_alias)
 
-  defp add_alias(sql_parts, alias_name) do
-    sql_parts ++ [" AS ", "\"#{alias_name}\""]
+    if AdapterSupport.adapter_name(adapter) == :mssql do
+      Jsonb.build_extraction(column, path_to_list(path),
+        as_text: kind == :text,
+        adapter: adapter,
+        table_alias: table_alias
+      )
+    else
+      case kind do
+        :json -> [column, build_json_path_operator(path, :json)]
+        :text -> [column, build_json_path_operator(path, :text)]
+      end
+    end
+  end
+
+  defp path_to_list(path) do
+    path
+    |> String.replace_prefix("$.", "")
+    |> String.split(~r/[\.\[\]]/, trim: true)
+  end
+
+  defp add_alias(sql_parts, alias_name), do: add_alias(sql_parts, alias_name, [])
+
+  defp add_alias(sql_parts, nil, _opts), do: sql_parts
+
+  defp add_alias(sql_parts, alias_name, opts) do
+    adapter = Keyword.get(opts, :adapter)
+
+    quoted_alias =
+      if AdapterSupport.callback_available?(adapter, :quote_identifier, 1) do
+        adapter.quote_identifier(alias_name)
+      else
+        "\"#{alias_name}\""
+      end
+
+    [sql_parts, " AS ", quoted_alias]
   end
 end

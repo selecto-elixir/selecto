@@ -63,6 +63,28 @@ defmodule Selecto.JsonbTest do
              Jsonb.build_extraction("attributes", ["dimensions", "length"], cast: :decimal)
   end
 
+  test "build_extraction supports mssql json value and query functions" do
+    assert "JSON_VALUE(u.attributes, '$.color')" ==
+             Jsonb.build_extraction("attributes", ["color"],
+               adapter: SelectoDBMSSQL.Adapter,
+               table_alias: "u"
+             )
+
+    assert "JSON_QUERY(u.attributes, '$.dimensions')" ==
+             Jsonb.build_extraction("attributes", ["dimensions"],
+               adapter: SelectoDBMSSQL.Adapter,
+               table_alias: "u",
+               as_text: false
+             )
+
+    assert "CAST(JSON_VALUE(u.attributes, '$.dimensions.length') AS decimal(38, 10))" ==
+             Jsonb.build_extraction("attributes", ["dimensions", "length"],
+               adapter: SelectoDBMSSQL.Adapter,
+               table_alias: "u",
+               cast: :decimal
+             )
+  end
+
   test "build_contains and key existence expressions" do
     contains = Jsonb.build_contains("attributes", %{"color" => "red"}, table_alias: "u")
     assert String.contains?(contains, ~s("u"."attributes" @>))
@@ -74,6 +96,48 @@ defmodule Selecto.JsonbTest do
     nested = Jsonb.build_key_exists("attributes", ["dimensions", "length"])
     assert String.contains?(nested, "? 'length'")
     assert String.contains?(nested, "->'dimensions'")
+  end
+
+  test "mssql contains and key existence use json functions" do
+    contains =
+      Jsonb.build_contains("attributes", %{"color" => "red", "dimensions" => %{"length" => 5}},
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert IO.iodata_to_binary(contains) =~ "JSON_VALUE(u.attributes, '$.color') = 'red'"
+
+    assert IO.iodata_to_binary(contains) =~
+             "JSON_VALUE(u.attributes, '$.dimensions.length') = '5'"
+
+    exists =
+      Jsonb.build_key_exists("attributes", ["dimensions", "length"],
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert exists =~ "JSON_QUERY(u.attributes, '$.dimensions.length') IS NOT NULL"
+    assert exists =~ "JSON_VALUE(u.attributes, '$.dimensions.length') IS NOT NULL"
+  end
+
+  test "mssql json array helpers use openjson" do
+    one =
+      Jsonb.build_array_contains("attributes", ["tags"], "featured",
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+
+    all =
+      Jsonb.build_array_contains_all("attributes", ["tags"], ["featured", "new"],
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert IO.iodata_to_binary(one) =~ "OPENJSON(u.attributes, '$.tags')"
+    assert IO.iodata_to_binary(one) =~ "WHERE value = 'featured'"
+    assert IO.iodata_to_binary(all) =~ "OPENJSON(u.attributes, '$.tags')"
+    assert IO.iodata_to_binary(all) =~ "WHERE value = 'featured'"
+    assert IO.iodata_to_binary(all) =~ "WHERE value = 'new'"
   end
 
   test "array contains helpers" do

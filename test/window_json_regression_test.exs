@@ -266,12 +266,99 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert params == [true]
     assert sql =~ "metadata ->> 'price_band' AS \"price_band\""
     assert sql =~ "metadata -> 'warehouse' ->> 'zone' AS \"warehouse_zone\""
-    assert sql =~ "metadata @> '{\"price_band\":\"premium\"}'"
+    assert sql =~ "\"metadata\" @> '{\"price_band\":\"premium\"}'::jsonb"
 
     assert sql =~
-             "where (( selecto_root.active = $1 ) and ( metadata @> '{\"price_band\":\"premium\"}' ))"
+             "where (( selecto_root.active = $1 ) and ( \"metadata\" @> '{\"price_band\":\"premium\"}'::jsonb ))"
 
     assert sql =~ "order by selecto_root.price desc, metadata -> 'warehouse' ->> 'zone' asc"
+  end
+
+  test "mssql json_select + json_filter + json_order_by use json_value" do
+    query =
+      Selecto.configure(product_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["name", "sku", "price"])
+      |> Selecto.json_select([
+        {:json_extract_text, "metadata", "$.price_band", as: "price_band"},
+        {:json_extract_text, "metadata", "$.warehouse.zone", as: "warehouse_zone"}
+      ])
+      |> Selecto.json_filter({:json_contains, "metadata", %{"price_band" => "premium"}})
+      |> Selecto.filter({"active", true})
+      |> Selecto.order_by({"price", :desc})
+      |> Selecto.json_order_by({:json_extract_text, "metadata", "$.warehouse.zone", :asc})
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+    downcased = String.downcase(sql)
+
+    assert params == [true]
+    assert sql =~ "JSON_VALUE(selecto_root.metadata, '$.price_band') AS [price_band]"
+
+    assert sql =~
+             "JSON_VALUE(selecto_root.metadata, '$.warehouse.zone') AS [warehouse_zone]"
+
+    assert downcased =~
+             "where (( selecto_root.active = @p1 ) and ( json_value(selecto_root.metadata, '$.price_band') = 'premium' ))"
+
+    assert downcased =~
+             "order by selecto_root.price desc, json_value(selecto_root.metadata, '$.warehouse.zone') asc"
+  end
+
+  test "mssql dot-path json selectors and filters use json_value casts" do
+    query =
+      Selecto.configure(product_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["name", "metadata.price_band"])
+      |> Selecto.filter({"metadata.price_band", "premium"})
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["premium"]
+    assert sql =~ "JSON_VALUE(selecto_root.metadata, '$.price_band')"
+    assert sql =~ "where (( JSON_VALUE(selecto_root.metadata, '$.price_band') = @p1 ))"
+  end
+
+  test "mssql json path exists uses json_value/json_query helpers" do
+    query =
+      Selecto.configure(product_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["name"])
+      |> Selecto.json_filter({:json_path_exists, "metadata", "$.warehouse.zone"})
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "(JSON_QUERY(selecto_root.metadata, '$.warehouse.zone') IS NOT NULL OR JSON_VALUE(selecto_root.metadata, '$.warehouse.zone') IS NOT NULL)"
+  end
+
+  test "mssql json array filters use openjson" do
+    query =
+      Selecto.configure(product_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["name"])
+      |> Selecto.filter({"metadata.tags", {:contains, "featured"}})
+      |> Selecto.filter({"metadata.tags", {:contains_all, ["featured", "new"]}})
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ "OPENJSON(selecto_root.metadata, '$.tags')"
+    assert sql =~ "WHERE value = 'featured'"
+    assert sql =~ "WHERE value = 'new'"
   end
 
   test "unnest emits CROSS JOIN LATERAL clause in FROM" do
@@ -870,7 +957,7 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert params == ["delivered", true]
 
     assert sql =~
-             "LEFT JOIN LATERAL ( select count(*) from orders selecto_root where (( selecto_root.status = $1 )) ) AS delivered_stats ON true"
+             "LEFT JOIN LATERAL ( select count(*) from orders subq_root_orders where (( subq_root_orders.status = $1 )) ) AS delivered_stats ON true"
 
     assert sql =~ "where (( selecto_root.active = $2 ))"
   end

@@ -432,6 +432,16 @@ defmodule Selecto.Builder.Sql do
     |> IO.iodata_to_binary()
   end
 
+  defp json_builder_opts(selecto) do
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+
+    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
+      [adapter: adapter, table_alias: "selecto_root"]
+    else
+      [adapter: adapter]
+    end
+  end
+
   defp build_retarget_query(selecto, _opts) do
     # Use Retarget builder to construct the entire query
     retarget_config = Selecto.Retarget.get_retarget_config(selecto)
@@ -715,8 +725,12 @@ defmodule Selecto.Builder.Sql do
           {[], []}
 
         json_specs when is_list(json_specs) ->
+          json_builder_opts = json_builder_opts(selecto)
+
           clauses =
-            Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_select/1)
+            Enum.map(json_specs, fn spec ->
+              Selecto.Builder.JsonOperations.build_json_select(spec, json_builder_opts)
+            end)
 
           if clauses == [] do
             {[], []}
@@ -845,8 +859,11 @@ defmodule Selecto.Builder.Sql do
           []
 
         json_specs when is_list(json_specs) ->
+          json_builder_opts = json_builder_opts(selecto)
+
           Enum.map(json_specs, fn spec ->
-            {:raw_sql_filter, Selecto.Builder.JsonOperations.build_json_filter(spec)}
+            {:raw_sql_filter,
+             Selecto.Builder.JsonOperations.build_json_filter(spec, json_builder_opts)}
           end)
       end
 
@@ -889,9 +906,11 @@ defmodule Selecto.Builder.Sql do
           {[], [], []}
 
         json_sorts when is_list(json_sorts) ->
+          json_builder_opts = json_builder_opts(selecto)
+
           json_sorts
           |> Enum.map(fn {spec, direction} ->
-            json_sql = Selecto.Builder.JsonOperations.build_json_select(spec)
+            json_sql = Selecto.Builder.JsonOperations.build_json_select(spec, json_builder_opts)
 
             dir_str =
               case direction do

@@ -443,7 +443,8 @@ defmodule Selecto.Builder.Sql.Where do
         extraction =
           Jsonb.build_extraction(column, path,
             as_text: false,
-            table_alias: get_root_alias(selecto)
+            table_alias: get_root_alias(selecto),
+            adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
           )
 
         {[], [" ", extraction, " @> ", {:param, json_value}, "::jsonb "], []}
@@ -462,7 +463,12 @@ defmodule Selecto.Builder.Sql.Where do
 
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} when path != [] ->
-        exists_expr = Jsonb.build_key_exists(column, path, table_alias: get_root_alias(selecto))
+        exists_expr =
+          Jsonb.build_key_exists(column, path,
+            table_alias: get_root_alias(selecto),
+            adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+          )
+
         {[], [" ", exists_expr, " "], []}
 
       _ ->
@@ -478,7 +484,10 @@ defmodule Selecto.Builder.Sql.Where do
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} ->
         contains_expr =
-          Jsonb.build_array_contains(column, path, value, table_alias: get_root_alias(selecto))
+          Jsonb.build_array_contains(column, path, value,
+            table_alias: get_root_alias(selecto),
+            adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+          )
 
         {[], [" ", contains_expr, " "], []}
 
@@ -496,7 +505,8 @@ defmodule Selecto.Builder.Sql.Where do
       {:jsonb, column, path} ->
         contains_expr =
           Jsonb.build_array_contains_all(column, path, values,
-            table_alias: get_root_alias(selecto)
+            table_alias: get_root_alias(selecto),
+            adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
           )
 
         {[], [" ", contains_expr, " "], []}
@@ -662,7 +672,8 @@ defmodule Selecto.Builder.Sql.Where do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: get_root_alias(selecto),
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     # For nil values, check if the key exists and is null vs key doesn't exist
@@ -683,7 +694,8 @@ defmodule Selecto.Builder.Sql.Where do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: get_root_alias(selecto),
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     sql_op =
@@ -717,7 +729,8 @@ defmodule Selecto.Builder.Sql.Where do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: get_root_alias(selecto),
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     # Convert list values to appropriate types
@@ -740,7 +753,8 @@ defmodule Selecto.Builder.Sql.Where do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: get_root_alias(selecto),
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     {[], [" ", extraction, " BETWEEN ", {:param, min}, " AND ", {:param, max}, " "], []}

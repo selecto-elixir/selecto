@@ -1807,6 +1807,11 @@ defmodule Selecto do
             comparison: comparison
           )
 
+        {operation, column, path}
+        when operation in [:json_extract, :json_extract_text, :json_exists, :json_path_exists] and
+               is_binary(path) ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
+
         {operation, column, value} ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column, value: value)
 

@@ -893,7 +893,8 @@ defmodule Selecto.Builder.Sql.Select do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: table_alias_str,
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     requires_join = if conf, do: conf.requires_join, else: :selecto_root
