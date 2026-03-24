@@ -182,6 +182,52 @@ defmodule Selecto.SubselectIntegrationTest do
       assert "; " in params
     end
 
+    test "builds MSSQL string aggregation subselect" do
+      selecto =
+        create_mssql_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :string_agg,
+            alias: "product_list",
+            separator: "; "
+          }
+        ])
+
+      {clauses, params} = Subselect.build_subselect_clauses(selecto)
+      {clause_sql, finalized_params} = Params.finalize(clauses, adapter: SelectoDBMSSQL.Adapter)
+
+      assert clause_sql =~ ~r/string_agg/i
+      assert clause_sql =~ ~r/sub_orders\.\[product_name\]/i
+      assert clause_sql =~ ~r/as\s+\[product_list\]/i
+      assert params == finalized_params
+      assert params == ["; "]
+    end
+
+    test "builds MSSQL array aggregation subselect as json array" do
+      selecto =
+        create_mssql_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :array_agg,
+            alias: "product_names"
+          }
+        ])
+
+      {clauses, params} = Subselect.build_subselect_clauses(selecto)
+      {clause_sql, finalized_params} = Params.finalize(clauses, adapter: SelectoDBMSSQL.Adapter)
+
+      assert clause_sql =~ ~r/for json path/i
+      refute clause_sql =~ ~r/array_agg/i
+      assert clause_sql =~ ~r/as\s+\[product_names\]/i
+      assert clause_sql =~ ~r/sub_orders\.\[product_name\]\s+AS\s+\[product_name\]/i
+      assert params == finalized_params
+      assert params == []
+    end
+
     test "builds count subselect" do
       selecto =
         create_test_selecto()

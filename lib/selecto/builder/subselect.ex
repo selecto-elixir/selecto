@@ -98,22 +98,42 @@ defmodule Selecto.Builder.Subselect do
     target_alias = generate_subquery_alias(subselect_config.target_schema)
     adapter_name = AdapterSupport.adapter_name(Map.get(selecto, :adapter))
 
-    if subselect_config.format == :json_agg and adapter_name == :mssql do
-      build_mssql_json_agg_subselect(
-        selecto,
-        subselect_config,
-        source_alias,
-        target_table,
-        target_alias
-      )
-    else
-      do_build_aggregated_subselect(
-        selecto,
-        subselect_config,
-        source_alias,
-        target_table,
-        target_alias
-      )
+    cond do
+      adapter_name == :mssql and subselect_config.format == :json_agg ->
+        build_mssql_json_agg_subselect(
+          selecto,
+          subselect_config,
+          source_alias,
+          target_table,
+          target_alias
+        )
+
+      adapter_name == :mssql and subselect_config.format == :string_agg ->
+        build_mssql_string_agg_subselect(
+          selecto,
+          subselect_config,
+          source_alias,
+          target_table,
+          target_alias
+        )
+
+      adapter_name == :mssql and subselect_config.format == :array_agg ->
+        build_mssql_array_agg_subselect(
+          selecto,
+          subselect_config,
+          source_alias,
+          target_table,
+          target_alias
+        )
+
+      true ->
+        do_build_aggregated_subselect(
+          selecto,
+          subselect_config,
+          source_alias,
+          target_table,
+          target_alias
+        )
     end
   end
 
@@ -270,6 +290,142 @@ defmodule Selecto.Builder.Subselect do
     {subselect_iodata, correlation_params ++ additional_params}
   end
 
+  defp build_mssql_string_agg_subselect(
+         selecto,
+         subselect_config,
+         source_alias,
+         target_table,
+         target_alias
+       ) do
+    [field] = subselect_config.fields
+    separator = Map.get(subselect_config, :separator, ",")
+
+    aggregate = [
+      "STRING_AGG(",
+      build_mssql_subselect_field_expr(
+        selecto,
+        subselect_config.target_schema,
+        field,
+        target_alias
+      ),
+      ", ",
+      {:param, separator},
+      ")"
+    ]
+
+    build_mssql_scalar_subselect(
+      selecto,
+      subselect_config,
+      source_alias,
+      target_table,
+      target_alias,
+      aggregate,
+      [separator]
+    )
+  end
+
+  defp build_mssql_array_agg_subselect(
+         selecto,
+         subselect_config,
+         source_alias,
+         target_table,
+         target_alias
+       ) do
+    [field] = subselect_config.fields
+
+    select_field = [
+      build_mssql_subselect_field_expr(
+        selecto,
+        subselect_config.target_schema,
+        field,
+        target_alias
+      ),
+      " AS ",
+      adapter_quote_identifier(selecto, mssql_json_field_alias(field))
+    ]
+
+    build_mssql_json_array_subselect(
+      selecto,
+      subselect_config,
+      source_alias,
+      target_table,
+      target_alias,
+      select_field
+    )
+  end
+
+  defp build_mssql_scalar_subselect(
+         selecto,
+         subselect_config,
+         source_alias,
+         target_table,
+         target_alias,
+         aggregate_sql,
+         aggregate_params
+       ) do
+    {correlation_where, correlation_params} =
+      build_correlation_condition(selecto, subselect_config, target_alias, source_alias)
+
+    {additional_where, additional_params} =
+      build_additional_filters(selecto, subselect_config, target_alias)
+
+    where_clause = build_combined_where_clause(correlation_where, additional_where)
+
+    subselect_iodata = [
+      "SELECT ",
+      aggregate_sql,
+      " FROM ",
+      target_table,
+      " ",
+      target_alias,
+      " WHERE ",
+      where_clause
+    ]
+
+    {subselect_iodata, aggregate_params ++ correlation_params ++ additional_params}
+  end
+
+  defp build_mssql_json_array_subselect(
+         selecto,
+         subselect_config,
+         source_alias,
+         target_table,
+         target_alias,
+         select_field
+       ) do
+    {correlation_where, correlation_params} =
+      build_correlation_condition(selecto, subselect_config, target_alias, source_alias)
+
+    {additional_where, additional_params} =
+      build_additional_filters(selecto, subselect_config, target_alias)
+
+    where_clause = build_combined_where_clause(correlation_where, additional_where)
+
+    subselect_iodata = [
+      "SELECT COALESCE((SELECT ",
+      select_field,
+      " FROM ",
+      target_table,
+      " ",
+      target_alias,
+      " WHERE ",
+      where_clause,
+      " FOR JSON PATH), '[]')"
+    ]
+
+    {subselect_iodata, correlation_params ++ additional_params}
+  end
+
+  defp build_combined_where_clause(correlation_where, additional_where) do
+    all_where_conditions =
+      [correlation_where] ++ if additional_where != [], do: [additional_where], else: []
+
+    case all_where_conditions do
+      [single] -> single
+      multiple -> Enum.intersperse(multiple, [" AND "])
+    end
+  end
+
   defp build_mssql_json_path_select_fields(selecto, target_schema, fields, target_alias) do
     target_schema_config = get_target_schema_config(selecto, target_schema)
 
@@ -294,6 +450,23 @@ defmodule Selecto.Builder.Subselect do
       [field_sql, " AS ", field_alias]
     end)
     |> Enum.intersperse([", "])
+  end
+
+  defp build_mssql_subselect_field_expr(selecto, target_schema, field, target_alias) do
+    field_string = to_string(field)
+    target_schema_config = get_target_schema_config(selecto, target_schema)
+
+    case Selecto.Jsonb.parse_field_reference(field_string, target_schema_config) do
+      {:jsonb, column, path} ->
+        Selecto.Jsonb.build_extraction(column, path,
+          adapter: Map.get(selecto, :adapter),
+          table_alias: target_alias
+        )
+
+      {:regular, _} ->
+        field_name = adapter_quote_identifier(selecto, field_string)
+        [target_alias, ".", field_name]
+    end
   end
 
   defp mssql_json_field_alias(field) do
