@@ -129,6 +129,8 @@ defmodule Selecto.Builder.Window do
   defp build_value_function(selecto, function, arguments) do
     case function do
       :nth_value ->
+        validate_nth_value_support!(selecto)
+
         # NTH_VALUE takes field and position
         case arguments do
           [field, n] when is_integer(n) ->
@@ -372,6 +374,25 @@ defmodule Selecto.Builder.Window do
   end
 
   defp validate_frame_support!(_selecto, _boundary), do: :ok
+
+  defp validate_nth_value_support!(selecto) do
+    adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+
+    case AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        error =
+          Error.validation_error("MSSQL window functions do not support nth_value yet", %{
+            adapter: :mssql,
+            function: :nth_value,
+            unsupported_feature: :window_nth_value
+          })
+
+        raise Error.to_exception(error)
+
+      _ ->
+        :ok
+    end
+  end
 
   defp quote_alias(selecto, alias_name) do
     adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())

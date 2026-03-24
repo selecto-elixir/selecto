@@ -290,6 +290,23 @@ defmodule Selecto.WindowJsonRegressionTest do
     end
   end
 
+  test "mssql rejects nth_value explicitly" do
+    query =
+      Selecto.configure(employee_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["first_name", "salary"])
+      |> Selecto.window_function(:nth_value, ["salary", 2],
+        over: [order_by: ["salary"]],
+        as: "second_salary"
+      )
+
+    assert_raise RuntimeError, ~r/MSSQL window functions do not support nth_value yet/, fn ->
+      Selecto.to_sql(query)
+    end
+  end
+
   test "json_select + json_filter build valid SQL in SELECT and WHERE" do
     query =
       Selecto.configure(product_domain(), :mock_connection, validate: false)
