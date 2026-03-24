@@ -27,6 +27,33 @@ defmodule Selecto.ExprMacroSigilTest do
              {:and, [{"name", {:like, "Ch%"}}, {"name", {:like, "%air"}}]}
   end
 
+  test "where macro supports text, array, and existence helpers" do
+    term = "wireless charger"
+    tags = ["featured", "clearance"]
+
+    assert where(
+             text_search(name, ^term) and array_overlap(tags, ^tags) and
+               field_exists(metadata.zone)
+           ) ==
+             {:and,
+              [
+                {"name", {:text_search, "wireless charger"}},
+                {:array_overlap, "tags", ["featured", "clearance"]},
+                {"metadata.zone", :exists}
+              ]}
+  end
+
+  test "where macro supports not_in and array_contains helpers" do
+    statuses = ["cancelled", "returned"]
+
+    assert where(not_in(status, ^statuses) and array_contains(tags, ["featured"])) ==
+             {:and,
+              [
+                {"status", {:not_in, ["cancelled", "returned"]}},
+                {:array_contains, "tags", ["featured"]}
+              ]}
+  end
+
   test "select macro compiles helper-friendly selector lists" do
     assert select([name, sum(price), coalesce(nickname, name), as(count(), "total")]) == [
              {:field, "name"},
@@ -100,6 +127,17 @@ defmodule Selecto.ExprMacroSigilTest do
     status = "paid"
 
     assert ~SELECTO"orders.status == ^status" == {"orders.status", "paid"}
+  end
+
+  test "uppercase ~SELECTO sigil supports new filter helpers" do
+    term = "wireless charger"
+
+    assert ~SELECTO"text_search(name, ^term) and field_exists(metadata.zone)" ==
+             {:and,
+              [
+                {"name", {:text_search, "wireless charger"}},
+                {"metadata.zone", :exists}
+              ]}
   end
 
   test "uppercase ~SELECTO sigil reports unsupported functions clearly" do

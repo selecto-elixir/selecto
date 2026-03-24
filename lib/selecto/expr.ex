@@ -47,6 +47,15 @@ defmodule Selecto.Expr do
   def normalize({:not_null, field}), do: not_null(field)
   def normalize({:between, field, min, max}), do: between(field, min, max)
   def normalize({:in, field, values}), do: unquote(:in)(field, values)
+  def normalize({:not_in, field, values}), do: not_in(field, values)
+  def normalize({:text_search, field, value}), do: text_search(field, value)
+  def normalize({:field_exists, field}), do: field_exists(field)
+  def normalize({:array_contains, field, values}), do: array_contains(field, values)
+  def normalize({:array_contained, field, values}), do: array_contained(field, values)
+  def normalize({:array_overlap, field, values}), do: array_overlap(field, values)
+  def normalize({:array_eq, field, values}), do: array_eq(field, values)
+  def normalize({:json_contains, column, value}), do: json_contains(column, value)
+  def normalize({:json_path_exists, column, path}), do: json_path_exists(column, path)
   def normalize({:exists, query}), do: exists(query)
   def normalize({:exists, query, params}), do: exists(query, params)
   def normalize({:subquery_in, field, query}), do: subquery_in(field, query)
@@ -225,6 +234,42 @@ defmodule Selecto.Expr do
 
   @doc "Builds an `IN (...)` filter."
   def unquote(:in)(field, values), do: {field, {:in, values}}
+
+  @doc "Builds a `NOT IN (...)` filter."
+  @spec not_in(term(), [term()]) :: tuple()
+  def not_in(field, values), do: {field, {:not_in, values}}
+
+  @doc "Builds a full-text search filter using Selecto's `:text_search` operator."
+  @spec text_search(term(), term()) :: tuple()
+  def text_search(field, value), do: {field, {:text_search, value}}
+
+  @doc "Builds a field-path existence filter for JSONB paths or non-null fields."
+  @spec field_exists(term()) :: tuple()
+  def field_exists(field), do: {field, :exists}
+
+  @doc "Builds an array contains filter."
+  @spec array_contains(term(), [term()]) :: tuple()
+  def array_contains(field, values), do: {:array_contains, field, values}
+
+  @doc "Builds an array contained-by filter."
+  @spec array_contained(term(), [term()]) :: tuple()
+  def array_contained(field, values), do: {:array_contained, field, values}
+
+  @doc "Builds an array overlap filter."
+  @spec array_overlap(term(), [term()]) :: tuple()
+  def array_overlap(field, values), do: {:array_overlap, field, values}
+
+  @doc "Builds an array equality filter."
+  @spec array_eq(term(), [term()]) :: tuple()
+  def array_eq(field, values), do: {:array_eq, field, values}
+
+  @doc "Builds a JSON contains filter for `Selecto.json_filter/2`."
+  @spec json_contains(term(), term()) :: tuple()
+  def json_contains(column, value), do: {:json_contains, column, value}
+
+  @doc "Builds a JSON path-exists filter for `Selecto.json_filter/2`."
+  @spec json_path_exists(term(), term()) :: tuple()
+  def json_path_exists(column, path), do: {:json_path_exists, column, path}
 
   @doc "Builds an `EXISTS (...)` filter."
   @spec exists(term(), [term()]) :: tuple()

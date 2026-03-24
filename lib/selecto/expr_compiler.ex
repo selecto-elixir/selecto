@@ -2,14 +2,21 @@ defmodule Selecto.ExprCompiler do
   @moduledoc false
 
   @supported_filter_functions [
+    :array_contains,
+    :array_contained,
+    :array_eq,
+    :array_overlap,
     :between,
     :contains,
     :ends_with,
+    :field_exists,
     :ilike,
     :in,
     :is_nil,
     :like,
-    :starts_with
+    :not_in,
+    :starts_with,
+    :text_search
   ]
 
   @order_directions [
@@ -102,6 +109,27 @@ defmodule Selecto.ExprCompiler do
 
   defp do_compile_filter({:in, _, [field_ast, value_ast]}) do
     compile_call(:in, [field_ast, value_ast])
+  end
+
+  defp do_compile_filter({:not_in, _, [field_ast, value_ast]}) do
+    compile_call(:not_in, [field_ast, value_ast])
+  end
+
+  defp do_compile_filter({:text_search, _, [field_ast, value_ast]}) do
+    compile_call(:text_search, [field_ast, value_ast])
+  end
+
+  defp do_compile_filter({:field_exists, _, [field_ast]}) do
+    field_name = compile_field_ref!(field_ast)
+
+    quote do
+      Selecto.Expr.field_exists(unquote(field_name))
+    end
+  end
+
+  defp do_compile_filter({operator, _, [field_ast, value_ast]})
+       when operator in [:array_contains, :array_contained, :array_eq, :array_overlap] do
+    compile_call(operator, [field_ast, value_ast])
   end
 
   defp do_compile_filter({:between, _, [field_ast, min_ast, max_ast]}) do

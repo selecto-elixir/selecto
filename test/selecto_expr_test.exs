@@ -32,6 +32,10 @@ defmodule Selecto.ExprTest do
     assert X.eq("status", "active") == {"status", "active"}
     assert X.neq("status", "archived") == {"status", {:ne, "archived"}}
     assert X.gte("price", 100) == {"price", {:gte, 100}}
+    assert X.not_in("status", ["archived"]) == {"status", {:not_in, ["archived"]}}
+    assert X.text_search("name", "chair") == {"name", {:text_search, "chair"}}
+    assert X.field_exists("metadata.zone") == {"metadata.zone", :exists}
+    assert X.array_contains("tags", ["featured"]) == {:array_contains, "tags", ["featured"]}
     assert X.starts_with("name", "Ch") == {"name", {:like, "Ch%"}}
     assert X.when_present(nil, &X.eq("name", &1)) == nil
 
@@ -68,6 +72,10 @@ defmodule Selecto.ExprTest do
     assert X.normalize({:as, {:count, "*"}, "total"}) == {:field, {:count, "*"}, "total"}
     assert X.normalize({:desc, "price"}) == {"price", :desc}
     assert X.normalize({:asc_nulls_last, "price"}) == {"price", :asc_nulls_last}
+    assert X.normalize({:text_search, "name", "chair"}) == {"name", {:text_search, "chair"}}
+
+    assert X.normalize({:array_overlap, "tags", ["featured"]}) ==
+             {:array_overlap, "tags", ["featured"]}
 
     assert X.normalize({:window, {:lag, "price", 1}, over: [partition_by: ["status"]]}) ==
              {:window, {:lag, "price", 1}, over: [partition_by: ["status"]]}
