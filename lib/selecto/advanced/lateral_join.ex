@@ -289,11 +289,12 @@ defmodule Selecto.Advanced.LateralJoin do
 
     # Combine all available fields with table prefixes
     base_fields = Enum.map(domain_fields, &"#{base_table}.#{&1}")
+    root_alias_fields = Enum.map(domain_fields, &"selecto_root.#{&1}")
 
     # Also include unqualified field names for flexibility
     unqualified_fields = domain_fields
 
-    (base_fields ++ unqualified_fields ++ join_fields)
+    (base_fields ++ root_alias_fields ++ unqualified_fields ++ join_fields)
     |> Enum.uniq()
   end
 

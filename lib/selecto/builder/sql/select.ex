@@ -280,6 +280,10 @@ defmodule Selecto.Builder.Sql.Select do
     {{:param, val}, :selecto_root, [val]}
   end
 
+  def prep_selector(selecto, {:ref, field_ref}, _pivot_aliases) when is_binary(field_ref) do
+    {[normalize_ref_field(selecto, field_ref)], :selecto_root, []}
+  end
+
   def prep_selector(_selecto, {:count}, _pivot_aliases) do
     {["count(*)"], :selecto_root, []}
   end
@@ -1423,6 +1427,20 @@ defmodule Selecto.Builder.Sql.Select do
 
       true ->
         nil
+    end
+  end
+
+  defp normalize_ref_field(selecto, field_ref) do
+    case String.split(field_ref, ".", parts: 2) do
+      [prefix, field_name] ->
+        if prefix in ["selecto_root", Selecto.source_table(selecto)] do
+          "__selecto_outer__.#{field_name}"
+        else
+          field_ref
+        end
+
+      _ ->
+        field_ref
     end
   end
 end

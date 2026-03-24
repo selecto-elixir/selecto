@@ -261,6 +261,36 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " ", to_string(comp), " ", {:param, value}, " "], param}
   end
 
+  def build(selecto, {field, {comp, {:ref, ref_field}}})
+      when comp in [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne] do
+    conf = field_conf(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {ref_sel, ref_join, ref_params} = Select.prep_selector(selecto, {:ref, ref_field})
+
+    sql_op =
+      case comp do
+        :gt -> ">"
+        :lt -> "<"
+        :gte -> ">="
+        :lte -> "<="
+        :eq -> "="
+        :ne -> "!="
+        other -> to_string(other)
+      end
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join) ++ List.wrap(ref_join),
+     [" ", sel, " ", sql_op, " ", ref_sel, " "], param ++ ref_params}
+  end
+
+  def build(selecto, {field, {comp, {:ref, ref_field}}}) when comp in ~w[= != < > <= >=] do
+    conf = field_conf(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {ref_sel, ref_join, ref_params} = Select.prep_selector(selecto, {:ref, ref_field})
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join) ++ List.wrap(ref_join),
+     [" ", sel, " ", comp, " ", ref_sel, " "], param ++ ref_params}
+  end
+
   def build(selecto, {field, {:not_like, value}}) do
     # NOT LIKE filter - value should already have % wildcards
     {sel, join, param} = Select.prep_selector(selecto, field)
@@ -341,6 +371,15 @@ defmodule Selecto.Builder.Sql.Where do
     conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " is null "], param}
+  end
+
+  def build(selecto, {field, {:ref, ref_field}}) do
+    conf = field_conf(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {ref_sel, ref_join, ref_params} = Select.prep_selector(selecto, {:ref, ref_field})
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join) ++ List.wrap(ref_join),
+     [" ", sel, " = ", ref_sel, " "], param ++ ref_params}
   end
 
   # Handle array filter specifications (must come before generic {field, value})

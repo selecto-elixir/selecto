@@ -1333,10 +1333,11 @@ defmodule Selecto.Builder.Sql do
   # Phase 4: LATERAL join integration functions
   defp build_lateral_joins(selecto) do
     lateral_specs = Map.get(selecto.set, :lateral_joins, [])
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     case lateral_specs do
       [] -> {[], []}
-      specs -> LateralJoin.build_lateral_joins(specs)
+      specs -> LateralJoin.build_lateral_joins(specs, adapter: adapter)
     end
   end
 

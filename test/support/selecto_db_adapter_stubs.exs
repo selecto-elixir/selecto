@@ -56,6 +56,8 @@ defmodule SelectoDBMSSQL.Adapter do
 
   def supports?(:offset_fetch_pagination), do: true
   def supports?(:requires_order_for_pagination), do: true
+  def supports?(:lateral_join), do: true
+  def supports?(:apply_join), do: true
   def supports?(_feature), do: false
 
   def format_datetime(sel_iodata, "YYYY-MM-DD") do
