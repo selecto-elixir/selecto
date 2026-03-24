@@ -270,6 +270,26 @@ defmodule Selecto.WindowJsonRegressionTest do
     refute sql =~ "AS department salary rank"
   end
 
+  test "mssql rejects interval window frames explicitly" do
+    query =
+      Selecto.configure(employee_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["first_name", "salary"])
+      |> Selecto.window_function(:avg, ["salary"],
+        over: [
+          order_by: ["salary"],
+          frame: {:range, {:interval, "1 day"}, :current_row}
+        ],
+        as: "rolling_avg"
+      )
+
+    assert_raise RuntimeError, ~r/MSSQL window frames do not support interval boundaries/, fn ->
+      Selecto.to_sql(query)
+    end
+  end
+
   test "json_select + json_filter build valid SQL in SELECT and WHERE" do
     query =
       Selecto.configure(product_domain(), :mock_connection, validate: false)

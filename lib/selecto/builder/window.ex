@@ -11,6 +11,7 @@ defmodule Selecto.Builder.Window do
 
   alias Selecto.Window.{Spec, Frame}
   alias Selecto.AdapterSupport
+  alias Selecto.Error
 
   @doc """
   Build window function SQL for SELECT clause.
@@ -178,7 +179,7 @@ defmodule Selecto.Builder.Window do
        }) do
     {partition_iodata, partition_params} = build_partition_by(selecto, partition_by)
     {order_iodata, order_params} = build_order_by(selecto, order_by)
-    {frame_iodata, frame_params} = build_frame_clause(frame)
+    {frame_iodata, frame_params} = build_frame_clause(selecto, frame)
 
     # Combine clauses with appropriate spacing
     clauses =
@@ -222,9 +223,12 @@ defmodule Selecto.Builder.Window do
   end
 
   # Build window frame clause
-  defp build_frame_clause(nil), do: {[], []}
+  defp build_frame_clause(_selecto, nil), do: {[], []}
 
-  defp build_frame_clause(%Frame{type: type, start: start_bound, end: end_bound}) do
+  defp build_frame_clause(selecto, %Frame{type: type, start: start_bound, end: end_bound}) do
+    validate_frame_support!(selecto, start_bound)
+    validate_frame_support!(selecto, end_bound)
+
     type_str = String.upcase(to_string(type))
     start_str = build_frame_boundary(start_bound)
     end_str = build_frame_boundary(end_bound)
@@ -351,6 +355,23 @@ defmodule Selecto.Builder.Window do
   end
 
   defp is_empty_iodata(_), do: false
+
+  defp validate_frame_support!(selecto, {:interval, interval}) do
+    adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+
+    if AdapterSupport.adapter_name(adapter) == :mssql do
+      error =
+        Error.validation_error("MSSQL window frames do not support interval boundaries", %{
+          adapter: :mssql,
+          frame_boundary: {:interval, interval},
+          unsupported_feature: :window_interval_frame
+        })
+
+      raise Error.to_exception(error)
+    end
+  end
+
+  defp validate_frame_support!(_selecto, _boundary), do: :ok
 
   defp quote_alias(selecto, alias_name) do
     adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())
