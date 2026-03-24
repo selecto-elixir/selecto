@@ -71,7 +71,7 @@ defmodule Selecto.Jsonb do
       [first | rest] = parts
 
       # Check if first part is a JSONB column
-      case Map.get(columns, first) do
+      case Map.get(columns, first) || Map.get(columns, safe_existing_atom(first)) do
         %{type: type} when type in [:jsonb, :json] ->
           {:jsonb, first, rest}
 
@@ -85,6 +85,16 @@ defmodule Selecto.Jsonb do
   end
 
   def parse_field_reference(field, _domain), do: {:regular, field}
+
+  defp safe_existing_atom(value) when is_binary(value) do
+    try do
+      String.to_existing_atom(value)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp safe_existing_atom(_value), do: nil
 
   @doc """
   Get the JSONB schema for a path within a column.

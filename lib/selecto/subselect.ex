@@ -372,9 +372,15 @@ defmodule Selecto.Subselect do
       Enum.filter(subselect_config.fields, fn field_name ->
         field_name_string = to_string(field_name)
 
-        not Enum.any?(target_schema_config.fields, fn existing_field ->
-          to_string(existing_field) == field_name_string
-        end)
+        case Selecto.Jsonb.parse_field_reference(field_name_string, target_schema_config) do
+          {:jsonb, _column, _path} ->
+            false
+
+          {:regular, _} ->
+            not Enum.any?(target_schema_config.fields, fn existing_field ->
+              to_string(existing_field) == field_name_string
+            end)
+        end
       end)
 
     case invalid_fields do

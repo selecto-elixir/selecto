@@ -31,14 +31,24 @@ defmodule Selecto.SubselectIntegrationTest do
         orders: %{
           source_table: "orders",
           primary_key: :order_id,
-          fields: [:order_id, :attendee_id, :product_name, :quantity, :price],
+          fields: [:order_id, :attendee_id, :product_name, :quantity, :price, :metadata],
           redact_fields: [],
           columns: %{
             order_id: %{type: :integer},
             attendee_id: %{type: :integer},
             product_name: %{type: :string},
             quantity: %{type: :integer},
-            price: %{type: :decimal}
+            price: %{type: :decimal},
+            metadata: %{
+              type: :jsonb,
+              schema: %{
+                "priority" => %{type: :string},
+                "warehouse" => %{
+                  type: :object,
+                  schema: %{"zone" => %{type: :string}}
+                }
+              }
+            }
           },
           associations: %{}
         }
@@ -105,6 +115,30 @@ defmodule Selecto.SubselectIntegrationTest do
       refute clause_sql =~ ~r/json_build_object/i
       refute clause_sql =~ ~r/json_agg/i
       assert clause_sql =~ ~r/as\s+\[order_items\]/i
+      assert params == finalized_params
+    end
+
+    test "builds MSSQL JSON aggregation subselect with nested json path fields" do
+      selecto =
+        create_mssql_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name", "metadata.priority", "metadata.warehouse.zone"],
+            target_schema: :orders,
+            format: :json_agg,
+            alias: "order_items"
+          }
+        ])
+
+      {clauses, params} = Subselect.build_subselect_clauses(selecto)
+      {clause_sql, finalized_params} = Params.finalize(clauses)
+
+      assert clause_sql =~ ~r/for json path/i
+      assert clause_sql =~ "JSON_VALUE(sub_orders.metadata, '$.priority') AS [priority]"
+
+      assert clause_sql =~
+               "JSON_VALUE(sub_orders.metadata, '$.warehouse.zone') AS [zone]"
+
       assert params == finalized_params
     end
 

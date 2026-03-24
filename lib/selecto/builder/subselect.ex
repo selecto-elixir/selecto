@@ -248,7 +248,12 @@ defmodule Selecto.Builder.Subselect do
       end
 
     select_fields =
-      build_mssql_json_path_select_fields(selecto, subselect_config.fields, target_alias)
+      build_mssql_json_path_select_fields(
+        selecto,
+        subselect_config.target_schema,
+        subselect_config.fields,
+        target_alias
+      )
 
     subselect_iodata = [
       "SELECT COALESCE((SELECT ",
@@ -265,12 +270,28 @@ defmodule Selecto.Builder.Subselect do
     {subselect_iodata, correlation_params ++ additional_params}
   end
 
-  defp build_mssql_json_path_select_fields(selecto, fields, target_alias) do
+  defp build_mssql_json_path_select_fields(selecto, target_schema, fields, target_alias) do
+    target_schema_config = get_target_schema_config(selecto, target_schema)
+
     fields
     |> Enum.map(fn field ->
-      field_name = adapter_quote_identifier(selecto, to_string(field))
-      field_alias = adapter_quote_identifier(selecto, mssql_json_field_alias(field))
-      [target_alias, ".", field_name, " AS ", field_alias]
+      field_string = to_string(field)
+      field_alias = adapter_quote_identifier(selecto, mssql_json_field_alias(field_string))
+
+      field_sql =
+        case Selecto.Jsonb.parse_field_reference(field_string, target_schema_config) do
+          {:jsonb, column, path} ->
+            Selecto.Jsonb.build_extraction(column, path,
+              adapter: Map.get(selecto, :adapter),
+              table_alias: target_alias
+            )
+
+          {:regular, _} ->
+            field_name = adapter_quote_identifier(selecto, field_string)
+            [target_alias, ".", field_name]
+        end
+
+      [field_sql, " AS ", field_alias]
     end)
     |> Enum.intersperse([", "])
   end
@@ -1033,6 +1054,13 @@ defmodule Selecto.Builder.Subselect do
     case Map.get(selecto.domain.schemas, target_schema) do
       nil -> raise ArgumentError, "Target schema #{target_schema} not found"
       schema_config -> schema_config.source_table
+    end
+  end
+
+  defp get_target_schema_config(selecto, target_schema) do
+    case Map.get(selecto.domain.schemas, target_schema) do
+      nil -> raise ArgumentError, "Target schema #{target_schema} not found"
+      schema_config -> schema_config
     end
   end
 
