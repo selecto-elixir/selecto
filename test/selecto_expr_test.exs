@@ -51,7 +51,17 @@ defmodule Selecto.ExprTest do
     assert X.field("name") == {:field, "name"}
     assert X.lit("Open") == {:literal, "Open"}
     assert X.count("*") == {:count, "*"}
+    assert X.count_distinct("status") == {:count_distinct, "status"}
     assert X.as(X.count("*"), "total") == {:field, {:count, "*"}, "total"}
+
+    assert X.concat([X.field("nickname"), X.lit(" / "), X.field("name")]) ==
+             {:concat, [{:field, "nickname"}, {:literal, " / "}, {:field, "name"}]}
+
+    assert X.greatest("price", "id") == {:greatest, ["price", "id"]}
+    assert X.least(["price", "id"]) == {:least, ["price", "id"]}
+    assert X.nullif("nickname", "name") == {:nullif, ["nickname", "name"]}
+    assert X.stddev("price") == {:func, :stddev, ["price"]}
+    assert X.variance("price") == {:func, :variance, ["price"]}
 
     assert X.case_when(
              [
@@ -76,6 +86,8 @@ defmodule Selecto.ExprTest do
 
     assert X.normalize({:array_overlap, "tags", ["featured"]}) ==
              {:array_overlap, "tags", ["featured"]}
+
+    assert X.normalize({:count_distinct, "status"}) == {:count_distinct, "status"}
 
     assert X.normalize({:window, {:lag, "price", 1}, over: [partition_by: ["status"]]}) ==
              {:window, {:lag, "price", 1}, over: [partition_by: ["status"]]}
@@ -139,5 +151,24 @@ defmodule Selecto.ExprTest do
     assert sql =~ ~r/ilike/i
     assert true in params
     assert "%chair%" in params
+  end
+
+  test "append_select handles expanded selector helpers" do
+    query =
+      selecto()
+      |> X.append_select([
+        X.count_distinct("status"),
+        X.as(X.concat([X.field("nickname"), X.lit(" / "), X.field("name")]), "display_label"),
+        X.as(X.greatest("price", "id"), "largest_value"),
+        X.as(X.nullif("nickname", "name"), "nickname_only")
+      ])
+
+    assert query.set.selected == [
+             {:count_distinct, "status"},
+             {:field, {:concat, [{:field, "nickname"}, {:literal, " / "}, {:field, "name"}]},
+              "display_label"},
+             {:field, {:greatest, ["price", "id"]}, "largest_value"},
+             {:field, {:nullif, ["nickname", "name"]}, "nickname_only"}
+           ]
   end
 end

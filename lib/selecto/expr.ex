@@ -92,6 +92,10 @@ defmodule Selecto.Expr do
     {:field, normalize_selector_input(selector), alias_name}
   end
 
+  def normalize({:count_distinct, selector}) do
+    {:count_distinct, normalize_selector_input(selector)}
+  end
+
   def normalize({:func, function_name, args}) when is_list(args) do
     {:func, function_name, Enum.map(args, &normalize_selector_input/1)}
   end
@@ -142,6 +146,10 @@ defmodule Selecto.Expr do
   def count(:*), do: {:count, "*"}
   def count(value), do: func("COUNT", [value])
 
+  @doc "Builds `COUNT(DISTINCT ...)` selectors."
+  @spec count_distinct(term()) :: tuple()
+  def count_distinct(value), do: {:count_distinct, normalize_selector_input(value)}
+
   @doc "Builds a `SUM(...)` selector."
   @spec sum(term()) :: tuple()
   def sum(value), do: func("SUM", [value])
@@ -158,10 +166,54 @@ defmodule Selecto.Expr do
   @spec max(term()) :: tuple()
   def max(value), do: func("MAX", [value])
 
+  @doc "Builds a `STDDEV(...)` selector."
+  @spec stddev(term()) :: tuple()
+  def stddev(value), do: func(:stddev, [value])
+
+  @doc "Builds a `VARIANCE(...)` selector."
+  @spec variance(term()) :: tuple()
+  def variance(value), do: func(:variance, [value])
+
   @doc "Builds a `COALESCE(...)` selector."
   @spec coalesce([term()]) :: tuple()
   def coalesce(values) when is_list(values) do
     {:coalesce, Enum.map(values, &normalize_selector_input/1)}
+  end
+
+  @doc "Builds a `CONCAT(...)` selector."
+  @spec concat([term()]) :: tuple()
+  def concat(values) when is_list(values) do
+    {:concat, Enum.map(values, &normalize_selector_input/1)}
+  end
+
+  @doc "Builds a `GREATEST(...)` selector."
+  @spec greatest([term()] | term(), term() | nil) :: tuple()
+  def greatest(values, maybe_second \\ nil)
+
+  def greatest(values, nil) when is_list(values) do
+    {:greatest, Enum.map(values, &normalize_selector_input/1)}
+  end
+
+  def greatest(left, right) do
+    greatest([left, right])
+  end
+
+  @doc "Builds a `LEAST(...)` selector."
+  @spec least([term()] | term(), term() | nil) :: tuple()
+  def least(values, maybe_second \\ nil)
+
+  def least(values, nil) when is_list(values) do
+    {:least, Enum.map(values, &normalize_selector_input/1)}
+  end
+
+  def least(left, right) do
+    least([left, right])
+  end
+
+  @doc "Builds a `NULLIF(...)` selector."
+  @spec nullif(term(), term()) :: tuple()
+  def nullif(left, right) do
+    {:nullif, Enum.map([left, right], &normalize_selector_input/1)}
   end
 
   @doc "Builds a CASE expression using `{filter, result}` pairs."
