@@ -335,6 +335,37 @@ defmodule Selecto.WindowJsonRegressionTest do
              "LEAD(selecto_root.salary, @p2) OVER (PARTITION BY selecto_root.department ORDER BY selecto_root.salary DESC) AS [next salary]"
   end
 
+  test "mssql window aggregate names use sql server variants" do
+    query =
+      Selecto.configure(employee_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["first_name", "department", "salary"])
+      |> Selecto.window_function(:stddev, ["salary"],
+        over: [partition_by: ["department"]],
+        as: "salary stdev"
+      )
+      |> Selecto.window_function(:variance, ["salary"],
+        over: [partition_by: ["department"]],
+        as: "salary variance"
+      )
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+
+    assert sql =~
+             "STDEV(selecto_root.salary) OVER (PARTITION BY selecto_root.department) AS [salary stdev]"
+
+    assert sql =~
+             "VAR(selecto_root.salary) OVER (PARTITION BY selecto_root.department) AS [salary variance]"
+
+    refute sql =~ "STDDEV(selecto_root.salary)"
+    refute sql =~ "VARIANCE(selecto_root.salary)"
+  end
+
   test "json_select + json_filter build valid SQL in SELECT and WHERE" do
     query =
       Selecto.configure(product_domain(), :mock_connection, validate: false)

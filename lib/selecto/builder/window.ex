@@ -163,7 +163,7 @@ defmodule Selecto.Builder.Window do
 
       {func, field} when not is_nil(field) ->
         resolved_field = resolve_field_reference(selecto, field)
-        func_name = String.upcase(to_string(func))
+        func_name = aggregate_function_name(selecto, func)
         {[func_name, "(", resolved_field, ")"], []}
     end
   end
@@ -393,6 +393,24 @@ defmodule Selecto.Builder.Window do
         :ok
     end
   end
+
+  defp aggregate_function_name(selecto, :stddev) do
+    case Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+         |> AdapterSupport.adapter_name() do
+      :mssql -> "STDEV"
+      _ -> "STDDEV"
+    end
+  end
+
+  defp aggregate_function_name(selecto, :variance) do
+    case Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+         |> AdapterSupport.adapter_name() do
+      :mssql -> "VAR"
+      _ -> "VARIANCE"
+    end
+  end
+
+  defp aggregate_function_name(_selecto, func), do: String.upcase(to_string(func))
 
   defp quote_alias(selecto, alias_name) do
     adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())
