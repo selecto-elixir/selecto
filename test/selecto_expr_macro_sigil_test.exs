@@ -83,6 +83,22 @@ defmodule Selecto.ExprMacroSigilTest do
            ]
   end
 
+  test "select macro supports expanded aggregate and wrapper helpers" do
+    assert select([
+             count_distinct(status),
+             stddev(price),
+             variance(price),
+             concat(nickname, " / ", name),
+             least(price, discount_total)
+           ]) == [
+             {:count_distinct, {:field, "status"}},
+             {:func, :stddev, [{:field, "price"}]},
+             {:func, :variance, [{:field, "price"}]},
+             {:concat, [{:field, "nickname"}, " / ", {:field, "name"}]},
+             {:least, [{:field, "price"}, {:field, "discount_total"}]}
+           ]
+  end
+
   test "select macro compiles window and json helper selectors" do
     assert select([
              window(row_number(),
@@ -112,6 +128,16 @@ defmodule Selecto.ExprMacroSigilTest do
              {"total", :desc_nulls_last},
              {:coalesce, [{:field, "nickname"}, {:field, "name"}]},
              {"customer.name", :asc}
+           ]
+  end
+
+  test "order_by macro supports wrapper selector expressions" do
+    assert order_by([
+             desc(greatest(total, discount_total)),
+             least(price, discount_total)
+           ]) == [
+             {{:greatest, [{:field, "total"}, {:field, "discount_total"}]}, :desc},
+             {:least, [{:field, "price"}, {:field, "discount_total"}]}
            ]
   end
 

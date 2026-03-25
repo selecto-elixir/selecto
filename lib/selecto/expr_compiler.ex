@@ -221,7 +221,7 @@ defmodule Selecto.ExprCompiler do
 
   defp do_compile_select_item({:count_distinct, _, [value_ast]}) do
     quote do
-      {:count_distinct, unquote(compile_select_value!(value_ast))}
+      Selecto.Expr.count_distinct(unquote(compile_select_value!(value_ast)))
     end
   end
 
@@ -278,7 +278,7 @@ defmodule Selecto.ExprCompiler do
   end
 
   defp do_compile_select_item({fun_name, _, args})
-       when fun_name in [:avg, :count, :max, :min, :sum] and is_list(args) do
+       when fun_name in [:avg, :count, :max, :min, :stddev, :sum, :variance] and is_list(args) do
     quote do
       apply(Selecto.Expr, unquote(fun_name), [
         unquote_splicing(Enum.map(args, &compile_select_value!/1))
