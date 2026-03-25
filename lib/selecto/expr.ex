@@ -487,6 +487,44 @@ defmodule Selecto.Expr do
     append_filter(selecto, compact_and(filters))
   end
 
+  @doc "Appends an order-by expression when present."
+  @spec append_order_by(Selecto.Types.t(), term()) :: Selecto.Types.t()
+  def append_order_by(selecto, order_spec) do
+    case order_spec do
+      nil -> selecto
+      [] -> selecto
+      value -> Query.order_by(selecto, normalize(value))
+    end
+  end
+
+  @doc "Appends a group-by expression when present."
+  @spec append_group_by(Selecto.Types.t(), term()) :: Selecto.Types.t()
+  def append_group_by(selecto, group_spec) do
+    case group_spec do
+      nil -> selecto
+      [] -> selecto
+      value -> Query.group_by(selecto, normalize(value))
+    end
+  end
+
+  @doc "Conditionally appends an order-by expression when the value is present."
+  @spec maybe_order_by(Selecto.Types.t(), term(), (term() -> term())) :: Selecto.Types.t()
+  def maybe_order_by(selecto, value, fun) when is_function(fun, 1) do
+    case when_present(value, fun) do
+      nil -> selecto
+      order_spec -> append_order_by(selecto, order_spec)
+    end
+  end
+
+  @doc "Conditionally appends a group-by expression when the value is present."
+  @spec maybe_group_by(Selecto.Types.t(), term(), (term() -> term())) :: Selecto.Types.t()
+  def maybe_group_by(selecto, value, fun) when is_function(fun, 1) do
+    case when_present(value, fun) do
+      nil -> selecto
+      group_spec -> append_group_by(selecto, group_spec)
+    end
+  end
+
   defp compact_filters(filters, conjunction) do
     compacted =
       filters

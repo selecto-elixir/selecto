@@ -171,4 +171,16 @@ defmodule Selecto.ExprTest do
              {:field, {:nullif, ["nickname", "name"]}, "nickname_only"}
            ]
   end
+
+  test "append_order_by and append_group_by compose query pipeline ergonomics" do
+    query =
+      selecto()
+      |> X.append_order_by(X.desc("price"))
+      |> X.append_group_by(X.rollup([{:field, "status"}]))
+      |> X.maybe_order_by(nil, &X.asc(&1))
+      |> X.maybe_group_by("status", &X.rollup([{:field, &1}]))
+
+    assert query.set.order_by == [{"price", :desc}]
+    assert query.set.group_by == [rollup: [{:field, "status"}], rollup: [{:field, "status"}]]
+  end
 end
