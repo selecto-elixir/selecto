@@ -307,6 +307,34 @@ defmodule Selecto.WindowJsonRegressionTest do
     end
   end
 
+  test "mssql lag and lead compile with offset params and quoted aliases" do
+    query =
+      Selecto.configure(employee_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select(["first_name", "department", "salary"])
+      |> Selecto.window_function(:lag, ["salary", 2],
+        over: [partition_by: ["department"], order_by: [{"salary", :desc}]],
+        as: "prev salary"
+      )
+      |> Selecto.window_function(:lead, ["salary", 3],
+        over: [partition_by: ["department"], order_by: [{"salary", :desc}]],
+        as: "next salary"
+      )
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == [2, 3]
+
+    assert sql =~
+             "LAG(selecto_root.salary, @p1) OVER (PARTITION BY selecto_root.department ORDER BY selecto_root.salary DESC) AS [prev salary]"
+
+    assert sql =~
+             "LEAD(selecto_root.salary, @p2) OVER (PARTITION BY selecto_root.department ORDER BY selecto_root.salary DESC) AS [next salary]"
+  end
+
   test "json_select + json_filter build valid SQL in SELECT and WHERE" do
     query =
       Selecto.configure(product_domain(), :mock_connection, validate: false)
