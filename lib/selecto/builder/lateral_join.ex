@@ -40,21 +40,30 @@ defmodule Selecto.Builder.LateralJoin do
   """
   def build_lateral_join(%Spec{} = spec, opts \\ []) do
     adapter = Keyword.get(opts, :adapter)
-    join_syntax = join_syntax(spec, adapter)
 
     case spec.subquery_builder do
       nil ->
         # Table function LATERAL join
-        build_table_function_lateral_join(spec, join_syntax)
+        build_table_function_lateral_join(spec, adapter)
 
       subquery_builder when is_function(subquery_builder) ->
+        join_syntax = join_syntax(spec, adapter)
+
         # Subquery LATERAL join
         build_subquery_lateral_join(spec, join_syntax)
     end
   end
 
   # Build LATERAL join with table function
-  defp build_table_function_lateral_join(%Spec{} = spec, join_syntax) do
+  defp build_table_function_lateral_join(
+         %Spec{table_function: {:json_table, _, _, _}} = spec,
+         adapter
+       ) do
+    build_json_table_join(spec, adapter)
+  end
+
+  defp build_table_function_lateral_join(%Spec{} = spec, adapter) do
+    join_syntax = join_syntax(spec, adapter)
     {function_sql, params} = build_table_function_sql(spec.table_function)
 
     sql =
@@ -67,6 +76,37 @@ defmodule Selecto.Builder.LateralJoin do
       end
 
     {sql, params}
+  end
+
+  defp build_json_table_join(%Spec{} = spec, adapter) do
+    cond do
+      not AdapterSupport.supports_feature?(adapter, :json_table) ->
+        adapter_name = AdapterSupport.adapter_name(adapter) || adapter
+
+        error =
+          Error.validation_error("Adapter does not support JSON_TABLE joins", %{
+            adapter: adapter_name,
+            unsupported_feature: :json_table
+          })
+
+        raise Error.to_exception(error)
+
+      spec.join_type not in [:inner, :left] ->
+        error =
+          Error.validation_error("MySQL JSON_TABLE joins only support :inner and :left", %{
+            adapter: AdapterSupport.adapter_name(adapter) || adapter,
+            join_type: spec.join_type,
+            supported_join_types: [:inner, :left],
+            unsupported_feature: :json_table
+          })
+
+        raise Error.to_exception(error)
+
+      true ->
+        {function_sql, params} = build_table_function_sql(spec.table_function)
+        join_sql = if spec.join_type == :left, do: "LEFT JOIN", else: "INNER JOIN"
+        {[join_sql, " ", function_sql, " AS ", spec.alias, " ON true"], params}
+    end
   end
 
   # Build LATERAL join with correlated subquery
@@ -110,6 +150,23 @@ defmodule Selecto.Builder.LateralJoin do
     {function_sql, []}
   end
 
+  defp build_table_function_sql({:json_table, source_ref, path, columns}) do
+    column_sql =
+      columns
+      |> Enum.map(&build_json_table_column_sql/1)
+      |> Enum.intersperse(", ")
+
+    {[
+       "JSON_TABLE(",
+       source_ref,
+       ", '",
+       escape_sql_literal(path),
+       "' COLUMNS (",
+       column_sql,
+       "))"
+     ], []}
+  end
+
   defp build_table_function_sql(unknown) do
     raise ArgumentError, "Unknown table function specification: #{inspect(unknown)}"
   end
@@ -149,6 +206,37 @@ defmodule Selecto.Builder.LateralJoin do
     # Fallback - treat as parameter
     {:param, unknown}
   end
+
+  defp build_json_table_column_sql(%{name: name, for_ordinality: true}) do
+    [to_string(name), " FOR ORDINALITY"]
+  end
+
+  defp build_json_table_column_sql(%{name: name} = column) do
+    path = Map.get(column, :path, "$")
+    type = mysql_json_table_type(Map.get(column, :type, :string))
+
+    [
+      to_string(name),
+      " ",
+      type,
+      " PATH '",
+      escape_sql_literal(path),
+      "'"
+    ]
+  end
+
+  defp mysql_json_table_type(:integer), do: "INTEGER"
+  defp mysql_json_table_type(:decimal), do: "DECIMAL(38, 10)"
+  defp mysql_json_table_type(:float), do: "DOUBLE"
+  defp mysql_json_table_type(:boolean), do: "BOOLEAN"
+  defp mysql_json_table_type(:date), do: "DATE"
+  defp mysql_json_table_type(:naive_datetime), do: "DATETIME"
+  defp mysql_json_table_type(:utc_datetime), do: "DATETIME"
+  defp mysql_json_table_type(:json), do: "JSON"
+  defp mysql_json_table_type(_), do: "VARCHAR(255)"
+
+  defp escape_sql_literal(value) when is_binary(value), do: String.replace(value, "'", "''")
+  defp escape_sql_literal(value), do: to_string(value)
 
   # Build JOIN type SQL
   defp build_join_type(:left), do: "LEFT"

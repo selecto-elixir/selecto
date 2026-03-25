@@ -10,6 +10,11 @@ defmodule SelectoDBMySQL.Adapter do
   def placeholder(_index), do: "?"
   def quote_identifier(identifier), do: "`#{String.replace(to_string(identifier), "`", "``")}`"
   def supports?(:rollup_with_rollup), do: true
+  def supports?(:json_table), do: true
+  def supports?(:text_search), do: true
+  def supports?(:text_search_multi_field), do: true
+  def supports?(:match_against), do: true
+  def supports?(:on_duplicate_key_update), do: true
   def supports?(_feature), do: false
 
   def rollup_sql(grouped_clauses), do: [grouped_clauses, " with rollup"]

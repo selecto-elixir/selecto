@@ -152,6 +152,7 @@ defmodule Selecto.DB.PostgreSQL do
       :native_null_ordering,
       :rollup,
       :returning,
+      :text_search,
       :window_functions,
       :lateral_join,
       :prefix

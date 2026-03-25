@@ -53,7 +53,19 @@ defmodule Selecto.Advanced.LateralJoin do
 
     @type join_type :: :left | :inner | :right | :full
     @type correlation_ref :: {:ref, String.t()}
-    @type table_function :: {:unnest, String.t()} | {:function, atom(), [term()]}
+
+    @type json_table_column :: %{
+            required(:name) => String.t(),
+            optional(:path) => String.t(),
+            optional(:type) => atom(),
+            optional(:for_ordinality) => boolean()
+          }
+
+    @type table_function ::
+            {:unnest, String.t()}
+            | {:function, atom(), [term()]}
+            | {:json_table, String.t(), String.t(), [json_table_column()]}
+
     @type subquery_builder :: (Selecto.t() -> Selecto.t())
 
     @type t :: %__MODULE__{
@@ -175,6 +187,10 @@ defmodule Selecto.Advanced.LateralJoin do
   defp extract_correlation_refs({:function, _func_name, args}) do
     args
     |> Enum.flat_map(&extract_refs_from_arg/1)
+  end
+
+  defp extract_correlation_refs({:json_table, source_ref, _path, _columns}) do
+    extract_refs_from_arg(source_ref)
   end
 
   defp extract_correlation_refs(_), do: []

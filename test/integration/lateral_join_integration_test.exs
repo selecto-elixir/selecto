@@ -7,13 +7,14 @@ defmodule Selecto.Integration.LateralJoinTest do
       source: %{
         source_table: "film",
         primary_key: :film_id,
-        fields: [:film_id, :title, :rating, :special_features],
+        fields: [:film_id, :title, :rating, :special_features, :line_items],
         redact_fields: [],
         columns: %{
           film_id: %{type: :integer},
           title: %{type: :string},
           rating: %{type: :string},
-          special_features: %{type: :array}
+          special_features: %{type: :array},
+          line_items: %{type: :json}
         },
         associations: %{}
       },
@@ -69,6 +70,32 @@ defmodule Selecto.Integration.LateralJoinTest do
     assert sql =~ "@p1"
     refute sql =~ "JOIN LATERAL"
     assert params == ["PG"]
+  end
+
+  test "mysql json_table helper registers qualified columns and compiles json_table", %{
+    domain: domain
+  } do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Selecto.json_table("line_items",
+        as: "item_rows",
+        columns: [
+          {"position", :for_ordinality},
+          {"sku", "$.sku", :string},
+          {"quantity", "$.quantity", :integer}
+        ]
+      )
+      |> Selecto.select(["title", "item_rows.sku", "item_rows.quantity"])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == []
+    assert sql =~ "JSON_TABLE(selecto_root.line_items"
+    assert sql =~ "item_rows.sku"
+    assert sql =~ "item_rows.quantity"
+    assert sql =~ "position FOR ORDINALITY"
+    refute sql =~ "JOIN LATERAL"
   end
 
   test "mssql rejects unsupported lateral join types", %{domain: domain} do

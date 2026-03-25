@@ -1081,6 +1081,38 @@ defmodule Selecto do
   end
 
   @doc """
+  Add a MySQL `JSON_TABLE` rowset expansion to the query.
+
+  This helper projects JSON-derived rows as a joinable rowset and registers the
+  projected columns into the query config so they can be selected and filtered
+  with qualified field references such as `item_rows.sku`.
+  """
+  @spec json_table(t(), atom() | String.t(), keyword() | map()) :: t()
+  def json_table(selecto, source_field, opts \\ [])
+
+  def json_table(selecto, source_field, opts) when is_map(opts) do
+    json_table(selecto, source_field, Enum.into(opts, []))
+  end
+
+  def json_table(selecto, source_field, opts) when is_list(opts) do
+    alias_name = opts |> Keyword.fetch!(:as) |> to_string()
+    path = Keyword.get(opts, :path, "$[*]")
+    join_type = Keyword.get(opts, :join_type, :inner)
+
+    columns =
+      opts
+      |> Keyword.fetch!(:columns)
+      |> Enum.map(&normalize_json_table_column!/1)
+
+    table_function = {:json_table, normalize_json_table_source(source_field), path, columns}
+
+    selecto
+    |> Selecto.lateral_join(join_type, table_function, alias_name)
+    |> register_json_table_columns(alias_name, columns)
+    |> upsert_lateral_by_alias(alias_name)
+  end
+
+  @doc """
   Apply a named UNNEST preset from `domain.query_members.unnests`.
 
   ## Examples
@@ -1444,6 +1476,56 @@ defmodule Selecto do
       _ ->
         put_in(selecto.set[:lateral_joins], others ++ [List.last(matching)])
     end
+  end
+
+  defp normalize_json_table_source(field) when is_atom(field) do
+    normalize_json_table_source(Atom.to_string(field))
+  end
+
+  defp normalize_json_table_source(field) when is_binary(field) do
+    case String.split(field, ".", parts: 2) do
+      [_prefix, _column] -> field
+      [column] -> "selecto_root." <> column
+    end
+  end
+
+  defp normalize_json_table_column!({name, :for_ordinality}) do
+    %{name: to_string(name), for_ordinality: true, type: :integer}
+  end
+
+  defp normalize_json_table_column!({name, path}) when is_binary(path) do
+    %{name: to_string(name), path: path, type: :string}
+  end
+
+  defp normalize_json_table_column!({name, path, type}) when is_binary(path) do
+    %{name: to_string(name), path: path, type: type}
+  end
+
+  defp normalize_json_table_column!(%{name: name} = column) do
+    column
+    |> Map.put(:name, to_string(name))
+    |> Map.put_new(:type, if(Map.get(column, :for_ordinality), do: :integer, else: :string))
+  end
+
+  defp normalize_json_table_column!(other) do
+    raise ArgumentError,
+          "JSON_TABLE columns must be tuples or maps. Got: #{inspect(other)}"
+  end
+
+  defp register_json_table_columns(selecto, alias_name, columns) do
+    current_columns = Map.get(selecto.config, :columns, %{})
+
+    columns_to_add =
+      Enum.reduce(columns, %{}, fn %{name: name} = column, acc ->
+        Map.put(acc, "#{alias_name}.#{name}", %{
+          name: "#{alias_name}.#{name}",
+          field: name,
+          requires_join: alias_name,
+          type: Map.get(column, :type, :string)
+        })
+      end)
+
+    put_in(selecto.config[:columns], Map.merge(current_columns, columns_to_add))
   end
 
   @doc """

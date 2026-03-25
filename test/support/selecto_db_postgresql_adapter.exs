@@ -88,6 +88,7 @@ defmodule SelectoDBPostgreSQL.Adapter do
       :array_any_comparison,
       :native_null_ordering,
       :returning,
+      :text_search,
       :window_functions,
       :lateral_join,
       :prefix,

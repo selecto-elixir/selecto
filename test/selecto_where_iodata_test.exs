@@ -9,11 +9,12 @@ defmodule Selecto.Builder.Sql.WhereTest do
     source: %{
       source_table: "users",
       primary_key: :id,
-      fields: [:id, :name, :active, :count, :user_id, :created_at],
+      fields: [:id, :name, :description, :active, :count, :user_id, :created_at],
       redact_fields: [],
       columns: %{
         id: %{type: :integer},
         name: %{type: :string},
+        description: %{type: :string},
         active: %{type: :boolean},
         count: %{type: :integer},
         user_id: %{type: :id},
@@ -79,6 +80,34 @@ defmodule Selecto.Builder.Sql.WhereTest do
       {ts_sql, ts_params} = Params.finalize(ts_iodata)
       assert ts_sql =~ ~r/websearch_to_tsquery/i
       assert ts_params == ["term"]
+
+      mysql_selecto = Map.put(selecto(), :adapter, SelectoDBMySQL.Adapter)
+
+      {_joins, mysql_ts_iodata, _} =
+        Where.build(mysql_selecto, {"name", {:text_search, "wireless charger"}})
+
+      {mysql_ts_sql, mysql_ts_params} =
+        Params.finalize(mysql_ts_iodata, adapter: SelectoDBMySQL.Adapter)
+
+      assert mysql_ts_sql =~ ~r/MATCH\(.*name.*\) AGAINST \(\? IN NATURAL LANGUAGE MODE\)/i
+      assert mysql_ts_params == ["wireless charger"]
+
+      {_joins, mysql_multi_ts_iodata, _} =
+        Where.build(mysql_selecto, {["name", "description"], {:text_search, "wireless charger"}})
+
+      {mysql_multi_ts_sql, mysql_multi_ts_params} =
+        Params.finalize(mysql_multi_ts_iodata, adapter: SelectoDBMySQL.Adapter)
+
+      assert mysql_multi_ts_sql =~
+               ~r/MATCH\(.*name.*, .*description.*\) AGAINST \(\? IN NATURAL LANGUAGE MODE\)/i
+
+      assert mysql_multi_ts_params == ["wireless charger"]
+
+      sqlite_selecto = Map.put(selecto(), :adapter, SelectoDBSQLite.Adapter)
+
+      assert_raise RuntimeError, ~r/does not support text search/, fn ->
+        Where.build(sqlite_selecto, {"name", {:text_search, "term"}})
+      end
 
       subquery = "SELECT id FROM users WHERE active = true"
       {_joins, sq_iodata, _} = Where.build(selecto(), {"id", {:subquery, :in, subquery, []}})

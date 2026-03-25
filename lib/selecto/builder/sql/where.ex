@@ -11,7 +11,9 @@ defmodule Selecto.Builder.Sql.Where do
   import Selecto.Builder.Sql.Helpers
 
   alias Selecto.AdapterSQL
+  alias Selecto.AdapterSupport
   alias Selecto.Builder.Sql.Select
+  alias Selecto.Error
   alias Selecto.Jsonb
 
   # Predicate formats supported:
@@ -62,19 +64,12 @@ defmodule Selecto.Builder.Sql.Where do
     build(selecto, {:case, when_clauses, nil})
   end
 
-  def build(selecto, {field, {:text_search, value}}) do
-    conf = field_conf(selecto, field)
-    # Extract actual field name, not display name
-    field_name = extract_database_field(field, conf)
+  def build(selecto, {fields, {:text_search, value}}) when is_list(fields) do
+    build_text_search(selecto, fields, value)
+  end
 
-    {conf.requires_join,
-     [
-       " ",
-       build_selector_string(selecto, conf.requires_join, field_name),
-       " @@ websearch_to_tsquery(",
-       {:param, value},
-       ") "
-     ], []}
+  def build(selecto, {field, {:text_search, value}}) do
+    build_text_search(selecto, [field], value)
   end
 
   def build(selecto, {field, {:subquery, :in, %Selecto{} = query_selecto}}) do
@@ -927,6 +922,84 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   defp safe_existing_atom(_field), do: nil
+
+  defp build_text_search(selecto, fields, value) when is_list(fields) do
+    adapter = Map.get(selecto, :adapter)
+    adapter_name = AdapterSupport.adapter_name(adapter)
+
+    compiled_fields =
+      Enum.map(fields, fn field ->
+        conf = field_conf(selecto, field)
+        field_name = extract_database_field(field, conf)
+        {conf, field_name}
+      end)
+
+    joins =
+      compiled_fields
+      |> Enum.flat_map(fn {conf, _field_name} -> List.wrap(conf.requires_join) end)
+      |> Enum.uniq()
+
+    selectors =
+      Enum.map(compiled_fields, fn {conf, field_name} ->
+        build_selector_string(selecto, conf.requires_join, field_name)
+      end)
+
+    cond do
+      adapter_name == :mysql and AdapterSupport.supports_feature?(adapter, :text_search) and
+          length(selectors) == 1 ->
+        {joins,
+         [
+           " MATCH(",
+           hd(selectors),
+           ") AGAINST (",
+           {:param, value},
+           " IN NATURAL LANGUAGE MODE) "
+         ], []}
+
+      adapter_name == :mysql and
+          AdapterSupport.supports_feature?(adapter, :text_search_multi_field) ->
+        {joins,
+         [
+           " MATCH(",
+           Enum.intersperse(selectors, ", "),
+           ") AGAINST (",
+           {:param, value},
+           " IN NATURAL LANGUAGE MODE) "
+         ], []}
+
+      length(selectors) > 1 ->
+        raise_text_search_error(
+          "Adapter does not support multi-field text search",
+          adapter_name,
+          :text_search_multi_field,
+          fields
+        )
+
+      AdapterSupport.supports_feature?(adapter, :text_search) ->
+        [selector] = selectors
+
+        {joins, [" ", selector, " @@ websearch_to_tsquery(", {:param, value}, ") "], []}
+
+      true ->
+        raise_text_search_error(
+          "Adapter does not support text search",
+          adapter_name,
+          :text_search,
+          fields
+        )
+    end
+  end
+
+  defp raise_text_search_error(message, adapter_name, unsupported_feature, fields) do
+    error =
+      Error.validation_error(message, %{
+        adapter: adapter_name,
+        fields: fields,
+        unsupported_feature: unsupported_feature
+      })
+
+    raise Error.to_exception(error)
+  end
 
   defp convert_sql_placeholders_to_iodata(sql, params)
        when is_binary(sql) and is_list(params) do
