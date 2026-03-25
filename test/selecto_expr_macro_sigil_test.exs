@@ -43,6 +43,16 @@ defmodule Selecto.ExprMacroSigilTest do
               ]}
   end
 
+  test "where macro supports multi-field text_search helpers" do
+    term = "wireless charger"
+
+    assert where(text_search([name, description], ^term)) ==
+             {[
+                "name",
+                "description"
+              ], {:text_search, "wireless charger"}}
+  end
+
   test "where macro supports not_in and array_contains helpers" do
     statuses = ["cancelled", "returned"]
 
@@ -163,6 +173,21 @@ defmodule Selecto.ExprMacroSigilTest do
               [
                 {"name", {:text_search, "wireless charger"}},
                 {"metadata.zone", :exists}
+              ]}
+  end
+
+  test "uppercase ~SELECTO sigil supports multi-field text_search" do
+    term = "wireless charger"
+    prefix = "act"
+
+    assert ~SELECTO"text_search([name, description], ^term) and starts_with(status, ^prefix)" ==
+             {:and,
+              [
+                {[
+                   "name",
+                   "description"
+                 ], {:text_search, "wireless charger"}},
+                {"status", {:like, "act%"}}
               ]}
   end
 
