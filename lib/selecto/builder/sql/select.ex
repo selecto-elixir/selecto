@@ -669,7 +669,7 @@ defmodule Selecto.Builder.Sql.Select do
     {join_w, filters_iodata, param_w} =
       Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
 
-    func_name = Atom.to_string(func) |> check_string()
+    func_name = sql_function_name(selecto, func)
     filter_iodata = [func_name, "(", sel_iodata, ") FILTER (where ", filters_iodata, ")"]
     {filter_iodata, List.wrap(join) ++ List.wrap(join_w), param ++ param_w}
   end
@@ -725,8 +725,8 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, selector, pivot_aliases)
   end
 
-  def prep_selector(_selecto, {func}, _pivot_aliases) when is_atom(func) do
-    func_name = Atom.to_string(func) |> check_string()
+  def prep_selector(selecto, {func}, _pivot_aliases) when is_atom(func) do
+    func_name = sql_function_name(selecto, func)
     {[func_name, "()"], :selecto_root, []}
   end
 
@@ -833,7 +833,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {func, selector}, pivot_aliases) when is_atom(func) do
     {sel_iodata, join, param} = prep_selector(selecto, selector, pivot_aliases)
-    func_name = Atom.to_string(func) |> check_string()
+    func_name = sql_function_name(selecto, func)
     func_call_iodata = [func_name, "(", sel_iodata, ")"]
     {func_call_iodata, join, param}
   end
@@ -1204,7 +1204,7 @@ defmodule Selecto.Builder.Sql.Select do
     join = Enum.reverse(join)
     param = Enum.reverse(param)
 
-    function_name = func_name |> to_string() |> check_string()
+    function_name = sql_function_name(selecto, func_name)
 
     args_iodata =
       case arg_iodata_parts do
@@ -1234,6 +1234,24 @@ defmodule Selecto.Builder.Sql.Select do
 
   defp to_boolean(value) when value in [true, false], do: value
   defp to_boolean(_value), do: false
+
+  defp sql_function_name(selecto, :stddev) do
+    case Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+         |> Selecto.AdapterSupport.adapter_name() do
+      :mssql -> "STDEV"
+      _ -> "stddev"
+    end
+  end
+
+  defp sql_function_name(selecto, :variance) do
+    case Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+         |> Selecto.AdapterSupport.adapter_name() do
+      :mssql -> "VAR"
+      _ -> "variance"
+    end
+  end
+
+  defp sql_function_name(_selecto, func_name), do: func_name |> to_string() |> check_string()
 
   defp regular_selector?(selector, domain) when is_binary(selector) do
     case :binary.match(selector, ".") do

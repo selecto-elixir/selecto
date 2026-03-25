@@ -366,6 +366,26 @@ defmodule Selecto.WindowJsonRegressionTest do
     refute sql =~ "VARIANCE(selecto_root.salary)"
   end
 
+  test "mssql non-window aggregate names use sql server variants" do
+    query =
+      Selecto.configure(employee_domain(), :mock_connection,
+        adapter: SelectoDBMSSQL.Adapter,
+        validate: false
+      )
+      |> Selecto.select([
+        {:func, :stddev, ["salary"], [as: "salary stdev"]},
+        {:func, :variance, ["salary"], [as: "salary variance"]}
+      ])
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ "select STDEV(selecto_root.salary), VAR(selecto_root.salary)"
+    refute sql =~ "stddev(selecto_root.salary)"
+    refute sql =~ "variance(selecto_root.salary)"
+  end
+
   test "json_select + json_filter build valid SQL in SELECT and WHERE" do
     query =
       Selecto.configure(product_domain(), :mock_connection, validate: false)
