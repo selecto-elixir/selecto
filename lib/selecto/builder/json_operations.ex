@@ -9,6 +9,7 @@ defmodule Selecto.Builder.JsonOperations do
 
   alias Selecto.Advanced.JsonOperations.Spec
   alias Selecto.AdapterSupport
+  alias Selecto.Error
   alias Selecto.Jsonb
 
   @doc """
@@ -57,6 +58,8 @@ defmodule Selecto.Builder.JsonOperations do
 
   # Generate SELECT clause SQL for JSON operations
   defp generate_select_sql(%Spec{operation: operation} = spec, opts) do
+    ensure_operation_supported!(operation, Keyword.get(opts, :adapter), :select)
+
     case operation do
       # Extraction operations
       :json_extract ->
@@ -130,6 +133,8 @@ defmodule Selecto.Builder.JsonOperations do
 
   # Generate WHERE clause SQL for JSON operations
   defp generate_filter_sql(%Spec{operation: operation} = spec, opts) do
+    ensure_operation_supported!(operation, Keyword.get(opts, :adapter), :filter)
+
     case operation do
       # Containment operations
       :json_contains ->
@@ -571,5 +576,35 @@ defmodule Selecto.Builder.JsonOperations do
       end
 
     [sql_parts, " AS ", quoted_alias]
+  end
+
+  defp ensure_operation_supported!(operation, adapter, clause_type) do
+    case {AdapterSupport.adapter_name(adapter), operation} do
+      {adapter_name, op}
+      when adapter_name in [:mysql, :mariadb] and
+             op in [
+               :json_contained,
+               :jsonb_agg,
+               :jsonb_object_agg,
+               :jsonb_build_object,
+               :jsonb_build_array,
+               :jsonb_set,
+               :jsonb_insert,
+               :jsonb_typeof,
+               :jsonb_array_length
+             ] ->
+        error =
+          Error.validation_error("Adapter does not support this JSON operation", %{
+            adapter: adapter_name,
+            clause_type: clause_type,
+            operation: operation,
+            unsupported_feature: :json_operation
+          })
+
+        raise Error.to_exception(error)
+
+      _ ->
+        :ok
+    end
   end
 end
