@@ -142,6 +142,15 @@ defmodule Selecto.JsonbTest do
     assert exists =~ "JSON_VALUE(u.attributes, '$.dimensions.length') IS NOT NULL"
   end
 
+  test "mssql containment rejects array semantics explicitly" do
+    assert_raise RuntimeError, ~r/MSSQL JSON containment for arrays is not supported/, fn ->
+      Jsonb.build_contains("attributes", %{"tags" => ["featured"]},
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+    end
+  end
+
   test "mysql contains and key existence use mysql json functions" do
     contains =
       Jsonb.build_contains("attributes", %{"color" => "red"},

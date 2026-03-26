@@ -10,6 +10,8 @@ defmodule Selecto.Builder.Sql.Select do
   import Selecto.Builder.Sql.Helpers
 
   alias Selecto.AdapterSQL
+  alias Selecto.AdapterSupport
+  alias Selecto.Error
   alias Selecto.Jsonb
 
   ### TODO alter prep_selector to return the data type
@@ -670,7 +672,10 @@ defmodule Selecto.Builder.Sql.Select do
       Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
 
     func_name = sql_function_name(selecto, func)
-    filter_iodata = [func_name, "(", sel_iodata, ") FILTER (where ", filters_iodata, ")"]
+
+    filter_iodata =
+      build_filtered_aggregate_iodata(selecto, func_name, [sel_iodata], false, filters_iodata)
+
     {filter_iodata, List.wrap(join) ++ List.wrap(join_w), param ++ param_w}
   end
 
@@ -1227,10 +1232,89 @@ defmodule Selecto.Builder.Sql.Select do
       {join_w, filters_iodata, param_w} =
         Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
 
-      filter_iodata = [function_call_iodata, " FILTER (where ", filters_iodata, ")"]
+      filter_iodata =
+        build_filtered_aggregate_iodata(
+          selecto,
+          function_name,
+          arg_iodata_parts,
+          distinct,
+          filters_iodata,
+          function_call_iodata
+        )
+
       {filter_iodata, List.wrap(join) ++ List.wrap(join_w), param ++ param_w}
     end
   end
+
+  defp build_filtered_aggregate_iodata(
+         selecto,
+         function_name,
+         arg_iodata_parts,
+         distinct,
+         filters_iodata,
+         fallback_iodata \\ nil
+       ) do
+    case AdapterSupport.adapter_name(Map.get(selecto, :adapter, AdapterSupport.default_adapter())) do
+      :mssql ->
+        build_mssql_filtered_aggregate_iodata(
+          function_name,
+          arg_iodata_parts,
+          distinct,
+          filters_iodata
+        )
+
+      _ ->
+        function_call_iodata = fallback_iodata || [function_name, "(", arg_iodata_parts, ")"]
+        [function_call_iodata, " FILTER (where ", filters_iodata, ")"]
+    end
+  end
+
+  defp build_mssql_filtered_aggregate_iodata(
+         function_name,
+         arg_iodata_parts,
+         distinct,
+         filters_iodata
+       ) do
+    normalized_name = function_name |> to_string() |> String.downcase()
+
+    case {normalized_name, arg_iodata_parts} do
+      {name, [arg_iodata]} when name in ["count", "sum", "avg", "min", "max", "stdev", "var"] ->
+        conditional_arg =
+          mssql_filtered_aggregate_arg(normalized_name, arg_iodata, filters_iodata)
+
+        [function_name, "(", maybe_distinct_prefix(distinct), conditional_arg, ")"]
+
+      {"string_agg", [value_iodata, separator_iodata]} when not distinct ->
+        conditional_arg = ["CASE WHEN ", filters_iodata, " THEN ", value_iodata, " END"]
+        [function_name, "(", conditional_arg, ", ", separator_iodata, ")"]
+
+      _ ->
+        error =
+          Error.validation_error("MSSQL does not support this aggregate FILTER shape yet", %{
+            adapter: :mssql,
+            function: function_name,
+            distinct: distinct,
+            argument_count: length(arg_iodata_parts),
+            unsupported_feature: :aggregate_filter
+          })
+
+        raise Error.to_exception(error)
+    end
+  end
+
+  defp mssql_filtered_aggregate_arg("count", arg_iodata, filters_iodata) do
+    value_iodata = if star_selector_iodata?(arg_iodata), do: "1", else: arg_iodata
+    ["CASE WHEN ", filters_iodata, " THEN ", value_iodata, " END"]
+  end
+
+  defp mssql_filtered_aggregate_arg(_function_name, arg_iodata, filters_iodata) do
+    ["CASE WHEN ", filters_iodata, " THEN ", arg_iodata, " END"]
+  end
+
+  defp maybe_distinct_prefix(true), do: "DISTINCT "
+  defp maybe_distinct_prefix(false), do: []
+
+  defp star_selector_iodata?(iodata), do: IO.iodata_to_binary(iodata) == "*"
 
   defp to_boolean(value) when value in [true, false], do: value
   defp to_boolean(_value), do: false

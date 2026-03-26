@@ -47,6 +47,8 @@ defmodule Selecto.Jsonb do
       Selecto.filter(selecto, {"attributes.warranty", :exists})
   """
 
+  alias Selecto.Error
+
   @doc """
   Parse a field reference that may contain JSONB dot notation.
 
@@ -432,8 +434,14 @@ defmodule Selecto.Jsonb do
         flatten_mssql_contains(nested, prefix ++ [to_string(key)])
 
       {key, value} when is_list(value) ->
-        raise ArgumentError,
-              "MSSQL JSON containment for arrays is not implemented yet: #{inspect(prefix ++ [to_string(key)])}"
+        error =
+          Error.validation_error("MSSQL JSON containment for arrays is not supported", %{
+            adapter: :mssql,
+            path: prefix ++ [to_string(key)],
+            unsupported_feature: :json_contains_array
+          })
+
+        raise Error.to_exception(error)
 
       {key, value} ->
         [{prefix ++ [to_string(key)], value}]

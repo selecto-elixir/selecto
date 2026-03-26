@@ -27,8 +27,17 @@ defmodule Selecto.SelectPrepSelectorTest do
     Selecto.configure(domain, :mock_connection)
   end
 
+  defp mssql_selecto do
+    selecto()
+    |> Map.put(:adapter, SelectoDBMSSQL.Adapter)
+  end
+
   defp finalize(iodata) do
     Params.finalize(iodata)
+  end
+
+  defp finalize_mssql(iodata) do
+    Params.finalize(iodata, adapter: SelectoDBMSSQL.Adapter)
   end
 
   test "parameterized scalar selectors" do
@@ -110,6 +119,34 @@ defmodule Selecto.SelectPrepSelectorTest do
 
     assert as_alias == "total_count"
     assert IO.iodata_to_binary(built_sql) == "COUNT(*)"
+  end
+
+  test "mssql rewrites aggregate FILTER clauses to CASE expressions" do
+    {count_sql, _join, _count_params} =
+      Select.prep_selector(mssql_selecto(), {:func, "COUNT", ["*"], filter: [{"active", true}]})
+
+    {count_sql_text, _finalized_count_params} = finalize_mssql(count_sql)
+    assert count_sql_text =~ ~r/COUNT\(CASE WHEN/i
+    refute count_sql_text =~ ~r/FILTER \(where/i
+
+    {avg_sql, _join, _avg_params} =
+      Select.prep_selector(mssql_selecto(), {:avg, "created_at", {"active", true}})
+
+    {avg_sql_text, _finalized_avg_params} = finalize_mssql(avg_sql)
+    assert avg_sql_text =~ ~r/AVG\(CASE WHEN/i
+    refute avg_sql_text =~ ~r/FILTER \(where/i
+  end
+
+  test "mssql raises on unsupported aggregate FILTER shapes" do
+    assert_raise RuntimeError,
+                 ~r/MSSQL does not support this aggregate FILTER shape yet/,
+                 fn ->
+                   Select.prep_selector(
+                     mssql_selecto(),
+                     {:func, "jsonb_object_agg", ["name", {:literal, "x"}],
+                      filter: [{"active", true}]}
+                   )
+                 end
   end
 
   test "func selector DSL handles mixed literal and field aggregate args" do
