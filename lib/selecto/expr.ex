@@ -48,7 +48,11 @@ defmodule Selecto.Expr do
   def normalize({:between, field, min, max}), do: between(field, min, max)
   def normalize({:in, field, values}), do: unquote(:in)(field, values)
   def normalize({:not_in, field, values}), do: not_in(field, values)
-  def normalize({:text_search, field, value}), do: text_search(field, value)
+
+  def normalize({:text_search, field, value}) when is_list(value) == false,
+    do: text_search(field, value)
+
+  def normalize({:text_search, field, opts}) when is_list(opts), do: text_search(field, opts)
 
   def normalize({:text_search, field, value, opts}) when is_list(opts),
     do: text_search(field, value, opts)
@@ -296,11 +300,29 @@ defmodule Selecto.Expr do
   def not_in(field, values), do: {field, {:not_in, values}}
 
   @doc "Builds a full-text search filter using Selecto's `:text_search` operator."
-  @spec text_search(term(), term(), keyword()) :: tuple()
-  def text_search(field, value, opts \\ []) when is_list(opts) do
-    case normalize_text_search_opts(opts) do
-      [] -> {field, {:text_search, value}}
-      normalized_opts -> {field, {:text_search, value, normalized_opts}}
+  @spec text_search(term(), term() | keyword(), keyword()) :: tuple()
+  def text_search(field, value_or_opts, opts \\ [])
+
+  def text_search(field, opts, []) when is_list(opts) do
+    normalized_opts = normalize_text_search_opts(opts)
+    query = Keyword.get(normalized_opts, :query)
+    payload = Keyword.drop(normalized_opts, [:query])
+
+    case {query, payload} do
+      {nil, _} -> raise ArgumentError, "text_search config requires a :query option"
+      {query, []} -> {field, {:text_search, query}}
+      {query, payload} -> {field, {:text_search, query, payload}}
+    end
+  end
+
+  def text_search(field, value, opts) when is_list(opts) do
+    case normalize_text_search_opts(Keyword.put(opts, :query, value)) do
+      [query: query] ->
+        {field, {:text_search, query}}
+
+      normalized_opts ->
+        query = Keyword.fetch!(normalized_opts, :query)
+        {field, {:text_search, query, Keyword.drop(normalized_opts, [:query])}}
     end
   end
 
@@ -582,7 +604,7 @@ defmodule Selecto.Expr do
 
   defp normalize_text_search_opts(opts) do
     opts
-    |> Keyword.take([:mode])
+    |> Keyword.take([:query, :mode, :fields, :config])
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 

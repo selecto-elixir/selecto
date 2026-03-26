@@ -348,16 +348,34 @@ defmodule Selecto.ExprCompiler do
 
   defp compile_text_search_call(field_ast, value_ast, opts_ast \\ []) do
     field_expr = compile_text_search_field!(field_ast)
-    value = compile_value!(value_ast)
-    opts = compile_text_search_opts!(opts_ast)
+    {value, opts} = compile_text_search_args!(value_ast, opts_ast)
 
     quote do
       Selecto.Expr.text_search(unquote(field_expr), unquote(value), unquote(opts))
     end
   end
 
+  defp compile_text_search_args!(value_ast, []) when is_list(value_ast) do
+    opts = compile_text_search_opts!(value_ast)
+
+    case Keyword.pop(opts, :query) do
+      {nil, _} ->
+        raise ArgumentError, "text_search config requires a :query option"
+
+      {query, remaining_opts} ->
+        {query, remaining_opts}
+    end
+  end
+
+  defp compile_text_search_args!(value_ast, opts_ast) do
+    {compile_value!(value_ast), compile_text_search_opts!(opts_ast)}
+  end
+
   defp compile_text_search_opts!(opts_ast) when is_list(opts_ast) do
     Enum.map(opts_ast, fn
+      {:fields, value_ast} ->
+        {:fields, compile_text_search_field_list!(value_ast)}
+
       {key, value_ast} when is_atom(key) ->
         {key, compile_literal_or_value!(value_ast)}
 
@@ -377,6 +395,15 @@ defmodule Selecto.ExprCompiler do
   end
 
   defp compile_text_search_field!(field_ast), do: compile_field_ref!(field_ast)
+
+  defp compile_text_search_field_list!(list_ast) when is_list(list_ast) do
+    Enum.map(list_ast, &compile_field_ref!/1)
+  end
+
+  defp compile_text_search_field_list!(field_ast) do
+    raise ArgumentError,
+          "Expected a list of field references for text_search fields, got: #{Macro.to_string(field_ast)}"
+  end
 
   defp compile_field_ref!({name, _, context})
        when is_atom(name) and (is_atom(context) or is_nil(context)) do

@@ -64,8 +64,14 @@ defmodule Selecto.Builder.Sql.Where do
     build(selecto, {:case, when_clauses, nil})
   end
 
-  def build(selecto, {fields, {:text_search, value}}) when is_list(fields) do
+  def build(selecto, {fields, {:text_search, value}})
+      when is_list(fields) and not is_list(value) do
     build_text_search(selecto, fields, value)
+  end
+
+  def build(selecto, {fields, {:text_search, opts}}) when is_list(fields) and is_list(opts) do
+    {resolved_fields, value, text_search_opts} = normalize_text_search_spec(fields, opts)
+    build_text_search(selecto, resolved_fields, value, text_search_opts)
   end
 
   def build(selecto, {fields, {:text_search, value, opts}})
@@ -73,7 +79,12 @@ defmodule Selecto.Builder.Sql.Where do
     build_text_search(selecto, fields, value, opts)
   end
 
-  def build(selecto, {field, {:text_search, value}}) do
+  def build(selecto, {field, {:text_search, opts}}) when is_list(opts) do
+    {resolved_fields, value, text_search_opts} = normalize_text_search_spec([field], opts)
+    build_text_search(selecto, resolved_fields, value, text_search_opts)
+  end
+
+  def build(selecto, {field, {:text_search, value}}) when not is_list(value) do
     build_text_search(selecto, [field], value)
   end
 
@@ -955,6 +966,28 @@ defmodule Selecto.Builder.Sql.Where do
       end)
 
     cond do
+      adapter_name == :sqlite and sqlite_fts5_enabled?(compiled_fields) and length(selectors) == 1 ->
+        ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
+        [selector] = selectors
+
+        {joins, [" ", selector, " MATCH ", {:param, value}, " "], []}
+
+      adapter_name == :sqlite and sqlite_fts5_enabled?(compiled_fields) ->
+        raise_text_search_error(
+          "SQLite FTS5 search currently supports one configured field per predicate",
+          adapter_name,
+          :text_search_multi_field,
+          fields
+        )
+
+      adapter_name == :sqlite ->
+        raise_text_search_error(
+          "SQLite text search requires an FTS5-configured field",
+          adapter_name,
+          :fts5,
+          fields
+        )
+
       adapter_name == :mysql and AdapterSupport.supports_feature?(adapter, :text_search) and
           length(selectors) == 1 ->
         {joins,
@@ -1067,6 +1100,44 @@ defmodule Selecto.Builder.Sql.Where do
       :text_search_mode,
       [{:mode, mode} | fields]
     )
+  end
+
+  defp normalize_text_search_spec(default_fields, opts) when is_list(opts) do
+    {query, remaining_opts} = Keyword.pop(opts, :query)
+    fields = Keyword.get(remaining_opts, :fields, default_fields)
+    text_search_opts = Keyword.drop(remaining_opts, [:fields])
+
+    if is_nil(query) do
+      raise ArgumentError, "text_search config requires a :query option"
+    end
+
+    {List.wrap(fields), query, text_search_opts}
+  end
+
+  defp ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
+       when mode in [nil, :websearch] do
+    _ = {adapter_name, fields}
+    :ok
+  end
+
+  defp ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields) do
+    raise_text_search_error(
+      "SQLite FTS5 search does not support this text search mode",
+      adapter_name,
+      :text_search_mode,
+      [{:mode, mode} | fields]
+    )
+  end
+
+  defp sqlite_fts5_enabled?(compiled_fields) do
+    Enum.all?(compiled_fields, fn {conf, _field_name} ->
+      sqlite_fts5_field?(conf)
+    end)
+  end
+
+  defp sqlite_fts5_field?(conf) do
+    Map.get(conf, :type) == :fts5 or Map.get(conf, :sqlite_fts5) == true or
+      Map.get(conf, :text_search_backend) == :fts5
   end
 
   defp convert_sql_placeholders_to_iodata(sql, params)

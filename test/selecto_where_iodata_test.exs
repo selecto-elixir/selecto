@@ -30,6 +30,26 @@ defmodule Selecto.Builder.Sql.WhereTest do
     Selecto.configure(@domain, :mock_connection)
   end
 
+  defp sqlite_fts_selecto do
+    selecto = Map.put(selecto(), :adapter, SelectoDBSQLite.Adapter)
+
+    selecto
+    |> put_in([Access.key(:config), Access.key(:columns), "name"], %{
+      name: "Where Test Domain: Name Search",
+      type: :fts5,
+      field: :name,
+      requires_join: :selecto_root,
+      colid: "name"
+    })
+    |> put_in([Access.key(:config), Access.key(:columns), "description"], %{
+      name: "Where Test Domain: Description Search",
+      type: :fts5,
+      field: :description,
+      requires_join: :selecto_root,
+      colid: "description"
+    })
+  end
+
   describe "basic comparisons" do
     test "simple equality" do
       {_joins, iodata, _params} = Where.build(selecto(), {"name", "John"})
@@ -129,6 +149,22 @@ defmodule Selecto.Builder.Sql.WhereTest do
 
       assert mysql_expansion_ts_params == ["wireless charger"]
 
+      {_joins, mysql_keyword_ts_iodata, _} =
+        Where.build(
+          mysql_selecto,
+          {"name",
+           {:text_search,
+            [query: "wireless charger", fields: ["name", "description"], mode: :boolean]}}
+        )
+
+      {mysql_keyword_ts_sql, mysql_keyword_ts_params} =
+        Params.finalize(mysql_keyword_ts_iodata, adapter: SelectoDBMySQL.Adapter)
+
+      assert mysql_keyword_ts_sql =~
+               ~r/MATCH\(.*name.*, .*description.*\) AGAINST \(\? IN BOOLEAN MODE\)/i
+
+      assert mysql_keyword_ts_params == ["wireless charger"]
+
       assert_raise RuntimeError, ~r/does not support this text search mode/, fn ->
         Where.build(selecto(), {"name", {:text_search, "term", [mode: :boolean]}})
       end
@@ -137,10 +173,34 @@ defmodule Selecto.Builder.Sql.WhereTest do
         Where.build(selecto(), {"name", {:text_search, "term", [mode: :query_expansion]}})
       end
 
+      assert_raise ArgumentError, ~r/requires a :query option/, fn ->
+        Where.build(mysql_selecto, {"name", {:text_search, [mode: :boolean]}})
+      end
+
       sqlite_selecto = Map.put(selecto(), :adapter, SelectoDBSQLite.Adapter)
 
-      assert_raise RuntimeError, ~r/does not support text search/, fn ->
+      assert_raise RuntimeError, ~r/requires an FTS5-configured field/i, fn ->
         Where.build(sqlite_selecto, {"name", {:text_search, "term"}})
+      end
+
+      {_joins, sqlite_fts_iodata, _} =
+        Where.build(sqlite_fts_selecto(), {"name", {:text_search, "term"}})
+
+      {sqlite_fts_sql, sqlite_fts_params} =
+        Params.finalize(sqlite_fts_iodata, adapter: SelectoDBSQLite.Adapter)
+
+      assert sqlite_fts_sql =~ ~r/name\s+MATCH\s+\?/i
+      assert sqlite_fts_params == ["term"]
+
+      assert_raise RuntimeError, ~r/one configured field per predicate/i, fn ->
+        Where.build(
+          sqlite_fts_selecto(),
+          {["name", "description"], {:text_search, "wireless charger"}}
+        )
+      end
+
+      assert_raise RuntimeError, ~r/does not support this text search mode/i, fn ->
+        Where.build(sqlite_fts_selecto(), {"name", {:text_search, "term", [mode: :boolean]}})
       end
 
       subquery = "SELECT id FROM users WHERE active = true"

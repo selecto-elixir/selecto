@@ -70,6 +70,15 @@ defmodule Selecto.ExprMacroSigilTest do
              {"name", {:text_search, "wireless charger", mode: :query_expansion}}
   end
 
+  test "where macro supports keyword-form text_search config" do
+    term = "wireless charger"
+
+    assert where(text_search(name, query: ^term, fields: [name, description], mode: :boolean)) ==
+             {"name",
+              {:text_search, "wireless charger",
+               [fields: ["name", "description"], mode: :boolean]}}
+  end
+
   test "where macro supports not_in and array_contains helpers" do
     statuses = ["cancelled", "returned"]
 
@@ -223,6 +232,15 @@ defmodule Selecto.ExprMacroSigilTest do
 
     assert ~SELECTO"text_search(name, ^term, mode: :query_expansion)" ==
              {"name", {:text_search, "wireless charger", mode: :query_expansion}}
+  end
+
+  test "uppercase ~SELECTO sigil supports keyword-form text_search config" do
+    term = "wireless charger"
+
+    assert ~SELECTO"text_search(name, query: ^term, fields: [name, description], mode: :boolean)" ==
+             {"name",
+              {:text_search, "wireless charger",
+               [fields: ["name", "description"], mode: :boolean]}}
   end
 
   test "uppercase ~SELECTO sigil reports unsupported functions clearly" do
