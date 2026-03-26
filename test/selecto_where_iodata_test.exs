@@ -103,6 +103,22 @@ defmodule Selecto.Builder.Sql.WhereTest do
 
       assert mysql_multi_ts_params == ["wireless charger"]
 
+      {_joins, mysql_boolean_ts_iodata, _} =
+        Where.build(
+          mysql_selecto,
+          {"name", {:text_search, "+wireless -charger", [mode: :boolean]}}
+        )
+
+      {mysql_boolean_ts_sql, mysql_boolean_ts_params} =
+        Params.finalize(mysql_boolean_ts_iodata, adapter: SelectoDBMySQL.Adapter)
+
+      assert mysql_boolean_ts_sql =~ ~r/MATCH\(.*name.*\) AGAINST \(\? IN BOOLEAN MODE\)/i
+      assert mysql_boolean_ts_params == ["+wireless -charger"]
+
+      assert_raise RuntimeError, ~r/does not support this text search mode/, fn ->
+        Where.build(selecto(), {"name", {:text_search, "term", [mode: :boolean]}})
+      end
+
       sqlite_selecto = Map.put(selecto(), :adapter, SelectoDBSQLite.Adapter)
 
       assert_raise RuntimeError, ~r/does not support text search/, fn ->

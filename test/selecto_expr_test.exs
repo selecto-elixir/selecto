@@ -34,6 +34,10 @@ defmodule Selecto.ExprTest do
     assert X.gte("price", 100) == {"price", {:gte, 100}}
     assert X.not_in("status", ["archived"]) == {"status", {:not_in, ["archived"]}}
     assert X.text_search("name", "chair") == {"name", {:text_search, "chair"}}
+
+    assert X.text_search(["name", "description"], "chair", mode: :boolean) ==
+             {["name", "description"], {:text_search, "chair", mode: :boolean}}
+
     assert X.field_exists("metadata.zone") == {"metadata.zone", :exists}
     assert X.array_contains("tags", ["featured"]) == {:array_contains, "tags", ["featured"]}
     assert X.starts_with("name", "Ch") == {"name", {:like, "Ch%"}}
@@ -83,6 +87,9 @@ defmodule Selecto.ExprTest do
     assert X.normalize({:desc, "price"}) == {"price", :desc}
     assert X.normalize({:asc_nulls_last, "price"}) == {"price", :asc_nulls_last}
     assert X.normalize({:text_search, "name", "chair"}) == {"name", {:text_search, "chair"}}
+
+    assert X.normalize({:text_search, ["name", "description"], "chair", [mode: :boolean]}) ==
+             {["name", "description"], {:text_search, "chair", mode: :boolean}}
 
     assert X.normalize({:array_overlap, "tags", ["featured"]}) ==
              {:array_overlap, "tags", ["featured"]}

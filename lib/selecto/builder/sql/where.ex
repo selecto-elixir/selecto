@@ -68,8 +68,17 @@ defmodule Selecto.Builder.Sql.Where do
     build_text_search(selecto, fields, value)
   end
 
+  def build(selecto, {fields, {:text_search, value, opts}})
+      when is_list(fields) and is_list(opts) do
+    build_text_search(selecto, fields, value, opts)
+  end
+
   def build(selecto, {field, {:text_search, value}}) do
     build_text_search(selecto, [field], value)
+  end
+
+  def build(selecto, {field, {:text_search, value, opts}}) when is_list(opts) do
+    build_text_search(selecto, [field], value, opts)
   end
 
   def build(selecto, {field, {:subquery, :in, %Selecto{} = query_selecto}}) do
@@ -923,9 +932,10 @@ defmodule Selecto.Builder.Sql.Where do
 
   defp safe_existing_atom(_field), do: nil
 
-  defp build_text_search(selecto, fields, value) when is_list(fields) do
+  defp build_text_search(selecto, fields, value, opts \\ []) when is_list(fields) do
     adapter = Map.get(selecto, :adapter)
     adapter_name = AdapterSupport.adapter_name(adapter)
+    mode = Keyword.get(opts, :mode)
 
     compiled_fields =
       Enum.map(fields, fn field ->
@@ -953,7 +963,7 @@ defmodule Selecto.Builder.Sql.Where do
            hd(selectors),
            ") AGAINST (",
            {:param, value},
-           " IN NATURAL LANGUAGE MODE) "
+           mysql_text_search_mode_sql(adapter, mode)
          ], []}
 
       adapter_name == :mysql and
@@ -964,7 +974,7 @@ defmodule Selecto.Builder.Sql.Where do
            Enum.intersperse(selectors, ", "),
            ") AGAINST (",
            {:param, value},
-           " IN NATURAL LANGUAGE MODE) "
+           mysql_text_search_mode_sql(adapter, mode)
          ], []}
 
       length(selectors) > 1 ->
@@ -976,6 +986,7 @@ defmodule Selecto.Builder.Sql.Where do
         )
 
       AdapterSupport.supports_feature?(adapter, :text_search) ->
+        ensure_supported_text_search_mode!(adapter_name, mode, fields)
         [selector] = selectors
 
         {joins, [" ", selector, " @@ websearch_to_tsquery(", {:param, value}, ") "], []}
@@ -999,6 +1010,51 @@ defmodule Selecto.Builder.Sql.Where do
       })
 
     raise Error.to_exception(error)
+  end
+
+  defp mysql_text_search_mode_sql(adapter, mode) do
+    case mode do
+      nil ->
+        " IN NATURAL LANGUAGE MODE) "
+
+      :natural ->
+        " IN NATURAL LANGUAGE MODE) "
+
+      :boolean ->
+        if AdapterSupport.supports_feature?(adapter, :text_search_boolean_mode) do
+          " IN BOOLEAN MODE) "
+        else
+          raise_text_search_error(
+            "Adapter does not support boolean-mode text search",
+            AdapterSupport.adapter_name(adapter),
+            :text_search_boolean_mode,
+            []
+          )
+        end
+
+      other ->
+        raise_text_search_error(
+          "Unsupported text search mode",
+          AdapterSupport.adapter_name(adapter),
+          :text_search_mode,
+          [other]
+        )
+    end
+  end
+
+  defp ensure_supported_text_search_mode!(adapter_name, mode, fields)
+       when mode in [nil, :websearch] do
+    _ = {adapter_name, fields}
+    :ok
+  end
+
+  defp ensure_supported_text_search_mode!(adapter_name, mode, fields) do
+    raise_text_search_error(
+      "Adapter does not support this text search mode",
+      adapter_name,
+      :text_search_mode,
+      [{:mode, mode} | fields]
+    )
   end
 
   defp convert_sql_placeholders_to_iodata(sql, params)

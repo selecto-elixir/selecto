@@ -13,6 +13,7 @@ defmodule SelectoDBMySQL.Adapter do
   def supports?(:json_table), do: true
   def supports?(:text_search), do: true
   def supports?(:text_search_multi_field), do: true
+  def supports?(:text_search_boolean_mode), do: true
   def supports?(:match_against), do: true
   def supports?(:on_duplicate_key_update), do: true
   def supports?(_feature), do: false

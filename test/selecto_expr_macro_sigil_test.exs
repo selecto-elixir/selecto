@@ -53,6 +53,16 @@ defmodule Selecto.ExprMacroSigilTest do
               ], {:text_search, "wireless charger"}}
   end
 
+  test "where macro supports text_search mode options" do
+    term = "+wireless -charger"
+
+    assert where(text_search([name, description], ^term, mode: :boolean)) ==
+             {[
+                "name",
+                "description"
+              ], {:text_search, "+wireless -charger", mode: :boolean}}
+  end
+
   test "where macro supports not_in and array_contains helpers" do
     statuses = ["cancelled", "returned"]
 
@@ -189,6 +199,16 @@ defmodule Selecto.ExprMacroSigilTest do
                  ], {:text_search, "wireless charger"}},
                 {"status", {:like, "act%"}}
               ]}
+  end
+
+  test "uppercase ~SELECTO sigil supports text_search mode options" do
+    term = "+wireless -charger"
+
+    assert ~SELECTO"text_search([name, description], ^term, mode: :boolean)" ==
+             {[
+                "name",
+                "description"
+              ], {:text_search, "+wireless -charger", mode: :boolean}}
   end
 
   test "uppercase ~SELECTO sigil reports unsupported functions clearly" do

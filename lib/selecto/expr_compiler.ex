@@ -119,6 +119,10 @@ defmodule Selecto.ExprCompiler do
     compile_text_search_call(field_ast, value_ast)
   end
 
+  defp do_compile_filter({:text_search, _, [field_ast, value_ast, opts_ast]}) do
+    compile_text_search_call(field_ast, value_ast, opts_ast)
+  end
+
   defp do_compile_filter({:field_exists, _, [field_ast]}) do
     field_name = compile_field_ref!(field_ast)
 
@@ -342,13 +346,30 @@ defmodule Selecto.ExprCompiler do
     end
   end
 
-  defp compile_text_search_call(field_ast, value_ast) do
+  defp compile_text_search_call(field_ast, value_ast, opts_ast \\ []) do
     field_expr = compile_text_search_field!(field_ast)
     value = compile_value!(value_ast)
+    opts = compile_text_search_opts!(opts_ast)
 
     quote do
-      Selecto.Expr.text_search(unquote(field_expr), unquote(value))
+      Selecto.Expr.text_search(unquote(field_expr), unquote(value), unquote(opts))
     end
+  end
+
+  defp compile_text_search_opts!(opts_ast) when is_list(opts_ast) do
+    Enum.map(opts_ast, fn
+      {key, value_ast} when is_atom(key) ->
+        {key, compile_literal_or_value!(value_ast)}
+
+      other ->
+        raise ArgumentError,
+              "Expected keyword options for text_search, got: #{Macro.to_string(other)}"
+    end)
+  end
+
+  defp compile_text_search_opts!(opts_ast) do
+    raise ArgumentError,
+          "Expected keyword options for text_search, got: #{Macro.to_string(opts_ast)}"
   end
 
   defp compile_text_search_field!(list_ast) when is_list(list_ast) do

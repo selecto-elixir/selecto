@@ -49,6 +49,10 @@ defmodule Selecto.Expr do
   def normalize({:in, field, values}), do: unquote(:in)(field, values)
   def normalize({:not_in, field, values}), do: not_in(field, values)
   def normalize({:text_search, field, value}), do: text_search(field, value)
+
+  def normalize({:text_search, field, value, opts}) when is_list(opts),
+    do: text_search(field, value, opts)
+
   def normalize({:field_exists, field}), do: field_exists(field)
   def normalize({:array_contains, field, values}), do: array_contains(field, values)
   def normalize({:array_contained, field, values}), do: array_contained(field, values)
@@ -292,8 +296,13 @@ defmodule Selecto.Expr do
   def not_in(field, values), do: {field, {:not_in, values}}
 
   @doc "Builds a full-text search filter using Selecto's `:text_search` operator."
-  @spec text_search(term(), term()) :: tuple()
-  def text_search(field, value), do: {field, {:text_search, value}}
+  @spec text_search(term(), term(), keyword()) :: tuple()
+  def text_search(field, value, opts \\ []) when is_list(opts) do
+    case normalize_text_search_opts(opts) do
+      [] -> {field, {:text_search, value}}
+      normalized_opts -> {field, {:text_search, value, normalized_opts}}
+    end
+  end
 
   @doc "Builds a field-path existence filter for JSONB paths or non-null fields."
   @spec field_exists(term()) :: tuple()
@@ -570,6 +579,12 @@ defmodule Selecto.Expr do
   defp normalize_case_result(result) when is_tuple(result), do: normalize(result)
   defp normalize_case_result(result) when is_list(result), do: normalize(result)
   defp normalize_case_result(result), do: result
+
+  defp normalize_text_search_opts(opts) do
+    opts
+    |> Keyword.take([:mode])
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
 
   defp normalize_selector_input({:as, expression, alias_name}), do: as(expression, alias_name)
   defp normalize_selector_input({:eq, _, _} = expression), do: normalize(expression)
