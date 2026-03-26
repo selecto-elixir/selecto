@@ -53,4 +53,23 @@ defmodule Selecto.Integration.MySQLTextSearchTest do
 
     assert params == ["wireless charger"]
   end
+
+  test "mysql to_sql compiles keyword-form text search config with field override", %{
+    domain: domain
+  } do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Selecto.select(["name", "status"])
+      |> Selecto.filter(
+        {"name",
+         {:text_search,
+          [query: "+wireless -charger", fields: ["name", "description"], mode: :boolean]}}
+      )
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert sql =~ "MATCH(selecto_root.name, selecto_root.description) AGAINST (? IN BOOLEAN MODE)"
+    assert params == ["+wireless -charger"]
+  end
 end
