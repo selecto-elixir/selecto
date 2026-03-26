@@ -1032,6 +1032,18 @@ defmodule Selecto.Builder.Sql.Where do
           )
         end
 
+      :query_expansion ->
+        if AdapterSupport.supports_feature?(adapter, :text_search_query_expansion_mode) do
+          " IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION) "
+        else
+          raise_text_search_error(
+            "Adapter does not support query-expansion text search",
+            AdapterSupport.adapter_name(adapter),
+            :text_search_query_expansion_mode,
+            []
+          )
+        end
+
       other ->
         raise_text_search_error(
           "Unsupported text search mode",
