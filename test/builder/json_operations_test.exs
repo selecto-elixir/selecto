@@ -48,4 +48,21 @@ defmodule Selecto.Builder.JsonOperationsTest do
       BuilderJsonOperations.build_json_filter(spec, adapter: SelectoDBMSSQL.Adapter)
     end
   end
+
+  test "sqlite rejects unsupported json containment and aggregate operations explicitly" do
+    contains_spec =
+      JsonOperations.create_json_operation(:json_contains, "metadata",
+        value: %{"price_band" => "premium"}
+      )
+
+    assert_raise RuntimeError, ~r/does not support this JSON operation/, fn ->
+      BuilderJsonOperations.build_json_filter(contains_spec, adapter: SelectoDBSQLite.Adapter)
+    end
+
+    agg_spec = JsonOperations.create_json_operation(:json_agg, "metadata", as: "metadata_items")
+
+    assert_raise RuntimeError, ~r/does not support this JSON operation/, fn ->
+      BuilderJsonOperations.build_json_select(agg_spec, adapter: SelectoDBSQLite.Adapter)
+    end
+  end
 end

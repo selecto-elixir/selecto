@@ -541,7 +541,7 @@ defmodule Selecto.Builder.JsonOperations do
     adapter = Keyword.get(opts, :adapter)
     table_alias = Keyword.get(opts, :table_alias)
 
-    if AdapterSupport.adapter_name(adapter) in [:mssql, :mysql, :mariadb] do
+    if AdapterSupport.adapter_name(adapter) in [:mssql, :mysql, :mariadb, :sqlite] do
       Jsonb.build_extraction(column, path_to_list(path),
         as_text: kind == :text,
         adapter: adapter,
@@ -603,6 +603,38 @@ defmodule Selecto.Builder.JsonOperations do
         error =
           Error.validation_error("Adapter does not support this JSON operation", %{
             adapter: :mssql,
+            clause_type: clause_type,
+            operation: operation,
+            unsupported_feature: :json_operation
+          })
+
+        raise Error.to_exception(error)
+
+      {adapter_name, op}
+      when adapter_name == :sqlite and
+             op in [
+               :json_contains,
+               :json_contained,
+               :json_agg,
+               :json_object_agg,
+               :jsonb_agg,
+               :jsonb_object_agg,
+               :json_build_object,
+               :json_build_array,
+               :jsonb_build_object,
+               :jsonb_build_array,
+               :json_set,
+               :jsonb_set,
+               :json_insert,
+               :jsonb_insert,
+               :json_typeof,
+               :jsonb_typeof,
+               :json_array_length,
+               :jsonb_array_length
+             ] ->
+        error =
+          Error.validation_error("Adapter does not support this JSON operation", %{
+            adapter: adapter_name,
             clause_type: clause_type,
             operation: operation,
             unsupported_feature: :json_operation

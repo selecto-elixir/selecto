@@ -107,6 +107,28 @@ defmodule Selecto.JsonbTest do
              )
   end
 
+  test "build_extraction supports sqlite json_extract functions" do
+    assert ~s|json_extract("u"."attributes", '$.color')| ==
+             Jsonb.build_extraction("attributes", ["color"],
+               adapter: SelectoDBSQLite.Adapter,
+               table_alias: "u"
+             )
+
+    assert ~s|json_extract("u"."attributes", '$.dimensions')| ==
+             Jsonb.build_extraction("attributes", ["dimensions"],
+               adapter: SelectoDBSQLite.Adapter,
+               table_alias: "u",
+               as_text: false
+             )
+
+    assert ~s|CAST(json_extract("u"."attributes", '$.dimensions.length') AS NUMERIC)| ==
+             Jsonb.build_extraction("attributes", ["dimensions", "length"],
+               adapter: SelectoDBSQLite.Adapter,
+               table_alias: "u",
+               cast: :decimal
+             )
+  end
+
   test "build_contains and key existence expressions" do
     contains = Jsonb.build_contains("attributes", %{"color" => "red"}, table_alias: "u")
     assert String.contains?(contains, ~s("u"."attributes" @>))
@@ -167,6 +189,43 @@ defmodule Selecto.JsonbTest do
       )
 
     assert exists == "JSON_CONTAINS_PATH(`u`.`attributes`, 'one', '$.dimensions.length')"
+  end
+
+  test "sqlite key existence and array helpers use sqlite json functions" do
+    exists =
+      Jsonb.build_key_exists("attributes", ["dimensions", "length"],
+        adapter: SelectoDBSQLite.Adapter,
+        table_alias: "u"
+      )
+
+    one =
+      Jsonb.build_array_contains("attributes", ["tags"], "featured",
+        adapter: SelectoDBSQLite.Adapter,
+        table_alias: "u"
+      )
+
+    all =
+      Jsonb.build_array_contains_all("attributes", ["tags"], ["featured", "new"],
+        adapter: SelectoDBSQLite.Adapter,
+        table_alias: "u"
+      )
+
+    assert exists == ~s|json_type("u"."attributes", '$.dimensions.length') IS NOT NULL|
+
+    assert IO.iodata_to_binary(one) =~
+             ~s|EXISTS (SELECT 1 FROM json_each("u"."attributes", '$.tags') WHERE value = 'featured')|
+
+    assert IO.iodata_to_binary(all) =~ ~s|json_each("u"."attributes", '$.tags')|
+    assert IO.iodata_to_binary(all) =~ "WHERE value = 'new'"
+  end
+
+  test "sqlite json containment rejects unsupported current abstraction" do
+    assert_raise RuntimeError, ~r/SQLite does not support json_contains/, fn ->
+      Jsonb.build_contains("attributes", %{"color" => "red"},
+        adapter: SelectoDBSQLite.Adapter,
+        table_alias: "u"
+      )
+    end
   end
 
   test "mssql json array helpers use openjson" do

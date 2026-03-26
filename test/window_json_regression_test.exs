@@ -568,6 +568,49 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ "JSON_CONTAINS(`selecto_root`.`metadata`, '\"new\"', '$.tags')"
   end
 
+  test "sqlite json_select + json_filter + json_order_by use json_extract" do
+    query =
+      Selecto.configure(product_domain(), [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.select(["name", "sku", "price"])
+      |> Selecto.json_select([
+        {:json_extract_text, "metadata", "$.price_band", as: "price_band"},
+        {:json_extract_text, "metadata", "$.warehouse.zone", as: "warehouse_zone"}
+      ])
+      |> Selecto.json_filter({:json_path_exists, "metadata", "$.warehouse.zone"})
+      |> Selecto.filter({"metadata.price_band", "premium"})
+      |> Selecto.order_by({"price", :desc})
+      |> Selecto.json_order_by({:json_extract_text, "metadata", "$.warehouse.zone", :asc})
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+    downcased = String.downcase(sql)
+
+    assert params == ["premium"]
+    assert sql =~ ~s|json_extract("selecto_root"."metadata", '$.price_band') AS "price_band"|
+
+    assert sql =~
+             ~s|json_extract("selecto_root"."metadata", '$.warehouse.zone') AS "warehouse_zone"|
+
+    assert downcased =~
+             ~s|where (( json_extract("selecto_root"."metadata", '$.price_band') = ? ) and ( json_type("selecto_root"."metadata", '$.warehouse.zone') is not null ))|
+
+    assert downcased =~
+             ~s|order by selecto_root.price desc, json_extract("selecto_root"."metadata", '$.warehouse.zone') asc|
+  end
+
+  test "sqlite json_filter rejects unsupported containment helper" do
+    query =
+      Selecto.configure(product_domain(), [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.select(["name"])
+      |> Selecto.json_filter({:json_contains, "metadata", %{"price_band" => "premium"}})
+
+    assert_raise RuntimeError, ~r/does not support this JSON operation/, fn ->
+      Selecto.to_sql(query)
+    end
+  end
+
   test "unnest emits CROSS JOIN LATERAL clause in FROM" do
     query =
       Selecto.configure(product_domain(), :mock_connection, validate: false)

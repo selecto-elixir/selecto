@@ -171,6 +171,13 @@ defmodule Selecto.Jsonb do
           table_alias: alias_name
         )
 
+      :sqlite ->
+        build_sqlite_extraction(column, path,
+          as_text: as_text,
+          cast: cast,
+          table_alias: alias_name
+        )
+
       _ ->
         build_postgres_extraction(column, path,
           as_text: as_text,
@@ -264,6 +271,27 @@ defmodule Selecto.Jsonb do
     end
   end
 
+  defp build_sqlite_extraction(column, path, opts) do
+    cast = Keyword.get(opts, :cast)
+    alias_name = Keyword.get(opts, :table_alias)
+
+    column_ref = sqlite_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+    extraction = "json_extract(#{column_ref}, '#{json_path}')"
+
+    case cast do
+      nil -> extraction
+      :integer -> "CAST(#{extraction} AS INTEGER)"
+      :decimal -> "CAST(#{extraction} AS NUMERIC)"
+      :float -> "CAST(#{extraction} AS REAL)"
+      :boolean -> "CAST(#{extraction} AS INTEGER)"
+      :date -> "CAST(#{extraction} AS TEXT)"
+      :datetime -> "CAST(#{extraction} AS TEXT)"
+      :utc_datetime -> "CAST(#{extraction} AS TEXT)"
+      other -> "CAST(#{extraction} AS #{other})"
+    end
+  end
+
   @doc """
   Build a JSONB containment check expression.
 
@@ -284,6 +312,18 @@ defmodule Selecto.Jsonb do
         column_ref = mysql_column_ref(column, alias_name)
         json_value = Jason.encode!(value) |> escape_sql_literal()
         "JSON_CONTAINS(#{column_ref}, '#{json_value}')"
+
+      :sqlite ->
+        error =
+          Error.validation_error(
+            "SQLite does not support json_contains in the current abstraction",
+            %{
+              adapter: :sqlite,
+              unsupported_feature: :json_contains
+            }
+          )
+
+        raise Error.to_exception(error)
 
       _ ->
         json_value = Jason.encode!(value)
@@ -325,6 +365,11 @@ defmodule Selecto.Jsonb do
         json_path = key_or_path |> normalize_path_segments() |> to_json_path()
         column_ref = mysql_column_ref(column, alias_name)
         "JSON_CONTAINS_PATH(#{column_ref}, 'one', '#{json_path}')"
+
+      :sqlite ->
+        json_path = key_or_path |> normalize_path_segments() |> to_json_path()
+        column_ref = sqlite_column_ref(column, alias_name)
+        "json_type(#{column_ref}, '#{json_path}') IS NOT NULL"
 
       _ ->
         column_ref =
@@ -374,6 +419,9 @@ defmodule Selecto.Jsonb do
       adapter_name when adapter_name in [:mysql, :mariadb] ->
         build_mysql_array_contains(column, path, value, alias_name)
 
+      :sqlite ->
+        build_sqlite_array_contains(column, path, value, alias_name)
+
       _ ->
         array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
 
@@ -409,6 +457,11 @@ defmodule Selecto.Jsonb do
       adapter_name when adapter_name in [:mysql, :mariadb] ->
         values
         |> Enum.map(&build_mysql_array_contains(column, path, &1, alias_name))
+        |> Enum.intersperse(" AND ")
+
+      :sqlite ->
+        values
+        |> Enum.map(&build_sqlite_array_contains(column, path, &1, alias_name))
         |> Enum.intersperse(" AND ")
 
       _ ->
@@ -477,6 +530,27 @@ defmodule Selecto.Jsonb do
     ["JSON_CONTAINS(", column_ref, ", '", candidate, "', '", json_path, "')"]
   end
 
+  defp build_sqlite_array_contains(column, path, value, alias_name) when is_list(value) do
+    value
+    |> Enum.map(&build_sqlite_array_contains(column, path, &1, alias_name))
+    |> Enum.intersperse(" OR ")
+  end
+
+  defp build_sqlite_array_contains(column, path, value, alias_name) do
+    column_ref = sqlite_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+
+    [
+      "EXISTS (SELECT 1 FROM json_each(",
+      column_ref,
+      ", '",
+      json_path,
+      "') WHERE value = '",
+      escape_sql_literal(value),
+      "')"
+    ]
+  end
+
   defp normalize_path_segments(path) when is_binary(path) do
     path
     |> String.replace_prefix("$.", "")
@@ -513,6 +587,18 @@ defmodule Selecto.Jsonb do
     value
     |> Jason.encode!()
     |> escape_sql_literal()
+  end
+
+  defp sqlite_column_ref(column, nil), do: ~s("#{escape_sqlite_identifier(column)}")
+
+  defp sqlite_column_ref(column, alias_name) do
+    ~s("#{escape_sqlite_identifier(alias_name)}"."#{escape_sqlite_identifier(column)}")
+  end
+
+  defp escape_sqlite_identifier(identifier) do
+    identifier
+    |> to_string()
+    |> String.replace("\"", "\"\"")
   end
 
   defp escape_sql_literal(value) when is_binary(value), do: String.replace(value, "'", "''")
