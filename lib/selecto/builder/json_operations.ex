@@ -536,7 +536,7 @@ defmodule Selecto.Builder.JsonOperations do
     adapter = Keyword.get(opts, :adapter)
     table_alias = Keyword.get(opts, :table_alias)
 
-    if AdapterSupport.adapter_name(adapter) == :mssql do
+    if AdapterSupport.adapter_name(adapter) in [:mssql, :mysql, :mariadb] do
       Jsonb.build_extraction(column, path_to_list(path),
         as_text: kind == :text,
         adapter: adapter,

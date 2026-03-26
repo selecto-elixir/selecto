@@ -435,7 +435,7 @@ defmodule Selecto.Builder.Sql do
   defp json_builder_opts(selecto) do
     adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
-    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
+    if Selecto.AdapterSupport.adapter_name(adapter) in [:mssql, :mysql, :mariadb] do
       [adapter: adapter, table_alias: "selecto_root"]
     else
       [adapter: adapter]

@@ -500,6 +500,74 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ "WHERE value = 'new'"
   end
 
+  test "mysql json_select + json_filter + json_order_by use json_extract" do
+    query =
+      Selecto.configure(product_domain(), [], validate: false)
+      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Selecto.select(["name", "sku", "price"])
+      |> Selecto.json_select([
+        {:json_extract_text, "metadata", "$.price_band", as: "price_band"},
+        {:json_extract_text, "metadata", "$.warehouse.zone", as: "warehouse_zone"}
+      ])
+      |> Selecto.json_filter({:json_contains, "metadata", %{"price_band" => "premium"}})
+      |> Selecto.filter({"active", true})
+      |> Selecto.order_by({"price", :desc})
+      |> Selecto.json_order_by({:json_extract_text, "metadata", "$.warehouse.zone", :asc})
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+    downcased = String.downcase(sql)
+
+    assert params == [true]
+
+    assert sql =~
+             "JSON_UNQUOTE(JSON_EXTRACT(`selecto_root`.`metadata`, '$.price_band')) AS `price_band`"
+
+    assert sql =~
+             "JSON_UNQUOTE(JSON_EXTRACT(`selecto_root`.`metadata`, '$.warehouse.zone')) AS `warehouse_zone`"
+
+    assert downcased =~
+             "where (( selecto_root.active = ? ) and ( json_contains(`selecto_root`.`metadata`, '{\"price_band\":\"premium\"}') ))"
+
+    assert downcased =~
+             "order by selecto_root.price desc, json_unquote(json_extract(`selecto_root`.`metadata`, '$.warehouse.zone')) asc"
+  end
+
+  test "mysql dot-path json selectors and filters use json_extract casts" do
+    query =
+      Selecto.configure(product_domain(), [], validate: false)
+      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Selecto.select(["name", "metadata.price_band"])
+      |> Selecto.filter({"metadata.price_band", "premium"})
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["premium"]
+    assert sql =~ "JSON_UNQUOTE(JSON_EXTRACT(`selecto_root`.`metadata`, '$.price_band'))"
+
+    assert sql =~
+             "where (( JSON_UNQUOTE(JSON_EXTRACT(`selecto_root`.`metadata`, '$.price_band')) = ? ))"
+  end
+
+  test "mysql json path exists and array filters use mysql json functions" do
+    query =
+      Selecto.configure(product_domain(), [], validate: false)
+      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Selecto.select(["name"])
+      |> Selecto.json_filter({:json_path_exists, "metadata", "$.warehouse.zone"})
+      |> Selecto.filter({"metadata.tags", {:contains, "featured"}})
+      |> Selecto.filter({"metadata.tags", {:contains_all, ["featured", "new"]}})
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ "JSON_CONTAINS_PATH(`selecto_root`.`metadata`, 'one', '$.warehouse.zone')"
+    assert sql =~ "JSON_CONTAINS(`selecto_root`.`metadata`, '\"featured\"', '$.tags')"
+    assert sql =~ "JSON_CONTAINS(`selecto_root`.`metadata`, '\"new\"', '$.tags')"
+  end
+
   test "unnest emits CROSS JOIN LATERAL clause in FROM" do
     query =
       Selecto.configure(product_domain(), :mock_connection, validate: false)

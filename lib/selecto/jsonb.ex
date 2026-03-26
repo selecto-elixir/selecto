@@ -154,18 +154,27 @@ defmodule Selecto.Jsonb do
     alias_name = Keyword.get(opts, :table_alias)
     adapter = Keyword.get(opts, :adapter)
 
-    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
-      build_mssql_extraction(column, path,
-        as_text: as_text,
-        cast: cast,
-        table_alias: alias_name
-      )
-    else
-      build_postgres_extraction(column, path,
-        as_text: as_text,
-        cast: cast,
-        table_alias: alias_name
-      )
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        build_mssql_extraction(column, path,
+          as_text: as_text,
+          cast: cast,
+          table_alias: alias_name
+        )
+
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        build_mysql_extraction(column, path,
+          as_text: as_text,
+          cast: cast,
+          table_alias: alias_name
+        )
+
+      _ ->
+        build_postgres_extraction(column, path,
+          as_text: as_text,
+          cast: cast,
+          table_alias: alias_name
+        )
     end
   end
 
@@ -230,6 +239,29 @@ defmodule Selecto.Jsonb do
     end
   end
 
+  defp build_mysql_extraction(column, path, opts) do
+    as_text = Keyword.get(opts, :as_text, true)
+    cast = Keyword.get(opts, :cast)
+    alias_name = Keyword.get(opts, :table_alias)
+
+    column_ref = mysql_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+    extraction = "JSON_EXTRACT(#{column_ref}, '#{json_path}')"
+    extraction = if as_text, do: "JSON_UNQUOTE(#{extraction})", else: extraction
+
+    case cast do
+      nil -> extraction
+      :integer -> "CAST(#{extraction} AS SIGNED)"
+      :decimal -> "CAST(#{extraction} AS DECIMAL(38, 10))"
+      :float -> "CAST(#{extraction} AS DOUBLE)"
+      :boolean -> "CAST(#{extraction} AS UNSIGNED)"
+      :date -> "CAST(#{extraction} AS DATE)"
+      :datetime -> "CAST(#{extraction} AS DATETIME)"
+      :utc_datetime -> "CAST(#{extraction} AS DATETIME)"
+      other -> "CAST(#{extraction} AS #{other})"
+    end
+  end
+
   @doc """
   Build a JSONB containment check expression.
 
@@ -242,19 +274,26 @@ defmodule Selecto.Jsonb do
     alias_name = Keyword.get(opts, :table_alias)
     adapter = Keyword.get(opts, :adapter)
 
-    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
-      build_mssql_contains(column, value, alias_name)
-    else
-      json_value = Jason.encode!(value)
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        build_mssql_contains(column, value, alias_name)
 
-      column_ref =
-        if alias_name do
-          ~s("#{alias_name}"."#{column}")
-        else
-          ~s("#{column}")
-        end
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        column_ref = mysql_column_ref(column, alias_name)
+        json_value = Jason.encode!(value) |> escape_sql_literal()
+        "JSON_CONTAINS(#{column_ref}, '#{json_value}')"
 
-      ~s(#{column_ref} @> '#{json_value}'::jsonb)
+      _ ->
+        json_value = Jason.encode!(value)
+
+        column_ref =
+          if alias_name do
+            ~s("#{alias_name}"."#{column}")
+          else
+            ~s("#{column}")
+          end
+
+        ~s(#{column_ref} @> '#{json_value}'::jsonb)
     end
   end
 
@@ -273,34 +312,41 @@ defmodule Selecto.Jsonb do
     alias_name = Keyword.get(opts, :table_alias)
     adapter = Keyword.get(opts, :adapter)
 
-    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
-      json_path = key_or_path |> normalize_path_segments() |> to_json_path()
-      column_ref = mssql_column_ref(column, alias_name)
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        json_path = key_or_path |> normalize_path_segments() |> to_json_path()
+        column_ref = mssql_column_ref(column, alias_name)
 
-      "(JSON_QUERY(#{column_ref}, '#{json_path}') IS NOT NULL OR JSON_VALUE(#{column_ref}, '#{json_path}') IS NOT NULL)"
-    else
-      column_ref =
-        if alias_name do
-          ~s("#{alias_name}"."#{column}")
-        else
-          ~s("#{column}")
+        "(JSON_QUERY(#{column_ref}, '#{json_path}') IS NOT NULL OR JSON_VALUE(#{column_ref}, '#{json_path}') IS NOT NULL)"
+
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        json_path = key_or_path |> normalize_path_segments() |> to_json_path()
+        column_ref = mysql_column_ref(column, alias_name)
+        "JSON_CONTAINS_PATH(#{column_ref}, 'one', '#{json_path}')"
+
+      _ ->
+        column_ref =
+          if alias_name do
+            ~s("#{alias_name}"."#{column}")
+          else
+            ~s("#{column}")
+          end
+
+        case key_or_path do
+          key when is_binary(key) ->
+            ~s(#{column_ref} ? '#{key}')
+
+          [single_key] ->
+            ~s(#{column_ref} ? '#{single_key}')
+
+          keys when is_list(keys) ->
+            {parent_path, [last_key]} = Enum.split(keys, -1)
+
+            parent_expr =
+              build_extraction(column, parent_path, as_text: false, table_alias: alias_name)
+
+            ~s(#{parent_expr} ? '#{last_key}')
         end
-
-      case key_or_path do
-        key when is_binary(key) ->
-          ~s(#{column_ref} ? '#{key}')
-
-        [single_key] ->
-          ~s(#{column_ref} ? '#{single_key}')
-
-        keys when is_list(keys) ->
-          {parent_path, [last_key]} = Enum.split(keys, -1)
-
-          parent_expr =
-            build_extraction(column, parent_path, as_text: false, table_alias: alias_name)
-
-          ~s(#{parent_expr} ? '#{last_key}')
-      end
     end
   end
 
@@ -319,19 +365,24 @@ defmodule Selecto.Jsonb do
     alias_name = Keyword.get(opts, :table_alias)
     adapter = Keyword.get(opts, :adapter)
 
-    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
-      build_mssql_array_contains(column, path, value, alias_name)
-    else
-      array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        build_mssql_array_contains(column, path, value, alias_name)
 
-      case value do
-        v when is_binary(v) ->
-          ~s(#{array_expr} ? '#{v}')
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        build_mysql_array_contains(column, path, value, alias_name)
 
-        values when is_list(values) ->
-          escaped = Enum.map(values, fn v -> "'#{v}'" end) |> Enum.join(",")
-          ~s(#{array_expr} ?| array[#{escaped}])
-      end
+      _ ->
+        array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
+
+        case value do
+          v when is_binary(v) ->
+            ~s(#{array_expr} ? '#{v}')
+
+          values when is_list(values) ->
+            escaped = Enum.map(values, fn v -> "'#{v}'" end) |> Enum.join(",")
+            ~s(#{array_expr} ?| array[#{escaped}])
+        end
     end
   end
 
@@ -347,14 +398,21 @@ defmodule Selecto.Jsonb do
     alias_name = Keyword.get(opts, :table_alias)
     adapter = Keyword.get(opts, :adapter)
 
-    if Selecto.AdapterSupport.adapter_name(adapter) == :mssql do
-      values
-      |> Enum.map(&build_mssql_array_contains(column, path, &1, alias_name))
-      |> Enum.intersperse(" AND ")
-    else
-      array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
-      escaped = Enum.map(values, fn v -> "'#{v}'" end) |> Enum.join(",")
-      ~s(#{array_expr} ?& array[#{escaped}])
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        values
+        |> Enum.map(&build_mssql_array_contains(column, path, &1, alias_name))
+        |> Enum.intersperse(" AND ")
+
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        values
+        |> Enum.map(&build_mysql_array_contains(column, path, &1, alias_name))
+        |> Enum.intersperse(" AND ")
+
+      _ ->
+        array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
+        escaped = Enum.map(values, fn v -> "'#{v}'" end) |> Enum.join(",")
+        ~s(#{array_expr} ?& array[#{escaped}])
     end
   end
 
@@ -397,6 +455,20 @@ defmodule Selecto.Jsonb do
     ]
   end
 
+  defp build_mysql_array_contains(column, path, value, alias_name) when is_list(value) do
+    value
+    |> Enum.map(&build_mysql_array_contains(column, path, &1, alias_name))
+    |> Enum.intersperse(" OR ")
+  end
+
+  defp build_mysql_array_contains(column, path, value, alias_name) do
+    column_ref = mysql_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+    candidate = mysql_json_literal(value)
+
+    ["JSON_CONTAINS(", column_ref, ", '", candidate, "', '", json_path, "')"]
+  end
+
   defp normalize_path_segments(path) when is_binary(path) do
     path
     |> String.replace_prefix("$.", "")
@@ -416,6 +488,24 @@ defmodule Selecto.Jsonb do
 
   defp mssql_column_ref(column, nil), do: column
   defp mssql_column_ref(column, alias_name), do: "#{alias_name}.#{column}"
+
+  defp mysql_column_ref(column, nil), do: "`#{escape_mysql_identifier(column)}`"
+
+  defp mysql_column_ref(column, alias_name) do
+    "`#{escape_mysql_identifier(alias_name)}`.`#{escape_mysql_identifier(column)}`"
+  end
+
+  defp escape_mysql_identifier(identifier) do
+    identifier
+    |> to_string()
+    |> String.replace("`", "``")
+  end
+
+  defp mysql_json_literal(value) do
+    value
+    |> Jason.encode!()
+    |> escape_sql_literal()
+  end
 
   defp escape_sql_literal(value) when is_binary(value), do: String.replace(value, "'", "''")
   defp escape_sql_literal(value) when is_boolean(value), do: if(value, do: "true", else: "false")
