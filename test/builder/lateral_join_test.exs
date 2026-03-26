@@ -102,6 +102,65 @@ defmodule Selecto.Builder.LateralJoinTest do
     end
   end
 
+  test "sqlite json_each compiles as join without lateral keyword" do
+    spec = %Spec{
+      id: "lat_json_each",
+      join_type: :inner,
+      subquery_builder: nil,
+      table_function: {:json_each, "selecto_root.line_items", "$[*]"},
+      alias: "item_rows",
+      correlation_refs: ["selecto_root.line_items"],
+      validated: true
+    }
+
+    {sql_iodata, params} = LateralJoin.build_lateral_join(spec, adapter: SelectoDBSQLite.Adapter)
+    {sql, finalized_params} = Params.finalize(sql_iodata, adapter: SelectoDBSQLite.Adapter)
+
+    assert params == []
+    assert finalized_params == []
+
+    assert sql =~
+             ~r/INNER JOIN JSON_EACH\(selecto_root\.line_items, '\$\[\*\]'\) AS item_rows ON true/i
+
+    refute sql =~ "JOIN LATERAL"
+  end
+
+  test "sqlite json_tree compiles without explicit path when omitted" do
+    spec = %Spec{
+      id: "lat_json_tree",
+      join_type: :left,
+      subquery_builder: nil,
+      table_function: {:json_tree, "selecto_root.line_items", nil},
+      alias: "item_tree",
+      correlation_refs: ["selecto_root.line_items"],
+      validated: true
+    }
+
+    {sql_iodata, params} = LateralJoin.build_lateral_join(spec, adapter: SelectoDBSQLite.Adapter)
+    {sql, finalized_params} = Params.finalize(sql_iodata, adapter: SelectoDBSQLite.Adapter)
+
+    assert params == []
+    assert finalized_params == []
+    assert sql =~ "LEFT JOIN JSON_TREE(selecto_root.line_items) AS item_tree ON true"
+    refute sql =~ "JOIN LATERAL"
+  end
+
+  test "sqlite json rowset fails explicitly on unsupported adapters" do
+    spec = %Spec{
+      id: "lat_json_each",
+      join_type: :inner,
+      subquery_builder: nil,
+      table_function: {:json_each, "selecto_root.line_items", "$[*]"},
+      alias: "item_rows",
+      correlation_refs: ["selecto_root.line_items"],
+      validated: true
+    }
+
+    assert_raise RuntimeError, ~r/does not support SQLite JSON rowset joins/i, fn ->
+      LateralJoin.build_lateral_join(spec, adapter: SelectoDBMySQL.Adapter)
+    end
+  end
+
   test "mssql lateral subquery compiles to apply and preserves params" do
     subquery =
       Selecto.configure(

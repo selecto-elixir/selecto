@@ -64,6 +64,8 @@ defmodule Selecto.Advanced.LateralJoin do
     @type table_function ::
             {:unnest, String.t()}
             | {:function, atom(), [term()]}
+            | {:json_each, String.t(), String.t() | nil}
+            | {:json_tree, String.t(), String.t() | nil}
             | {:json_table, String.t(), String.t(), [json_table_column()]}
 
     @type subquery_builder :: (Selecto.t() -> Selecto.t())
@@ -190,6 +192,11 @@ defmodule Selecto.Advanced.LateralJoin do
   end
 
   defp extract_correlation_refs({:json_table, source_ref, _path, _columns}) do
+    extract_refs_from_arg(source_ref)
+  end
+
+  defp extract_correlation_refs({function_name, source_ref, _path})
+       when function_name in [:json_each, :json_tree] do
     extract_refs_from_arg(source_ref)
   end
 

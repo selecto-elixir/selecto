@@ -62,6 +62,14 @@ defmodule Selecto.Builder.LateralJoin do
     build_json_table_join(spec, adapter)
   end
 
+  defp build_table_function_lateral_join(
+         %Spec{table_function: {function_name, _, _}} = spec,
+         adapter
+       )
+       when function_name in [:json_each, :json_tree] do
+    build_sqlite_json_rowset_join(spec, adapter)
+  end
+
   defp build_table_function_lateral_join(%Spec{} = spec, adapter) do
     join_syntax = join_syntax(spec, adapter)
     {function_sql, params} = build_table_function_sql(spec.table_function)
@@ -98,6 +106,37 @@ defmodule Selecto.Builder.LateralJoin do
             join_type: spec.join_type,
             supported_join_types: [:inner, :left],
             unsupported_feature: :json_table
+          })
+
+        raise Error.to_exception(error)
+
+      true ->
+        {function_sql, params} = build_table_function_sql(spec.table_function)
+        join_sql = if spec.join_type == :left, do: "LEFT JOIN", else: "INNER JOIN"
+        {[join_sql, " ", function_sql, " AS ", spec.alias, " ON true"], params}
+    end
+  end
+
+  defp build_sqlite_json_rowset_join(%Spec{} = spec, adapter) do
+    cond do
+      not AdapterSupport.supports_feature?(adapter, :json_rowset) ->
+        adapter_name = AdapterSupport.adapter_name(adapter) || adapter
+
+        error =
+          Error.validation_error("Adapter does not support SQLite JSON rowset joins", %{
+            adapter: adapter_name,
+            unsupported_feature: :json_rowset
+          })
+
+        raise Error.to_exception(error)
+
+      spec.join_type not in [:inner, :left] ->
+        error =
+          Error.validation_error("SQLite JSON rowset joins only support :inner and :left", %{
+            adapter: AdapterSupport.adapter_name(adapter) || adapter,
+            join_type: spec.join_type,
+            supported_join_types: [:inner, :left],
+            unsupported_feature: :json_rowset
           })
 
         raise Error.to_exception(error)
@@ -165,6 +204,19 @@ defmodule Selecto.Builder.LateralJoin do
        column_sql,
        "))"
      ], []}
+  end
+
+  defp build_table_function_sql({function_name, source_ref, path})
+       when function_name in [:json_each, :json_tree] do
+    function_sql = String.upcase(to_string(function_name))
+
+    args =
+      case path do
+        nil -> [source_ref]
+        value -> [source_ref, ", ", "'", escape_sql_literal(value), "'"]
+      end
+
+    {[function_sql, "(", args, ")"], []}
   end
 
   defp build_table_function_sql(unknown) do

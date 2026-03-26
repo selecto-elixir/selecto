@@ -98,6 +98,71 @@ defmodule Selecto.Integration.LateralJoinTest do
     refute sql =~ "JOIN LATERAL"
   end
 
+  test "sqlite json_rowset helper registers qualified columns and compiles json_each", %{
+    domain: domain
+  } do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.json_rowset("line_items", as: "item_rows", path: "$[*]")
+      |> Selecto.select(["title", "item_rows.key", "item_rows.value", "item_rows.path"])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == []
+    assert sql =~ "JSON_EACH(selecto_root.line_items, '$[*]')"
+    assert sql =~ "item_rows.\"key\""
+    assert sql =~ "item_rows.value"
+    assert sql =~ "item_rows.path"
+    refute sql =~ "JOIN LATERAL"
+  end
+
+  test "sqlite json_rowset helper supports filtering on generated value column", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.json_rowset("line_items", as: "item_rows", path: "$[*]")
+      |> Selecto.select(["title", "item_rows.value"])
+      |> Selecto.filter({"item_rows.value", "sku-123"})
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == ["sku-123"]
+    assert sql =~ "item_rows.value"
+    assert sql =~ ~r/where.*item_rows\.value\s*=\s*\?/i
+  end
+
+  test "sqlite json_rowset supports json_tree", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.json_rowset("line_items", as: "item_tree", function: :json_tree)
+      |> Selecto.select(["title", "item_tree.fullkey", "item_tree.parent"])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == []
+    assert sql =~ "JSON_TREE(selecto_root.line_items)"
+    assert sql =~ "item_tree.fullkey"
+    assert sql =~ "item_tree.parent"
+    refute sql =~ "JOIN LATERAL"
+  end
+
+  test "sqlite json_rowset supports filtering on generated fullkey column", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.json_rowset("line_items", as: "item_tree", function: :json_tree)
+      |> Selecto.select(["title", "item_tree.fullkey"])
+      |> Selecto.filter({"item_tree.fullkey", "$.items[0].sku"})
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == ["$.items[0].sku"]
+    assert sql =~ "item_tree.fullkey"
+    assert sql =~ ~r/where.*item_tree\.fullkey\s*=\s*\?/i
+  end
+
   test "mssql rejects unsupported lateral join types", %{domain: domain} do
     selecto =
       Selecto.configure(domain, :mock_connection,

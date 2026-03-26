@@ -201,5 +201,6 @@ defmodule SelectoDBSQLite.Adapter do
     "\"#{escaped}\""
   end
 
+  def supports?(:json_rowset), do: true
   def supports?(_feature), do: false
 end

@@ -1113,6 +1113,44 @@ defmodule Selecto do
   end
 
   @doc """
+  Add a SQLite JSON rowset expansion using `json_each` or `json_tree`.
+
+  This helper registers the standard SQLite JSON rowset columns so they can be
+  selected and filtered with qualified references such as `item_rows.value`.
+  """
+  @spec json_rowset(t(), atom() | String.t(), keyword() | map()) :: t()
+  def json_rowset(selecto, source_field, opts \\ [])
+
+  def json_rowset(selecto, source_field, opts) when is_map(opts) do
+    json_rowset(selecto, source_field, Enum.into(opts, []))
+  end
+
+  def json_rowset(selecto, source_field, opts) when is_list(opts) do
+    alias_name = opts |> Keyword.fetch!(:as) |> to_string()
+    path = Keyword.get(opts, :path)
+    join_type = Keyword.get(opts, :join_type, :inner)
+    function_name = Keyword.get(opts, :function, :json_each)
+
+    table_function =
+      case function_name do
+        :json_each ->
+          {:json_each, normalize_json_table_source(source_field), path}
+
+        :json_tree ->
+          {:json_tree, normalize_json_table_source(source_field), path}
+
+        other ->
+          raise ArgumentError,
+                "SQLite JSON rowset function must be :json_each or :json_tree. Got: #{inspect(other)}"
+      end
+
+    selecto
+    |> Selecto.lateral_join(join_type, table_function, alias_name)
+    |> register_sqlite_json_rowset_columns(alias_name)
+    |> upsert_lateral_by_alias(alias_name)
+  end
+
+  @doc """
   Apply a named UNNEST preset from `domain.query_members.unnests`.
 
   ## Examples
@@ -1462,6 +1500,7 @@ defmodule Selecto do
 
     selecto
     |> Selecto.lateral_join(join_type, lateral_source, to_string(alias_name), lateral_opts)
+    |> maybe_register_lateral_source_columns(lateral_source, to_string(alias_name), lateral_opts)
     |> upsert_lateral_by_alias(to_string(alias_name))
   end
 
@@ -1526,6 +1565,57 @@ defmodule Selecto do
       end)
 
     put_in(selecto.config[:columns], Map.merge(current_columns, columns_to_add))
+  end
+
+  defp register_sqlite_json_rowset_columns(selecto, alias_name) do
+    current_columns = Map.get(selecto.config, :columns, %{})
+
+    columns_to_add =
+      Enum.reduce(sqlite_json_rowset_columns(), %{}, fn {name, type}, acc ->
+        Map.put(acc, "#{alias_name}.#{name}", %{
+          name: "#{alias_name}.#{name}",
+          field: name,
+          requires_join: alias_name,
+          type: type
+        })
+      end)
+
+    put_in(selecto.config[:columns], Map.merge(current_columns, columns_to_add))
+  end
+
+  defp maybe_register_lateral_source_columns(
+         selecto,
+         {:json_table, _source_ref, _path, columns},
+         alias_name,
+         _opts
+       ) do
+    register_json_table_columns(selecto, alias_name, columns)
+  end
+
+  defp maybe_register_lateral_source_columns(
+         selecto,
+         {function_name, _source_ref, _path},
+         alias_name,
+         _opts
+       )
+       when function_name in [:json_each, :json_tree] do
+    register_sqlite_json_rowset_columns(selecto, alias_name)
+  end
+
+  defp maybe_register_lateral_source_columns(selecto, _lateral_source, _alias_name, _opts),
+    do: selecto
+
+  defp sqlite_json_rowset_columns do
+    [
+      {"key", :string},
+      {"value", :json},
+      {"type", :string},
+      {"atom", :string},
+      {"id", :integer},
+      {"parent", :integer},
+      {"fullkey", :string},
+      {"path", :string}
+    ]
   end
 
   @doc """
