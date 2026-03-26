@@ -79,6 +79,16 @@ defmodule Selecto.ExprMacroSigilTest do
                [fields: ["name", "description"], mode: :boolean]}}
   end
 
+  test "where macro supports match_against helper" do
+    term = "wireless charger"
+
+    assert where(match_against([name, description], ^term, mode: :query_expansion)) ==
+             {[
+                "name",
+                "description"
+              ], {:text_search, "wireless charger", mode: :query_expansion}}
+  end
+
   test "where macro supports not_in and array_contains helpers" do
     statuses = ["cancelled", "returned"]
 
@@ -241,6 +251,16 @@ defmodule Selecto.ExprMacroSigilTest do
              {"name",
               {:text_search, "wireless charger",
                [fields: ["name", "description"], mode: :boolean]}}
+  end
+
+  test "uppercase ~SELECTO sigil supports match_against helper" do
+    term = "wireless charger"
+
+    assert ~SELECTO"match_against([name, description], ^term, mode: :boolean)" ==
+             {[
+                "name",
+                "description"
+              ], {:text_search, "wireless charger", mode: :boolean}}
   end
 
   test "uppercase ~SELECTO sigil reports unsupported functions clearly" do

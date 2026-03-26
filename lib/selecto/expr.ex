@@ -57,6 +57,14 @@ defmodule Selecto.Expr do
   def normalize({:text_search, field, value, opts}) when is_list(opts),
     do: text_search(field, value, opts)
 
+  def normalize({:match_against, field, value}) when is_list(value) == false,
+    do: match_against(field, value)
+
+  def normalize({:match_against, field, opts}) when is_list(opts), do: match_against(field, opts)
+
+  def normalize({:match_against, field, value, opts}) when is_list(opts),
+    do: match_against(field, value, opts)
+
   def normalize({:field_exists, field}), do: field_exists(field)
   def normalize({:array_contains, field, values}), do: array_contains(field, values)
   def normalize({:array_contained, field, values}), do: array_contained(field, values)
@@ -324,6 +332,18 @@ defmodule Selecto.Expr do
         query = Keyword.fetch!(normalized_opts, :query)
         {field, {:text_search, query, Keyword.drop(normalized_opts, [:query])}}
     end
+  end
+
+  @doc "Builds a MySQL-oriented full-text search filter that maps onto `:text_search`."
+  @spec match_against(term(), term() | keyword(), keyword()) :: tuple()
+  def match_against(field, value_or_opts, opts \\ [])
+
+  def match_against(field, opts, []) when is_list(opts) do
+    text_search(field, Keyword.put_new(opts, :mode, :natural))
+  end
+
+  def match_against(field, value, opts) when is_list(opts) do
+    text_search(field, value, Keyword.put_new(opts, :mode, :natural))
   end
 
   @doc "Builds a field-path existence filter for JSONB paths or non-null fields."

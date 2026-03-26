@@ -14,6 +14,7 @@ defmodule Selecto.ExprCompiler do
     :in,
     :is_nil,
     :like,
+    :match_against,
     :not_in,
     :starts_with,
     :text_search
@@ -121,6 +122,14 @@ defmodule Selecto.ExprCompiler do
 
   defp do_compile_filter({:text_search, _, [field_ast, value_ast, opts_ast]}) do
     compile_text_search_call(field_ast, value_ast, opts_ast)
+  end
+
+  defp do_compile_filter({:match_against, _, [field_ast, value_ast]}) do
+    compile_match_against_call(field_ast, value_ast)
+  end
+
+  defp do_compile_filter({:match_against, _, [field_ast, value_ast, opts_ast]}) do
+    compile_match_against_call(field_ast, value_ast, opts_ast)
   end
 
   defp do_compile_filter({:field_exists, _, [field_ast]}) do
@@ -352,6 +361,16 @@ defmodule Selecto.ExprCompiler do
 
     quote do
       Selecto.Expr.text_search(unquote(field_expr), unquote(value), unquote(opts))
+    end
+  end
+
+  defp compile_match_against_call(field_ast, value_ast, opts_ast \\ []) do
+    field_expr = compile_text_search_field!(field_ast)
+    {value, opts} = compile_text_search_args!(value_ast, opts_ast)
+    opts = Keyword.put_new(opts, :mode, :natural)
+
+    quote do
+      Selecto.Expr.match_against(unquote(field_expr), unquote(value), unquote(opts))
     end
   end
 
