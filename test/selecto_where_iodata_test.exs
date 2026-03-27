@@ -165,9 +165,14 @@ defmodule Selecto.Builder.Sql.WhereTest do
 
       assert mysql_keyword_ts_params == ["wireless charger"]
 
-      assert_raise RuntimeError, ~r/does not support this text search mode/, fn ->
+      {_joins, pg_boolean_legacy_iodata, _} =
         Where.build(selecto(), {"name", {:text_search, "term", [mode: :boolean]}})
-      end
+
+      {pg_boolean_legacy_sql, pg_boolean_legacy_params} =
+        Params.finalize(pg_boolean_legacy_iodata)
+
+      assert pg_boolean_legacy_sql =~ ~r/name\s+@@\s+to_tsquery\(\$1\)/i
+      assert pg_boolean_legacy_params == ["term"]
 
       assert_raise RuntimeError, ~r/does not support this text search mode/, fn ->
         Where.build(selecto(), {"name", {:text_search, "term", [mode: :query_expansion]}})
@@ -214,6 +219,38 @@ defmodule Selecto.Builder.Sql.WhereTest do
 
       assert sqlite_boolean_fts_sql =~ ~r/name\s+MATCH\s+\?/i
       assert sqlite_boolean_fts_params == ["term"]
+
+      {_joins, pg_web_alias_iodata, _} =
+        Where.build(selecto(), {"name", {:text_search, "term", [mode: :web]}})
+
+      {pg_web_alias_sql, pg_web_alias_params} = Params.finalize(pg_web_alias_iodata)
+
+      assert pg_web_alias_sql =~ ~r/name\s+@@\s+websearch_to_tsquery\(\$1\)/i
+      assert pg_web_alias_params == ["term"]
+
+      {_joins, pg_plain_iodata, _} =
+        Where.build(selecto(), {"name", {:text_search, "term", [mode: :plain]}})
+
+      {pg_plain_sql, pg_plain_params} = Params.finalize(pg_plain_iodata)
+
+      assert pg_plain_sql =~ ~r/name\s+@@\s+plainto_tsquery\(\$1\)/i
+      assert pg_plain_params == ["term"]
+
+      {_joins, pg_phrase_iodata, _} =
+        Where.build(selecto(), {"name", {:text_search, "term", [mode: :phrase]}})
+
+      {pg_phrase_sql, pg_phrase_params} = Params.finalize(pg_phrase_iodata)
+
+      assert pg_phrase_sql =~ ~r/name\s+@@\s+phraseto_tsquery\(\$1\)/i
+      assert pg_phrase_params == ["term"]
+
+      {_joins, pg_boolean_iodata, _} =
+        Where.build(selecto(), {"name", {:text_search, "foo & bar", [mode: :boolean]}})
+
+      {pg_boolean_sql, pg_boolean_params} = Params.finalize(pg_boolean_iodata)
+
+      assert pg_boolean_sql =~ ~r/name\s+@@\s+to_tsquery\(\$1\)/i
+      assert pg_boolean_params == ["foo & bar"]
 
       assert_raise RuntimeError, ~r/does not support this text search mode/i, fn ->
         Where.build(

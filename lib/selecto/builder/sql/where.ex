@@ -946,7 +946,7 @@ defmodule Selecto.Builder.Sql.Where do
   defp build_text_search(selecto, fields, value, opts \\ []) when is_list(fields) do
     adapter = Map.get(selecto, :adapter)
     adapter_name = AdapterSupport.adapter_name(adapter)
-    mode = Keyword.get(opts, :mode)
+    mode = canonical_text_search_mode(Keyword.get(opts, :mode))
 
     compiled_fields =
       Enum.map(fields, fn field ->
@@ -1026,7 +1026,16 @@ defmodule Selecto.Builder.Sql.Where do
         ensure_supported_text_search_mode!(adapter_name, mode, fields)
         [selector] = selectors
 
-        {joins, [" ", selector, " @@ websearch_to_tsquery(", {:param, value}, ") "], []}
+        {joins,
+         [
+           " ",
+           selector,
+           " @@ ",
+           postgres_text_search_query_sql(mode),
+           "(",
+           {:param, value},
+           ") "
+         ], []}
 
       true ->
         raise_text_search_error(
@@ -1052,6 +1061,12 @@ defmodule Selecto.Builder.Sql.Where do
   defp mysql_text_search_mode_sql(adapter, mode) do
     case mode do
       nil ->
+        " IN NATURAL LANGUAGE MODE) "
+
+      :plain ->
+        " IN NATURAL LANGUAGE MODE) "
+
+      :websearch ->
         " IN NATURAL LANGUAGE MODE) "
 
       :natural ->
@@ -1092,7 +1107,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   defp ensure_supported_text_search_mode!(adapter_name, mode, fields)
-       when mode in [nil, :websearch] do
+       when mode in [nil, :websearch, :plain, :phrase, :boolean] do
     _ = {adapter_name, fields}
     :ok
   end
@@ -1109,7 +1124,11 @@ defmodule Selecto.Builder.Sql.Where do
   defp normalize_text_search_spec(default_fields, opts) when is_list(opts) do
     {query, remaining_opts} = Keyword.pop(opts, :query)
     fields = Keyword.get(remaining_opts, :fields, default_fields)
-    text_search_opts = Keyword.drop(remaining_opts, [:fields])
+
+    text_search_opts =
+      remaining_opts
+      |> Keyword.drop([:fields])
+      |> Keyword.update(:mode, nil, &canonical_text_search_mode/1)
 
     if is_nil(query) do
       raise ArgumentError, "text_search config requires a :query option"
@@ -1117,6 +1136,15 @@ defmodule Selecto.Builder.Sql.Where do
 
     {List.wrap(fields), query, text_search_opts}
   end
+
+  defp canonical_text_search_mode(:web), do: :websearch
+  defp canonical_text_search_mode(mode), do: mode
+
+  defp postgres_text_search_query_sql(nil), do: "websearch_to_tsquery"
+  defp postgres_text_search_query_sql(:websearch), do: "websearch_to_tsquery"
+  defp postgres_text_search_query_sql(:plain), do: "plainto_tsquery"
+  defp postgres_text_search_query_sql(:phrase), do: "phraseto_tsquery"
+  defp postgres_text_search_query_sql(:boolean), do: "to_tsquery"
 
   defp ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
        when mode in [nil, :websearch, :boolean] do

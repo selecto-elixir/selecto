@@ -625,8 +625,15 @@ defmodule Selecto.Expr do
   defp normalize_text_search_opts(opts) do
     opts
     |> Keyword.take([:query, :mode, :fields, :config])
+    |> Enum.map(fn
+      {:mode, mode} -> {:mode, normalize_text_search_mode(mode)}
+      pair -> pair
+    end)
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
+
+  defp normalize_text_search_mode(:web), do: :websearch
+  defp normalize_text_search_mode(mode), do: mode
 
   defp normalize_selector_input({:as, expression, alias_name}), do: as(expression, alias_name)
   defp normalize_selector_input({:eq, _, _} = expression), do: normalize(expression)
