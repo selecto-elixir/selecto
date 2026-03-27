@@ -192,15 +192,34 @@ defmodule Selecto.Builder.Sql.WhereTest do
       assert sqlite_fts_sql =~ ~r/name\s+MATCH\s+\?/i
       assert sqlite_fts_params == ["term"]
 
-      assert_raise RuntimeError, ~r/one configured field per predicate/i, fn ->
+      {_joins, sqlite_multi_fts_iodata, _} =
         Where.build(
           sqlite_fts_selecto(),
           {["name", "description"], {:text_search, "wireless charger"}}
         )
-      end
+
+      {sqlite_multi_fts_sql, sqlite_multi_fts_params} =
+        Params.finalize(sqlite_multi_fts_iodata, adapter: SelectoDBSQLite.Adapter)
+
+      assert sqlite_multi_fts_sql =~ ~r/name\s+MATCH\s+\?/i
+      assert sqlite_multi_fts_sql =~ ~r/description\s+MATCH\s+\?/i
+      assert sqlite_multi_fts_sql =~ ~r/\sOR\s/i
+      assert sqlite_multi_fts_params == ["wireless charger", "wireless charger"]
+
+      {_joins, sqlite_boolean_fts_iodata, _} =
+        Where.build(sqlite_fts_selecto(), {"name", {:text_search, "term", [mode: :boolean]}})
+
+      {sqlite_boolean_fts_sql, sqlite_boolean_fts_params} =
+        Params.finalize(sqlite_boolean_fts_iodata, adapter: SelectoDBSQLite.Adapter)
+
+      assert sqlite_boolean_fts_sql =~ ~r/name\s+MATCH\s+\?/i
+      assert sqlite_boolean_fts_params == ["term"]
 
       assert_raise RuntimeError, ~r/does not support this text search mode/i, fn ->
-        Where.build(sqlite_fts_selecto(), {"name", {:text_search, "term", [mode: :boolean]}})
+        Where.build(
+          sqlite_fts_selecto(),
+          {"name", {:text_search, "term", [mode: :query_expansion]}}
+        )
       end
 
       subquery = "SELECT id FROM users WHERE active = true"

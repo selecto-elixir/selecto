@@ -973,12 +973,14 @@ defmodule Selecto.Builder.Sql.Where do
         {joins, [" ", selector, " MATCH ", {:param, value}, " "], []}
 
       adapter_name == :sqlite and sqlite_fts5_enabled?(compiled_fields) ->
-        raise_text_search_error(
-          "SQLite FTS5 search currently supports one configured field per predicate",
-          adapter_name,
-          :text_search_multi_field,
-          fields
-        )
+        ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
+
+        clauses =
+          selectors
+          |> Enum.map(fn selector -> [selector, " MATCH ", {:param, value}] end)
+          |> Enum.intersperse(" OR ")
+
+        {joins, [" (", clauses, ") "], []}
 
       adapter_name == :sqlite ->
         raise_text_search_error(
@@ -1115,7 +1117,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   defp ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
-       when mode in [nil, :websearch] do
+       when mode in [nil, :websearch, :boolean] do
     _ = {adapter_name, fields}
     :ok
   end

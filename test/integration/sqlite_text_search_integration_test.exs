@@ -36,24 +36,40 @@ defmodule Selecto.Integration.SQLiteTextSearchTest do
     assert params == ["wireless charger"]
   end
 
-  test "sqlite to_sql rejects unsupported multi-field FTS5 predicate", %{domain: domain} do
+  test "sqlite to_sql compiles multi-field FTS5 predicate", %{domain: domain} do
     query =
       Selecto.configure(domain, [], validate: false)
       |> Map.put(:adapter, SelectoDBSQLite.Adapter)
       |> Selecto.select(["name"])
       |> Selecto.filter({["name", "description"], {:text_search, "wireless charger"}})
 
-    assert_raise RuntimeError, ~r/one configured field per predicate/i, fn ->
-      Selecto.to_sql(query)
-    end
+    {sql, params} = Selecto.to_sql(query)
+
+    assert sql =~ "selecto_root.name MATCH ?"
+    assert sql =~ "selecto_root.description MATCH ?"
+    assert sql =~ ~r/\sOR\s/
+    assert params == ["wireless charger", "wireless charger"]
   end
 
-  test "sqlite to_sql rejects unsupported boolean mode", %{domain: domain} do
+  test "sqlite to_sql accepts boolean mode as fts query syntax passthrough", %{domain: domain} do
     query =
       Selecto.configure(domain, [], validate: false)
       |> Map.put(:adapter, SelectoDBSQLite.Adapter)
       |> Selecto.select(["name"])
       |> Selecto.filter({"name", {:text_search, "wireless charger", [mode: :boolean]}})
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert sql =~ "selecto_root.name MATCH ?"
+    assert params == ["wireless charger"]
+  end
+
+  test "sqlite to_sql still rejects unsupported query expansion mode", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.select(["name"])
+      |> Selecto.filter({"name", {:text_search, "wireless charger", [mode: :query_expansion]}})
 
     assert_raise RuntimeError, ~r/does not support this text search mode/i, fn ->
       Selecto.to_sql(query)
