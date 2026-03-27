@@ -1,6 +1,18 @@
 defmodule Selecto.Integration.SQLiteTextSearchTest do
   use ExUnit.Case, async: true
 
+  defmodule SQLiteUnavailableAdapter do
+    @behaviour Selecto.DB.Adapter
+
+    def name, do: :sqlite
+    def connect(_opts), do: {:error, :unsupported}
+    def execute(_connection, _query, _params, _opts), do: {:error, :unsupported}
+    def placeholder(_index), do: "?"
+    def quote_identifier(identifier), do: ~s("#{identifier}")
+    def supports?(_feature), do: false
+    def fts5_available?(_connection), do: false
+  end
+
   setup do
     domain = %{
       name: "sqlite_product_domain",
@@ -62,6 +74,31 @@ defmodule Selecto.Integration.SQLiteTextSearchTest do
 
     assert sql =~ "selecto_root.name MATCH ?"
     assert params == ["wireless charger"]
+  end
+
+  test "sqlite_fts_rank adds bm25 selector for configured FTS fields", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.select(["name"])
+      |> Selecto.sqlite_fts_rank(["name", "description"], as: "relevance", weights: [5.0, 1.0])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert sql =~ ~r/bm25\(products_fts, 5\.0, 1\.0\) AS "relevance"/i
+    assert params == []
+  end
+
+  test "sqlite runtime gating raises when FTS5 is unavailable", %{domain: domain} do
+    query =
+      Selecto.configure(domain, :runtime_probe, validate: false)
+      |> Map.put(:adapter, SQLiteUnavailableAdapter)
+      |> Selecto.select(["name"])
+      |> Selecto.filter({"name", {:text_search, "wireless charger"}})
+
+    assert_raise RuntimeError, ~r/FTS5 is not available on the current connection/i, fn ->
+      Selecto.to_sql(query)
+    end
   end
 
   test "sqlite to_sql still rejects unsupported query expansion mode", %{domain: domain} do

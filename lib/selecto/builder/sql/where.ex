@@ -967,12 +967,14 @@ defmodule Selecto.Builder.Sql.Where do
 
     cond do
       adapter_name == :sqlite and sqlite_fts5_enabled?(compiled_fields) and length(selectors) == 1 ->
+        ensure_sqlite_fts5_runtime_available!(selecto, adapter, fields)
         ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
         [selector] = selectors
 
         {joins, [" ", selector, " MATCH ", {:param, value}, " "], []}
 
       adapter_name == :sqlite and sqlite_fts5_enabled?(compiled_fields) ->
+        ensure_sqlite_fts5_runtime_available!(selecto, adapter, fields)
         ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
 
         clauses =
@@ -1135,6 +1137,29 @@ defmodule Selecto.Builder.Sql.Where do
     Enum.all?(compiled_fields, fn {conf, _field_name} ->
       sqlite_fts5_field?(conf)
     end)
+  end
+
+  defp ensure_sqlite_fts5_runtime_available!(selecto, adapter, fields) do
+    runtime_connection = Map.get(selecto, :connection)
+
+    cond do
+      runtime_connection in [nil, [], %{}] ->
+        :ok
+
+      not AdapterSupport.callback_available?(adapter, :fts5_available?, 1) ->
+        :ok
+
+      adapter.fts5_available?(runtime_connection) ->
+        :ok
+
+      true ->
+        raise_text_search_error(
+          "SQLite FTS5 is not available on the current connection",
+          AdapterSupport.adapter_name(adapter),
+          :fts5,
+          fields
+        )
+    end
   end
 
   defp sqlite_fts5_field?(conf) do

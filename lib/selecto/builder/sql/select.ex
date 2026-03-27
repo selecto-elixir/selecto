@@ -270,6 +270,11 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # Phase 4: iodata-based prep_selector/3 functions
+  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}, _pivot_aliases)
+      when is_binary(sql_template) do
+    prep_selector(selecto, {:custom_sql, sql_template, field_mappings})
+  end
+
   def prep_selector(_selecto, val, _pivot_aliases) when is_integer(val) do
     {{:param, val}, :selecto_root, [val]}
   end

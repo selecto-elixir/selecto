@@ -1151,6 +1151,47 @@ defmodule Selecto do
   end
 
   @doc """
+  Add a SQLite FTS5 ranking selector using `bm25(...)`.
+
+  This helper is intentionally narrow: all referenced fields must be configured
+  as SQLite FTS5 fields on the same source alias.
+  """
+  @spec sqlite_fts_rank(t(), atom() | String.t() | [atom() | String.t()], keyword() | map()) ::
+          t()
+  def sqlite_fts_rank(selecto, fields, opts \\ [])
+
+  def sqlite_fts_rank(selecto, fields, opts) when is_map(opts) do
+    sqlite_fts_rank(selecto, fields, Enum.into(opts, []))
+  end
+
+  def sqlite_fts_rank(selecto, fields, opts) when is_list(opts) do
+    adapter = Map.get(selecto, :adapter)
+
+    if Selecto.AdapterSupport.adapter_name(adapter) != :sqlite do
+      raise ArgumentError, "sqlite_fts_rank/3 requires the SQLite adapter"
+    end
+
+    normalized_fields = List.wrap(fields)
+
+    if normalized_fields == [] do
+      raise ArgumentError, "sqlite_fts_rank/3 requires at least one FTS field"
+    end
+
+    alias_name = Keyword.get(opts, :as, "fts_rank")
+    weights = Keyword.get(opts, :weights, [])
+    source_table = sqlite_fts_rank_source_table!(selecto, normalized_fields)
+
+    bm25_args =
+      case weights do
+        [] -> source_table
+        list when is_list(list) -> Enum.join([source_table | Enum.map(list, &to_string/1)], ", ")
+      end
+
+    selector = {:custom_sql, "bm25(#{bm25_args}) AS \"#{alias_name}\"", %{}}
+    put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
+  end
+
+  @doc """
   Apply a named UNNEST preset from `domain.query_members.unnests`.
 
   ## Examples
@@ -1617,6 +1658,58 @@ defmodule Selecto do
       {"path", :string}
     ]
   end
+
+  defp sqlite_fts_rank_source_table!(selecto, fields) do
+    fields
+    |> Enum.map(&sqlite_fts_rank_field_conf!(selecto, &1))
+    |> Enum.map(fn conf -> Map.get(conf, :requires_join, :selecto_root) end)
+    |> Enum.map(fn
+      :selecto_root -> "selecto_root"
+      value -> to_string(value)
+    end)
+    |> Enum.uniq()
+    |> case do
+      ["selecto_root"] ->
+        selecto.domain.source.source_table
+
+      [alias_name] ->
+        raise ArgumentError,
+              "sqlite_fts_rank/3 currently supports only root-source FTS tables, got: #{inspect(alias_name)}"
+
+      aliases ->
+        raise ArgumentError,
+              "sqlite_fts_rank/3 requires FTS fields from one source alias, got: #{inspect(aliases)}"
+    end
+  end
+
+  defp sqlite_fts_rank_field_conf!(selecto, field) do
+    columns = selecto.config[:columns] || %{}
+    field_key = to_string(field)
+    conf = Map.get(columns, field_key) || Map.get(columns, safe_existing_atom(field_key))
+
+    cond do
+      is_nil(conf) ->
+        raise ArgumentError, "sqlite_fts_rank/3 field not found: #{inspect(field)}"
+
+      Map.get(conf, :type) == :fts5 or Map.get(conf, :sqlite_fts5) == true or
+          Map.get(conf, :text_search_backend) == :fts5 ->
+        conf
+
+      true ->
+        raise ArgumentError,
+              "sqlite_fts_rank/3 field is not configured for SQLite FTS5: #{inspect(field)}"
+    end
+  end
+
+  defp safe_existing_atom(value) when is_binary(value) do
+    try do
+      String.to_existing_atom(value)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp safe_existing_atom(_value), do: nil
 
   @doc """
   Add a VALUES clause to create an inline table from literal data.
