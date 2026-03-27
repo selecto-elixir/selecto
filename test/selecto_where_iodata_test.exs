@@ -264,6 +264,14 @@ defmodule Selecto.Builder.Sql.WhereTest do
       assert pg_phrase_sql =~ ~r/name\s+@@\s+phraseto_tsquery\(\$1\)/i
       assert pg_phrase_params == ["term"]
 
+      {_joins, pg_natural_iodata, _} =
+        Where.build(selecto(), {"name", {:text_search, "term", [mode: :natural]}})
+
+      {pg_natural_sql, pg_natural_params} = Params.finalize(pg_natural_iodata)
+
+      assert pg_natural_sql =~ ~r/name\s+@@\s+plainto_tsquery\(\$1\)/i
+      assert pg_natural_params == ["term"]
+
       {_joins, pg_boolean_iodata, _} =
         Where.build(selecto(), {"name", {:text_search, "foo & bar", [mode: :boolean]}})
 

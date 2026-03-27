@@ -1107,7 +1107,7 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   defp ensure_supported_text_search_mode!(adapter_name, mode, fields)
-       when mode in [nil, :websearch, :plain, :phrase, :boolean] do
+       when mode in [nil, :websearch, :plain, :phrase, :boolean, :natural] do
     _ = {adapter_name, fields}
     :ok
   end
@@ -1143,6 +1143,7 @@ defmodule Selecto.Builder.Sql.Where do
   defp postgres_text_search_query_sql(nil), do: "websearch_to_tsquery"
   defp postgres_text_search_query_sql(:websearch), do: "websearch_to_tsquery"
   defp postgres_text_search_query_sql(:plain), do: "plainto_tsquery"
+  defp postgres_text_search_query_sql(:natural), do: "plainto_tsquery"
   defp postgres_text_search_query_sql(:phrase), do: "phraseto_tsquery"
   defp postgres_text_search_query_sql(:boolean), do: "to_tsquery"
 
