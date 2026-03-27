@@ -135,6 +135,16 @@ defmodule Selecto.Builder.Sql.WhereTest do
       assert mysql_boolean_ts_sql =~ ~r/MATCH\(.*name.*\) AGAINST \(\? IN BOOLEAN MODE\)/i
       assert mysql_boolean_ts_params == ["+wireless -charger"]
 
+      assert Selecto.AdapterSupport.supports_feature?(
+               SelectoDBMySQL.Adapter,
+               :text_search_boolean
+             )
+
+      assert Selecto.AdapterSupport.supports_feature?(
+               SelectoDBMySQL.Adapter,
+               :text_search_boolean_mode
+             )
+
       {_joins, mysql_expansion_ts_iodata, _} =
         Where.build(
           mysql_selecto,
@@ -148,6 +158,16 @@ defmodule Selecto.Builder.Sql.WhereTest do
                ~r/MATCH\(.*name.*\) AGAINST \(\? IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION\)/i
 
       assert mysql_expansion_ts_params == ["wireless charger"]
+
+      assert Selecto.AdapterSupport.supports_feature?(
+               SelectoDBMySQL.Adapter,
+               :text_search_query_expansion
+             )
+
+      assert Selecto.AdapterSupport.supports_feature?(
+               SelectoDBMySQL.Adapter,
+               :text_search_query_expansion_mode
+             )
 
       {_joins, mysql_keyword_ts_iodata, _} =
         Where.build(

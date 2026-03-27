@@ -1073,25 +1073,25 @@ defmodule Selecto.Builder.Sql.Where do
         " IN NATURAL LANGUAGE MODE) "
 
       :boolean ->
-        if AdapterSupport.supports_feature?(adapter, :text_search_boolean_mode) do
+        if AdapterSupport.supports_feature?(adapter, :text_search_boolean) do
           " IN BOOLEAN MODE) "
         else
           raise_text_search_error(
             "Adapter does not support boolean-mode text search",
             AdapterSupport.adapter_name(adapter),
-            :text_search_boolean_mode,
+            :text_search_boolean,
             []
           )
         end
 
       :query_expansion ->
-        if AdapterSupport.supports_feature?(adapter, :text_search_query_expansion_mode) do
+        if AdapterSupport.supports_feature?(adapter, :text_search_query_expansion) do
           " IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION) "
         else
           raise_text_search_error(
             "Adapter does not support query-expansion text search",
             AdapterSupport.adapter_name(adapter),
-            :text_search_query_expansion_mode,
+            :text_search_query_expansion,
             []
           )
         end
