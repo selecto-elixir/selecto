@@ -115,13 +115,13 @@ defmodule Selecto.Builder.JsonOperations do
 
       # Type operations
       :json_typeof ->
-        build_json_typeof(spec)
+        build_json_typeof(spec, opts)
 
       :jsonb_typeof ->
         build_jsonb_typeof(spec)
 
       :json_array_length ->
-        build_json_array_length(spec)
+        build_json_array_length(spec, opts)
 
       :jsonb_array_length ->
         build_jsonb_array_length(spec)
@@ -404,12 +404,22 @@ defmodule Selecto.Builder.JsonOperations do
   end
 
   # JSON typeof
-  defp build_json_typeof(%Spec{column: column} = spec) do
-    sql_parts = [
-      "JSON_TYPEOF(",
-      column,
-      ")"
-    ]
+  defp build_json_typeof(%Spec{column: column, path: path} = spec, opts) do
+    adapter = Keyword.get(opts, :adapter)
+    table_alias = Keyword.get(opts, :table_alias)
+
+    sql_parts =
+      case AdapterSupport.adapter_name(adapter) do
+        :sqlite ->
+          sqlite_json_function("json_type", column, path, table_alias)
+
+        _ ->
+          [
+            "JSON_TYPEOF(",
+            column,
+            ")"
+          ]
+      end
 
     add_alias(sql_parts, spec.alias)
   end
@@ -426,15 +436,43 @@ defmodule Selecto.Builder.JsonOperations do
   end
 
   # JSON array length
-  defp build_json_array_length(%Spec{column: column} = spec) do
-    sql_parts = [
-      "JSON_ARRAY_LENGTH(",
-      column,
-      ")"
-    ]
+  defp build_json_array_length(%Spec{column: column, path: path} = spec, opts) do
+    adapter = Keyword.get(opts, :adapter)
+    table_alias = Keyword.get(opts, :table_alias)
+
+    sql_parts =
+      case AdapterSupport.adapter_name(adapter) do
+        :sqlite ->
+          sqlite_json_function("json_array_length", column, path, table_alias)
+
+        _ ->
+          [
+            "JSON_ARRAY_LENGTH(",
+            column,
+            ")"
+          ]
+      end
 
     add_alias(sql_parts, spec.alias)
   end
+
+  defp sqlite_json_function(function_name, column, nil, table_alias) do
+    [function_name, "(", sqlite_json_column_ref(column, table_alias), ")"]
+  end
+
+  defp sqlite_json_function(function_name, column, path, table_alias) do
+    [
+      function_name,
+      "(",
+      sqlite_json_column_ref(column, table_alias),
+      ", '",
+      path,
+      "')"
+    ]
+  end
+
+  defp sqlite_json_column_ref(column, nil), do: ~s("#{column}")
+  defp sqlite_json_column_ref(column, table_alias), do: ~s("#{table_alias}"."#{column}")
 
   # JSONB array length
   defp build_jsonb_array_length(%Spec{column: column} = spec) do
@@ -613,7 +651,6 @@ defmodule Selecto.Builder.JsonOperations do
       {adapter_name, op}
       when adapter_name == :sqlite and
              op in [
-               :json_contains,
                :json_contained,
                :json_agg,
                :json_object_agg,
@@ -627,9 +664,7 @@ defmodule Selecto.Builder.JsonOperations do
                :jsonb_set,
                :json_insert,
                :jsonb_insert,
-               :json_typeof,
                :jsonb_typeof,
-               :json_array_length,
                :jsonb_array_length
              ] ->
         error =

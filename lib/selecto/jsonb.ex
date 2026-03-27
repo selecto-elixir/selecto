@@ -314,16 +314,7 @@ defmodule Selecto.Jsonb do
         "JSON_CONTAINS(#{column_ref}, '#{json_value}')"
 
       :sqlite ->
-        error =
-          Error.validation_error(
-            "SQLite does not support json_contains in the current abstraction",
-            %{
-              adapter: :sqlite,
-              unsupported_feature: :json_contains
-            }
-          )
-
-        raise Error.to_exception(error)
+        build_sqlite_contains(column, value, alias_name)
 
       _ ->
         json_value = Jason.encode!(value)
@@ -481,6 +472,30 @@ defmodule Selecto.Jsonb do
     |> Enum.intersperse(" AND ")
   end
 
+  defp build_sqlite_contains(column, value, alias_name) when is_map(value) do
+    value
+    |> flatten_sqlite_contains([])
+    |> Enum.map(fn {path, path_value} ->
+      extraction = build_sqlite_extraction(column, path, table_alias: alias_name)
+      [extraction, " = ", sqlite_contains_literal(path_value)]
+    end)
+    |> Enum.intersperse(" AND ")
+  end
+
+  defp build_sqlite_contains(_column, value, _alias_name) do
+    error =
+      Error.validation_error(
+        "SQLite JSON containment currently supports only object/map comparisons",
+        %{
+          adapter: :sqlite,
+          value: value,
+          unsupported_feature: :json_contains
+        }
+      )
+
+    raise Error.to_exception(error)
+  end
+
   defp flatten_mssql_contains(map, prefix) do
     Enum.flat_map(map, fn
       {key, nested} when is_map(nested) ->
@@ -499,6 +514,39 @@ defmodule Selecto.Jsonb do
       {key, value} ->
         [{prefix ++ [to_string(key)], value}]
     end)
+  end
+
+  defp flatten_sqlite_contains(map, prefix) do
+    Enum.flat_map(map, fn
+      {key, nested} when is_map(nested) ->
+        flatten_sqlite_contains(nested, prefix ++ [to_string(key)])
+
+      {key, value} when is_list(value) ->
+        error =
+          Error.validation_error("SQLite JSON containment for arrays is not supported", %{
+            adapter: :sqlite,
+            path: prefix ++ [to_string(key)],
+            unsupported_feature: :json_contains_array
+          })
+
+        raise Error.to_exception(error)
+
+      {key, value} ->
+        [{prefix ++ [to_string(key)], value}]
+    end)
+  end
+
+  defp sqlite_contains_literal(value) when is_binary(value),
+    do: ["'", escape_sql_literal(value), "'"]
+
+  defp sqlite_contains_literal(value) when is_integer(value), do: Integer.to_string(value)
+  defp sqlite_contains_literal(value) when is_float(value), do: Float.to_string(value)
+  defp sqlite_contains_literal(true), do: "1"
+  defp sqlite_contains_literal(false), do: "0"
+  defp sqlite_contains_literal(nil), do: "NULL"
+
+  defp sqlite_contains_literal(value) do
+    ["'", escape_sql_literal(Jason.encode!(value)), "'"]
   end
 
   defp build_mssql_array_contains(column, path, value, alias_name) do

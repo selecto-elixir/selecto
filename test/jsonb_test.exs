@@ -220,12 +220,25 @@ defmodule Selecto.JsonbTest do
   end
 
   test "sqlite json containment rejects unsupported current abstraction" do
-    assert_raise RuntimeError, ~r/SQLite does not support json_contains/, fn ->
-      Jsonb.build_contains("attributes", %{"color" => "red"},
+    contains =
+      Jsonb.build_contains("attributes", %{"color" => "red", "dimensions" => %{"length" => 5}},
         adapter: SelectoDBSQLite.Adapter,
         table_alias: "u"
       )
-    end
+
+    assert IO.iodata_to_binary(contains) =~ ~s|json_extract("u"."attributes", '$.color') = 'red'|
+
+    assert IO.iodata_to_binary(contains) =~
+             ~s|json_extract("u"."attributes", '$.dimensions.length') = 5|
+
+    assert_raise RuntimeError,
+                 ~r/SQLite JSON containment for arrays is not supported/,
+                 fn ->
+                   Jsonb.build_contains("attributes", %{"tags" => ["featured"]},
+                     adapter: SelectoDBSQLite.Adapter,
+                     table_alias: "u"
+                   )
+                 end
   end
 
   test "mssql json array helpers use openjson" do
