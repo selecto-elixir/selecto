@@ -6,6 +6,7 @@ defmodule Selecto.ExprCompiler do
     :array_contained,
     :array_eq,
     :array_overlap,
+    :boolean_search,
     :between,
     :contains,
     :ends_with,
@@ -16,8 +17,11 @@ defmodule Selecto.ExprCompiler do
     :like,
     :match_against,
     :not_in,
+    :phrase_search,
+    :plain_search,
     :starts_with,
-    :text_search
+    :text_search,
+    :web_search
   ]
 
   @order_directions [
@@ -130,6 +134,38 @@ defmodule Selecto.ExprCompiler do
 
   defp do_compile_filter({:match_against, _, [field_ast, value_ast, opts_ast]}) do
     compile_match_against_call(field_ast, value_ast, opts_ast)
+  end
+
+  defp do_compile_filter({:web_search, _, [field_ast, value_ast]}) do
+    compile_mode_wrapped_text_search(field_ast, value_ast, [], :web)
+  end
+
+  defp do_compile_filter({:web_search, _, [field_ast, value_ast, opts_ast]}) do
+    compile_mode_wrapped_text_search(field_ast, value_ast, opts_ast, :web)
+  end
+
+  defp do_compile_filter({:plain_search, _, [field_ast, value_ast]}) do
+    compile_mode_wrapped_text_search(field_ast, value_ast, [], :plain)
+  end
+
+  defp do_compile_filter({:plain_search, _, [field_ast, value_ast, opts_ast]}) do
+    compile_mode_wrapped_text_search(field_ast, value_ast, opts_ast, :plain)
+  end
+
+  defp do_compile_filter({:phrase_search, _, [field_ast, value_ast]}) do
+    compile_mode_wrapped_text_search(field_ast, value_ast, [], :phrase)
+  end
+
+  defp do_compile_filter({:phrase_search, _, [field_ast, value_ast, opts_ast]}) do
+    compile_mode_wrapped_text_search(field_ast, value_ast, opts_ast, :phrase)
+  end
+
+  defp do_compile_filter({:boolean_search, _, [field_ast, value_ast]}) do
+    compile_mode_wrapped_text_search(field_ast, value_ast, [], :boolean)
+  end
+
+  defp do_compile_filter({:boolean_search, _, [field_ast, value_ast, opts_ast]}) do
+    compile_mode_wrapped_text_search(field_ast, value_ast, opts_ast, :boolean)
   end
 
   defp do_compile_filter({:field_exists, _, [field_ast]}) do
@@ -371,6 +407,16 @@ defmodule Selecto.ExprCompiler do
 
     quote do
       Selecto.Expr.match_against(unquote(field_expr), unquote(value), unquote(opts))
+    end
+  end
+
+  defp compile_mode_wrapped_text_search(field_ast, value_ast, opts_ast, mode) do
+    field_expr = compile_text_search_field!(field_ast)
+    {value, opts} = compile_text_search_args!(value_ast, opts_ast)
+    opts = Keyword.put_new(opts, :mode, mode)
+
+    quote do
+      Selecto.Expr.text_search(unquote(field_expr), unquote(value), unquote(opts))
     end
   end
 

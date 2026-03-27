@@ -346,6 +346,54 @@ defmodule Selecto.Expr do
     text_search(field, value, Keyword.put_new(opts, :mode, :natural))
   end
 
+  @doc "Builds a shared web-style text search filter."
+  @spec web_search(term(), term() | keyword(), keyword()) :: tuple()
+  def web_search(field, value_or_opts, opts \\ [])
+
+  def web_search(field, opts, []) when is_list(opts) do
+    text_search(field, Keyword.put_new(opts, :mode, :web))
+  end
+
+  def web_search(field, value, opts) when is_list(opts) do
+    text_search(field, value, Keyword.put_new(opts, :mode, :web))
+  end
+
+  @doc "Builds a shared plain-token text search filter."
+  @spec plain_search(term(), term() | keyword(), keyword()) :: tuple()
+  def plain_search(field, value_or_opts, opts \\ [])
+
+  def plain_search(field, opts, []) when is_list(opts) do
+    text_search(field, Keyword.put_new(opts, :mode, :plain))
+  end
+
+  def plain_search(field, value, opts) when is_list(opts) do
+    text_search(field, value, Keyword.put_new(opts, :mode, :plain))
+  end
+
+  @doc "Builds a shared phrase-intent text search filter."
+  @spec phrase_search(term(), term() | keyword(), keyword()) :: tuple()
+  def phrase_search(field, value_or_opts, opts \\ [])
+
+  def phrase_search(field, opts, []) when is_list(opts) do
+    text_search(field, Keyword.put_new(opts, :mode, :phrase))
+  end
+
+  def phrase_search(field, value, opts) when is_list(opts) do
+    text_search(field, value, Keyword.put_new(opts, :mode, :phrase))
+  end
+
+  @doc "Builds a shared boolean/operator text search filter."
+  @spec boolean_search(term(), term() | keyword(), keyword()) :: tuple()
+  def boolean_search(field, value_or_opts, opts \\ [])
+
+  def boolean_search(field, opts, []) when is_list(opts) do
+    text_search(field, Keyword.put_new(opts, :mode, :boolean))
+  end
+
+  def boolean_search(field, value, opts) when is_list(opts) do
+    text_search(field, value, Keyword.put_new(opts, :mode, :boolean))
+  end
+
   @doc "Builds a field-path existence filter for JSONB paths or non-null fields."
   @spec field_exists(term()) :: tuple()
   def field_exists(field), do: {field, :exists}

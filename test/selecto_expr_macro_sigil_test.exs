@@ -89,6 +89,25 @@ defmodule Selecto.ExprMacroSigilTest do
               ], {:text_search, "wireless charger", mode: :query_expansion}}
   end
 
+  test "where macro supports shared text search mode helpers" do
+    term = "wireless charger"
+
+    assert where(web_search(name, ^term)) ==
+             {"name", {:text_search, "wireless charger", mode: :websearch}}
+
+    assert where(plain_search(name, ^term)) ==
+             {"name", {:text_search, "wireless charger", mode: :plain}}
+
+    assert where(phrase_search(name, ^term)) ==
+             {"name", {:text_search, "wireless charger", mode: :phrase}}
+
+    assert where(boolean_search([name, description], ^term)) ==
+             {[
+                "name",
+                "description"
+              ], {:text_search, "wireless charger", mode: :boolean}}
+  end
+
   test "where macro supports not_in and array_contains helpers" do
     statuses = ["cancelled", "returned"]
 

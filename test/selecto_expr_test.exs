@@ -57,6 +57,15 @@ defmodule Selecto.ExprTest do
     assert X.match_against(["name", "description"], "chair", mode: :boolean) ==
              {["name", "description"], {:text_search, "chair", mode: :boolean}}
 
+    assert X.web_search("name", "chair") == {"name", {:text_search, "chair", mode: :websearch}}
+    assert X.plain_search("name", "chair") == {"name", {:text_search, "chair", mode: :plain}}
+
+    assert X.phrase_search("name", "wireless charger") ==
+             {"name", {:text_search, "wireless charger", mode: :phrase}}
+
+    assert X.boolean_search(["name", "description"], "foo bar") ==
+             {["name", "description"], {:text_search, "foo bar", mode: :boolean}}
+
     assert X.field_exists("metadata.zone") == {"metadata.zone", :exists}
     assert X.array_contains("tags", ["featured"]) == {:array_contains, "tags", ["featured"]}
     assert X.starts_with("name", "Ch") == {"name", {:like, "Ch%"}}
