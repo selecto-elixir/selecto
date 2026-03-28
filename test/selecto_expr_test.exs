@@ -168,6 +168,34 @@ defmodule Selecto.ExprTest do
     assert query.set.group_by == [rollup: [{:field, "status"}]]
   end
 
+  test "query entry points support canonical macro-free runtime style" do
+    query =
+      selecto()
+      |> Selecto.select([
+        "name",
+        X.as(X.avg("price"), "avg_price"),
+        X.as(X.count_distinct("status"), "status_count")
+      ])
+      |> Selecto.filter(X.eq("active", true))
+      |> Selecto.filter(X.compact_and([X.gte("price", 100), X.not_null("name")]))
+      |> Selecto.order_by([X.asc("name"), X.desc("price")])
+      |> Selecto.group_by(["status"])
+
+    assert query.set.selected == [
+             "name",
+             {:field, {:func, "AVG", ["price"]}, "avg_price"},
+             {:field, {:count_distinct, "status"}, "status_count"}
+           ]
+
+    assert query.set.filtered == [
+             {"active", true},
+             {:and, [{"price", {:gte, 100}}, {"name", :not_null}]}
+           ]
+
+    assert query.set.order_by == [{"name", :asc}, {"price", :desc}]
+    assert query.set.group_by == ["status"]
+  end
+
   test "pipeline helpers compose filters and selects" do
     query =
       selecto()

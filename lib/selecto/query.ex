@@ -7,13 +7,18 @@ defmodule Selecto.Query do
   """
 
   @doc """
-  Add a field to the Select list. Send in one or a list of field names or selectable tuples.
+  Add fields to the select list.
+
+  For macro-free query composition, prefer importing `Selecto.Expr` and passing
+  string field paths plus runtime helper constructors.
 
   ## Examples
 
+      import Selecto.Expr
+
       selecto
-      |> Selecto.Query.select(["name", "email"])
-      |> Selecto.Query.select({:func, "COUNT", ["*"]})
+      |> Selecto.Query.select(["name", "email", as(count(), "total")])
+      |> Selecto.Query.select(avg("price"))
   """
   @spec select(Selecto.Types.t(), [Selecto.Types.selector()]) :: Selecto.Types.t()
   def select(selecto, fields) when is_list(fields) do
@@ -28,12 +33,18 @@ defmodule Selecto.Query do
   end
 
   @doc """
-  Add a filter to selecto. Send in a tuple with field name and filter value.
+  Add filters to the query.
+
+  For macro-free query composition, prefer importing `Selecto.Expr` and using
+  runtime filter constructors like `eq/2`, `gte/2`, and `compact_and/1`.
 
   ## Examples
 
+      import Selecto.Expr
+
       selecto
-      |> Selecto.Query.filter([{"active", true}, {"age", {:gt, 18}}])
+      |> Selecto.Query.filter(eq("active", true))
+      |> Selecto.Query.filter(compact_and([gte("age", 18), not_null("email")]))
   """
   @spec filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
   def filter(selecto, filters) when is_list(filters) do
@@ -255,8 +266,10 @@ defmodule Selecto.Query do
 
   ## Examples
 
+      import Selecto.Expr
+
       selecto
-      |> Selecto.Query.order_by(["created_at", {:desc, "name"}])
+      |> Selecto.Query.order_by([asc("created_at"), desc("name")])
   """
   @spec order_by(Selecto.Types.t(), [Selecto.Types.order_spec()]) :: Selecto.Types.t()
   def order_by(selecto, orders) when is_list(orders) do
@@ -277,8 +290,11 @@ defmodule Selecto.Query do
 
   ## Examples
 
+      import Selecto.Expr
+
       selecto
       |> Selecto.Query.group_by(["category", "region"])
+      |> Selecto.Query.group_by(rollup(["status"]))
   """
   @spec group_by(Selecto.Types.t(), [Selecto.Types.field_name()]) :: Selecto.Types.t()
   def group_by(selecto, groups) when is_list(groups) do

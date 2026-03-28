@@ -557,7 +557,18 @@ defmodule Selecto do
   end
 
   @doc """
-  Add a field to the Select list. Send in one or a list of field names or selectable tuples.
+  Add fields to the select list.
+
+  For macro-free query composition, prefer importing `Selecto.Expr` and using
+  string field paths plus runtime helper constructors.
+
+  ## Examples
+
+      import Selecto.Expr
+
+      selecto
+      |> Selecto.select(["order_number", "customer.name", as(sum("total"), "customer_total")])
+      |> Selecto.select(count_distinct("customer.id"))
   """
   @spec select(t(), [Selecto.Types.selector()]) :: t()
   @spec select(t(), Selecto.Types.selector()) :: t()
@@ -585,7 +596,18 @@ defmodule Selecto do
   defdelegate execute_shape(selecto, opts \\ []), to: Selecto.SelectionShape
 
   @doc """
-  Add a filter to selecto. Send in a tuple with field name and filter value.
+  Add filters to the query.
+
+  For macro-free query composition, prefer importing `Selecto.Expr` and using
+  runtime filter helpers.
+
+  ## Examples
+
+      import Selecto.Expr
+
+      selecto
+      |> Selecto.filter(eq("status", "delivered"))
+      |> Selecto.filter(compact_and([not_null("customer.id"), gte("total", 100)]))
   """
   @spec filter(t(), [Selecto.Types.filter()]) :: t()
   @spec filter(t(), Selecto.Types.filter()) :: t()
@@ -714,6 +736,13 @@ defmodule Selecto do
 
   @doc """
   Add to the Order By clause.
+
+  ## Examples
+
+      import Selecto.Expr
+
+      selecto
+      |> Selecto.order_by([asc("inserted_at"), desc("priority")])
   """
   @spec order_by(t(), [Selecto.Types.order_spec()]) :: t()
   @spec order_by(t(), Selecto.Types.order_spec()) :: t()
@@ -721,6 +750,14 @@ defmodule Selecto do
 
   @doc """
   Add to the Group By clause.
+
+  ## Examples
+
+      import Selecto.Expr
+
+      selecto
+      |> Selecto.group_by(["customer.name"])
+      |> Selecto.group_by(rollup(["status"]))
   """
   @spec group_by(t(), [Selecto.Types.field_name()]) :: t()
   @spec group_by(t(), Selecto.Types.field_name()) :: t()
