@@ -76,6 +76,19 @@ defmodule Selecto.Integration.SQLiteTextSearchTest do
     assert params == ["wireless charger"]
   end
 
+  test "sqlite to_sql supports phrase mode by quoting the fts query", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.select(["name"])
+      |> Selecto.filter({"description", {:text_search, "charging pad", [mode: :phrase]}})
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert sql =~ "selecto_root.description MATCH ?"
+    assert params == ["\"charging pad\""]
+  end
+
   test "sqlite_fts_rank adds bm25 selector for configured FTS fields", %{domain: domain} do
     query =
       Selecto.configure(domain, [], validate: false)

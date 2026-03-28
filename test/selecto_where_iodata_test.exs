@@ -240,6 +240,18 @@ defmodule Selecto.Builder.Sql.WhereTest do
       assert sqlite_boolean_fts_sql =~ ~r/name\s+MATCH\s+\?/i
       assert sqlite_boolean_fts_params == ["term"]
 
+      {_joins, sqlite_phrase_fts_iodata, _} =
+        Where.build(
+          sqlite_fts_selecto(),
+          {"description", {:text_search, "charging pad", [mode: :phrase]}}
+        )
+
+      {sqlite_phrase_fts_sql, sqlite_phrase_fts_params} =
+        Params.finalize(sqlite_phrase_fts_iodata, adapter: SelectoDBSQLite.Adapter)
+
+      assert sqlite_phrase_fts_sql =~ ~r/description\s+MATCH\s+\?/i
+      assert sqlite_phrase_fts_params == ["\"charging pad\""]
+
       {_joins, pg_web_alias_iodata, _} =
         Where.build(selecto(), {"name", {:text_search, "term", [mode: :web]}})
 

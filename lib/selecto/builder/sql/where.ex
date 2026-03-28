@@ -971,7 +971,8 @@ defmodule Selecto.Builder.Sql.Where do
         ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
         [selector] = selectors
 
-        {joins, [" ", selector, " MATCH ", {:param, value}, " "], []}
+        {joins, [" ", selector, " MATCH ", {:param, sqlite_text_search_query(value, mode)}, " "],
+         []}
 
       adapter_name == :sqlite and sqlite_fts5_enabled?(compiled_fields) ->
         ensure_sqlite_fts5_runtime_available!(selecto, adapter, fields)
@@ -979,7 +980,9 @@ defmodule Selecto.Builder.Sql.Where do
 
         clauses =
           selectors
-          |> Enum.map(fn selector -> [selector, " MATCH ", {:param, value}] end)
+          |> Enum.map(fn selector ->
+            [selector, " MATCH ", {:param, sqlite_text_search_query(value, mode)}]
+          end)
           |> Enum.intersperse(" OR ")
 
         {joins, [" (", clauses, ") "], []}
@@ -1148,7 +1151,7 @@ defmodule Selecto.Builder.Sql.Where do
   defp postgres_text_search_query_sql(:boolean), do: "to_tsquery"
 
   defp ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
-       when mode in [nil, :websearch, :boolean] do
+       when mode in [nil, :websearch, :boolean, :phrase] do
     _ = {adapter_name, fields}
     :ok
   end
@@ -1195,6 +1198,17 @@ defmodule Selecto.Builder.Sql.Where do
     Map.get(conf, :type) == :fts5 or Map.get(conf, :sqlite_fts5) == true or
       Map.get(conf, :text_search_backend) == :fts5
   end
+
+  defp sqlite_text_search_query(value, :phrase) when is_binary(value) do
+    if String.starts_with?(value, "\"") and String.ends_with?(value, "\"") do
+      value
+    else
+      escaped = String.replace(value, "\"", "\"\"")
+      ~s("#{escaped}")
+    end
+  end
+
+  defp sqlite_text_search_query(value, _mode), do: value
 
   defp convert_sql_placeholders_to_iodata(sql, params)
        when is_binary(sql) and is_list(params) do
