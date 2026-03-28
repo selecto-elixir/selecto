@@ -1151,6 +1151,68 @@ defmodule Selecto do
   end
 
   @doc """
+  Add an adapter-aware text-search rank selector.
+
+  This is the shared entry point for ranking support. Adapters can map it onto
+  their native ranking primitives where available.
+  """
+  @spec text_search_rank(t(), atom() | String.t() | [atom() | String.t()], keyword() | map()) ::
+          t()
+  def text_search_rank(selecto, fields, opts \\ [])
+
+  def text_search_rank(selecto, fields, opts) when is_map(opts) do
+    text_search_rank(selecto, fields, Enum.into(opts, []))
+  end
+
+  def text_search_rank(selecto, fields, opts) when is_list(opts) do
+    case Selecto.AdapterSupport.adapter_name(Map.get(selecto, :adapter)) do
+      :postgresql ->
+        postgresql_text_search_rank(selecto, fields, opts)
+
+      :sqlite ->
+        sqlite_fts_rank(selecto, fields, opts)
+
+      adapter_name ->
+        raise ArgumentError,
+              "text_search_rank/3 is not yet implemented for adapter #{inspect(adapter_name)}"
+    end
+  end
+
+  @doc false
+  def postgresql_text_search_rank(selecto, fields, opts) when is_list(opts) do
+    normalized_fields = List.wrap(fields)
+
+    if length(normalized_fields) != 1 do
+      raise ArgumentError,
+            "postgresql text_search_rank/3 currently requires exactly one tsvector field"
+    end
+
+    [field] = normalized_fields
+    conf = postgresql_text_search_rank_field_conf!(selecto, field)
+    alias_name = Keyword.get(opts, :as, "fts_rank")
+    query = Keyword.get(opts, :query)
+    mode = Keyword.get(opts, :mode, :websearch)
+
+    if is_nil(query) do
+      raise ArgumentError, "postgresql text_search_rank/3 requires a :query option"
+    end
+
+    if Keyword.has_key?(opts, :weights) do
+      raise ArgumentError, "postgresql text_search_rank/3 does not support :weights yet"
+    end
+
+    query_function = postgresql_text_search_query_function!(mode)
+    field_ref = Map.get(conf, :field, field)
+
+    selector =
+      {:field,
+       {:func, :ts_rank, [to_string(field_ref), {:func, query_function, [{:literal, query}]}]},
+       to_string(alias_name)}
+
+    put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
+  end
+
+  @doc """
   Add a SQLite FTS5 ranking selector using `bm25(...)`.
 
   This helper is intentionally narrow: all referenced fields must be configured
@@ -1699,6 +1761,35 @@ defmodule Selecto do
         raise ArgumentError,
               "sqlite_fts_rank/3 field is not configured for SQLite FTS5: #{inspect(field)}"
     end
+  end
+
+  defp postgresql_text_search_rank_field_conf!(selecto, field) do
+    columns = selecto.config[:columns] || %{}
+    field_key = to_string(field)
+    conf = Map.get(columns, field_key) || Map.get(columns, safe_existing_atom(field_key))
+
+    cond do
+      is_nil(conf) ->
+        raise ArgumentError, "postgresql text_search_rank/3 field not found: #{inspect(field)}"
+
+      Map.get(conf, :type) == :tsvector or Map.get(conf, :text_search_backend) == :postgresql ->
+        conf
+
+      true ->
+        raise ArgumentError,
+              "postgresql text_search_rank/3 field is not configured for PostgreSQL text search: #{inspect(field)}"
+    end
+  end
+
+  defp postgresql_text_search_query_function!(:web), do: :websearch_to_tsquery
+  defp postgresql_text_search_query_function!(:websearch), do: :websearch_to_tsquery
+  defp postgresql_text_search_query_function!(:plain), do: :plainto_tsquery
+  defp postgresql_text_search_query_function!(:natural), do: :plainto_tsquery
+  defp postgresql_text_search_query_function!(:phrase), do: :phraseto_tsquery
+  defp postgresql_text_search_query_function!(:boolean), do: :to_tsquery
+
+  defp postgresql_text_search_query_function!(mode) do
+    raise ArgumentError, "postgresql text_search_rank/3 does not support mode #{inspect(mode)}"
   end
 
   defp safe_existing_atom(value) when is_binary(value) do

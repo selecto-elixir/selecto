@@ -94,12 +94,23 @@ defmodule Selecto.Integration.SQLiteTextSearchTest do
       Selecto.configure(domain, [], validate: false)
       |> Map.put(:adapter, SelectoDBSQLite.Adapter)
       |> Selecto.select(["name"])
-      |> Selecto.sqlite_fts_rank(["name", "description"], as: "relevance", weights: [5.0, 1.0])
+      |> Selecto.text_search_rank(["name", "description"], as: "relevance", weights: [5.0, 1.0])
 
     {sql, params} = Selecto.to_sql(query)
 
     assert sql =~ ~r/bm25\(products_fts, 5\.0, 1\.0\) AS "relevance"/i
     assert params == []
+  end
+
+  test "text_search_rank fails explicitly on unsupported adapters", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Selecto.select(["name"])
+
+    assert_raise ArgumentError, ~r/not yet implemented for adapter :mysql/i, fn ->
+      Selecto.text_search_rank(query, ["name"], as: "relevance")
+    end
   end
 
   test "sqlite runtime gating raises when FTS5 is unavailable", %{domain: domain} do
