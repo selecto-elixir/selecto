@@ -430,6 +430,46 @@ selecto |> Selecto.filter([
 ])
 ```
 
+### Shared Text Search Modes
+
+```elixir
+selecto
+|> Selecto.filter(Selecto.Expr.web_search("description", "wireless charger"))
+
+selecto
+|> Selecto.filter({"search_document", {:text_search, "wireless charger", [mode: :natural]}})
+
+selecto
+|> Selecto.filter({"description", {:text_search, "charging pad", [mode: :phrase]}})
+```
+
+### Shared Text Search Ranking
+
+```elixir
+# SQLite
+selecto
+|> Selecto.text_search_rank(["name", "description"], as: "relevance")
+
+# PostgreSQL
+selecto
+|> Selecto.text_search_rank(["search_document"],
+  as: "relevance",
+  query: "wireless charger",
+  mode: :web
+)
+
+# MySQL
+selecto
+|> Selecto.text_search_rank(["name", "description"],
+  as: "relevance",
+  query: "wireless charger",
+  mode: :natural
+)
+```
+
+Rank values stay backend-specific and should not be compared numerically across
+different adapters.
+
 ## 🎯 Domain Configuration
 
 ### Complete Domain Structure
