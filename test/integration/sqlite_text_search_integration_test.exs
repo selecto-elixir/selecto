@@ -105,10 +105,10 @@ defmodule Selecto.Integration.SQLiteTextSearchTest do
   test "text_search_rank fails explicitly on unsupported adapters", %{domain: domain} do
     query =
       Selecto.configure(domain, [], validate: false)
-      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Map.put(:adapter, SelectoDBMSSQL.Adapter)
       |> Selecto.select(["name"])
 
-    assert_raise ArgumentError, ~r/not yet implemented for adapter :mysql/i, fn ->
+    assert_raise ArgumentError, ~r/not yet implemented for adapter :mssql/i, fn ->
       Selecto.text_search_rank(query, ["name"], as: "relevance")
     end
   end

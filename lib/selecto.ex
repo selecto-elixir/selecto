@@ -1166,6 +1166,9 @@ defmodule Selecto do
 
   def text_search_rank(selecto, fields, opts) when is_list(opts) do
     case Selecto.AdapterSupport.adapter_name(Map.get(selecto, :adapter)) do
+      :mysql ->
+        mysql_text_search_rank(selecto, fields, opts)
+
       :postgresql ->
         postgresql_text_search_rank(selecto, fields, opts)
 
@@ -1176,6 +1179,39 @@ defmodule Selecto do
         raise ArgumentError,
               "text_search_rank/3 is not yet implemented for adapter #{inspect(adapter_name)}"
     end
+  end
+
+  @doc false
+  def mysql_text_search_rank(selecto, fields, opts) when is_list(opts) do
+    normalized_fields = Enum.map(List.wrap(fields), &to_string/1)
+
+    if normalized_fields == [] do
+      raise ArgumentError, "mysql text_search_rank/3 requires at least one field"
+    end
+
+    alias_name = Keyword.get(opts, :as, "fts_rank")
+    query = Keyword.get(opts, :query)
+    mode = Keyword.get(opts, :mode, :natural)
+
+    if is_nil(query) do
+      raise ArgumentError, "mysql text_search_rank/3 requires a :query option"
+    end
+
+    if Keyword.has_key?(opts, :weights) do
+      raise ArgumentError, "mysql text_search_rank/3 does not support :weights yet"
+    end
+
+    match_args =
+      normalized_fields
+      |> Enum.map(fn field -> "selecto_root.#{field}" end)
+      |> Enum.join(", ")
+
+    selector =
+      {:custom_sql,
+       "MATCH(#{match_args}) AGAINST ('#{escape_sql_literal(query)}'#{mysql_rank_mode_sql(selecto, mode)}) AS \"#{alias_name}\"",
+       %{}}
+
+    put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
   end
 
   @doc false
@@ -1791,6 +1827,50 @@ defmodule Selecto do
   defp postgresql_text_search_query_function!(mode) do
     raise ArgumentError, "postgresql text_search_rank/3 does not support mode #{inspect(mode)}"
   end
+
+  defp mysql_rank_mode_sql(selecto, mode) do
+    adapter = Map.get(selecto, :adapter)
+
+    case mode do
+      nil ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :web ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :websearch ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :plain ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :natural ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :boolean ->
+        if Selecto.AdapterSupport.supports_feature?(adapter, :text_search_boolean) do
+          " IN BOOLEAN MODE"
+        else
+          raise ArgumentError, "mysql text_search_rank/3 requires boolean text search support"
+        end
+
+      :query_expansion ->
+        if Selecto.AdapterSupport.supports_feature?(adapter, :text_search_query_expansion) do
+          " IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION"
+        else
+          raise ArgumentError,
+                "mysql text_search_rank/3 requires query expansion text search support"
+        end
+
+      :phrase ->
+        raise ArgumentError, "mysql text_search_rank/3 does not support :phrase"
+
+      other ->
+        raise ArgumentError, "mysql text_search_rank/3 does not support mode #{inspect(other)}"
+    end
+  end
+
+  defp escape_sql_literal(value) when is_binary(value), do: String.replace(value, "'", "''")
 
   defp safe_existing_atom(value) when is_binary(value) do
     try do
