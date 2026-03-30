@@ -825,6 +825,31 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ "WITH order_chain (id, status) AS ("
   end
 
+  test "list filters expand placeholders for non-array-any adapters" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Selecto.select(["order_number", "status"])
+      |> Selecto.filter({"status", {:in, ["processing", "shipped", "delivered"]}})
+      |> Selecto.filter({"status", {:not_in, ["cancelled", "returned"]}})
+
+    {mysql_sql, _params} = Selecto.to_sql(%{query | adapter: SelectoDBMySQL.Adapter})
+    {sqlite_sql, _params} = Selecto.to_sql(%{query | adapter: SelectoDBSQLite.Adapter})
+    {mssql_sql, _params} = Selecto.to_sql(%{query | adapter: SelectoDBMSSQL.Adapter})
+
+    mysql_sql = normalize_sql(mysql_sql)
+    sqlite_sql = normalize_sql(sqlite_sql)
+    mssql_sql = normalize_sql(mssql_sql)
+
+    assert mysql_sql =~ "status IN (?, ?, ?)"
+    assert mysql_sql =~ "status NOT IN (?, ?)"
+
+    assert sqlite_sql =~ "status IN (?, ?, ?)"
+    assert sqlite_sql =~ "status NOT IN (?, ?)"
+
+    assert mssql_sql =~ "status IN (@p1, @p2, @p3)"
+    assert mssql_sql =~ "status NOT IN (@p4, @p5)"
+  end
+
   test "with_ctes supports joins: [...] batch auto-join" do
     order_totals_cte =
       Selecto.Advanced.CTE.create_cte(

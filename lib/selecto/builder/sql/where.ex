@@ -669,7 +669,13 @@ defmodule Selecto.Builder.Sql.Where do
       end
     else
       operator = if negate?, do: " NOT IN (", else: " IN ("
-      [" ", selector, operator, {:param, typed_values}, ") "]
+
+      placeholders =
+        typed_values
+        |> Enum.map(fn value -> {:param, value} end)
+        |> Enum.intersperse(", ")
+
+      [" ", selector, operator, placeholders, ") "]
     end
   end
 
