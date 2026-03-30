@@ -144,29 +144,59 @@ defmodule Selecto.Builder.Subselect do
          target_table,
          target_alias
        ) do
+    adapter_name = AdapterSupport.adapter_name(Map.get(selecto, :adapter))
+
     # Build SELECT fields for the subquery based on aggregation type
     {select_clause, select_params} =
       case subselect_config.format do
         :json_agg when length(subselect_config.fields) == 1 ->
           [field] = subselect_config.fields
-          field_name = escape_identifier(to_string(field))
-          {["json_agg(", target_alias, ".", field_name, ")"], []}
+          field_name = adapter_quote_identifier(selecto, to_string(field))
+
+          case adapter_name do
+            :sqlite ->
+              {["json_group_array(", target_alias, ".", field_name, ")"], []}
+
+            name when name in [:mysql, :mariadb] ->
+              {["JSON_ARRAYAGG(", target_alias, ".", field_name, ")"], []}
+
+            _ ->
+              {["json_agg(", target_alias, ".", field_name, ")"], []}
+          end
 
         :json_agg ->
           # Multiple fields - build JSON objects
           json_pairs =
             Enum.map(subselect_config.fields, fn field ->
-              field_name = escape_identifier(to_string(field))
+              field_name = adapter_quote_identifier(selecto, to_string(field))
               # Use literal string for field key, not parameter
               field_key = escape_string(to_string(field))
               [field_key, ", ", target_alias, ".", field_name]
             end)
 
-          json_build = [
-            "json_agg(json_build_object(",
-            Enum.intersperse(json_pairs, [", "]),
-            "))"
-          ]
+          json_build =
+            case adapter_name do
+              :sqlite ->
+                [
+                  "json_group_array(json_object(",
+                  Enum.intersperse(json_pairs, [", "]),
+                  "))"
+                ]
+
+              name when name in [:mysql, :mariadb] ->
+                [
+                  "JSON_ARRAYAGG(JSON_OBJECT(",
+                  Enum.intersperse(json_pairs, [", "]),
+                  "))"
+                ]
+
+              _ ->
+                [
+                  "json_agg(json_build_object(",
+                  Enum.intersperse(json_pairs, [", "]),
+                  "))"
+                ]
+            end
 
           # No parameters needed for field names - they're literal strings
           {json_build, []}
@@ -174,8 +204,18 @@ defmodule Selecto.Builder.Subselect do
         :array_agg ->
           # Simplify for now
           [field] = subselect_config.fields
-          field_name = escape_identifier(to_string(field))
-          {["array_agg(", target_alias, ".", field_name, ")"], []}
+          field_name = adapter_quote_identifier(selecto, to_string(field))
+
+          case adapter_name do
+            :sqlite ->
+              {["json_group_array(", target_alias, ".", field_name, ")"], []}
+
+            name when name in [:mysql, :mariadb] ->
+              {["JSON_ARRAYAGG(", target_alias, ".", field_name, ")"], []}
+
+            _ ->
+              {["array_agg(", target_alias, ".", field_name, ")"], []}
+          end
 
         :string_agg ->
           # Simplify for now
