@@ -718,6 +718,32 @@ defmodule Selecto.WindowJsonRegressionTest do
              "left join status_labels status_labels on status_labels.status = selecto_root.status"
   end
 
+  test "with_values uses SELECT UNION ALL CTEs for mysql-like adapters" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Selecto.with_values(
+        [
+          ["processing", "In Progress"],
+          ["shipped", "In Transit"],
+          ["delivered", "Completed"]
+        ],
+        columns: ["status", "status_label"],
+        as: "status_labels",
+        join: [owner_key: :status, related_key: :status]
+      )
+      |> Selecto.select(["order_number", "status_labels.status_label"])
+
+    {sql, _params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert sql =~
+             "WITH status_labels AS (SELECT 'processing' AS \"status\", 'In Progress' AS \"status_label\" UNION ALL SELECT 'shipped' AS \"status\", 'In Transit' AS \"status_label\" UNION ALL SELECT 'delivered' AS \"status\", 'Completed' AS \"status_label\")"
+
+    assert sql =~
+             "left join status_labels status_labels on status_labels.status = selecto_root.status"
+  end
+
   test "with_cte can auto-join with inferred CTE fields" do
     query =
       Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)

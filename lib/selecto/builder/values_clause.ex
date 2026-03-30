@@ -8,6 +8,7 @@ defmodule Selecto.Builder.ValuesClause do
   """
 
   alias Selecto.Advanced.ValuesClause.Spec
+  alias Selecto.AdapterSupport
 
   @doc """
   Generate SQL for a VALUES clause.
@@ -115,18 +116,28 @@ defmodule Selecto.Builder.ValuesClause do
   Returns SQL in the form:
   WITH alias (col1, col2, col3) AS (VALUES ('val1', 'val2', 123), ('val3', 'val4', 456))
   """
-  def build_values_cte(%Spec{} = spec) do
+  def build_values_cte(%Spec{} = spec, adapter \\ nil) do
     case spec.validated do
       false ->
         raise ArgumentError, "VALUES clause specification must be validated before CTE generation"
 
       true ->
-        generate_values_cte_sql(spec)
+        generate_values_cte_sql(spec, adapter)
     end
   end
 
   # Generate CTE-style VALUES SQL
-  defp generate_values_cte_sql(%Spec{} = spec) do
+  defp generate_values_cte_sql(%Spec{} = spec, adapter) do
+    case AdapterSupport.adapter_name(adapter) do
+      name when name in [:mysql, :mariadb, :mssql] ->
+        generate_select_union_cte_sql(spec)
+
+      _ ->
+        generate_values_only_cte_sql(spec)
+    end
+  end
+
+  defp generate_values_only_cte_sql(%Spec{} = spec) do
     values_rows = build_values_rows(spec.data, spec.data_type)
     column_list = build_column_list(spec.columns)
 
@@ -138,6 +149,49 @@ defmodule Selecto.Builder.ValuesClause do
       values_rows,
       ")"
     ]
+  end
+
+  defp generate_select_union_cte_sql(%Spec{} = spec) do
+    select_rows = build_select_rows(spec.data, spec.data_type, spec.columns)
+
+    [
+      spec.alias,
+      " AS (",
+      select_rows,
+      ")"
+    ]
+  end
+
+  defp build_select_rows(data, :list_of_lists, columns) do
+    data
+    |> Enum.map(&build_select_row_from_list(&1, columns))
+    |> Enum.intersperse(" UNION ALL ")
+  end
+
+  defp build_select_rows(data, :list_of_maps, columns) do
+    data
+    |> Enum.map(&build_select_row_from_map(&1, columns))
+    |> Enum.intersperse(" UNION ALL ")
+  end
+
+  defp build_select_row_from_list(row, columns) do
+    selections =
+      row
+      |> Enum.zip(columns)
+      |> Enum.map(fn {value, column} ->
+        [format_value(value), " AS ", quote_identifier(column)]
+      end)
+      |> Enum.intersperse(", ")
+
+    ["SELECT ", selections]
+  end
+
+  defp build_select_row_from_map(row, columns) do
+    ordered_values =
+      columns
+      |> Enum.map(fn column -> Map.get(row, column) || Map.get(row, String.to_atom(column)) end)
+
+    build_select_row_from_list(ordered_values, columns)
   end
 
   @doc """

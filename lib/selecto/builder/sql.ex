@@ -1453,9 +1453,10 @@ defmodule Selecto.Builder.Sql do
   # Phase 4.2: VALUES clause integration as CTEs
   defp build_values_clauses_as_ctes(selecto) do
     values_specs = Map.get(selecto.set, :values_clauses, [])
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     Enum.map(values_specs, fn spec ->
-      values_cte_sql = ValuesClause.build_values_cte(spec)
+      values_cte_sql = ValuesClause.build_values_cte(spec, adapter)
       # Raw CTE entry handled directly by Selecto.Builder.CteSql.
       {:raw_cte, values_cte_sql, []}
     end)
