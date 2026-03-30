@@ -148,7 +148,12 @@ defmodule Selecto.Builder.Sql do
         where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
 
     {final_query_iodata, _cte_integrated_params} =
-      Cte.integrate_ctes_with_query(all_required_ctes, base_query_iodata, all_base_params)
+      Cte.integrate_ctes_with_query(
+        all_required_ctes,
+        base_query_iodata,
+        all_base_params,
+        adapter
+      )
 
     %{
       aliases: aliases,
@@ -375,7 +380,12 @@ defmodule Selecto.Builder.Sql do
         where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
 
     {final_query_iodata, _cte_integrated_params} =
-      Cte.integrate_ctes_with_query(all_required_ctes, base_query_iodata, all_base_params)
+      Cte.integrate_ctes_with_query(
+        all_required_ctes,
+        base_query_iodata,
+        all_base_params,
+        adapter
+      )
 
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
     {sql, final_params} =

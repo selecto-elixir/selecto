@@ -8,6 +8,7 @@ defmodule Selecto.Builder.CteSql do
   """
 
   alias Selecto.Advanced.CTE.Spec
+  alias Selecto.AdapterSupport
   alias Selecto.Builder.Sql
 
   @doc """
@@ -16,7 +17,9 @@ defmodule Selecto.Builder.CteSql do
   Returns {with_clause_iodata, parameters} tuple with properly ordered
   CTEs and parameter bindings.
   """
-  def build_with_clause(ctes) when is_list(ctes) and length(ctes) > 0 do
+  def build_with_clause(ctes, adapter \\ nil)
+
+  def build_with_clause(ctes, adapter) when is_list(ctes) and length(ctes) > 0 do
     {structured_ctes, raw_ctes, invalid_entries} = partition_ctes(ctes)
 
     if invalid_entries != [] do
@@ -38,10 +41,10 @@ defmodule Selecto.Builder.CteSql do
           end
       end
 
-    build_ordered_with_clause(ordered_structured_ctes, raw_ctes)
+    build_ordered_with_clause(ordered_structured_ctes, raw_ctes, adapter)
   end
 
-  def build_with_clause([]), do: {[], []}
+  def build_with_clause([], _adapter), do: {[], []}
 
   @doc """
   Build a single CTE definition SQL.
@@ -59,7 +62,7 @@ defmodule Selecto.Builder.CteSql do
   end
 
   # Build WITH clause from ordered CTEs
-  defp build_ordered_with_clause(ordered_structured_ctes, raw_ctes) do
+  defp build_ordered_with_clause(ordered_structured_ctes, raw_ctes, adapter) do
     # Check if any CTE is recursive
     has_recursive =
       Enum.any?(ordered_structured_ctes, &(&1.type == :recursive)) or
@@ -84,7 +87,7 @@ defmodule Selecto.Builder.CteSql do
       |> Enum.unzip()
 
     # Combine with proper WITH syntax
-    with_keyword = if has_recursive, do: "WITH RECURSIVE ", else: "WITH "
+    with_keyword = with_keyword(has_recursive, adapter)
     cte_definitions = raw_definitions ++ structured_definitions
     cte_list = Enum.intersperse(cte_definitions, ",\n    ")
 
@@ -210,8 +213,9 @@ defmodule Selecto.Builder.CteSql do
 
   Returns the complete SQL with CTEs at the top.
   """
-  def integrate_ctes_with_query(ctes, query_iodata, query_params) when is_list(ctes) do
-    case build_with_clause(ctes) do
+  def integrate_ctes_with_query(ctes, query_iodata, query_params, adapter \\ nil)
+      when is_list(ctes) do
+    case build_with_clause(ctes, adapter) do
       {[], []} ->
         # No CTEs, return query as-is
         {query_iodata, query_params}
@@ -221,6 +225,15 @@ defmodule Selecto.Builder.CteSql do
         combined_iodata = [with_clause, "\n", query_iodata]
         combined_params = cte_params ++ query_params
         {combined_iodata, combined_params}
+    end
+  end
+
+  defp with_keyword(false, _adapter), do: "WITH "
+
+  defp with_keyword(true, adapter) do
+    case AdapterSupport.adapter_name(adapter) do
+      :mssql -> "WITH "
+      _ -> "WITH RECURSIVE "
     end
   end
 

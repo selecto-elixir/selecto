@@ -797,6 +797,34 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ "left join order_chain order_chain on order_chain.id = selecto_root.id"
   end
 
+  test "with_recursive_cte omits RECURSIVE keyword for mssql adapter" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Map.put(:adapter, SelectoDBMSSQL.Adapter)
+      |> Selecto.with_recursive_cte("order_chain",
+        base_query: fn ->
+          Selecto.configure(order_domain(), :mock_connection, validate: false)
+          |> Map.put(:adapter, SelectoDBMSSQL.Adapter)
+          |> Selecto.select(["id", "status"])
+          |> Selecto.filter({"status", "processing"})
+        end,
+        recursive_query: fn _cte_ref ->
+          Selecto.configure(order_domain(), :mock_connection, validate: false)
+          |> Map.put(:adapter, SelectoDBMSSQL.Adapter)
+          |> Selecto.select(["id", "status"])
+        end,
+        columns: ["id", "status"],
+        join: [owner_key: :id, related_key: :id, fields: :infer]
+      )
+      |> Selecto.select(["order_number", "order_chain.status"])
+
+    {sql, _params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    refute sql =~ "WITH RECURSIVE"
+    assert sql =~ "WITH order_chain (id, status) AS ("
+  end
+
   test "with_ctes supports joins: [...] batch auto-join" do
     order_totals_cte =
       Selecto.Advanced.CTE.create_cte(
