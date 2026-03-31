@@ -107,6 +107,99 @@ defmodule Selecto.DomainValidatorTest do
       assert DomainValidator.validate_domain(domain_with_query_members) == :ok
     end
 
+    test "accepts valid function registry configuration" do
+      domain_with_functions = %{
+        source: %{
+          source_table: "products",
+          primary_key: :id,
+          fields: [:id, :name],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, name: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        functions: %{
+          "similarity" => %{
+            kind: :scalar,
+            sql_name: "public.similarity",
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ],
+            returns: :float,
+            allowed_in: [:select, :order_by]
+          },
+          "matches_name" => %{
+            kind: :predicate,
+            sql_name: "public.matches_name",
+            args: [
+              %{name: :name, type: :string, source: :selector},
+              %{name: :pattern, type: :string, source: :value}
+            ],
+            returns: :boolean,
+            allowed_in: [:filter]
+          }
+        }
+      }
+
+      assert DomainValidator.validate_domain(domain_with_functions) == :ok
+    end
+
+    test "validates invalid function registry configuration" do
+      invalid_domain = %{
+        source: %{
+          source_table: "products",
+          primary_key: :id,
+          fields: [:id, :name],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, name: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        functions: %{
+          "bad_kind" => %{kind: :bogus, sql_name: "public.bad", returns: :string},
+          "bad_sql" => %{kind: :scalar, sql_name: "public.bad()", returns: :string},
+          "bad_predicate" => %{kind: :predicate, sql_name: "public.bad_pred", returns: :string},
+          "bad_table" => %{kind: :table, sql_name: "public.bad_table", returns: :integer},
+          "bad_args" => %{
+            kind: :scalar,
+            sql_name: "public.bad_args",
+            args: [%{name: :x, type: :string, source: :bogus}],
+            returns: :string
+          }
+        }
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_kind", _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_sql", _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_predicate", _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_table", _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_args", _message}} -> true
+               _ -> false
+             end)
+    end
+
     test "validates invalid query_members configuration" do
       invalid_domain = %{
         source: %{

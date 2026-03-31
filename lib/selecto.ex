@@ -342,6 +342,35 @@ defmodule Selecto do
   defdelegate infer_type(selecto, expression), to: Selecto.TypeSystem
 
   @doc """
+  Build a registered scalar or predicate UDF expression.
+
+  This is a convenience wrapper around the normalized `{:udf, function_id, args}`
+  shape used by selectors and filters.
+
+  ## Examples
+
+      Selecto.udf("similarity", ["name", "Acme"])
+      Selecto.udf(:matches_name, ["name", "Acme%"])
+  """
+  @spec udf(atom() | String.t(), [term()] | term()) :: tuple()
+  def udf(function_id, args \\ []) do
+    Selecto.Expr.udf(function_id, args)
+  end
+
+  @doc """
+  Build a registered table-UDF expression for lateral joins and named laterals.
+
+  ## Examples
+
+      Selecto.udf_table("nearby_points", ["location", 500])
+      Selecto.udf_table(:nearby_points, ["location", 500])
+  """
+  @spec udf_table(atom() | String.t(), [term()] | term()) :: tuple()
+  def udf_table(function_id, args \\ []) do
+    {:udf_table, Selecto.UDF.normalize_id(function_id), List.wrap(args)}
+  end
+
+  @doc """
   Check if two SQL types are compatible for comparisons or assignments.
 
   ## Examples
@@ -509,8 +538,12 @@ defmodule Selecto do
     end
 
     query_source =
-      Keyword.get(normalized_overrides, :query, Keyword.get(normalized_overrides, :query_builder)) ||
-        Map.get(spec, :query, Map.get(spec, :query_builder))
+      resolve_override_or_spec_value(
+        normalized_overrides,
+        spec,
+        [:query, :query_builder],
+        [:query, :query_builder]
+      )
 
     join_selecto =
       evaluate_named_query_member_query!(query_source, selecto, :subqueries, member_name)
@@ -527,20 +560,12 @@ defmodule Selecto do
       |> Keyword.merge(ensure_keyword_opts(Map.get(spec, :options, []), :subqueries, member_name))
 
     override_options =
-      normalized_overrides
-      |> Keyword.drop([:query, :query_builder, :join_id, :kind])
-
-    override_nested_options =
-      ensure_keyword_opts(
-        Keyword.get(override_options, :options, :__missing__),
+      merge_named_member_options(
+        normalized_overrides,
         :subqueries,
-        member_name
+        member_name,
+        [:query, :query_builder, :join_id, :kind]
       )
-
-    override_options =
-      override_options
-      |> Keyword.delete(:options)
-      |> Keyword.merge(override_nested_options)
 
     override_options =
       if Keyword.has_key?(override_options, :on) do
@@ -1569,6 +1594,33 @@ defmodule Selecto do
             join_type: join_type
           }
 
+        {:udf_table, function_id, _args} = udf_table ->
+          case Selecto.UDF.fetch(selecto, function_id) do
+            {:ok, spec} ->
+              kind = Map.get(spec, :kind) || Map.get(spec, "kind")
+              allowed_in = Map.get(spec, :allowed_in) || Map.get(spec, "allowed_in") || []
+
+              if kind != :table do
+                raise ArgumentError,
+                      "UDF '#{Selecto.UDF.normalize_id(function_id)}' must be kind :table to be used in lateral joins"
+              end
+
+              if :lateral not in allowed_in and :query_member not in allowed_in do
+                raise ArgumentError,
+                      "UDF '#{Selecto.UDF.normalize_id(function_id)}' is not allowed in :lateral. Allowed: #{inspect(allowed_in)}"
+              end
+
+              Selecto.Advanced.LateralJoin.create_lateral_join(
+                join_type,
+                udf_table,
+                alias_name,
+                opts
+              )
+
+            :error ->
+              raise ArgumentError, "Unknown UDF '#{Selecto.UDF.normalize_id(function_id)}'"
+          end
+
         # For other cases, use Advanced.LateralJoin
         _ ->
           Selecto.Advanced.LateralJoin.create_lateral_join(
@@ -1582,6 +1634,14 @@ defmodule Selecto do
     # Validate correlations
     case Selecto.Advanced.LateralJoin.validate_correlations(lateral_spec, selecto) do
       {:ok, validated_spec} ->
+        selecto =
+          maybe_register_lateral_source_columns(
+            selecto,
+            subquery_builder_or_function,
+            to_string(alias_name),
+            opts
+          )
+
         # Add to selecto set
         current_lateral_joins = Map.get(selecto.set, :lateral_joins, [])
         updated_lateral_joins = current_lateral_joins ++ [validated_spec]
@@ -1594,7 +1654,8 @@ defmodule Selecto do
   end
 
   @doc """
-  Apply a named LATERAL preset from `domain.query_members.laterals`.
+  Apply a LATERAL source directly or resolve a named LATERAL preset from
+  `domain.query_members.laterals`.
 
   ## Examples
 
@@ -1603,9 +1664,26 @@ defmodule Selecto do
 
       selecto
       |> Selecto.with_lateral(:recent_rentals, join_type: :inner)
+
+      selecto
+      |> Selecto.with_lateral(Selecto.udf_table("nearby_points", ["location", 500]),
+        as: "nearby_points",
+        join_type: :left
+      )
   """
   @spec with_lateral(t(), atom() | String.t(), keyword() | map()) :: t()
   def with_lateral(selecto, member_id, opts \\ [])
+
+  def with_lateral(selecto, %Selecto{} = lateral_source, opts)
+      when is_list(opts) or is_map(opts) do
+    apply_direct_lateral(selecto, lateral_source, opts)
+  end
+
+  def with_lateral(selecto, lateral_source, opts)
+      when (is_tuple(lateral_source) or is_function(lateral_source)) and
+             (is_list(opts) or is_map(opts)) do
+    apply_direct_lateral(selecto, lateral_source, opts)
+  end
 
   def with_lateral(selecto, member_id, opts)
       when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
@@ -1631,11 +1709,7 @@ defmodule Selecto do
     lateral_source = normalize_lateral_source!(lateral_source, selecto, member_name)
 
     alias_name =
-      normalized_overrides
-      |> Keyword.get(
-        :as,
-        Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
-      ) || values_member_alias(spec) || member_name
+      resolve_alias_name(normalized_overrides, values_member_alias(spec) || member_name)
 
     join_type =
       Keyword.get(
@@ -1649,30 +1723,49 @@ defmodule Selecto do
     default_options = ensure_keyword_opts(Map.get(spec, :options, []), :laterals, member_name)
 
     override_options =
-      normalized_overrides
-      |> Keyword.drop([
-        :query,
-        :source,
-        :lateral_source,
-        :as,
-        :alias,
-        :alias_name,
-        :join_type,
-        :type,
-        :options
-      ])
-
-    override_nested_options =
-      ensure_keyword_opts(
-        Keyword.get(normalized_overrides, :options, :__missing__),
+      merge_named_member_options(
+        normalized_overrides,
         :laterals,
-        member_name
+        member_name,
+        [:query, :source, :lateral_source, :as, :alias, :alias_name, :join_type, :type]
       )
 
     lateral_opts =
       default_options
       |> Keyword.merge(override_options)
-      |> Keyword.merge(override_nested_options)
+
+    selecto
+    |> Selecto.lateral_join(join_type, lateral_source, to_string(alias_name), lateral_opts)
+    |> maybe_register_lateral_source_columns(lateral_source, to_string(alias_name), lateral_opts)
+    |> upsert_lateral_by_alias(to_string(alias_name))
+  end
+
+  defp apply_direct_lateral(selecto, lateral_source, opts) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+
+    alias_name = resolve_alias_name(normalized_overrides)
+
+    if is_nil(alias_name) do
+      raise ArgumentError,
+            "Direct with_lateral/3 sources require :as, :alias, or :alias_name"
+    end
+
+    join_type =
+      Keyword.get(
+        normalized_overrides,
+        :join_type,
+        Keyword.get(normalized_overrides, :type, :left)
+      )
+
+    join_type = normalize_lateral_join_type!(join_type, to_string(alias_name))
+
+    lateral_opts =
+      merge_named_member_options(
+        normalized_overrides,
+        :laterals,
+        to_string(alias_name),
+        [:as, :alias, :alias_name, :join_type, :type]
+      )
 
     selecto
     |> Selecto.lateral_join(join_type, lateral_source, to_string(alias_name), lateral_opts)
@@ -1759,6 +1852,29 @@ defmodule Selecto do
     put_in(selecto.config[:columns], Map.merge(current_columns, columns_to_add))
   end
 
+  defp register_udf_table_columns(selecto, alias_name, columns) do
+    current_columns = Map.get(selecto.config, :columns, %{})
+
+    columns_to_add =
+      Enum.reduce(columns, %{}, fn {name, spec}, acc ->
+        type =
+          case spec do
+            %{type: type} -> type
+            %{"type" => type} -> type
+            _ -> :unknown
+          end
+
+        Map.put(acc, "#{alias_name}.#{name}", %{
+          name: "#{alias_name}.#{name}",
+          field: to_string(name),
+          requires_join: alias_name,
+          type: type
+        })
+      end)
+
+    put_in(selecto.config[:columns], Map.merge(current_columns, columns_to_add))
+  end
+
   defp maybe_register_lateral_source_columns(
          selecto,
          {:json_table, _source_ref, _path, columns},
@@ -1776,6 +1892,23 @@ defmodule Selecto do
        )
        when function_name in [:json_each, :json_tree] do
     register_sqlite_json_rowset_columns(selecto, alias_name)
+  end
+
+  defp maybe_register_lateral_source_columns(
+         selecto,
+         {:udf_table, function_id, _args},
+         alias_name,
+         _opts
+       ) do
+    case Selecto.UDF.fetch(selecto, function_id) do
+      {:ok, spec} ->
+        returns = Map.get(spec, :returns) || Map.get(spec, "returns") || %{}
+        columns = Map.get(returns, :columns) || Map.get(returns, "columns") || %{}
+        register_udf_table_columns(selecto, alias_name, columns)
+
+      :error ->
+        raise ArgumentError, "Unknown UDF '#{Selecto.UDF.normalize_id(function_id)}'"
+    end
   end
 
   defp maybe_register_lateral_source_columns(selecto, _lateral_source, _alias_name, _opts),
@@ -2959,6 +3092,33 @@ defmodule Selecto do
   defp normalize_named_query_member_opts(invalid_opts) do
     raise ArgumentError,
           "Named query member options must be a keyword list or map. Got: #{inspect(invalid_opts)}"
+  end
+
+  defp resolve_alias_name(overrides, default \\ nil) do
+    Keyword.get(
+      overrides,
+      :as,
+      Keyword.get(overrides, :alias, Keyword.get(overrides, :alias_name))
+    ) ||
+      default
+  end
+
+  defp resolve_override_or_spec_value(overrides, spec, override_keys, spec_keys) do
+    Enum.find_value(override_keys, fn key -> Keyword.get(overrides, key) end) ||
+      Enum.find_value(spec_keys, fn key -> Map.get(spec, key) end)
+  end
+
+  defp merge_named_member_options(overrides, kind, member_name, drop_keys) do
+    override_options = Keyword.drop(overrides, drop_keys ++ [:options])
+
+    nested_options =
+      ensure_keyword_opts(
+        Keyword.get(overrides, :options, :__missing__),
+        kind,
+        member_name
+      )
+
+    Keyword.merge(override_options, nested_options)
   end
 
   defp normalize_named_query_member_spec(spec) when is_map(spec) do

@@ -112,6 +112,10 @@ defmodule Selecto.Expr do
     {:count_distinct, normalize_selector_input(selector)}
   end
 
+  def normalize({:udf, function_id, args}) when is_list(args) do
+    {:udf, Selecto.UDF.normalize_id(function_id), Enum.map(args, &normalize/1)}
+  end
+
   def normalize({:func, function_name, args}) when is_list(args) do
     {:func, function_name, Enum.map(args, &normalize_selector_input/1)}
   end
@@ -152,6 +156,12 @@ defmodule Selecto.Expr do
   @spec func(String.t(), term()) :: tuple()
   def func(function_name, args \\ []) do
     {:func, function_name, Enum.map(List.wrap(args), &normalize_selector_input/1)}
+  end
+
+  @doc "Builds a registered UDF selector or predicate expression."
+  @spec udf(String.t() | atom(), term()) :: tuple()
+  def udf(function_id, args \\ []) do
+    {:udf, Selecto.UDF.normalize_id(function_id), Enum.map(List.wrap(args), &normalize/1)}
   end
 
   @doc "Builds `COUNT(*)` or `COUNT(field)` selectors."

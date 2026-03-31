@@ -64,6 +64,11 @@ defmodule Selecto.Builder.Sql.Where do
     build(selecto, {:case, when_clauses, nil})
   end
 
+  def build(selecto, {:udf, function_id, args}) when is_list(args) do
+    {selector_iodata, joins, params} = Select.build_udf(selecto, function_id, args, :filter)
+    {List.wrap(joins), [" ", selector_iodata, " "], params}
+  end
+
   def build(selecto, {fields, {:text_search, value}})
       when is_list(fields) and not is_list(value) do
     build_text_search(selecto, fields, value)

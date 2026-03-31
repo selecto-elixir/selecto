@@ -330,6 +330,20 @@ defmodule Selecto.TypeSystem do
   defp do_infer_type(_selecto, {:count, _field, _filter}), do: :bigint
   defp do_infer_type(_selecto, {:count_distinct, _field}), do: :bigint
 
+  defp do_infer_type(selecto, {:udf, function_id, _args}) do
+    case Selecto.UDF.fetch(selecto, function_id) do
+      {:ok, spec} ->
+        case Map.get(spec, :returns) || Map.get(spec, "returns") do
+          type when is_atom(type) -> normalize_type(type)
+          {:array, inner} -> {:array, normalize_type(inner)}
+          _ -> :unknown
+        end
+
+      :error ->
+        :unknown
+    end
+  end
+
   # Aggregate functions
   defp do_infer_type(selecto, {func, field}) when func in [:sum, :avg, :min, :max] do
     case Map.get(@aggregate_return_types, func) do

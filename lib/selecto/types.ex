@@ -258,6 +258,24 @@ defmodule Selecto.Types do
           optional(:unnests) => %{optional(atom() | String.t()) => map()}
         }
 
+  @type function_arg_spec :: %{
+          required(:name) => atom() | String.t(),
+          required(:type) => term(),
+          required(:source) => :selector | :value | :literal
+        }
+
+  @type function_kind :: :scalar | :predicate | :table
+
+  @type function_spec :: %{
+          required(:kind) => function_kind(),
+          required(:sql_name) => String.t(),
+          optional(:args) => [function_arg_spec()],
+          optional(:returns) => term(),
+          optional(:allowed_in) => [atom()]
+        }
+
+  @type function_registry :: %{optional(atom() | String.t()) => function_spec()}
+
   @type detail_action_type :: :modal | :iframe_modal | :external_link | :live_component
 
   @type detail_action :: %{
@@ -282,6 +300,7 @@ defmodule Selecto.Types do
           optional(:detail_actions) => %{optional(atom() | String.t()) => detail_action()},
           optional(:domain_data) => term(),
           optional(:extensions) => [term()],
+          optional(:functions) => function_registry(),
           optional(:query_members) => query_member_registry()
         }
 
@@ -328,6 +347,7 @@ defmodule Selecto.Types do
           required(:columns) => %{String.t() => %{required(:name) => String.t()}},
           required(:joins) => %{atom() => processed_join()},
           required(:filters) => %{String.t() => term()},
+          optional(:functions) => function_registry(),
           required(:domain_data) => term(),
           optional(:extensions) => [{module(), keyword()}]
         }

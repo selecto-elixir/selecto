@@ -100,6 +100,10 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, {:func, func_name, args, opts}, %{})
   end
 
+  def prep_selector(selecto, {:udf, function_id, args}) when is_list(args) do
+    prep_selector(selecto, {:udf, function_id, args}, %{})
+  end
+
   def prep_selector(selecto, {:case, pairs}) when is_list(pairs) do
     prep_selector(selecto, {:case, pairs}, %{})
   end
@@ -637,6 +641,10 @@ defmodule Selecto.Builder.Sql.Select do
     {case_sql, join, param}
   end
 
+  def prep_selector(selecto, {:udf, function_id, args}, pivot_aliases) when is_list(args) do
+    build_udf(selecto, function_id, args, :select, pivot_aliases)
+  end
+
   def prep_selector(selecto, {:func, func_name}, pivot_aliases) do
     prep_selector(selecto, {:func, func_name, []}, pivot_aliases)
   end
@@ -875,6 +883,61 @@ defmodule Selecto.Builder.Sql.Select do
       result ->
         result
     end
+  end
+
+  def build_udf(selecto, function_id, args, call_site, pivot_aliases \\ %{})
+
+  def build_udf(selecto, function_id, args, call_site, pivot_aliases) when is_list(args) do
+    spec = fetch_udf_spec!(selecto, function_id)
+    kind = Map.get(spec, :kind) || Map.get(spec, "kind")
+    allowed_in = Map.get(spec, :allowed_in) || Map.get(spec, "allowed_in") || []
+    spec_args = Map.get(spec, :args) || Map.get(spec, "args") || []
+    sql_name = Map.get(spec, :sql_name) || Map.get(spec, "sql_name")
+
+    if kind == :table and call_site != :lateral do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' is a table function and cannot be used as a selector"
+    end
+
+    allowed_for_call_site? =
+      case call_site do
+        :lateral -> :lateral in allowed_in or :query_member in allowed_in
+        other -> other in allowed_in
+      end
+
+    if not allowed_for_call_site? do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' is not allowed in :#{call_site}. Allowed: #{inspect(allowed_in)}"
+    end
+
+    if length(args) != length(spec_args) do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' expects #{length(spec_args)} argument(s), got #{length(args)}"
+    end
+
+    {arg_iodata_parts, join, param} =
+      Enum.zip(args, spec_args)
+      |> Enum.reduce({[], [], []}, fn {arg, arg_spec}, {select_acc, join_acc, param_acc} ->
+        {s_iodata, j, p} = prep_udf_arg(selecto, arg, arg_spec, pivot_aliases)
+
+        {
+          [s_iodata | select_acc],
+          Enum.reverse(List.wrap(j), join_acc),
+          Enum.reverse(p, param_acc)
+        }
+      end)
+
+    arg_iodata_parts = Enum.reverse(arg_iodata_parts)
+    join = Enum.reverse(join)
+    param = Enum.reverse(param)
+
+    args_iodata =
+      case arg_iodata_parts do
+        [] -> []
+        parts -> Enum.intersperse(parts, ", ")
+      end
+
+    {[sql_name, "(", args_iodata, ")"], join, param}
   end
 
   # Handle JSONB path selectors - extract value from JSONB column
@@ -1249,6 +1312,62 @@ defmodule Selecto.Builder.Sql.Select do
 
       {filter_iodata, List.wrap(join) ++ List.wrap(join_w), param ++ param_w}
     end
+  end
+
+  defp fetch_udf_spec!(selecto, function_id) do
+    case Selecto.UDF.fetch(selecto, function_id) do
+      {:ok, spec} -> spec
+      :error -> raise ArgumentError, "Unknown UDF '#{Selecto.UDF.normalize_id(function_id)}'"
+    end
+  end
+
+  defp prep_udf_arg(selecto, arg, arg_spec, pivot_aliases) do
+    case Map.get(arg_spec, :source) || Map.get(arg_spec, "source") do
+      :selector ->
+        prep_selector(selecto, arg, pivot_aliases)
+
+      :value ->
+        prep_udf_value_arg(selecto, arg, pivot_aliases)
+
+      :literal ->
+        prep_udf_literal_arg(selecto, arg, pivot_aliases)
+
+      other ->
+        raise ArgumentError, "Unsupported UDF arg source: #{inspect(other)}"
+    end
+  end
+
+  defp prep_udf_value_arg(_selecto, {:param, value}, _pivot_aliases) do
+    {{:param, value}, :selecto_root, [value]}
+  end
+
+  defp prep_udf_value_arg(selecto, {:literal, value}, pivot_aliases) do
+    prep_selector(selecto, {:literal, value}, pivot_aliases)
+  end
+
+  defp prep_udf_value_arg(_selecto, arg, _pivot_aliases)
+       when is_binary(arg) or is_atom(arg) or is_number(arg) or is_boolean(arg) or is_nil(arg) or
+              is_list(arg) or is_map(arg) do
+    {{:param, arg}, :selecto_root, [arg]}
+  end
+
+  defp prep_udf_value_arg(_selecto, arg, _pivot_aliases) do
+    raise ArgumentError,
+          "UDF value args must be raw values, {:param, value}, or {:literal, value}. Got: #{inspect(arg)}"
+  end
+
+  defp prep_udf_literal_arg(selecto, {:literal, value}, pivot_aliases) do
+    prep_selector(selecto, {:literal, value}, pivot_aliases)
+  end
+
+  defp prep_udf_literal_arg(selecto, arg, pivot_aliases)
+       when is_binary(arg) or is_atom(arg) or is_number(arg) or is_boolean(arg) or is_nil(arg) do
+    prep_selector(selecto, {:literal, arg}, pivot_aliases)
+  end
+
+  defp prep_udf_literal_arg(_selecto, arg, _pivot_aliases) do
+    raise ArgumentError,
+          "UDF literal args must be literal values or {:literal, value}. Got: #{inspect(arg)}"
   end
 
   defp build_filtered_aggregate_iodata(

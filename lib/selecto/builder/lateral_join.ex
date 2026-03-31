@@ -40,11 +40,12 @@ defmodule Selecto.Builder.LateralJoin do
   """
   def build_lateral_join(%Spec{} = spec, opts \\ []) do
     adapter = Keyword.get(opts, :adapter)
+    selecto = Keyword.get(opts, :selecto)
 
     case spec.subquery_builder do
       nil ->
         # Table function LATERAL join
-        build_table_function_lateral_join(spec, adapter)
+        build_table_function_lateral_join(spec, adapter, selecto)
 
       subquery_builder when is_function(subquery_builder) ->
         join_syntax = join_syntax(spec, adapter)
@@ -57,20 +58,42 @@ defmodule Selecto.Builder.LateralJoin do
   # Build LATERAL join with table function
   defp build_table_function_lateral_join(
          %Spec{table_function: {:json_table, _, _, _}} = spec,
-         adapter
+         adapter,
+         _selecto
        ) do
     build_json_table_join(spec, adapter)
   end
 
   defp build_table_function_lateral_join(
          %Spec{table_function: {function_name, _, _}} = spec,
-         adapter
+         adapter,
+         _selecto
        )
        when function_name in [:json_each, :json_tree] do
     build_sqlite_json_rowset_join(spec, adapter)
   end
 
-  defp build_table_function_lateral_join(%Spec{} = spec, adapter) do
+  defp build_table_function_lateral_join(
+         %Spec{table_function: {:udf_table, _, _}} = spec,
+         adapter,
+         selecto
+       ) do
+    join_syntax = join_syntax(spec, adapter)
+    {function_sql, _joins, params} = build_table_function_sql(spec.table_function, selecto)
+
+    sql =
+      case join_syntax do
+        {:lateral, join_type_sql} ->
+          [join_type_sql, " JOIN LATERAL ", function_sql, " AS ", spec.alias, " ON true"]
+
+        {:apply, apply_sql} ->
+          [apply_sql, " ", function_sql, " AS ", spec.alias]
+      end
+
+    {sql, params}
+  end
+
+  defp build_table_function_lateral_join(%Spec{} = spec, adapter, _selecto) do
     join_syntax = join_syntax(spec, adapter)
     {function_sql, params} = build_table_function_sql(spec.table_function)
 
@@ -221,6 +244,10 @@ defmodule Selecto.Builder.LateralJoin do
 
   defp build_table_function_sql(unknown) do
     raise ArgumentError, "Unknown table function specification: #{inspect(unknown)}"
+  end
+
+  defp build_table_function_sql({:udf_table, function_id, args}, %Selecto{} = selecto) do
+    Selecto.Builder.Sql.Select.build_udf(selecto, function_id, args, :lateral)
   end
 
   # Build function arguments with parameter binding

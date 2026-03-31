@@ -196,6 +196,10 @@ defmodule Selecto.QueryValidator do
     Enum.each(List.wrap(bucket_ranges), &validate_function_arg!(selecto, &1))
   end
 
+  defp validate_selector!(selecto, {:udf, function_id, args}) when is_list(args) do
+    validate_udf_call!(selecto, function_id, args, :select)
+  end
+
   defp validate_selector!(selecto, {:func, _func_name, args}) when is_list(args) do
     Enum.each(args, &validate_function_arg!(selecto, &1))
   end
@@ -266,6 +270,10 @@ defmodule Selecto.QueryValidator do
   defp validate_filter!(_selecto, {:exists, _query, _params}), do: :ok
   defp validate_filter!(_selecto, {:raw_sql_filter, _filter_iodata}), do: :ok
 
+  defp validate_filter!(selecto, {:udf, function_id, args}) when is_list(args) do
+    validate_udf_call!(selecto, function_id, args, :filter)
+  end
+
   defp validate_filter!(selecto, {field, _value}) when is_binary(field) or is_atom(field) do
     validate_field_reference!(selecto, field)
   end
@@ -287,6 +295,11 @@ defmodule Selecto.QueryValidator do
     validate_selector!(selecto, case_spec)
   end
 
+  defp validate_order_spec!(selecto, {{:udf, function_id, args}, dir})
+       when dir in @order_directions and is_list(args) do
+    validate_udf_call!(selecto, function_id, args, :order_by)
+  end
+
   defp validate_order_spec!(selecto, {dir, order}) when dir in @order_directions do
     validate_selector!(selecto, order)
   end
@@ -296,11 +309,21 @@ defmodule Selecto.QueryValidator do
   end
 
   defp validate_order_spec!(selecto, order) do
-    validate_selector!(selecto, order)
+    case order do
+      {:udf, function_id, args} when is_list(args) ->
+        validate_udf_call!(selecto, function_id, args, :order_by)
+
+      _ ->
+        validate_selector!(selecto, order)
+    end
   end
 
   defp validate_group_spec!(selecto, {:rollup, groups}) do
     validate_group_specs!(selecto, groups)
+  end
+
+  defp validate_group_spec!(selecto, {:udf, function_id, args}) when is_list(args) do
+    validate_udf_call!(selecto, function_id, args, :group_by)
   end
 
   defp validate_group_spec!(selecto, group) do
@@ -327,6 +350,87 @@ defmodule Selecto.QueryValidator do
   end
 
   defp validate_function_arg!(_selecto, _arg), do: :ok
+
+  defp validate_udf_call!(selecto, function_id, args, call_site) do
+    spec =
+      case Selecto.UDF.fetch(selecto, function_id) do
+        {:ok, spec} -> spec
+        :error -> raise ArgumentError, "Unknown UDF '#{Selecto.UDF.normalize_id(function_id)}'"
+      end
+
+    allowed_in = Map.get(spec, :allowed_in) || Map.get(spec, "allowed_in") || []
+    kind = Map.get(spec, :kind) || Map.get(spec, "kind")
+    spec_args = Map.get(spec, :args) || Map.get(spec, "args") || []
+
+    allowed_for_call_site? =
+      case call_site do
+        :lateral -> :lateral in allowed_in or :query_member in allowed_in
+        other -> other in allowed_in
+      end
+
+    if not allowed_for_call_site? do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' is not allowed in :#{call_site}. Allowed: #{inspect(allowed_in)}"
+    end
+
+    if call_site == :filter and kind != :predicate do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' must be kind :predicate to be used in filters"
+    end
+
+    if call_site == :lateral and kind != :table do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' must be kind :table to be used in lateral joins"
+    end
+
+    if length(args) != length(spec_args) do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' expects #{length(spec_args)} argument(s), got #{length(args)}"
+    end
+
+    Enum.zip(args, spec_args)
+    |> Enum.each(fn {arg, arg_spec} -> validate_udf_arg!(selecto, arg, arg_spec) end)
+  end
+
+  defp validate_udf_arg!(selecto, arg, arg_spec) do
+    case Map.get(arg_spec, :source) || Map.get(arg_spec, "source") do
+      :selector ->
+        validate_selector!(selecto, arg)
+
+      :value ->
+        validate_udf_value_arg!(arg)
+
+      :literal ->
+        validate_udf_literal_arg!(arg)
+
+      other ->
+        raise ArgumentError, "Unsupported UDF arg source: #{inspect(other)}"
+    end
+  end
+
+  defp validate_udf_value_arg!({:param, _value}), do: :ok
+  defp validate_udf_value_arg!({:literal, _value}), do: :ok
+
+  defp validate_udf_value_arg!(arg)
+       when is_binary(arg) or is_atom(arg) or is_number(arg) or is_boolean(arg) or is_nil(arg) or
+              is_list(arg) or is_map(arg),
+       do: :ok
+
+  defp validate_udf_value_arg!(arg) do
+    raise ArgumentError,
+          "UDF value args must be raw values, {:param, value}, or {:literal, value}. Got: #{inspect(arg)}"
+  end
+
+  defp validate_udf_literal_arg!({:literal, _value}), do: :ok
+
+  defp validate_udf_literal_arg!(arg)
+       when is_binary(arg) or is_atom(arg) or is_number(arg) or is_boolean(arg) or is_nil(arg),
+       do: :ok
+
+  defp validate_udf_literal_arg!(arg) do
+    raise ArgumentError,
+          "UDF literal args must be literal values or {:literal, value}. Got: #{inspect(arg)}"
+  end
 
   defp keyword_group_specs?(group_specs) when is_list(group_specs) do
     Keyword.keyword?(group_specs) and

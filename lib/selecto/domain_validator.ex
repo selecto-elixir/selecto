@@ -84,6 +84,7 @@ defmodule Selecto.DomainValidator do
       |> validate_schemas(domain)
       |> validate_associations(domain)
       |> validate_joins(domain)
+      |> validate_functions(domain)
       |> validate_query_members(domain)
       |> validate_detail_actions(domain)
 
@@ -579,6 +580,182 @@ defmodule Selecto.DomainValidator do
   defp validate_advanced_join_type(errors, _join_name, _config) do
     # No special requirements for other join types  
     errors
+  end
+
+  defp validate_functions(errors, domain) do
+    case Map.get(domain, :functions) do
+      nil ->
+        errors
+
+      functions when is_map(functions) ->
+        Enum.reduce(functions, errors, fn {function_id, spec}, acc ->
+          validate_function_spec(acc, function_id, spec)
+        end)
+
+      _invalid ->
+        errors ++ [{:functions_invalid, {:functions, ":functions must be a map of named specs"}}]
+    end
+  end
+
+  defp validate_function_spec(errors, function_id, spec) when is_map(spec) do
+    errors
+    |> validate_function_kind(spec, function_id)
+    |> validate_function_sql_name(spec, function_id)
+    |> validate_function_allowed_in(spec, function_id)
+    |> validate_function_args(spec, function_id)
+    |> validate_function_returns(spec, function_id)
+  end
+
+  defp validate_function_spec(errors, function_id, _invalid_spec) do
+    errors ++ [{:functions_invalid, {function_id, "function spec must be a map"}}]
+  end
+
+  defp validate_function_kind(errors, spec, function_id) do
+    kind = map_value(spec, :kind)
+
+    if Selecto.UDF.valid_kind?(kind) do
+      errors
+    else
+      errors ++
+        [{:functions_invalid, {function_id, ":kind must be :scalar, :predicate, or :table"}}]
+    end
+  end
+
+  defp validate_function_sql_name(errors, spec, function_id) do
+    sql_name = map_value(spec, :sql_name)
+
+    if Selecto.UDF.valid_sql_name?(sql_name) do
+      errors
+    else
+      errors ++
+        [
+          {:functions_invalid,
+           {function_id,
+            ":sql_name must be a safe function identifier like my_fn or public.my_fn"}}
+        ]
+    end
+  end
+
+  defp validate_function_allowed_in(errors, spec, function_id) do
+    allowed_in = map_value(spec, :allowed_in)
+
+    cond do
+      is_nil(allowed_in) ->
+        errors
+
+      is_list(allowed_in) and Enum.all?(allowed_in, &Selecto.UDF.valid_call_site?/1) ->
+        errors
+
+      true ->
+        errors ++
+          [
+            {:functions_invalid,
+             {function_id,
+              ":allowed_in must be a list of valid call sites like :select, :filter, or :order_by"}}
+          ]
+    end
+  end
+
+  defp validate_function_args(errors, spec, function_id) do
+    case map_value(spec, :args) do
+      nil ->
+        errors
+
+      args when is_list(args) ->
+        Enum.reduce(args, errors, fn arg_spec, acc ->
+          validate_function_arg_spec(acc, function_id, arg_spec)
+        end)
+
+      _invalid ->
+        errors ++ [{:functions_invalid, {function_id, ":args must be a list when provided"}}]
+    end
+  end
+
+  defp validate_function_arg_spec(errors, function_id, arg_spec) when is_map(arg_spec) do
+    name = map_value(arg_spec, :name)
+    type = fetch_map_value(arg_spec, :type)
+    source = map_value(arg_spec, :source)
+
+    errors =
+      if is_atom(name) or is_binary(name) do
+        errors
+      else
+        errors ++
+          [{:functions_invalid, {function_id, "each arg must declare :name as atom or string"}}]
+      end
+
+    errors =
+      if type == :__missing__ do
+        errors ++ [{:functions_invalid, {function_id, "each arg must declare :type"}}]
+      else
+        errors
+      end
+
+    if Selecto.UDF.valid_arg_source?(source) do
+      errors
+    else
+      errors ++
+        [
+          {:functions_invalid,
+           {function_id, "each arg :source must be :selector, :value, or :literal"}}
+        ]
+    end
+  end
+
+  defp validate_function_arg_spec(errors, function_id, _invalid_arg_spec) do
+    errors ++ [{:functions_invalid, {function_id, "each arg spec must be a map"}}]
+  end
+
+  defp validate_function_returns(errors, spec, function_id) do
+    kind = map_value(spec, :kind)
+    returns = map_value(spec, :returns)
+
+    case kind do
+      :predicate ->
+        if returns == :boolean do
+          errors
+        else
+          errors ++
+            [
+              {:functions_invalid,
+               {function_id, "predicate functions must declare returns: :boolean"}}
+            ]
+        end
+
+      :table ->
+        columns =
+          case returns do
+            %{} = returns_map ->
+              Map.get(returns_map, :columns) || Map.get(returns_map, "columns")
+
+            _ ->
+              nil
+          end
+
+        if is_map(columns) and map_size(columns) > 0 do
+          errors
+        else
+          errors ++
+            [
+              {:functions_invalid,
+               {function_id, "table functions must declare returns: %{columns: %{...}}"}}
+            ]
+        end
+
+      :scalar ->
+        if is_nil(returns) or is_atom(returns) or match?({:array, _}, returns) do
+          errors
+        else
+          errors ++
+            [
+              {:functions_invalid,
+               {function_id, "scalar functions must declare an atom or array return type"}}
+            ]
+        end
+
+      _ ->
+        errors
+    end
   end
 
   defp validate_query_members(errors, domain) do
@@ -1105,6 +1282,10 @@ defmodule Selecto.DomainValidator do
 
   defp format_error({:query_members_invalid, {section, message}}) do
     "Invalid query_members section '#{section}': #{message}"
+  end
+
+  defp format_error({:functions_invalid, {function_id, message}}) do
+    "Invalid function '#{function_id}': #{message}"
   end
 
   defp format_error({:detail_actions_invalid, {action_id, message}}) do

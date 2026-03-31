@@ -199,6 +199,10 @@ defmodule Selecto.ExprCompiler do
     end
   end
 
+  defp do_compile_filter({:udf, _, [function_id_ast | arg_asts]}) do
+    compile_udf_call(function_id_ast, arg_asts)
+  end
+
   defp do_compile_filter(ast) do
     raise_unsupported_filter!(ast)
   end
@@ -298,6 +302,10 @@ defmodule Selecto.ExprCompiler do
     end
   end
 
+  defp do_compile_select_item({:udf, _, [function_id_ast | arg_asts]}) do
+    compile_udf_call(function_id_ast, arg_asts)
+  end
+
   defp do_compile_select_item({fun_name, _, args})
        when fun_name in [:json_extract, :json_extract_text] and is_list(args) do
     compile_json_extract(fun_name, args)
@@ -388,6 +396,15 @@ defmodule Selecto.ExprCompiler do
 
     quote do
       apply(Selecto.Expr, unquote(fun_name), [unquote(field_name), unquote(value)])
+    end
+  end
+
+  defp compile_udf_call(function_id_ast, arg_asts) do
+    function_id = compile_udf_function_id!(function_id_ast)
+    compiled_args = Enum.map(arg_asts, &compile_udf_arg!/1)
+
+    quote do
+      Selecto.udf(unquote(function_id), [unquote_splicing(compiled_args)])
     end
   end
 
@@ -494,6 +511,29 @@ defmodule Selecto.ExprCompiler do
   end
 
   defp compile_value!(ast), do: ast
+
+  defp compile_udf_function_id!({:^, _, [value_ast]}), do: value_ast
+
+  defp compile_udf_function_id!(value) when is_binary(value) or is_atom(value), do: value
+
+  defp compile_udf_function_id!(ast) do
+    raise ArgumentError,
+          "UDF function id must be a string, atom, or pinned value. Got: #{Macro.to_string(ast)}"
+  end
+
+  defp compile_udf_arg!({:^, _, [value_ast]}), do: value_ast
+
+  defp compile_udf_arg!({name, _, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)) do
+    Atom.to_string(name)
+  end
+
+  defp compile_udf_arg!({{:., _, _}, _, []} = field_ast) do
+    compile_field_ref!(field_ast)
+  end
+
+  defp compile_udf_arg!(ast) when is_tuple(ast), do: do_compile_select_item(ast)
+  defp compile_udf_arg!(ast), do: ast
 
   defp compile_select_value!({name, _, context})
        when is_atom(name) and (is_atom(context) or is_nil(context)) do

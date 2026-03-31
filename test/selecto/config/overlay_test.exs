@@ -80,6 +80,50 @@ defmodule Selecto.Config.OverlayTest do
       assert result.filters["status"] == %{name: "Status Filter", type: :boolean}
     end
 
+    test "merges functions deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        functions: %{
+          "similarity" => %{
+            kind: :scalar,
+            sql_name: "public.similarity",
+            args: [%{name: :left, type: :string, source: :selector}],
+            returns: :float,
+            allowed_in: [:select]
+          }
+        }
+      }
+
+      overlay = %{
+        functions: %{
+          "similarity" => %{
+            allowed_in: [:select, :order_by],
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ]
+          },
+          "matches_name" => %{
+            kind: :predicate,
+            sql_name: "public.matches_name",
+            args: [
+              %{name: :name, type: :string, source: :selector},
+              %{name: :pattern, type: :string, source: :value}
+            ],
+            returns: :boolean,
+            allowed_in: [:filter]
+          }
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.functions["similarity"].sql_name == "public.similarity"
+      assert result.functions["similarity"].allowed_in == [:select, :order_by]
+      assert length(result.functions["similarity"].args) == 2
+      assert result.functions["matches_name"].kind == :predicate
+    end
+
     test "merges detail actions deeply" do
       base = %{
         source: %{columns: %{}, redact_fields: []},

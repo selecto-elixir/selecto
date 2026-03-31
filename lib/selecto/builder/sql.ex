@@ -1366,7 +1366,7 @@ defmodule Selecto.Builder.Sql do
 
     case lateral_specs do
       [] -> {[], []}
-      specs -> LateralJoin.build_lateral_joins(specs, adapter: adapter)
+      specs -> LateralJoin.build_lateral_joins(specs, adapter: adapter, selecto: selecto)
     end
   end
 

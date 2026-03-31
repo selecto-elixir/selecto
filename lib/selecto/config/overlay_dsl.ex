@@ -4,7 +4,7 @@ defmodule Selecto.Config.OverlayDSL do
 
   This module provides a clean, declarative syntax for customizing Selecto domains
   through overlay files. Instead of manually constructing maps, you can use
-  macros like `defcolumn`, `deffilter`, `defdetail_action`, `defcte`,
+  macros like `defcolumn`, `deffilter`, `deffunction`, `defdetail_action`, `defcte`,
   `defvalues`, `defsubquery`, `defjoin`, `defschema`, `defschema_assoc`, and
   `defsource_assoc`
   along with module attributes.
@@ -121,6 +121,10 @@ defmodule Selecto.Config.OverlayDSL do
   - `deflateral id do ... end` - Define a named LATERAL preset under `query_members.laterals`
   - `defunnest id do ... end` - Define a named UNNEST preset under `query_members.unnests`
 
+  ### Function Macros
+
+  - `deffunction id do ... end` - Define a named UDF spec under `functions`
+
   ### Domain Registry Macros
 
   - `defjoin id, config` - Define a top-level join entry under `joins`
@@ -206,6 +210,7 @@ defmodule Selecto.Config.OverlayDSL do
 
       Module.register_attribute(__MODULE__, :overlay_columns, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_filters, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_functions, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_detail_actions, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_ctes, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_values, accumulate: true)
@@ -241,6 +246,7 @@ defmodule Selecto.Config.OverlayDSL do
   defmacro __before_compile__(env) do
     columns = Module.get_attribute(env.module, :overlay_columns) |> Enum.reverse()
     filters = Module.get_attribute(env.module, :overlay_filters) |> Enum.reverse()
+    functions = Module.get_attribute(env.module, :overlay_functions) |> Enum.reverse()
     detail_actions = Module.get_attribute(env.module, :overlay_detail_actions) |> Enum.reverse()
     ctes = Module.get_attribute(env.module, :overlay_ctes) |> Enum.reverse()
     values = Module.get_attribute(env.module, :overlay_values) |> Enum.reverse()
@@ -267,6 +273,11 @@ defmodule Selecto.Config.OverlayDSL do
 
     filters_map =
       filters
+      |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
+      |> Map.new()
+
+    functions_map =
+      functions
       |> Enum.map(fn {name, props} -> {name, Map.new(props)} end)
       |> Map.new()
 
@@ -327,6 +338,7 @@ defmodule Selecto.Config.OverlayDSL do
       %{
         columns: columns_map,
         filters: filters_map,
+        functions: functions_map,
         detail_actions: detail_actions_map,
         query_members: %{
           ctes: ctes_map,
@@ -385,6 +397,17 @@ defmodule Selecto.Config.OverlayDSL do
 
     quote do
       @overlay_filters {unquote(filter_name), unquote(Macro.escape(config))}
+    end
+  end
+
+  @doc """
+  Defines a named UDF specification.
+  """
+  defmacro deffunction(function_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_functions {unquote(function_id), unquote(Macro.escape(config))}
     end
   end
 
@@ -767,7 +790,33 @@ defmodule Selecto.Config.OverlayDSL do
     Map.put(acc, directive, value)
   end
 
+  defp process_directive({:arg, _, [name_ast, type_ast]}, acc, caller) do
+    process_directive({:arg, [], [name_ast, type_ast, []]}, acc, caller)
+  end
+
+  defp process_directive({:arg, _, [name_ast, type_ast, opts_ast]}, acc, caller) do
+    name = eval_directive_value(name_ast, caller)
+    type = eval_directive_value(type_ast, caller)
+    opts = eval_directive_value(opts_ast, caller)
+    normalized_opts = normalize_overlay_value(opts)
+
+    arg_spec =
+      %{name: name, type: type}
+      |> Map.merge(if is_map(normalized_opts), do: normalized_opts, else: %{})
+
+    Map.update(acc, :args, [arg_spec], &(&1 ++ [arg_spec]))
+  end
+
   defp process_directive(_, acc, _caller), do: acc
+
+  defp eval_directive_value(value_ast, caller) do
+    try do
+      {evaluated, _} = Code.eval_quoted(value_ast, [], caller)
+      evaluated
+    rescue
+      _ -> value_ast
+    end
+  end
 
   @doc """
   Sets the human-readable label for a column or filter.
@@ -829,6 +878,26 @@ defmodule Selecto.Config.OverlayDSL do
   Common types: `:string`, `:integer`, `:boolean`, `:date`, `:datetime`, `:decimal`
   """
   defmacro type(_value), do: quote(do: nil)
+
+  @doc """
+  Sets the SQL function name for a UDF registration.
+  """
+  defmacro sql_name(_value), do: quote(do: nil)
+
+  @doc """
+  Sets the allowed call sites for a UDF registration.
+  """
+  defmacro allowed_in(_value), do: quote(do: nil)
+
+  @doc """
+  Sets the declared return type or return metadata for a UDF registration.
+  """
+  defmacro returns(_value), do: quote(do: nil)
+
+  @doc """
+  Adds an argument definition to a UDF registration.
+  """
+  defmacro arg(_name, _type, _opts \\ []), do: quote(do: nil)
 
   @doc """
   Sets the filter description/help text.

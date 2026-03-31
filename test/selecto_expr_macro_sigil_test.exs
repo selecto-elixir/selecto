@@ -119,12 +119,31 @@ defmodule Selecto.ExprMacroSigilTest do
               ]}
   end
 
+  test "where macro supports registered UDF predicates" do
+    pattern = "Acme%"
+
+    assert where(udf("matches_name", name, ^pattern)) ==
+             {:udf, "matches_name", ["name", "Acme%"]}
+  end
+
   test "select macro compiles helper-friendly selector lists" do
     assert select([name, sum(price), coalesce(nickname, name), as(count(), "total")]) == [
              {:field, "name"},
              {:func, "SUM", [{:field, "price"}]},
              {:coalesce, [{:field, "nickname"}, {:field, "name"}]},
              {:field, {:count, "*"}, "total"}
+           ]
+  end
+
+  test "select macro supports registered UDF selectors" do
+    term = "Acme"
+
+    assert select([
+             udf("similarity", name, ^term),
+             as(udf(:similarity, customer.name, ^term), "score")
+           ]) == [
+             {:udf, "similarity", ["name", "Acme"]},
+             {:field, {:udf, "similarity", ["customer.name", "Acme"]}, "score"}
            ]
   end
 
@@ -206,6 +225,14 @@ defmodule Selecto.ExprMacroSigilTest do
            ]
   end
 
+  test "order_by macro supports registered UDF selectors" do
+    term = "Acme"
+
+    assert order_by([desc(udf("similarity", name, ^term))]) == [
+             {{:udf, "similarity", ["name", "Acme"]}, :desc}
+           ]
+  end
+
   test "uppercase ~SELECTO sigil compiles filter AST" do
     min_price = 50
     pattern = "%lamp%"
@@ -280,6 +307,13 @@ defmodule Selecto.ExprMacroSigilTest do
                 "name",
                 "description"
               ], {:text_search, "wireless charger", mode: :boolean}}
+  end
+
+  test "uppercase ~SELECTO sigil supports registered UDF predicates" do
+    pattern = "Acme%"
+
+    assert ~SELECTO|udf("matches_name", name, ^pattern)| ==
+             {:udf, "matches_name", ["name", "Acme%"]}
   end
 
   test "uppercase ~SELECTO sigil reports unsupported functions clearly" do

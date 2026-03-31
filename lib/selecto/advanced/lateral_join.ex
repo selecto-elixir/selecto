@@ -64,6 +64,7 @@ defmodule Selecto.Advanced.LateralJoin do
     @type table_function ::
             {:unnest, String.t()}
             | {:function, atom(), [term()]}
+            | {:udf_table, atom() | String.t(), [term()]}
             | {:json_each, String.t(), String.t() | nil}
             | {:json_tree, String.t(), String.t() | nil}
             | {:json_table, String.t(), String.t(), [json_table_column()]}
@@ -191,6 +192,11 @@ defmodule Selecto.Advanced.LateralJoin do
     |> Enum.flat_map(&extract_refs_from_arg/1)
   end
 
+  defp extract_correlation_refs({:udf_table, _function_id, args}) do
+    args
+    |> Enum.flat_map(&extract_refs_from_arg/1)
+  end
+
   defp extract_correlation_refs({:json_table, source_ref, _path, _columns}) do
     extract_refs_from_arg(source_ref)
   end
@@ -204,6 +210,7 @@ defmodule Selecto.Advanced.LateralJoin do
 
   # Extract correlation references from function arguments
   defp extract_refs_from_arg({:ref, field}), do: [field]
+  defp extract_refs_from_arg({:field, field}), do: extract_refs_from_arg(field)
 
   defp extract_refs_from_arg(arg) when is_binary(arg) do
     if String.contains?(arg, ".") do
