@@ -1174,6 +1174,90 @@ defmodule Selecto.WindowJsonRegressionTest do
              "from orders selecto_root inner join customers customer_lookup on selecto_root.customer_id = customer_lookup.id"
   end
 
+  test "join/3 infers fields for aliased CTE sources in select/filter/group/order" do
+    query =
+      Selecto.configure(order_domain(), :mock_connection, validate: false)
+      |> Selecto.with_cte(
+        "status_labels",
+        fn ->
+          Selecto.configure(order_domain(), :mock_connection, validate: false)
+          |> Selecto.select(["status", {:literal, "active"}])
+        end,
+        columns: ["status", "label"]
+      )
+      |> Selecto.join(:status_lookup,
+        source: "status_labels",
+        type: :left,
+        owner_key: :status,
+        related_key: :status
+      )
+      |> Selecto.select(["order_number", "status_lookup.label"])
+      |> Selecto.filter({"status_lookup.label", {:not, nil}})
+      |> Selecto.group_by(["order_number", "status_lookup.label"])
+      |> Selecto.order_by({"status_lookup.label", :asc})
+
+    {sql, _params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert sql =~ "WITH status_labels (status, label) AS ("
+
+    assert sql =~
+             "left join status_labels status_lookup on status_lookup.status = selecto_root.status"
+
+    assert sql =~ "status_lookup.label is not null"
+    assert sql =~ "group by selecto_root.order_number, status_lookup.label"
+    assert sql =~ "order by status_lookup.label asc"
+  end
+
+  test "multiple aliased CTE joins compile in one query" do
+    query =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.with_cte(
+        "order_totals",
+        fn ->
+          Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+          |> Selecto.select(["id", "total"])
+        end,
+        columns: ["id", "total"]
+      )
+      |> Selecto.with_cte(
+        "customer_spend",
+        fn ->
+          Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+          |> Selecto.select(["customer_id", "total"])
+        end,
+        columns: ["customer_id", "total"]
+      )
+      |> Selecto.join(:totals_lookup,
+        source: "order_totals",
+        source_kind: :cte,
+        owner_key: :id,
+        related_key: :id,
+        type: :left
+      )
+      |> Selecto.join(:spend_lookup,
+        source: "customer_spend",
+        source_kind: :cte,
+        owner_key: :customer_id,
+        related_key: :customer_id,
+        type: :left
+      )
+      |> Selecto.select(["order_number", "totals_lookup.total", "spend_lookup.total"])
+      |> Selecto.filter({"totals_lookup.total", {:>=, 100}})
+      |> Selecto.order_by({"spend_lookup.total", :desc})
+
+    {sql, _params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert sql =~ "left join order_totals totals_lookup on totals_lookup.id = selecto_root.id"
+
+    assert sql =~
+             "left join customer_spend spend_lookup on spend_lookup.customer_id = selecto_root.customer_id"
+
+    assert sql =~ "totals_lookup.total >= $1"
+    assert sql =~ "order by spend_lookup.total desc"
+  end
+
   test "star_dimension join uses selecto_root alias in ON clause" do
     star_domain =
       order_domain_with_customer_join()

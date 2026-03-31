@@ -73,8 +73,11 @@ defmodule Selecto.DynamicJoin do
         merge_join_options(existing_join, options)
       else
         # Create a new custom join config
-        build_custom_join(join_id, options)
+        build_custom_join(selecto, join_id, options)
       end
+
+    validate_cte_source!(selecto, join_id, join_config)
+    join_config = maybe_enrich_cte_join(join_config, selecto)
 
     # Add to active joins in the set
     current_joins = Map.get(selecto.set, :active_joins, [])
@@ -247,17 +250,33 @@ defmodule Selecto.DynamicJoin do
 
   defp merge_join_options(join_config, options) do
     Enum.reduce(options, join_config, fn
-      {:type, type}, acc -> Map.put(acc, :type, type)
-      {:source, source}, acc -> Map.put(acc, :source, source)
-      {:on, on}, acc -> Map.put(acc, :on, on)
-      {:owner_key, key}, acc -> Map.put(acc, :owner_key, key)
-      {:related_key, key}, acc -> Map.put(acc, :my_key, key)
-      {:fields, fields}, acc -> Map.put(acc, :fields, fields)
-      _, acc -> acc
+      {:type, type}, acc ->
+        Map.put(acc, :type, type)
+
+      {:source, source}, acc ->
+        Map.put(acc, :source, source)
+
+      {:source_kind, source_kind}, acc ->
+        Map.put(acc, :source_kind, normalize_source_kind(source_kind))
+
+      {:on, on}, acc ->
+        Map.put(acc, :on, on)
+
+      {:owner_key, key}, acc ->
+        Map.put(acc, :owner_key, key)
+
+      {:related_key, key}, acc ->
+        Map.put(acc, :my_key, key)
+
+      {:fields, fields}, acc ->
+        Map.put(acc, :fields, fields)
+
+      _, acc ->
+        acc
     end)
   end
 
-  defp build_custom_join(join_id, options) do
+  defp build_custom_join(selecto, join_id, options) do
     source =
       Keyword.get(options, :source) || raise ArgumentError, "Custom joins require :source option"
 
@@ -266,6 +285,7 @@ defmodule Selecto.DynamicJoin do
     owner_key = Keyword.get(options, :owner_key, :id)
     related_key = Keyword.get(options, :related_key, :"#{join_id}_id")
     fields = Keyword.get(options, :fields, %{})
+    source_kind = options |> Keyword.get(:source_kind) |> normalize_source_kind()
 
     %{
       id: join_id,
@@ -281,7 +301,95 @@ defmodule Selecto.DynamicJoin do
       fields: build_field_configs(join_id, fields),
       filters: %{}
     }
+    |> maybe_put_source_kind(source_kind)
+    |> maybe_enrich_cte_join(selecto)
   end
+
+  defp validate_cte_source!(selecto, join_id, %{source_kind: :cte, source: source}) do
+    case get_cte_spec_by_name(selecto, source) do
+      nil ->
+        raise ArgumentError,
+              "Join '#{join_id}' references CTE source '#{source}' but no such CTE is registered"
+
+      _cte_spec ->
+        :ok
+    end
+  end
+
+  defp validate_cte_source!(_selecto, _join_id, _join_config), do: :ok
+
+  defp maybe_enrich_cte_join(join_config, selecto) do
+    source = Map.get(join_config, :source)
+
+    case get_cte_spec_by_name(selecto, source) do
+      nil ->
+        join_config
+
+      cte_spec ->
+        cte_columns = normalize_cte_columns(Map.get(cte_spec, :columns))
+
+        join_config
+        |> Map.put(:source_kind, :cte)
+        |> Map.put(:cte_name, Map.get(cte_spec, :name))
+        |> Map.put(:cte_columns, cte_columns)
+        |> maybe_infer_cte_fields(cte_columns)
+    end
+  end
+
+  defp maybe_infer_cte_fields(join_config, []), do: join_config
+
+  defp maybe_infer_cte_fields(join_config, cte_columns) do
+    case Map.get(join_config, :fields) do
+      fields when is_map(fields) and map_size(fields) > 0 ->
+        join_config
+
+      _ ->
+        join_id = Map.fetch!(join_config, :id)
+
+        inferred_fields =
+          Enum.into(cte_columns, %{}, fn column ->
+            field_key = "#{join_id}.#{column}"
+
+            {field_key,
+             %{
+               name: column,
+               field: column,
+               requires_join: join_id,
+               type: :any
+             }}
+          end)
+
+        Map.put(join_config, :fields, inferred_fields)
+    end
+  end
+
+  defp get_cte_spec_by_name(selecto, cte_name) when is_atom(cte_name) do
+    get_cte_spec_by_name(selecto, Atom.to_string(cte_name))
+  end
+
+  defp get_cte_spec_by_name(selecto, cte_name) when is_binary(cte_name) do
+    selecto
+    |> Map.get(:set, %{})
+    |> Map.get(:ctes, [])
+    |> Enum.find(&(Map.get(&1, :name) == cte_name))
+  end
+
+  defp get_cte_spec_by_name(_selecto, _cte_name), do: nil
+
+  defp maybe_put_source_kind(join_config, nil), do: join_config
+
+  defp maybe_put_source_kind(join_config, source_kind),
+    do: Map.put(join_config, :source_kind, source_kind)
+
+  defp normalize_source_kind(nil), do: nil
+  defp normalize_source_kind(:cte), do: :cte
+  defp normalize_source_kind(:table), do: :table
+  defp normalize_source_kind("cte"), do: :cte
+  defp normalize_source_kind("table"), do: :table
+  defp normalize_source_kind(other), do: other
+
+  defp normalize_cte_columns(columns) when is_list(columns), do: Enum.map(columns, &to_string/1)
+  defp normalize_cte_columns(_columns), do: []
 
   defp build_field_configs(join_id, fields) do
     Enum.reduce(fields, %{}, fn {field_name, config}, acc ->

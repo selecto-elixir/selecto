@@ -215,7 +215,10 @@ defmodule Selecto.FieldResolver do
             # Check if the join exists
             case lookup_join_config(selecto.config.joins, join_name) do
               {:ok, join_key, join_info} ->
-                available_join_fields = Map.keys(join_info.fields || %{})
+                available_join_fields =
+                  join_info
+                  |> Map.get(:fields, %{})
+                  |> Map.keys()
 
                 {:error,
                  Error.field_resolution_error(
@@ -422,12 +425,12 @@ defmodule Selecto.FieldResolver do
     |> Enum.flat_map(fn {join_name, join_config} ->
       # For Postgrex domains, fields come from schemas, not directly from join config
       join_fields =
-        if join_config[:fields] do
-          join_config.fields
+        if is_map(join_config) and Map.get(join_config, :fields) do
+          Map.get(join_config, :fields)
         else
           # Look up schema by join source
           schema_name =
-            case join_config[:source] do
+            case Map.get(join_config, :source) do
               source when is_atom(source) -> Atom.to_string(source)
               source when is_binary(source) -> source
               nil -> nil
@@ -436,16 +439,16 @@ defmodule Selecto.FieldResolver do
           if schema_name do
             schema = get_in(selecto.domain, [:schemas, schema_name])
 
-            if schema && schema[:columns] do
+            if is_map(schema) and Map.get(schema, :columns) do
               # Convert schema columns to field format
-              Enum.into(schema.columns, %{}, fn {col_name, col_config} ->
+              Enum.into(Map.get(schema, :columns), %{}, fn {col_name, col_config} ->
                 {col_name, col_config}
               end)
             else
-              %{}
+              infer_cte_join_fields(join_name, join_config)
             end
           else
-            %{}
+            infer_cte_join_fields(join_name, join_config)
           end
         end
 
@@ -477,6 +480,23 @@ defmodule Selecto.FieldResolver do
       end)
     end)
     |> Enum.into(%{})
+  end
+
+  defp infer_cte_join_fields(join_name, join_config) do
+    case normalize_cte_columns(Map.get(join_config, :cte_columns)) do
+      [] ->
+        %{}
+
+      columns ->
+        Enum.into(columns, %{}, fn column ->
+          {column,
+           %{
+             field: column,
+             type: :any,
+             requires_join: join_name
+           }}
+        end)
+    end
   end
 
   defp get_cte_fields(selecto) do

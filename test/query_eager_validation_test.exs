@@ -166,6 +166,49 @@ defmodule Selecto.QueryEagerValidationTest do
     assert "active_orders.status" in cte_query.set.selected
   end
 
+  test "cte-backed join aliases validate eagerly after manual join" do
+    cte_query =
+      selecto()
+      |> Selecto.with_cte(
+        "active_orders",
+        fn ->
+          selecto()
+          |> Selecto.select(["id", "status"])
+        end,
+        columns: ["id", "status"]
+      )
+      |> Selecto.join(:active_order_lookup,
+        source: "active_orders",
+        owner_key: :id,
+        related_key: :id,
+        type: :left
+      )
+      |> Selecto.select(["active_order_lookup.status"])
+      |> Selecto.filter({"active_order_lookup.status", {:not, nil}})
+      |> Selecto.group_by(["active_order_lookup.status"])
+      |> Selecto.order_by({"active_order_lookup.status", :asc})
+
+    assert "active_order_lookup.status" in cte_query.set.selected
+    assert {"active_order_lookup.status", {:not, nil}} in cte_query.set.filtered
+    assert "active_order_lookup.status" in cte_query.set.group_by
+    assert {"active_order_lookup.status", :asc} in cte_query.set.order_by
+  end
+
+  test "dynamic join raises immediately for missing explicit CTE source" do
+    assert_raise ArgumentError,
+                 ~r/Join 'missing_lookup' references CTE source 'missing_orders' but no such CTE is registered/,
+                 fn ->
+                   selecto()
+                   |> Selecto.join(:missing_lookup,
+                     source: "missing_orders",
+                     source_kind: :cte,
+                     owner_key: :id,
+                     related_key: :id,
+                     type: :left
+                   )
+                 end
+  end
+
   test "manual dynamic columns validate eagerly" do
     query =
       selecto()

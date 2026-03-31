@@ -1,6 +1,16 @@
 
 # Selecto Library Changelog
 
+## Unreleased
+---------------------------------------------------------
+
+#### Fixed
+- Fixed aliased joins whose `source` points at a registered CTE so joined CTE
+  fields resolve like ordinary join fields in `select`, `filter`, `group_by`,
+  and `order_by`, with early validation for missing explicit CTE sources.
+- Added regression coverage for manual and multi-CTE alias joins in core tests
+  plus DuckDB-specific coverage for joined-CTE null filtering.
+
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------
 
