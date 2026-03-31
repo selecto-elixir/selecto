@@ -1,7 +1,7 @@
 
 # Selecto Library Changelog
 
-## Unreleased
+## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------
 
 #### Added
@@ -16,6 +16,12 @@
 - Added `Selecto.ExprMacros.where/1`, `Selecto.ExprMacros.select/1`, and the
   uppercase `~SELECTO` sigil for an initial Elixir-AST-based expression DSL,
   with focused coverage for helper composition and diagnostics.
+- Added shared text-search helpers across adapters, including multi-field search
+  helpers, capability alias normalization, and adapter-specific PostgreSQL,
+  MySQL, and SQLite search modes/ranking support.
+- Added expanded adapter-specific SQL support for JSON reads, lateral-style
+  correlated reads, window aggregates, subselect aggregation, and registered
+  UDFs across the PostgreSQL/MySQL/SQLite/MSSQL paths.
 
 #### Changed
 - Updated `Selecto.Query` to validate field references eagerly in `select/2`,
@@ -24,6 +30,15 @@
 - Updated `Selecto.Query` to normalize helper-shaped inputs before validation so
   `Selecto.Expr` values can flow through the standard query-building APIs
   without adding a separate execution path.
+- Updated text-search configuration handling to share mode/alias behavior across
+  adapters while documenting the macro-free expression pipeline alongside the
+  AST-backed DSL entry points.
+
+#### Fixed
+- Fixed eager validation for advanced field references, expanded list-filter
+  placeholder handling, and corrected `VALUES` / recursive CTE SQL generation
+  for MySQL-like and MSSQL adapters.
+- Bumped package version to `0.4.2`.
 
 ## V 0.4.1 - Nested Subselect Correlation Fix
 ---------------------------------------------------------

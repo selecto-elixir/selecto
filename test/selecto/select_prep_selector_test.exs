@@ -84,6 +84,15 @@ defmodule Selecto.SelectPrepSelectorTest do
     {distinct_sql, _join, []} = Select.prep_selector(selecto(), {:count_distinct, "name"})
     assert IO.iodata_to_binary(distinct_sql) =~ "COUNT(DISTINCT"
 
+    {coalesce_sum_sql, _join, coalesce_sum_params} =
+      Select.prep_selector(selecto(), {:sum, {:coalesce, ["id", 0]}})
+
+    {coalesce_sum_sql_text, finalized_coalesce_sum_params} = finalize(coalesce_sum_sql)
+    assert coalesce_sum_sql_text =~ ~r/sum\(/i
+    assert coalesce_sum_sql_text =~ ~r/coalesce\(/i
+    assert coalesce_sum_params == [0]
+    assert finalized_coalesce_sum_params == [0]
+
     {to_char_sql, _join, []} =
       Select.prep_selector(selecto(), {:to_char, {"created_at", "YYYY-MM"}})
 
@@ -135,6 +144,24 @@ defmodule Selecto.SelectPrepSelectorTest do
     {avg_sql_text, _finalized_avg_params} = finalize_mssql(avg_sql)
     assert avg_sql_text =~ ~r/AVG\(CASE WHEN/i
     refute avg_sql_text =~ ~r/FILTER \(where/i
+  end
+
+  test "filtered count selectors compile for boolean true and false" do
+    {true_count_sql, _join, true_count_params} =
+      Select.prep_selector(selecto(), {:count, "active", {"active", true}})
+
+    {true_count_sql_text, finalized_true_count_params} = finalize(true_count_sql)
+    assert true_count_sql_text =~ ~r/FILTER \(where/i
+    assert true in finalized_true_count_params
+    assert true_count_params == []
+
+    {false_count_sql, _join, false_count_params} =
+      Select.prep_selector(selecto(), {:count, "active", {"active", false}})
+
+    {false_count_sql_text, finalized_false_count_params} = finalize(false_count_sql)
+    assert false_count_sql_text =~ ~r/FILTER \(where/i
+    assert false in finalized_false_count_params
+    assert false_count_params == []
   end
 
   test "mssql raises on unsupported aggregate FILTER shapes" do
