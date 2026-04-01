@@ -22,7 +22,30 @@ defmodule Selecto.UDFTest do
       },
       schemas: %{},
       joins: %{},
+      custom_columns: %{
+        "normalized_name" => %{
+          name: "Normalized Name",
+          select: {:udf, "name_lower", ["name"]},
+          type: :string
+        }
+      },
+      filters: %{
+        "name_prefix" => %{
+          name: "Name Prefix",
+          type: :string,
+          description: "Apply the matches_name predicate UDF from the query layer"
+        }
+      },
       functions: %{
+        "name_lower" => %{
+          kind: :scalar,
+          sql_name: "lower",
+          args: [
+            %{name: :value, type: :string, source: :selector}
+          ],
+          returns: :string,
+          allowed_in: [:select, :order_by]
+        },
         "similarity" => %{
           kind: :scalar,
           sql_name: "public.similarity",
@@ -82,6 +105,17 @@ defmodule Selecto.UDFTest do
     assert params == ["Acme"]
   end
 
+  test "compiles UDF-backed custom columns" do
+    query =
+      selecto()
+      |> Selecto.select(["normalized_name"])
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert sql =~ ~r/lower\s*\(selecto_root\.name\)/i
+    assert params == []
+  end
+
   test "compiles predicate UDF filters with bound params" do
     query =
       selecto()
@@ -93,6 +127,13 @@ defmodule Selecto.UDFTest do
     assert sql =~ ~r/public\.matches_name\s*\(/i
     assert sql =~ ~r/where/i
     assert params == ["Acme%"]
+  end
+
+  test "filter metadata can describe a UDF-backed query-layer filter" do
+    query = selecto()
+
+    assert query.domain.filters["name_prefix"].name == "Name Prefix"
+    assert query.domain.filters["name_prefix"].type == :string
   end
 
   test "rejects select-only use of filter UDFs" do

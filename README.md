@@ -138,6 +138,181 @@ sigil_ast = ~SELECTO"total >= ^min_total and starts_with(customer.name, ^prefix)
 - `~SELECTO` currently targets filter expressions only.
 - See `docs/expression_dsl.md` for the fuller guide and coverage snapshot.
 
+## Named Functions (UDF Registry)
+
+Selecto can register named database functions under `domain[:functions]` so
+callers do not need to keep hand-authoring raw SQL or untyped function tuples.
+This works for built-in database functions and true user-defined functions.
+
+```elixir
+domain = %{
+  name: "Products",
+  source: %{
+    source_table: "products",
+    primary_key: :id,
+    fields: [:id, :name],
+    columns: %{
+      id: %{type: :integer},
+      name: %{type: :string}
+    },
+    associations: %{}
+  },
+  schemas: %{},
+  joins: %{},
+  functions: %{
+    "name_lower" => %{
+      kind: :scalar,
+      sql_name: "lower",
+      returns: :string,
+      allowed_in: [:select, :order_by],
+      args: [
+        %{name: :value, type: :string, source: :selector}
+      ]
+    },
+    "name_prefix" => %{
+      kind: :predicate,
+      sql_name: "starts_with",
+      returns: :boolean,
+      allowed_in: [:filter],
+      args: [
+        %{name: :value, type: :string, source: :selector},
+        %{name: :prefix, type: :string, source: :value}
+      ]
+    },
+    "series_window" => %{
+      kind: :table,
+      sql_name: "generate_series",
+      allowed_in: [:lateral, :query_member],
+      args: [
+        %{name: :start_value, type: :integer, source: :value},
+        %{name: :end_value, type: :integer, source: :value}
+      ],
+      returns: %{
+        columns: %{
+          value: %{type: :integer}
+        }
+      }
+    }
+  }
+}
+```
+
+Overlay DSL supports the same registry with `deffunction`:
+
+```elixir
+defmodule MyApp.SelectoDomains.Overlays.ProductDomainOverlay do
+  use Selecto.Config.OverlayDSL
+
+  deffunction "name_lower" do
+    kind(:scalar)
+    sql_name("lower")
+    returns(:string)
+    allowed_in([:select, :order_by])
+    arg(:value, :string, source: :selector)
+  end
+end
+```
+
+Use the registry through the helper API or expression helpers:
+
+```elixir
+alias Selecto.Expr, as: X
+
+query =
+  selecto
+  |> Selecto.select([
+    "name",
+    X.as(Selecto.udf("name_lower", ["name"]), "normalized_name")
+  ])
+  |> Selecto.filter(Selecto.udf("name_prefix", ["name", "Acme"]))
+  |> Selecto.order_by([
+    X.desc(Selecto.udf("name_lower", ["name"]))
+  ])
+```
+
+Table-valued functions can be used in lateral/query-member flows:
+
+```elixir
+query =
+  selecto
+  |> Selecto.lateral_join(
+    :left,
+    Selecto.udf_table("series_window", [1, 3]),
+    "series_window"
+  )
+  |> Selecto.select(["name", "series_window.value"])
+```
+
+The expression macro and sigil DSL also understand `udf(...)` calls:
+
+```elixir
+import Selecto.ExprMacros
+
+query =
+  selecto
+  |> Selecto.filter(where(udf("name_prefix", name, ^prefix)))
+```
+
+For reusable domain authoring, prefer UDF-backed expressions over raw SQL inside
+custom columns, filters, and named laterals whenever the function signature is
+stable and worth validating.
+
+### UDF-backed custom columns
+
+Root-level `custom_columns` can point at a registered UDF instead of raw SQL:
+
+```elixir
+domain = %{
+  # ... source/schemas/joins/functions ...
+  custom_columns: %{
+    "normalized_name" => %{
+      name: "Normalized Name",
+      select: Selecto.udf("name_lower", ["name"]),
+      type: :string
+    }
+  }
+}
+
+query =
+  selecto
+  |> Selecto.select(["normalized_name"])
+```
+
+Because `custom_columns[*].select` accepts the same selector AST as ordinary
+`Selecto.select/2`, registered scalar UDFs stay typed and validated there too.
+
+### UDF-backed filters today
+
+Today the safest pattern is:
+
+1. Put filter UI metadata in `domain[:filters]`.
+2. Translate the submitted filter value into a predicate UDF call in your query
+   layer.
+
+```elixir
+domain = %{
+  # ... source/schemas/joins/functions ...
+  filters: %{
+    "name_prefix" => %{
+      name: "Name Prefix",
+      type: :string,
+      description: "Match rows whose names start with the entered prefix"
+    }
+  }
+}
+
+def apply_name_prefix_filter(selecto, nil), do: selecto
+def apply_name_prefix_filter(selecto, ""), do: selecto
+
+def apply_name_prefix_filter(selecto, prefix) do
+  Selecto.filter(selecto, Selecto.udf("name_prefix", ["name", prefix]))
+end
+```
+
+Direct predicate-UDF filter expressions are supported now. A more portable
+filter-spec sugar for embedding that application shape directly into the filter
+registry is still future work.
+
 ## 🧩 Extensions (0.3.3+)
 
 Selecto supports package-provided extensions through the `:extensions` key in
