@@ -1,6 +1,10 @@
 defmodule Selecto.QueryValidator do
   @moduledoc false
 
+  alias Selecto.Advanced.ArrayOperations.Spec, as: ArraySpec
+  alias Selecto.Advanced.JsonOperations.Spec, as: JsonSpec
+  alias Selecto.Window.Spec, as: WindowSpec
+
   @skip_function_args ["*", "DISTINCT", "ALL"]
   @skip_function_arg_atoms [:*, :distinct, :all]
   @group_wrapper_keys [:rollup]
@@ -59,6 +63,41 @@ defmodule Selecto.QueryValidator do
 
   def validate_group_specs!(selecto, group_spec) do
     validate_group_spec!(selecto, group_spec)
+  end
+
+  @spec validate_window_spec!(Selecto.Types.t(), WindowSpec.t()) :: :ok
+  def validate_window_spec!(selecto, %WindowSpec{} = window_spec) do
+    validate_window_arguments!(selecto, window_spec.function, window_spec.arguments)
+    validate_group_specs!(selecto, window_spec.partition_by || [])
+    validate_order_specs!(selecto, window_spec.order_by || [])
+  end
+
+  @spec validate_json_specs!(Selecto.Types.t(), [JsonSpec.t()] | JsonSpec.t()) :: :ok
+  def validate_json_specs!(selecto, json_specs) when is_list(json_specs) do
+    Enum.each(json_specs, &validate_json_spec!(selecto, &1))
+  end
+
+  def validate_json_specs!(selecto, %JsonSpec{} = json_spec) do
+    validate_json_spec!(selecto, json_spec)
+  end
+
+  @spec validate_array_specs!(Selecto.Types.t(), [ArraySpec.t()] | ArraySpec.t()) :: :ok
+  def validate_array_specs!(selecto, array_specs) when is_list(array_specs) do
+    Enum.each(array_specs, &validate_array_spec!(selecto, &1))
+  end
+
+  def validate_array_specs!(selecto, %ArraySpec{} = array_spec) do
+    validate_array_spec!(selecto, array_spec)
+  end
+
+  @spec validate_unnest_source!(Selecto.Types.t(), term()) :: :ok
+  def validate_unnest_source!(selecto, source) do
+    validate_array_column!(selecto, source)
+  end
+
+  @spec validate_table_source!(Selecto.Types.t(), atom() | String.t()) :: :ok
+  def validate_table_source!(selecto, source) when is_binary(source) or is_atom(source) do
+    validate_field_reference!(selecto, source)
   end
 
   defp validate_selector!(selecto, selector) when is_binary(selector) or is_atom(selector) do
@@ -451,6 +490,81 @@ defmodule Selecto.QueryValidator do
 
   defp validate_case_result!(_selecto, _result), do: :ok
 
+  defp validate_window_arguments!(selecto, function, arguments) do
+    case {function, List.wrap(arguments)} do
+      {func, _args} when func in [:row_number, :rank, :dense_rank, :percent_rank, :cume_dist] ->
+        :ok
+
+      {:ntile, _args} ->
+        :ok
+
+      {:count, []} ->
+        :ok
+
+      {:count, ["*" | _rest]} ->
+        :ok
+
+      {:count, [:* | _rest]} ->
+        :ok
+
+      {func, [field | _rest]}
+      when func in [
+             :lag,
+             :lead,
+             :first_value,
+             :last_value,
+             :nth_value,
+             :sum,
+             :avg,
+             :count,
+             :min,
+             :max,
+             :stddev,
+             :variance
+           ] ->
+        validate_function_arg!(selecto, field)
+
+      {_function, args} ->
+        Enum.each(args, &validate_function_arg!(selecto, &1))
+    end
+  end
+
+  defp validate_json_spec!(selecto, %JsonSpec{} = spec) do
+    validate_json_column!(selecto, spec.column)
+    validate_json_column!(selecto, spec.key_field)
+    validate_json_column!(selecto, spec.value_field)
+  end
+
+  defp validate_json_column!(_selecto, nil), do: :ok
+
+  defp validate_json_column!(selecto, column)
+       when is_binary(column) or is_atom(column) or is_tuple(column) do
+    validate_array_column!(selecto, column)
+  end
+
+  defp validate_json_column!(_selecto, _column), do: :ok
+
+  defp validate_array_spec!(selecto, %ArraySpec{} = spec) do
+    validate_array_column!(selecto, spec.column)
+
+    case spec.order_by do
+      order_specs when is_list(order_specs) -> validate_order_specs!(selecto, order_specs)
+      _ -> :ok
+    end
+  end
+
+  defp validate_array_column!(_selecto, nil), do: :ok
+
+  defp validate_array_column!(selecto, column) when is_binary(column) or is_atom(column) do
+    validate_field_reference!(selecto, column)
+  end
+
+  defp validate_array_column!(selecto, column) when is_tuple(column) do
+    validate_selector!(selecto, column)
+  end
+
+  defp validate_array_column!(_selecto, _column), do: :ok
+
   defp validate_field_selector!(_selecto, {:raw_sql, _sql}), do: :ok
   defp validate_field_selector!(selecto, selector), do: validate_selector!(selecto, selector)
 
@@ -459,6 +573,9 @@ defmodule Selecto.QueryValidator do
     json_field_ref = if is_atom(field_ref), do: Atom.to_string(field_ref), else: field_ref
 
     cond do
+      not field_validation_enabled?(selecto) ->
+        :ok
+
       dynamic_field?(selecto, field_ref) ->
         :ok
 
@@ -492,6 +609,16 @@ defmodule Selecto.QueryValidator do
     field_name = to_string(field_ref)
 
     Map.has_key?(dynamic_columns, field_name) or Map.has_key?(dynamic_columns, field_ref)
+  end
+
+  defp field_validation_enabled?(selecto) do
+    case Map.get(selecto, :config) do
+      %{} = config ->
+        map_size(config) > 0
+
+      _ ->
+        false
+    end
   end
 
   defp field_reference_like?(field_ref) when is_atom(field_ref), do: true

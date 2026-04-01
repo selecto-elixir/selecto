@@ -1098,6 +1098,8 @@ defmodule Selecto do
       |> Selecto.unnest("categories", as: "category")
   """
   def unnest(selecto, array_field, opts \\ []) do
+    Selecto.QueryValidator.validate_unnest_source!(selecto, array_field)
+
     alias_name = Keyword.get(opts, :as, "unnested_#{array_field}")
     ordinality = Keyword.get(opts, :ordinality)
 
@@ -1157,6 +1159,8 @@ defmodule Selecto do
   end
 
   def json_table(selecto, source_field, opts) when is_list(opts) do
+    Selecto.QueryValidator.validate_table_source!(selecto, source_field)
+
     alias_name = opts |> Keyword.fetch!(:as) |> to_string()
     path = Keyword.get(opts, :path, "$[*]")
     join_type = Keyword.get(opts, :join_type, :inner)
@@ -1188,6 +1192,8 @@ defmodule Selecto do
   end
 
   def json_rowset(selecto, source_field, opts) when is_list(opts) do
+    Selecto.QueryValidator.validate_table_source!(selecto, source_field)
+
     alias_name = opts |> Keyword.fetch!(:as) |> to_string()
     path = Keyword.get(opts, :path)
     join_type = Keyword.get(opts, :join_type, :inner)
@@ -2359,6 +2365,8 @@ defmodule Selecto do
       end)
 
     # Add to selecto set
+    Selecto.QueryValidator.validate_json_specs!(selecto, json_specs)
+
     current_json_selects = Map.get(selecto.set, :json_selects, [])
     updated_json_selects = current_json_selects ++ json_specs
 
@@ -2426,6 +2434,8 @@ defmodule Selecto do
       end)
 
     # Add to selecto set
+    Selecto.QueryValidator.validate_json_specs!(selecto, json_specs)
+
     current_json_filters = Map.get(selecto.set, :json_filters, [])
     updated_json_filters = current_json_filters ++ json_specs
 
@@ -2487,6 +2497,11 @@ defmodule Selecto do
       end)
 
     # Add to selecto set
+    Selecto.QueryValidator.validate_json_specs!(
+      selecto,
+      Enum.map(json_specs, fn {spec, _direction} -> spec end)
+    )
+
     current_json_sorts = Map.get(selecto.set, :json_order_by, [])
     updated_json_sorts = current_json_sorts ++ json_specs
 
@@ -3798,6 +3813,8 @@ defmodule Selecto do
       end)
 
     # Add to selecto set filters
+    Selecto.QueryValidator.validate_array_specs!(selecto, array_specs)
+
     current_filters = Map.get(selecto.set, :array_filters, [])
     updated_filters = current_filters ++ array_specs
 
@@ -3890,6 +3907,8 @@ defmodule Selecto do
       end)
 
     # Add to selecto set
+    Selecto.QueryValidator.validate_array_specs!(selecto, array_specs)
+
     current_array_ops = Map.get(selecto.set, :array_operations, [])
     updated_array_ops = current_array_ops ++ array_specs
 

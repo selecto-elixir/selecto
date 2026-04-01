@@ -262,4 +262,102 @@ defmodule Selecto.QueryEagerValidationTest do
     assert sql =~ "product_tag"
     refute sql =~ "nil.product_tag"
   end
+
+  test "window functions validate argument and over fields eagerly" do
+    query =
+      selecto()
+      |> Selecto.window_function(:lag, ["total", 1],
+        over: [partition_by: ["status"], order_by: ["order_items.quantity"]],
+        as: "prev_total"
+      )
+
+    assert [%Selecto.Window.Spec{alias: "prev_total", arguments: ["total", 1]}] =
+             query.set.window_functions
+
+    assert_raise ArgumentError, ~r/missing_window_field/, fn ->
+      selecto()
+      |> Selecto.window_function(:lag, ["missing_window_field", 1], over: [order_by: ["status"]])
+    end
+
+    assert_raise ArgumentError, ~r/missing_window_partition/, fn ->
+      selecto()
+      |> Selecto.window_function(:sum, ["total"],
+        over: [partition_by: ["missing_window_partition"]]
+      )
+    end
+
+    assert_raise ArgumentError, ~r/missing_window_order/, fn ->
+      selecto()
+      |> Selecto.window_function(:sum, ["total"], over: [order_by: ["missing_window_order"]])
+    end
+  end
+
+  test "unnest and JSON rowset helpers validate source fields eagerly" do
+    assert_raise ArgumentError, ~r/missing_array_source/, fn ->
+      selecto()
+      |> Selecto.unnest("missing_array_source", as: "product_tag")
+    end
+
+    assert_raise ArgumentError, ~r/missing_json_source/, fn ->
+      selecto()
+      |> Selecto.json_table("missing_json_source",
+        as: "item_rows",
+        columns: [sku: "$.sku"]
+      )
+    end
+
+    assert_raise ArgumentError, ~r/missing_json_rowset_source/, fn ->
+      selecto()
+      |> Selecto.json_rowset("missing_json_rowset_source", as: "item_rows", path: "$[*]")
+    end
+  end
+
+  test "json helper builders validate source fields eagerly" do
+    assert_raise ArgumentError, ~r/missing_json_select/, fn ->
+      selecto()
+      |> Selecto.json_select(
+        {:json_extract_text, "missing_json_select", "$.warehouse.zone", as: "zone"}
+      )
+    end
+
+    assert_raise ArgumentError, ~r/missing_json_filter/, fn ->
+      selecto()
+      |> Selecto.json_filter({:json_contains, "missing_json_filter", %{"zone" => "A"}})
+    end
+
+    assert_raise ArgumentError, ~r/missing_json_sort/, fn ->
+      selecto()
+      |> Selecto.json_order_by(
+        {:json_extract_text, "missing_json_sort", "$.warehouse.zone", :asc}
+      )
+    end
+  end
+
+  test "array helper builders validate fields eagerly" do
+    query =
+      selecto()
+      |> Selecto.array_manipulate({:array_to_string, "tags", ", ", as: "tag_list"})
+
+    assert [array_spec] = query.set.array_operations
+    assert array_spec.column == "tags"
+
+    assert_raise ArgumentError, ~r/missing_array_filter/, fn ->
+      selecto()
+      |> Selecto.array_filter({:array_contains, "missing_array_filter", ["featured"]})
+    end
+
+    assert_raise ArgumentError, ~r/missing_array_column/, fn ->
+      selecto()
+      |> Selecto.array_manipulate(
+        {:array_to_string, "missing_array_column", ", ", as: "tag_list"}
+      )
+    end
+
+    assert_raise ArgumentError, ~r/missing_array_sort/, fn ->
+      selecto()
+      |> Selecto.array_manipulate(
+        {:array_agg, "status", [order_by: [{"missing_array_sort", :asc}], as: "statuses"]}
+      )
+    end
+  end
 end

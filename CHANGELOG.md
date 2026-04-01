@@ -10,6 +10,9 @@
   and `order_by`, with early validation for missing explicit CTE sources.
 - Added regression coverage for manual and multi-CTE alias joins in core tests
   plus DuckDB-specific coverage for joined-CTE null filtering.
+- Expanded eager validation into helper/builder query surfaces so window specs,
+  UNNEST/JSON rowset helpers, and JSON/array helper builders now reject invalid
+  field references before SQL generation, with matching regression coverage.
 
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------
