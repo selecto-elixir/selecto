@@ -61,6 +61,9 @@ defmodule Selecto.DB.Adapter do
   @callback introspect_table(connection(), String.t(), introspection_options()) ::
               {:ok, schema_metadata()} | {:error, term()}
 
+  @callback refresh_materialized_view(connection(), String.t(), keyword()) ::
+              {:ok, term()} | {:error, term()}
+
   @callback placeholder(pos_integer()) :: iodata()
   @callback quote_identifier(String.t()) :: String.t()
   @callback format_datetime(iodata(), String.t()) :: iodata()
@@ -82,6 +85,7 @@ defmodule Selecto.DB.Adapter do
                       list_tables: 2,
                       list_relations: 2,
                       introspect_table: 3,
+                      refresh_materialized_view: 3,
                       format_datetime: 2,
                       rollup_sql: 1,
                       rollup_literal_order: 1,

@@ -25,6 +25,9 @@
 - Added `Selecto.ViewPublisher.build_sql/2` and DDL builders for `CREATE VIEW`
   and `CREATE MATERIALIZED VIEW`, so validated published view specs can compile
   into stable SQL and publication DDL without runtime side effects.
+- Added `Selecto.ViewPublisher.refresh/5` and `refresh_sql/2` helpers for
+  materialized-view publication workflows, including support for concurrent
+  refresh SQL where the adapter allows it.
 
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------

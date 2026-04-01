@@ -928,6 +928,39 @@ defmodule Selecto.DomainValidatorTest do
       assert ViewPublisher.ddl_for(:materialized_view, "reporting.daily_rollup", "select 1") ==
                "CREATE MATERIALIZED VIEW reporting.daily_rollup AS\nselect 1;"
     end
+
+    test "refresh_sql/2 supports concurrent refresh statements" do
+      assert ViewPublisher.refresh_sql("reporting.daily_rollup") ==
+               "REFRESH MATERIALIZED VIEW reporting.daily_rollup;"
+
+      assert ViewPublisher.refresh_sql("reporting.daily_rollup", concurrently: true) ==
+               "REFRESH MATERIALIZED VIEW CONCURRENTLY reporting.daily_rollup;"
+    end
+
+    test "refresh/5 rejects non-materialized published views" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{}
+      }
+
+      spec = %{
+        database_name: "reporting.order_rollup",
+        kind: :view,
+        query: fn selecto -> selecto |> Selecto.select([{:field, "id", "id"}]) end,
+        columns: %{id: %{type: :integer}}
+      }
+
+      assert {:error, :refresh_requires_materialized_view} =
+               ViewPublisher.refresh(domain, spec, SelectoDBPostgreSQL.Adapter, :fake_conn)
+    end
   end
 
   describe "validate_domain!/1" do

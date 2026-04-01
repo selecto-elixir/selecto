@@ -10,6 +10,7 @@ defmodule Selecto.ViewPublisher do
   @type publish_result ::
           {:ok, %{sql: String.t(), ddl: String.t(), kind: atom(), database_name: String.t()}}
           | {:error, [String.t()]}
+  @type refresh_result :: :ok | {:error, term()}
 
   @spec validate(Selecto.Types.domain(), map()) :: validation_result()
   def validate(domain, spec) when is_map(domain) and is_map(spec) do
@@ -50,6 +51,26 @@ defmodule Selecto.ViewPublisher do
   def build_sql(_domain, _spec),
     do: {:error, ["published view SQL generation requires a domain and map spec"]}
 
+  @spec refresh(Selecto.Types.domain(), map(), module(), term(), keyword()) :: refresh_result()
+  def refresh(domain, spec, adapter, connection, opts \\ [])
+
+  def refresh(domain, spec, adapter, connection, opts)
+      when is_map(domain) and is_map(spec) and is_atom(adapter) do
+    with :ok <- validate(domain, spec),
+         :ok <- validate_materialized_refresh_spec(spec),
+         true <- function_exported?(adapter, :refresh_materialized_view, 3),
+         {:ok, _result} <-
+           apply(adapter, :refresh_materialized_view, [connection, database_name(spec), opts]) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+      false -> {:error, {:unsupported_adapter, adapter}}
+    end
+  end
+
+  def refresh(_domain, _spec, _adapter, _connection, _opts),
+    do: {:error, :invalid_refresh_arguments}
+
   @spec ddl_for(atom(), String.t(), String.t()) :: String.t()
   def ddl_for(:view, database_name, sql) when is_binary(database_name) and is_binary(sql) do
     "CREATE VIEW #{database_name} AS\n#{sql};"
@@ -58,6 +79,17 @@ defmodule Selecto.ViewPublisher do
   def ddl_for(:materialized_view, database_name, sql)
       when is_binary(database_name) and is_binary(sql) do
     "CREATE MATERIALIZED VIEW #{database_name} AS\n#{sql};"
+  end
+
+  @spec refresh_sql(String.t(), keyword()) :: String.t()
+  def refresh_sql(database_name, opts \\ []) when is_binary(database_name) do
+    concurrently = Keyword.get(opts, :concurrently, false)
+
+    if concurrently do
+      "REFRESH MATERIALIZED VIEW CONCURRENTLY #{database_name};"
+    else
+      "REFRESH MATERIALIZED VIEW #{database_name};"
+    end
   end
 
   defp build_query(domain, spec) do
@@ -117,4 +149,13 @@ defmodule Selecto.ViewPublisher do
     |> List.wrap()
     |> Enum.map(&to_string/1)
   end
+
+  defp validate_materialized_refresh_spec(spec) do
+    case spec[:kind] || spec["kind"] do
+      :materialized_view -> :ok
+      _ -> {:error, :refresh_requires_materialized_view}
+    end
+  end
+
+  defp database_name(spec), do: spec[:database_name] || spec["database_name"]
 end
