@@ -270,7 +270,11 @@ defmodule Selecto.DomainValidatorTest do
             columns: %{
               order_id: %{type: :integer},
               status: %{type: :string}
-            }
+            },
+            indexes: [
+              %{columns: [:order_id], unique: true},
+              %{columns: [:status], concurrently: false}
+            ]
           }
         }
       }
@@ -927,6 +931,41 @@ defmodule Selecto.DomainValidatorTest do
     test "build_sql/2 returns CREATE MATERIALIZED VIEW DDL" do
       assert ViewPublisher.ddl_for(:materialized_view, "reporting.daily_rollup", "select 1") ==
                "CREATE MATERIALIZED VIEW reporting.daily_rollup AS\nselect 1;"
+    end
+
+    test "build_sql/2 returns suggested index statements when declared" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{}
+      }
+
+      spec = %{
+        database_name: "reporting.daily_rollup",
+        kind: :materialized_view,
+        query: fn selecto ->
+          selecto
+          |> Selecto.select([
+            {:field, "id", "order_id"},
+            {:field, "status", "status"}
+          ])
+        end,
+        columns: %{order_id: %{type: :integer}, status: %{type: :string}},
+        indexes: [%{columns: [:order_id], unique: true, concurrently: true}]
+      }
+
+      assert {:ok, result} = ViewPublisher.build_sql(domain, spec)
+
+      assert result.index_statements == [
+               "CREATE UNIQUE INDEX CONCURRENTLY daily_rollup_order_id_idx ON reporting.daily_rollup (order_id);"
+             ]
     end
 
     test "refresh_sql/2 supports concurrent refresh statements" do

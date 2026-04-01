@@ -893,6 +893,7 @@ defmodule Selecto.DomainValidator do
     |> validate_published_view_kind(spec, view_id)
     |> validate_published_view_query(spec, view_id)
     |> validate_published_view_columns(spec, view_id)
+    |> validate_published_view_indexes(spec, view_id)
     |> validate_published_view_refresh(spec, view_id)
     |> validate_published_view_compilation(domain, spec, view_id)
   end
@@ -970,6 +971,65 @@ defmodule Selecto.DomainValidator do
       _ ->
         errors ++ [{:published_views_invalid, {view_id, ":refresh must be a map when provided"}}]
     end
+  end
+
+  defp validate_published_view_indexes(errors, spec, view_id) do
+    case map_value(spec, :indexes) do
+      nil ->
+        errors
+
+      indexes when is_list(indexes) ->
+        Enum.reduce(indexes, errors, fn index_spec, acc ->
+          validate_published_view_index(acc, view_id, index_spec)
+        end)
+
+      _ ->
+        errors ++ [{:published_views_invalid, {view_id, ":indexes must be a list when provided"}}]
+    end
+  end
+
+  defp validate_published_view_index(errors, view_id, index_spec) when is_map(index_spec) do
+    columns = map_value(index_spec, :columns)
+    unique = map_value(index_spec, :unique)
+    concurrently = map_value(index_spec, :concurrently)
+
+    errors =
+      if is_list(columns) and columns != [] and
+           Enum.all?(columns, &(is_atom(&1) or is_binary(&1))) do
+        errors
+      else
+        errors ++
+          [
+            {:published_views_invalid,
+             {view_id, "each published view index must declare a non-empty :columns list"}}
+          ]
+      end
+
+    errors =
+      if is_nil(unique) or is_boolean(unique) do
+        errors
+      else
+        errors ++
+          [
+            {:published_views_invalid,
+             {view_id, "each published view index :unique must be boolean when provided"}}
+          ]
+      end
+
+    if is_nil(concurrently) or is_boolean(concurrently) do
+      errors
+    else
+      errors ++
+        [
+          {:published_views_invalid,
+           {view_id, "each published view index :concurrently must be boolean when provided"}}
+        ]
+    end
+  end
+
+  defp validate_published_view_index(errors, view_id, _index_spec) do
+    errors ++
+      [{:published_views_invalid, {view_id, "each published view index spec must be a map"}}]
   end
 
   defp validate_published_view_compilation(errors, domain, spec, view_id) do

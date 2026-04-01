@@ -8,7 +8,14 @@ defmodule Selecto.ViewPublisher do
 
   @type validation_result :: :ok | {:error, [String.t()]}
   @type publish_result ::
-          {:ok, %{sql: String.t(), ddl: String.t(), kind: atom(), database_name: String.t()}}
+          {:ok,
+           %{
+             sql: String.t(),
+             ddl: String.t(),
+             kind: atom(),
+             database_name: String.t(),
+             index_statements: [String.t()]
+           }}
           | {:error, [String.t()]}
   @type refresh_result :: :ok | {:error, term()}
 
@@ -43,7 +50,8 @@ defmodule Selecto.ViewPublisher do
          sql: sql,
          ddl: ddl_for(kind, database_name, sql),
          kind: kind,
-         database_name: database_name
+         database_name: database_name,
+         index_statements: index_statements(spec)
        }}
     end
   end
@@ -90,6 +98,13 @@ defmodule Selecto.ViewPublisher do
     else
       "REFRESH MATERIALIZED VIEW #{database_name};"
     end
+  end
+
+  @spec index_statements(map()) :: [String.t()]
+  def index_statements(spec) when is_map(spec) do
+    spec
+    |> published_indexes()
+    |> Enum.map(&index_statement(spec, &1))
   end
 
   defp build_query(domain, spec) do
@@ -140,6 +155,34 @@ defmodule Selecto.ViewPublisher do
 
   defp published_columns(spec) do
     spec[:columns] || spec["columns"] || %{}
+  end
+
+  defp published_indexes(spec) do
+    spec[:indexes] || spec["indexes"] || []
+  end
+
+  defp index_statement(spec, index_spec) do
+    columns = index_spec[:columns] || index_spec["columns"] || []
+    unique = index_spec[:unique] || index_spec["unique"] || false
+    concurrently = index_spec[:concurrently] || index_spec["concurrently"] || false
+
+    create = if unique, do: "CREATE UNIQUE INDEX", else: "CREATE INDEX"
+    concurrently_sql = if concurrently, do: " CONCURRENTLY", else: ""
+    index_name = index_name(spec, columns)
+    column_sql = columns |> Enum.map(&to_string/1) |> Enum.join(", ")
+
+    "#{create}#{concurrently_sql} #{index_name} ON #{database_name(spec)} (#{column_sql});"
+  end
+
+  defp index_name(spec, columns) do
+    relation_name =
+      spec
+      |> database_name()
+      |> String.split(".")
+      |> List.last()
+
+    suffix = columns |> Enum.map(&to_string/1) |> Enum.join("_")
+    "#{relation_name}_#{suffix}_idx"
   end
 
   defp query_aliases(query) do

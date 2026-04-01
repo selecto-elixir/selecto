@@ -299,6 +299,7 @@ defmodule Selecto.Types do
           required(:kind) => published_view_kind(),
           required(:query) => function(),
           required(:columns) => %{optional(atom() | String.t()) => map()},
+          optional(:indexes) => [map()],
           optional(:refresh) => map()
         }
 

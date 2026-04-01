@@ -28,6 +28,9 @@
 - Added `Selecto.ViewPublisher.refresh/5` and `refresh_sql/2` helpers for
   materialized-view publication workflows, including support for concurrent
   refresh SQL where the adapter allows it.
+- Added optional published-view `indexes` metadata plus generated index SQL
+  suggestion helpers so materialized-view publication can carry explicit
+  follow-up indexing guidance without forcing runtime side effects.
 
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------
