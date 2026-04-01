@@ -22,6 +22,9 @@
 - Added `published_views` domain metadata plus `Selecto.ViewPublisher.validate/2`
   so Selecto-authored view contracts can validate stable aliased output columns
   and reject runtime-param queries before any DDL tooling is introduced.
+- Added `Selecto.ViewPublisher.build_sql/2` and DDL builders for `CREATE VIEW`
+  and `CREATE MATERIALIZED VIEW`, so validated published view specs can compile
+  into stable SQL and publication DDL without runtime side effects.
 
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------

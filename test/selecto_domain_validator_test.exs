@@ -2,6 +2,7 @@ defmodule Selecto.DomainValidatorTest do
   use ExUnit.Case
   alias Selecto.DomainValidator
   alias Selecto.DomainValidator.ValidationError
+  alias Selecto.ViewPublisher
 
   describe "validate_domain/1" do
     test "validates successful domain configuration" do
@@ -885,6 +886,47 @@ defmodule Selecto.DomainValidatorTest do
                {:advanced_join_missing_key, {:product, :normalization_joins, _message}} -> true
                _ -> false
              end)
+    end
+  end
+
+  describe "Selecto.ViewPublisher" do
+    test "build_sql/2 returns compiled SQL and CREATE VIEW DDL" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{}
+      }
+
+      spec = %{
+        database_name: "reporting.order_rollup",
+        kind: :view,
+        query: fn selecto ->
+          selecto
+          |> Selecto.select([
+            {:field, "id", "order_id"},
+            {:field, "status", "status"}
+          ])
+        end,
+        columns: %{order_id: %{type: :integer}, status: %{type: :string}}
+      }
+
+      assert {:ok, result} = ViewPublisher.build_sql(domain, spec)
+      assert result.kind == :view
+      assert result.database_name == "reporting.order_rollup"
+      assert String.match?(result.sql, ~r/(?i)select/)
+      assert String.contains?(result.ddl, "CREATE VIEW reporting.order_rollup AS")
+    end
+
+    test "build_sql/2 returns CREATE MATERIALIZED VIEW DDL" do
+      assert ViewPublisher.ddl_for(:materialized_view, "reporting.daily_rollup", "select 1") ==
+               "CREATE MATERIALIZED VIEW reporting.daily_rollup AS\nselect 1;"
     end
   end
 

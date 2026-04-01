@@ -7,6 +7,9 @@ defmodule Selecto.ViewPublisher do
   """
 
   @type validation_result :: :ok | {:error, [String.t()]}
+  @type publish_result ::
+          {:ok, %{sql: String.t(), ddl: String.t(), kind: atom(), database_name: String.t()}}
+          | {:error, [String.t()]}
 
   @spec validate(Selecto.Types.domain(), map()) :: validation_result()
   def validate(domain, spec) when is_map(domain) and is_map(spec) do
@@ -25,6 +28,37 @@ defmodule Selecto.ViewPublisher do
 
   def validate(_domain, _spec),
     do: {:error, ["published view validation requires a domain and map spec"]}
+
+  @spec build_sql(Selecto.Types.domain(), map()) :: publish_result()
+  def build_sql(domain, spec) when is_map(domain) and is_map(spec) do
+    with :ok <- validate(domain, spec),
+         {:ok, query} <- build_query(domain, spec) do
+      {sql, _params} = Selecto.to_sql(query)
+      database_name = spec[:database_name] || spec["database_name"]
+      kind = spec[:kind] || spec["kind"]
+
+      {:ok,
+       %{
+         sql: sql,
+         ddl: ddl_for(kind, database_name, sql),
+         kind: kind,
+         database_name: database_name
+       }}
+    end
+  end
+
+  def build_sql(_domain, _spec),
+    do: {:error, ["published view SQL generation requires a domain and map spec"]}
+
+  @spec ddl_for(atom(), String.t(), String.t()) :: String.t()
+  def ddl_for(:view, database_name, sql) when is_binary(database_name) and is_binary(sql) do
+    "CREATE VIEW #{database_name} AS\n#{sql};"
+  end
+
+  def ddl_for(:materialized_view, database_name, sql)
+      when is_binary(database_name) and is_binary(sql) do
+    "CREATE MATERIALIZED VIEW #{database_name} AS\n#{sql};"
+  end
 
   defp build_query(domain, spec) do
     query_builder = spec[:query] || spec["query"]
