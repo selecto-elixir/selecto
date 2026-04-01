@@ -2,8 +2,8 @@ defmodule Selecto.ExprMacros do
   @moduledoc """
   Macro sugar for Selecto expressions.
 
-  The initial scope is filter composition via `where/1`, which compiles a small
-  Elixir expression subset into Selecto's existing filter AST.
+  These macros compile a small Elixir expression subset into Selecto's existing
+  filter, selector, order, and group AST shapes.
   """
 
   defmacro where(expression) do
@@ -16,5 +16,9 @@ defmodule Selecto.ExprMacros do
 
   defmacro order_by(expression) do
     Selecto.ExprCompiler.compile_order!(expression)
+  end
+
+  defmacro group_by(expression) do
+    Selecto.ExprCompiler.compile_group!(expression)
   end
 end

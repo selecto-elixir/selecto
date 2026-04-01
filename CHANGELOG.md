@@ -13,6 +13,9 @@
 - Expanded eager validation into helper/builder query surfaces so window specs,
   UNNEST/JSON rowset helpers, and JSON/array helper builders now reject invalid
   field references before SQL generation, with matching regression coverage.
+- Completed the composable expression follow-up surface with `group_by/1`
+  macro support, and documented the shipped v1 design around a single
+  `Selecto.Expr` module plus the filter-only uppercase `~SELECTO` sigil.
 
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------

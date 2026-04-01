@@ -233,6 +233,20 @@ defmodule Selecto.ExprMacroSigilTest do
            ]
   end
 
+  test "group_by macro compiles field and rollup group specs" do
+    assert group_by([status, customer.name, rollup([status, customer.name])]) == [
+             "status",
+             "customer.name",
+             [rollup: ["status", "customer.name"]]
+           ]
+  end
+
+  test "group_by macro supports selector expressions" do
+    assert group_by([coalesce(nickname, name)]) == [
+             {:coalesce, [{:field, "nickname"}, {:field, "name"}]}
+           ]
+  end
+
   test "uppercase ~SELECTO sigil compiles filter AST" do
     min_price = 50
     pattern = "%lamp%"

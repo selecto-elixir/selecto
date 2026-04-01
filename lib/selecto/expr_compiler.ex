@@ -47,6 +47,10 @@ defmodule Selecto.ExprCompiler do
     do_compile_order(ast)
   end
 
+  def compile_group!(ast) do
+    do_compile_group(ast)
+  end
+
   def parse_filter!(string, opts \\ []) when is_binary(string) do
     Code.string_to_quoted!(string, opts)
   rescue
@@ -225,6 +229,16 @@ defmodule Selecto.ExprCompiler do
 
   defp do_compile_order(ast) do
     compile_order_expr!(ast)
+  end
+
+  defp do_compile_group(list_ast) when is_list(list_ast) do
+    quote do
+      [unquote_splicing(Enum.map(list_ast, &compile_group_expr!/1))]
+    end
+  end
+
+  defp do_compile_group(ast) do
+    compile_group_expr!(ast)
   end
 
   defp do_compile_select_item({name, _, context})
@@ -604,6 +618,16 @@ defmodule Selecto.ExprCompiler do
     compile_order_value!(ast)
   end
 
+  defp compile_group_expr!({:rollup, _, [groups_ast]}) do
+    quote do
+      Selecto.Expr.rollup(unquote(compile_group_items!(groups_ast)))
+    end
+  end
+
+  defp compile_group_expr!(ast) do
+    compile_group_value!(ast)
+  end
+
   defp compile_json_extract(fun_name, [column_ast, path_ast]) do
     quote do
       Selecto.Expr.unquote(fun_name)(
@@ -693,6 +717,14 @@ defmodule Selecto.ExprCompiler do
 
   defp compile_case_result!(result_ast), do: compile_select_value!(result_ast)
 
+  defp compile_group_items!(list_ast) when is_list(list_ast) do
+    Enum.map(list_ast, &compile_group_value!/1)
+  end
+
+  defp compile_group_items!(ast) do
+    [compile_group_value!(ast)]
+  end
+
   defp compile_order_value!({name, _, context})
        when is_atom(name) and (is_atom(context) or is_nil(context)) do
     compile_field_string!({name, [], context})
@@ -704,6 +736,18 @@ defmodule Selecto.ExprCompiler do
 
   defp compile_order_value!(ast) when is_tuple(ast), do: do_compile_select_item(ast)
   defp compile_order_value!(ast), do: compile_literal_or_value!(ast)
+
+  defp compile_group_value!({name, _, context})
+       when is_atom(name) and (is_atom(context) or is_nil(context)) do
+    compile_field_string!({name, [], context})
+  end
+
+  defp compile_group_value!({{:., _, _}, _, []} = field_ast) do
+    compile_field_string!(field_ast)
+  end
+
+  defp compile_group_value!(ast) when is_tuple(ast), do: do_compile_select_item(ast)
+  defp compile_group_value!(ast), do: compile_literal_or_value!(ast)
 
   defp compile_literal_or_value!({:^, _, [value_ast]}), do: value_ast
   defp compile_literal_or_value!(ast), do: ast
