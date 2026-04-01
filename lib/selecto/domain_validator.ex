@@ -81,6 +81,7 @@ defmodule Selecto.DomainValidator do
 
     errors =
       errors
+      |> validate_source(domain)
       |> validate_schemas(domain)
       |> validate_associations(domain)
       |> validate_joins(domain)
@@ -116,6 +117,40 @@ defmodule Selecto.DomainValidator do
   end
 
   # Validate schemas structure
+  defp validate_source(errors, domain) do
+    source = Map.get(domain, :source, %{})
+
+    if source == %{} do
+      errors
+    else
+      errors
+      |> validate_source_structure(source)
+      |> validate_source_columns(source)
+      |> validate_relation_source_metadata(:source, source)
+    end
+  end
+
+  defp validate_source_structure(errors, source) do
+    required_keys = [:source_table, :primary_key, :fields, :columns]
+    missing_keys = required_keys -- Map.keys(source)
+
+    case missing_keys do
+      [] -> errors
+      _ -> errors ++ [{:source_missing_keys, missing_keys}]
+    end
+  end
+
+  defp validate_source_columns(errors, source) do
+    fields = Map.get(source, :fields, [])
+    columns = Map.get(source, :columns, %{})
+    missing_columns = fields -- Map.keys(columns)
+
+    case missing_columns do
+      [] -> errors
+      _ -> errors ++ [{:source_missing_column_defs, missing_columns}]
+    end
+  end
+
   defp validate_schemas(errors, domain) do
     schemas = Map.get(domain, :schemas, %{})
 
@@ -123,6 +158,7 @@ defmodule Selecto.DomainValidator do
       acc
       |> validate_schema_structure(schema_name, schema)
       |> validate_schema_columns(schema_name, schema)
+      |> validate_relation_source_metadata(schema_name, schema)
     end)
   end
 
@@ -148,6 +184,53 @@ defmodule Selecto.DomainValidator do
       _ -> errors ++ [{:schema_missing_column_defs, {schema_name, missing_columns}}]
     end
   end
+
+  defp validate_relation_source_metadata(errors, relation_name, relation) do
+    errors
+    |> validate_relation_source_kind(relation_name, relation)
+    |> validate_relation_readonly(relation_name, relation)
+  end
+
+  defp validate_relation_source_kind(errors, relation_name, relation) do
+    case normalize_relation_source_kind(map_value(relation, :source_kind)) do
+      nil ->
+        errors
+
+      {:ok, _kind} ->
+        errors
+
+      {:error, invalid_kind} when relation_name == :source ->
+        errors ++ [{:source_invalid_source_kind, invalid_kind}]
+
+      {:error, invalid_kind} ->
+        errors ++ [{:schema_invalid_source_kind, {relation_name, invalid_kind}}]
+    end
+  end
+
+  defp validate_relation_readonly(errors, relation_name, relation) do
+    case map_value(relation, :readonly) do
+      nil ->
+        errors
+
+      readonly when is_boolean(readonly) ->
+        errors
+
+      invalid_value when relation_name == :source ->
+        errors ++ [{:source_invalid_readonly, invalid_value}]
+
+      invalid_value ->
+        errors ++ [{:schema_invalid_readonly, {relation_name, invalid_value}}]
+    end
+  end
+
+  defp normalize_relation_source_kind(nil), do: nil
+  defp normalize_relation_source_kind(:table), do: {:ok, :table}
+  defp normalize_relation_source_kind(:view), do: {:ok, :view}
+  defp normalize_relation_source_kind(:materialized_view), do: {:ok, :materialized_view}
+  defp normalize_relation_source_kind("table"), do: {:ok, :table}
+  defp normalize_relation_source_kind("view"), do: {:ok, :view}
+  defp normalize_relation_source_kind("materialized_view"), do: {:ok, :materialized_view}
+  defp normalize_relation_source_kind(other), do: {:error, other}
 
   # Validate associations reference valid schemas
   defp validate_associations(errors, domain) do
@@ -1238,6 +1321,14 @@ defmodule Selecto.DomainValidator do
     "Missing required domain keys: #{Enum.join(keys, ", ")}"
   end
 
+  defp format_error({:source_missing_keys, keys}) do
+    "Source missing required keys: #{Enum.join(keys, ", ")}"
+  end
+
+  defp format_error({:source_missing_column_defs, columns}) do
+    "Source fields missing column definitions: #{Enum.join(columns, ", ")}"
+  end
+
   defp format_error({:schema_missing_keys, {schema_name, keys}}) do
     "Schema '#{schema_name}' missing required keys: #{Enum.join(keys, ", ")}"
   end
@@ -1286,6 +1377,22 @@ defmodule Selecto.DomainValidator do
 
   defp format_error({:functions_invalid, {function_id, message}}) do
     "Invalid function '#{function_id}': #{message}"
+  end
+
+  defp format_error({:source_invalid_source_kind, source_kind}) do
+    "Source has invalid source_kind '#{inspect(source_kind)}'; expected :table, :view, or :materialized_view"
+  end
+
+  defp format_error({:source_invalid_readonly, value}) do
+    "Source has invalid readonly value '#{inspect(value)}'; expected a boolean"
+  end
+
+  defp format_error({:schema_invalid_source_kind, {schema_name, source_kind}}) do
+    "Schema '#{schema_name}' has invalid source_kind '#{inspect(source_kind)}'; expected :table, :view, or :materialized_view"
+  end
+
+  defp format_error({:schema_invalid_readonly, {schema_name, value}}) do
+    "Schema '#{schema_name}' has invalid readonly value '#{inspect(value)}'; expected a boolean"
   end
 
   defp format_error({:detail_actions_invalid, {action_id, message}}) do

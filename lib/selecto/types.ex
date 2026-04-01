@@ -227,6 +227,8 @@ defmodule Selecto.Types do
           | tagging_join_config()
           | dimension_join_config()
 
+  @type relation_source_kind :: :table | :view | :materialized_view
+
   # Schema types
   @type schema :: %{
           required(:name) => String.t(),
@@ -236,6 +238,8 @@ defmodule Selecto.Types do
           required(:redact_fields) => [atom()],
           required(:columns) => %{atom() => column_definition()},
           required(:associations) => %{atom() => association()},
+          optional(:source_kind) => relation_source_kind(),
+          optional(:readonly) => boolean(),
           optional(:custom_filters) => %{atom() => term()}
         }
 
@@ -246,7 +250,9 @@ defmodule Selecto.Types do
           required(:fields) => [atom()],
           required(:redact_fields) => [atom()],
           required(:columns) => %{atom() => column_definition()},
-          required(:associations) => %{atom() => association()}
+          required(:associations) => %{atom() => association()},
+          optional(:source_kind) => relation_source_kind(),
+          optional(:readonly) => boolean()
         }
 
   # Domain configuration

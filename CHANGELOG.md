@@ -16,6 +16,9 @@
 - Completed the composable expression follow-up surface with `group_by/1`
   macro support, and documented the shipped v1 design around a single
   `Selecto.Expr` module plus the filter-only uppercase `~SELECTO` sigil.
+- Formalized root/source `source_kind` and `readonly` metadata for table-,
+  view-, and materialized-view-backed domains, with domain validation coverage
+  for valid and invalid view-source configs.
 
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------

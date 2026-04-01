@@ -146,6 +146,49 @@ defmodule Selecto.DomainValidatorTest do
       assert DomainValidator.validate_domain(domain_with_functions) == :ok
     end
 
+    test "accepts view-backed source metadata" do
+      view_domain = %{
+        source: %{
+          source_table: "reporting.active_customers",
+          primary_key: :customer_id,
+          source_kind: :view,
+          readonly: true,
+          fields: [:customer_id, :name],
+          redact_fields: [],
+          columns: %{customer_id: %{type: :integer}, name: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        name: "Active Customers"
+      }
+
+      assert DomainValidator.validate_domain(view_domain) == :ok
+    end
+
+    test "validates invalid source metadata for views support" do
+      invalid_domain = %{
+        source: %{
+          source_table: "reporting.active_customers",
+          primary_key: :customer_id,
+          source_kind: :report,
+          readonly: :yes,
+          fields: [:customer_id, :name],
+          redact_fields: [],
+          columns: %{customer_id: %{type: :integer}, name: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        name: "Active Customers"
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
+
+      assert {:source_invalid_source_kind, :report} in errors
+      assert {:source_invalid_readonly, :yes} in errors
+    end
+
     test "validates invalid function registry configuration" do
       invalid_domain = %{
         source: %{
@@ -445,8 +488,8 @@ defmodule Selecto.DomainValidatorTest do
         name: "TestDomain"
       }
 
-      # This validation happens during field building - schema validation focuses on structure
-      assert DomainValidator.validate_domain(invalid_domain) == :ok
+      assert {:error, [source_missing_column_defs: [:name]]} =
+               DomainValidator.validate_domain(invalid_domain)
     end
 
     test "validates association queryable references" do
