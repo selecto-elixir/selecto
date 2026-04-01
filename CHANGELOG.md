@@ -19,6 +19,9 @@
 - Formalized root/source `source_kind` and `readonly` metadata for table-,
   view-, and materialized-view-backed domains, with domain validation coverage
   for valid and invalid view-source configs.
+- Added `published_views` domain metadata plus `Selecto.ViewPublisher.validate/2`
+  so Selecto-authored view contracts can validate stable aliased output columns
+  and reject runtime-param queries before any DDL tooling is introduced.
 
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------

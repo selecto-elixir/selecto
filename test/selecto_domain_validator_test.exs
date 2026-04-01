@@ -243,6 +243,119 @@ defmodule Selecto.DomainValidatorTest do
              end)
     end
 
+    test "accepts valid published_views configuration" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status, :total],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}, total: %{type: :decimal}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        published_views: %{
+          "order_rollup" => %{
+            database_name: "reporting.order_rollup",
+            kind: :view,
+            query: fn selecto ->
+              selecto
+              |> Selecto.select([
+                {:field, "id", "order_id"},
+                {:field, "status", "status"}
+              ])
+            end,
+            columns: %{
+              order_id: %{type: :integer},
+              status: %{type: :string}
+            }
+          }
+        }
+      }
+
+      assert DomainValidator.validate_domain(domain) == :ok
+    end
+
+    test "validates invalid published_views configuration" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status, :total],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}, total: %{type: :decimal}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        published_views: %{
+          "bad_rollup" => %{
+            database_name: "",
+            kind: :report,
+            query: fn selecto ->
+              selecto
+              |> Selecto.select([
+                {:field, "id", "order_id"},
+                {:field, "status", "status"}
+              ])
+              |> Selecto.filter({"status", "open"})
+            end,
+            columns: %{
+              only_order_id: %{type: :integer}
+            },
+            refresh: :manual
+          }
+        }
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(domain)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid,
+                {"bad_rollup", ":database_name must be a non-empty string"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid,
+                {"bad_rollup", ":kind must be :view or :materialized_view"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid, {"bad_rollup", ":refresh must be a map when provided"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid, {"bad_rollup", message}}
+               when is_binary(message) ->
+                 String.contains?(message, "declared :columns")
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid,
+                {"bad_rollup", "published view queries cannot depend on runtime bind params"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+    end
+
     test "validates invalid query_members configuration" do
       invalid_domain = %{
         source: %{

@@ -292,6 +292,18 @@ defmodule Selecto.Types do
           optional(:payload) => map()
         }
 
+  @type published_view_kind :: :view | :materialized_view
+
+  @type published_view_spec :: %{
+          required(:database_name) => String.t(),
+          required(:kind) => published_view_kind(),
+          required(:query) => function(),
+          required(:columns) => %{optional(atom() | String.t()) => map()},
+          optional(:refresh) => map()
+        }
+
+  @type published_view_registry :: %{optional(atom() | String.t()) => published_view_spec()}
+
   @type domain :: %{
           required(:name) => String.t(),
           required(:source) => source(),
@@ -307,7 +319,8 @@ defmodule Selecto.Types do
           optional(:domain_data) => term(),
           optional(:extensions) => [term()],
           optional(:functions) => function_registry(),
-          optional(:query_members) => query_member_registry()
+          optional(:query_members) => query_member_registry(),
+          optional(:published_views) => published_view_registry()
         }
 
   # Query set (mutable query state)

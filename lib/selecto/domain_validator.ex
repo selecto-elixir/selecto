@@ -87,6 +87,7 @@ defmodule Selecto.DomainValidator do
       |> validate_joins(domain)
       |> validate_functions(domain)
       |> validate_query_members(domain)
+      |> validate_published_views(domain)
       |> validate_detail_actions(domain)
 
     # Only do complex validations if basic structure is sound
@@ -863,6 +864,127 @@ defmodule Selecto.DomainValidator do
     end
   end
 
+  defp validate_published_views(errors, domain) do
+    case Map.get(domain, :published_views) do
+      nil ->
+        errors
+
+      published_views when is_map(published_views) ->
+        Enum.reduce(published_views, errors, fn {view_id, spec}, acc ->
+          validate_published_view_spec(acc, domain, view_id, spec)
+        end)
+
+      _invalid ->
+        errors ++
+          [
+            {:published_views_invalid,
+             {:published_views, ":published_views must be a map of named published view specs"}}
+          ]
+    end
+  end
+
+  defp validate_published_view_spec(errors, _domain, view_id, spec) when not is_map(spec) do
+    errors ++ [{:published_views_invalid, {view_id, "published view spec must be a map"}}]
+  end
+
+  defp validate_published_view_spec(errors, domain, view_id, spec) do
+    errors
+    |> validate_published_view_database_name(spec, view_id)
+    |> validate_published_view_kind(spec, view_id)
+    |> validate_published_view_query(spec, view_id)
+    |> validate_published_view_columns(spec, view_id)
+    |> validate_published_view_refresh(spec, view_id)
+    |> validate_published_view_compilation(domain, spec, view_id)
+  end
+
+  defp validate_published_view_database_name(errors, spec, view_id) do
+    database_name = map_value(spec, :database_name)
+
+    if is_binary(database_name) and String.trim(database_name) != "" do
+      errors
+    else
+      errors ++
+        [{:published_views_invalid, {view_id, ":database_name must be a non-empty string"}}]
+    end
+  end
+
+  defp validate_published_view_kind(errors, spec, view_id) do
+    case map_value(spec, :kind) do
+      kind when kind in [:view, :materialized_view] ->
+        errors
+
+      _ ->
+        errors ++
+          [{:published_views_invalid, {view_id, ":kind must be :view or :materialized_view"}}]
+    end
+  end
+
+  defp validate_published_view_query(errors, spec, view_id) do
+    query = map_value(spec, :query)
+
+    if valid_arity?(query, [1]) do
+      errors
+    else
+      errors ++
+        [{:published_views_invalid, {view_id, ":query must be a function with arity 1"}}]
+    end
+  end
+
+  defp validate_published_view_columns(errors, spec, view_id) do
+    case map_value(spec, :columns) do
+      columns when is_map(columns) and map_size(columns) > 0 ->
+        Enum.reduce(columns, errors, fn {column_name, column_spec}, acc ->
+          validate_published_view_column(acc, view_id, column_name, column_spec)
+        end)
+
+      _ ->
+        errors ++
+          [
+            {:published_views_invalid,
+             {view_id, ":columns must be a non-empty map of published columns"}}
+          ]
+    end
+  end
+
+  defp validate_published_view_column(errors, _view_id, column_name, column_spec)
+       when (is_atom(column_name) or is_binary(column_name)) and is_map(column_spec) do
+    errors
+  end
+
+  defp validate_published_view_column(errors, view_id, _column_name, _column_spec) do
+    errors ++
+      [
+        {:published_views_invalid,
+         {view_id, "each published view column must use an atom/string key and map value"}}
+      ]
+  end
+
+  defp validate_published_view_refresh(errors, spec, view_id) do
+    case map_value(spec, :refresh) do
+      nil ->
+        errors
+
+      refresh when is_map(refresh) ->
+        errors
+
+      _ ->
+        errors ++ [{:published_views_invalid, {view_id, ":refresh must be a map when provided"}}]
+    end
+  end
+
+  defp validate_published_view_compilation(errors, domain, spec, view_id) do
+    case Selecto.ViewPublisher.validate(domain, spec) do
+      :ok ->
+        errors
+
+      {:error, validation_errors} ->
+        errors ++ Enum.map(validation_errors, &{:published_views_invalid, {view_id, &1}})
+    end
+  rescue
+    error ->
+      errors ++ [{:published_views_invalid, {view_id, Exception.message(error)}}]
+  end
+
   defp validate_query_member_group(errors, query_members, group_key) do
     case fetch_map_value(query_members, group_key) do
       :__missing__ ->
@@ -1377,6 +1499,10 @@ defmodule Selecto.DomainValidator do
 
   defp format_error({:functions_invalid, {function_id, message}}) do
     "Invalid function '#{function_id}': #{message}"
+  end
+
+  defp format_error({:published_views_invalid, {view_id, message}}) do
+    "Invalid published view '#{view_id}': #{message}"
   end
 
   defp format_error({:source_invalid_source_kind, source_kind}) do
