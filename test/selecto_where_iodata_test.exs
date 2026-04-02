@@ -30,6 +30,31 @@ defmodule Selecto.Builder.Sql.WhereTest do
     Selecto.configure(@domain, :mock_connection)
   end
 
+  defp epoch_selecto do
+    domain = %{
+      name: "Epoch Where Test Domain",
+      source: %{
+        source_table: "events",
+        primary_key: :id,
+        fields: [:id, :occurred_at_epoch],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          occurred_at_epoch: %{
+            type: :integer,
+            presentation_type: :utc_datetime,
+            datetime_storage: :unix_ms
+          }
+        },
+        associations: %{}
+      },
+      schemas: %{},
+      joins: %{}
+    }
+
+    Selecto.configure(domain, :mock_connection)
+  end
+
   defp sqlite_fts_selecto do
     selecto = Map.put(selecto(), :adapter, SelectoDBSQLite.Adapter)
 
@@ -63,6 +88,29 @@ defmodule Selecto.Builder.Sql.WhereTest do
       {sql, params} = Params.finalize(iodata)
       assert sql =~ ~r/between\s+\$1\s+and\s+\$2/i
       assert params == [1, 10]
+    end
+
+    test "epoch-backed datetime columns use half-open datetime comparisons with integer params" do
+      start_dt = ~U[2026-04-01 00:00:00Z]
+      end_dt = ~U[2026-04-02 00:00:00Z]
+
+      {_joins, iodata, _params} =
+        Where.build(epoch_selecto(), {"occurred_at_epoch", {:between, start_dt, end_dt}})
+
+      {sql, params} = Params.finalize(iodata)
+
+      assert sql =~ ~r/>=\s*\$1\s+and\s+selecto_root\.occurred_at_epoch\s+<\s+\$2/i
+      assert params == [1_775_001_600_000, 1_775_088_000_000]
+    end
+
+    test "epoch-backed datetime columns coerce direct comparison values to epoch integers" do
+      {_joins, iodata, _params} =
+        Where.build(epoch_selecto(), {"occurred_at_epoch", {:>=, "2026-04-01T12:30:00"}})
+
+      {sql, params} = Params.finalize(iodata)
+
+      assert sql =~ ~r/selecto_root\.occurred_at_epoch\s+>=\s+\$1/i
+      assert params == [1_775_046_600_000]
     end
 
     test "list membership" do

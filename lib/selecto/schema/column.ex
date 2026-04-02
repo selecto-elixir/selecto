@@ -142,7 +142,12 @@ defmodule Selecto.Schema.Column do
       name: display_name,
       type: source_col.type,
       requires_join: join,
-      format: Map.get(config, :format)
+      format: Map.get(config, :format),
+      presentation_type:
+        Map.get(config, :presentation_type, Map.get(source_col, :presentation_type)),
+      datetime_storage:
+        Map.get(config, :datetime_storage, Map.get(source_col, :datetime_storage)),
+      epoch_storage: Map.get(config, :epoch_storage, Map.get(source_col, :epoch_storage))
     }
 
     {
