@@ -40,6 +40,8 @@ defmodule Selecto.Types do
 
   @type column_definition :: %{
           required(:type) => column_type(),
+          optional(:icon) => atom() | String.t(),
+          optional(:icon_family) => atom() | String.t(),
           optional(:presentation_type) => :date | :datetime | :utc_datetime | :naive_datetime,
           optional(:datetime_storage) =>
             :unix | :unix_s | :unix_seconds | :unix_ms | :unix_milliseconds | :javascript_ms,

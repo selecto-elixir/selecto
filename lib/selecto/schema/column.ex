@@ -143,6 +143,8 @@ defmodule Selecto.Schema.Column do
       type: source_col.type,
       requires_join: join,
       format: Map.get(config, :format),
+      icon: Map.get(config, :icon, Map.get(source_col, :icon)),
+      icon_family: Map.get(config, :icon_family, Map.get(source_col, :icon_family)),
       presentation_type:
         Map.get(config, :presentation_type, Map.get(source_col, :presentation_type)),
       datetime_storage:
