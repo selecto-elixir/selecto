@@ -1,7 +1,7 @@
 
 # Selecto Library Changelog
 
-## Unreleased
+## V 0.4.3 - Published Views, Source Metadata, and Validation Expansion
 ---------------------------------------------------------
 
 #### Fixed
@@ -31,6 +31,7 @@
 - Added optional published-view `indexes` metadata plus generated index SQL
   suggestion helpers so materialized-view publication can carry explicit
   follow-up indexing guidance without forcing runtime side effects.
+- Bump package version to `0.4.3`.
 
 ## V 0.4.2 - Expression DSL and Adapter Feature Expansion
 ---------------------------------------------------------
