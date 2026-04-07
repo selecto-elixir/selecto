@@ -53,7 +53,22 @@ defmodule Selecto.Advanced.LateralJoin do
 
     @type join_type :: :left | :inner | :right | :full
     @type correlation_ref :: {:ref, String.t()}
-    @type table_function :: {:unnest, String.t()} | {:function, atom(), [term()]}
+
+    @type json_table_column :: %{
+            required(:name) => String.t(),
+            optional(:path) => String.t(),
+            optional(:type) => atom(),
+            optional(:for_ordinality) => boolean()
+          }
+
+    @type table_function ::
+            {:unnest, String.t()}
+            | {:function, atom(), [term()]}
+            | {:udf_table, atom() | String.t(), [term()]}
+            | {:json_each, String.t(), String.t() | nil}
+            | {:json_tree, String.t(), String.t() | nil}
+            | {:json_table, String.t(), String.t(), [json_table_column()]}
+
     @type subquery_builder :: (Selecto.t() -> Selecto.t())
 
     @type t :: %__MODULE__{
@@ -177,10 +192,25 @@ defmodule Selecto.Advanced.LateralJoin do
     |> Enum.flat_map(&extract_refs_from_arg/1)
   end
 
+  defp extract_correlation_refs({:udf_table, _function_id, args}) do
+    args
+    |> Enum.flat_map(&extract_refs_from_arg/1)
+  end
+
+  defp extract_correlation_refs({:json_table, source_ref, _path, _columns}) do
+    extract_refs_from_arg(source_ref)
+  end
+
+  defp extract_correlation_refs({function_name, source_ref, _path})
+       when function_name in [:json_each, :json_tree] do
+    extract_refs_from_arg(source_ref)
+  end
+
   defp extract_correlation_refs(_), do: []
 
   # Extract correlation references from function arguments
   defp extract_refs_from_arg({:ref, field}), do: [field]
+  defp extract_refs_from_arg({:field, field}), do: extract_refs_from_arg(field)
 
   defp extract_refs_from_arg(arg) when is_binary(arg) do
     if String.contains?(arg, ".") do
@@ -289,11 +319,12 @@ defmodule Selecto.Advanced.LateralJoin do
 
     # Combine all available fields with table prefixes
     base_fields = Enum.map(domain_fields, &"#{base_table}.#{&1}")
+    root_alias_fields = Enum.map(domain_fields, &"selecto_root.#{&1}")
 
     # Also include unqualified field names for flexibility
     unqualified_fields = domain_fields
 
-    (base_fields ++ unqualified_fields ++ join_fields)
+    (base_fields ++ root_alias_fields ++ unqualified_fields ++ join_fields)
     |> Enum.uniq()
   end
 

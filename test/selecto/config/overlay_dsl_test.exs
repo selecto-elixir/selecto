@@ -290,6 +290,35 @@ defmodule Selecto.Config.OverlayDSLTest do
     end
   end
 
+  describe "function macros" do
+    test "builds named UDF specs from DSL" do
+      defmodule TestFunctionOverlay do
+        use Selecto.Config.OverlayDSL
+
+        deffunction "similarity" do
+          kind(:scalar)
+          sql_name("public.similarity")
+          returns(:float)
+          allowed_in([:select, :order_by])
+          arg(:left, :string, source: :selector)
+          arg(:right, :string, source: :value)
+        end
+      end
+
+      overlay = TestFunctionOverlay.overlay()
+
+      assert overlay.functions["similarity"].kind == :scalar
+      assert overlay.functions["similarity"].sql_name == "public.similarity"
+      assert overlay.functions["similarity"].returns == :float
+      assert overlay.functions["similarity"].allowed_in == [:select, :order_by]
+
+      assert overlay.functions["similarity"].args == [
+               %{name: :left, type: :string, source: :selector},
+               %{name: :right, type: :string, source: :value}
+             ]
+    end
+  end
+
   describe "detail action macros" do
     test "builds detail actions from DSL" do
       defmodule TestDetailActionsOverlay do

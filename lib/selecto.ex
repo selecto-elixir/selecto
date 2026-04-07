@@ -342,6 +342,35 @@ defmodule Selecto do
   defdelegate infer_type(selecto, expression), to: Selecto.TypeSystem
 
   @doc """
+  Build a registered scalar or predicate UDF expression.
+
+  This is a convenience wrapper around the normalized `{:udf, function_id, args}`
+  shape used by selectors and filters.
+
+  ## Examples
+
+      Selecto.udf("similarity", ["name", "Acme"])
+      Selecto.udf(:matches_name, ["name", "Acme%"])
+  """
+  @spec udf(atom() | String.t(), [term()] | term()) :: tuple()
+  def udf(function_id, args \\ []) do
+    Selecto.Expr.udf(function_id, args)
+  end
+
+  @doc """
+  Build a registered table-UDF expression for lateral joins and named laterals.
+
+  ## Examples
+
+      Selecto.udf_table("nearby_points", ["location", 500])
+      Selecto.udf_table(:nearby_points, ["location", 500])
+  """
+  @spec udf_table(atom() | String.t(), [term()] | term()) :: tuple()
+  def udf_table(function_id, args \\ []) do
+    {:udf_table, Selecto.UDF.normalize_id(function_id), List.wrap(args)}
+  end
+
+  @doc """
   Check if two SQL types are compatible for comparisons or assignments.
 
   ## Examples
@@ -509,8 +538,12 @@ defmodule Selecto do
     end
 
     query_source =
-      Keyword.get(normalized_overrides, :query, Keyword.get(normalized_overrides, :query_builder)) ||
-        Map.get(spec, :query, Map.get(spec, :query_builder))
+      resolve_override_or_spec_value(
+        normalized_overrides,
+        spec,
+        [:query, :query_builder],
+        [:query, :query_builder]
+      )
 
     join_selecto =
       evaluate_named_query_member_query!(query_source, selecto, :subqueries, member_name)
@@ -527,20 +560,12 @@ defmodule Selecto do
       |> Keyword.merge(ensure_keyword_opts(Map.get(spec, :options, []), :subqueries, member_name))
 
     override_options =
-      normalized_overrides
-      |> Keyword.drop([:query, :query_builder, :join_id, :kind])
-
-    override_nested_options =
-      ensure_keyword_opts(
-        Keyword.get(override_options, :options, :__missing__),
+      merge_named_member_options(
+        normalized_overrides,
         :subqueries,
-        member_name
+        member_name,
+        [:query, :query_builder, :join_id, :kind]
       )
-
-    override_options =
-      override_options
-      |> Keyword.delete(:options)
-      |> Keyword.merge(override_nested_options)
 
     override_options =
       if Keyword.has_key?(override_options, :on) do
@@ -557,7 +582,18 @@ defmodule Selecto do
   end
 
   @doc """
-  Add a field to the Select list. Send in one or a list of field names or selectable tuples.
+  Add fields to the select list.
+
+  For macro-free query composition, prefer importing `Selecto.Expr` and using
+  string field paths plus runtime helper constructors.
+
+  ## Examples
+
+      import Selecto.Expr
+
+      selecto
+      |> Selecto.select(["order_number", "customer.name", as(sum("total"), "customer_total")])
+      |> Selecto.select(count_distinct("customer.id"))
   """
   @spec select(t(), [Selecto.Types.selector()]) :: t()
   @spec select(t(), Selecto.Types.selector()) :: t()
@@ -585,7 +621,18 @@ defmodule Selecto do
   defdelegate execute_shape(selecto, opts \\ []), to: Selecto.SelectionShape
 
   @doc """
-  Add a filter to selecto. Send in a tuple with field name and filter value.
+  Add filters to the query.
+
+  For macro-free query composition, prefer importing `Selecto.Expr` and using
+  runtime filter helpers.
+
+  ## Examples
+
+      import Selecto.Expr
+
+      selecto
+      |> Selecto.filter(eq("status", "delivered"))
+      |> Selecto.filter(compact_and([not_null("customer.id"), gte("total", 100)]))
   """
   @spec filter(t(), [Selecto.Types.filter()]) :: t()
   @spec filter(t(), Selecto.Types.filter()) :: t()
@@ -714,6 +761,13 @@ defmodule Selecto do
 
   @doc """
   Add to the Order By clause.
+
+  ## Examples
+
+      import Selecto.Expr
+
+      selecto
+      |> Selecto.order_by([asc("inserted_at"), desc("priority")])
   """
   @spec order_by(t(), [Selecto.Types.order_spec()]) :: t()
   @spec order_by(t(), Selecto.Types.order_spec()) :: t()
@@ -721,6 +775,14 @@ defmodule Selecto do
 
   @doc """
   Add to the Group By clause.
+
+  ## Examples
+
+      import Selecto.Expr
+
+      selecto
+      |> Selecto.group_by(["customer.name"])
+      |> Selecto.group_by(rollup(["status"]))
   """
   @spec group_by(t(), [Selecto.Types.field_name()]) :: t()
   @spec group_by(t(), Selecto.Types.field_name()) :: t()
@@ -1036,6 +1098,8 @@ defmodule Selecto do
       |> Selecto.unnest("categories", as: "category")
   """
   def unnest(selecto, array_field, opts \\ []) do
+    Selecto.QueryValidator.validate_unnest_source!(selecto, array_field)
+
     alias_name = Keyword.get(opts, :as, "unnested_#{array_field}")
     ordinality = Keyword.get(opts, :ordinality)
 
@@ -1078,6 +1142,219 @@ defmodule Selecto do
       end
 
     put_in(updated_selecto.config[:columns], Map.merge(current_columns, columns_to_add))
+  end
+
+  @doc """
+  Add a MySQL `JSON_TABLE` rowset expansion to the query.
+
+  This helper projects JSON-derived rows as a joinable rowset and registers the
+  projected columns into the query config so they can be selected and filtered
+  with qualified field references such as `item_rows.sku`.
+  """
+  @spec json_table(t(), atom() | String.t(), keyword() | map()) :: t()
+  def json_table(selecto, source_field, opts \\ [])
+
+  def json_table(selecto, source_field, opts) when is_map(opts) do
+    json_table(selecto, source_field, Enum.into(opts, []))
+  end
+
+  def json_table(selecto, source_field, opts) when is_list(opts) do
+    Selecto.QueryValidator.validate_table_source!(selecto, source_field)
+
+    alias_name = opts |> Keyword.fetch!(:as) |> to_string()
+    path = Keyword.get(opts, :path, "$[*]")
+    join_type = Keyword.get(opts, :join_type, :inner)
+
+    columns =
+      opts
+      |> Keyword.fetch!(:columns)
+      |> Enum.map(&normalize_json_table_column!/1)
+
+    table_function = {:json_table, normalize_json_table_source(source_field), path, columns}
+
+    selecto
+    |> Selecto.lateral_join(join_type, table_function, alias_name)
+    |> register_json_table_columns(alias_name, columns)
+    |> upsert_lateral_by_alias(alias_name)
+  end
+
+  @doc """
+  Add a SQLite JSON rowset expansion using `json_each` or `json_tree`.
+
+  This helper registers the standard SQLite JSON rowset columns so they can be
+  selected and filtered with qualified references such as `item_rows.value`.
+  """
+  @spec json_rowset(t(), atom() | String.t(), keyword() | map()) :: t()
+  def json_rowset(selecto, source_field, opts \\ [])
+
+  def json_rowset(selecto, source_field, opts) when is_map(opts) do
+    json_rowset(selecto, source_field, Enum.into(opts, []))
+  end
+
+  def json_rowset(selecto, source_field, opts) when is_list(opts) do
+    Selecto.QueryValidator.validate_table_source!(selecto, source_field)
+
+    alias_name = opts |> Keyword.fetch!(:as) |> to_string()
+    path = Keyword.get(opts, :path)
+    join_type = Keyword.get(opts, :join_type, :inner)
+    function_name = Keyword.get(opts, :function, :json_each)
+
+    table_function =
+      case function_name do
+        :json_each ->
+          {:json_each, normalize_json_table_source(source_field), path}
+
+        :json_tree ->
+          {:json_tree, normalize_json_table_source(source_field), path}
+
+        other ->
+          raise ArgumentError,
+                "SQLite JSON rowset function must be :json_each or :json_tree. Got: #{inspect(other)}"
+      end
+
+    selecto
+    |> Selecto.lateral_join(join_type, table_function, alias_name)
+    |> register_sqlite_json_rowset_columns(alias_name)
+    |> upsert_lateral_by_alias(alias_name)
+  end
+
+  @doc """
+  Add an adapter-aware text-search rank selector.
+
+  This is the shared entry point for ranking support. Adapters can map it onto
+  their native ranking primitives where available.
+  """
+  @spec text_search_rank(t(), atom() | String.t() | [atom() | String.t()], keyword() | map()) ::
+          t()
+  def text_search_rank(selecto, fields, opts \\ [])
+
+  def text_search_rank(selecto, fields, opts) when is_map(opts) do
+    text_search_rank(selecto, fields, Enum.into(opts, []))
+  end
+
+  def text_search_rank(selecto, fields, opts) when is_list(opts) do
+    case Selecto.AdapterSupport.adapter_name(Map.get(selecto, :adapter)) do
+      :mysql ->
+        mysql_text_search_rank(selecto, fields, opts)
+
+      :postgresql ->
+        postgresql_text_search_rank(selecto, fields, opts)
+
+      :sqlite ->
+        sqlite_fts_rank(selecto, fields, opts)
+
+      adapter_name ->
+        raise ArgumentError,
+              "text_search_rank/3 is not yet implemented for adapter #{inspect(adapter_name)}"
+    end
+  end
+
+  @doc false
+  def mysql_text_search_rank(selecto, fields, opts) when is_list(opts) do
+    normalized_fields = Enum.map(List.wrap(fields), &to_string/1)
+
+    if normalized_fields == [] do
+      raise ArgumentError, "mysql text_search_rank/3 requires at least one field"
+    end
+
+    alias_name = Keyword.get(opts, :as, "fts_rank")
+    query = Keyword.get(opts, :query)
+    mode = Keyword.get(opts, :mode, :natural)
+
+    if is_nil(query) do
+      raise ArgumentError, "mysql text_search_rank/3 requires a :query option"
+    end
+
+    if Keyword.has_key?(opts, :weights) do
+      raise ArgumentError, "mysql text_search_rank/3 does not support :weights yet"
+    end
+
+    match_args =
+      normalized_fields
+      |> Enum.map(fn field -> "selecto_root.#{field}" end)
+      |> Enum.join(", ")
+
+    selector =
+      {:custom_sql,
+       "MATCH(#{match_args}) AGAINST ('#{escape_sql_literal(query)}'#{mysql_rank_mode_sql(selecto, mode)}) AS \"#{alias_name}\"",
+       %{}}
+
+    put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
+  end
+
+  @doc false
+  def postgresql_text_search_rank(selecto, fields, opts) when is_list(opts) do
+    normalized_fields = List.wrap(fields)
+
+    if length(normalized_fields) != 1 do
+      raise ArgumentError,
+            "postgresql text_search_rank/3 currently requires exactly one tsvector field"
+    end
+
+    [field] = normalized_fields
+    conf = postgresql_text_search_rank_field_conf!(selecto, field)
+    alias_name = Keyword.get(opts, :as, "fts_rank")
+    query = Keyword.get(opts, :query)
+    mode = Keyword.get(opts, :mode, :websearch)
+
+    if is_nil(query) do
+      raise ArgumentError, "postgresql text_search_rank/3 requires a :query option"
+    end
+
+    if Keyword.has_key?(opts, :weights) do
+      raise ArgumentError, "postgresql text_search_rank/3 does not support :weights yet"
+    end
+
+    query_function = postgresql_text_search_query_function!(mode)
+    field_ref = Map.get(conf, :field, field)
+
+    selector =
+      {:field,
+       {:func, :ts_rank, [to_string(field_ref), {:func, query_function, [{:literal, query}]}]},
+       to_string(alias_name)}
+
+    put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
+  end
+
+  @doc """
+  Add a SQLite FTS5 ranking selector using `bm25(...)`.
+
+  This helper is intentionally narrow: all referenced fields must be configured
+  as SQLite FTS5 fields on the same source alias.
+  """
+  @spec sqlite_fts_rank(t(), atom() | String.t() | [atom() | String.t()], keyword() | map()) ::
+          t()
+  def sqlite_fts_rank(selecto, fields, opts \\ [])
+
+  def sqlite_fts_rank(selecto, fields, opts) when is_map(opts) do
+    sqlite_fts_rank(selecto, fields, Enum.into(opts, []))
+  end
+
+  def sqlite_fts_rank(selecto, fields, opts) when is_list(opts) do
+    adapter = Map.get(selecto, :adapter)
+
+    if Selecto.AdapterSupport.adapter_name(adapter) != :sqlite do
+      raise ArgumentError, "sqlite_fts_rank/3 requires the SQLite adapter"
+    end
+
+    normalized_fields = List.wrap(fields)
+
+    if normalized_fields == [] do
+      raise ArgumentError, "sqlite_fts_rank/3 requires at least one FTS field"
+    end
+
+    alias_name = Keyword.get(opts, :as, "fts_rank")
+    weights = Keyword.get(opts, :weights, [])
+    source_table = sqlite_fts_rank_source_table!(selecto, normalized_fields)
+
+    bm25_args =
+      case weights do
+        [] -> source_table
+        list when is_list(list) -> Enum.join([source_table | Enum.map(list, &to_string/1)], ", ")
+      end
+
+    selector = {:custom_sql, "bm25(#{bm25_args}) AS \"#{alias_name}\"", %{}}
+    put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
   end
 
   @doc """
@@ -1323,6 +1600,33 @@ defmodule Selecto do
             join_type: join_type
           }
 
+        {:udf_table, function_id, _args} = udf_table ->
+          case Selecto.UDF.fetch(selecto, function_id) do
+            {:ok, spec} ->
+              kind = Map.get(spec, :kind) || Map.get(spec, "kind")
+              allowed_in = Map.get(spec, :allowed_in) || Map.get(spec, "allowed_in") || []
+
+              if kind != :table do
+                raise ArgumentError,
+                      "UDF '#{Selecto.UDF.normalize_id(function_id)}' must be kind :table to be used in lateral joins"
+              end
+
+              if :lateral not in allowed_in and :query_member not in allowed_in do
+                raise ArgumentError,
+                      "UDF '#{Selecto.UDF.normalize_id(function_id)}' is not allowed in :lateral. Allowed: #{inspect(allowed_in)}"
+              end
+
+              Selecto.Advanced.LateralJoin.create_lateral_join(
+                join_type,
+                udf_table,
+                alias_name,
+                opts
+              )
+
+            :error ->
+              raise ArgumentError, "Unknown UDF '#{Selecto.UDF.normalize_id(function_id)}'"
+          end
+
         # For other cases, use Advanced.LateralJoin
         _ ->
           Selecto.Advanced.LateralJoin.create_lateral_join(
@@ -1336,6 +1640,14 @@ defmodule Selecto do
     # Validate correlations
     case Selecto.Advanced.LateralJoin.validate_correlations(lateral_spec, selecto) do
       {:ok, validated_spec} ->
+        selecto =
+          maybe_register_lateral_source_columns(
+            selecto,
+            subquery_builder_or_function,
+            to_string(alias_name),
+            opts
+          )
+
         # Add to selecto set
         current_lateral_joins = Map.get(selecto.set, :lateral_joins, [])
         updated_lateral_joins = current_lateral_joins ++ [validated_spec]
@@ -1348,7 +1660,8 @@ defmodule Selecto do
   end
 
   @doc """
-  Apply a named LATERAL preset from `domain.query_members.laterals`.
+  Apply a LATERAL source directly or resolve a named LATERAL preset from
+  `domain.query_members.laterals`.
 
   ## Examples
 
@@ -1357,9 +1670,26 @@ defmodule Selecto do
 
       selecto
       |> Selecto.with_lateral(:recent_rentals, join_type: :inner)
+
+      selecto
+      |> Selecto.with_lateral(Selecto.udf_table("nearby_points", ["location", 500]),
+        as: "nearby_points",
+        join_type: :left
+      )
   """
   @spec with_lateral(t(), atom() | String.t(), keyword() | map()) :: t()
   def with_lateral(selecto, member_id, opts \\ [])
+
+  def with_lateral(selecto, %Selecto{} = lateral_source, opts)
+      when is_list(opts) or is_map(opts) do
+    apply_direct_lateral(selecto, lateral_source, opts)
+  end
+
+  def with_lateral(selecto, lateral_source, opts)
+      when (is_tuple(lateral_source) or is_function(lateral_source)) and
+             (is_list(opts) or is_map(opts)) do
+    apply_direct_lateral(selecto, lateral_source, opts)
+  end
 
   def with_lateral(selecto, member_id, opts)
       when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
@@ -1385,11 +1715,7 @@ defmodule Selecto do
     lateral_source = normalize_lateral_source!(lateral_source, selecto, member_name)
 
     alias_name =
-      normalized_overrides
-      |> Keyword.get(
-        :as,
-        Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
-      ) || values_member_alias(spec) || member_name
+      resolve_alias_name(normalized_overrides, values_member_alias(spec) || member_name)
 
     join_type =
       Keyword.get(
@@ -1403,33 +1729,53 @@ defmodule Selecto do
     default_options = ensure_keyword_opts(Map.get(spec, :options, []), :laterals, member_name)
 
     override_options =
-      normalized_overrides
-      |> Keyword.drop([
-        :query,
-        :source,
-        :lateral_source,
-        :as,
-        :alias,
-        :alias_name,
-        :join_type,
-        :type,
-        :options
-      ])
-
-    override_nested_options =
-      ensure_keyword_opts(
-        Keyword.get(normalized_overrides, :options, :__missing__),
+      merge_named_member_options(
+        normalized_overrides,
         :laterals,
-        member_name
+        member_name,
+        [:query, :source, :lateral_source, :as, :alias, :alias_name, :join_type, :type]
       )
 
     lateral_opts =
       default_options
       |> Keyword.merge(override_options)
-      |> Keyword.merge(override_nested_options)
 
     selecto
     |> Selecto.lateral_join(join_type, lateral_source, to_string(alias_name), lateral_opts)
+    |> maybe_register_lateral_source_columns(lateral_source, to_string(alias_name), lateral_opts)
+    |> upsert_lateral_by_alias(to_string(alias_name))
+  end
+
+  defp apply_direct_lateral(selecto, lateral_source, opts) do
+    normalized_overrides = normalize_named_query_member_opts(opts)
+
+    alias_name = resolve_alias_name(normalized_overrides)
+
+    if is_nil(alias_name) do
+      raise ArgumentError,
+            "Direct with_lateral/3 sources require :as, :alias, or :alias_name"
+    end
+
+    join_type =
+      Keyword.get(
+        normalized_overrides,
+        :join_type,
+        Keyword.get(normalized_overrides, :type, :left)
+      )
+
+    join_type = normalize_lateral_join_type!(join_type, to_string(alias_name))
+
+    lateral_opts =
+      merge_named_member_options(
+        normalized_overrides,
+        :laterals,
+        to_string(alias_name),
+        [:as, :alias, :alias_name, :join_type, :type]
+      )
+
+    selecto
+    |> Selecto.lateral_join(join_type, lateral_source, to_string(alias_name), lateral_opts)
+    |> maybe_register_lateral_source_columns(lateral_source, to_string(alias_name), lateral_opts)
     |> upsert_lateral_by_alias(to_string(alias_name))
   end
 
@@ -1445,6 +1791,272 @@ defmodule Selecto do
         put_in(selecto.set[:lateral_joins], others ++ [List.last(matching)])
     end
   end
+
+  defp normalize_json_table_source(field) when is_atom(field) do
+    normalize_json_table_source(Atom.to_string(field))
+  end
+
+  defp normalize_json_table_source(field) when is_binary(field) do
+    case String.split(field, ".", parts: 2) do
+      [_prefix, _column] -> field
+      [column] -> "selecto_root." <> column
+    end
+  end
+
+  defp normalize_json_table_column!({name, :for_ordinality}) do
+    %{name: to_string(name), for_ordinality: true, type: :integer}
+  end
+
+  defp normalize_json_table_column!({name, path}) when is_binary(path) do
+    %{name: to_string(name), path: path, type: :string}
+  end
+
+  defp normalize_json_table_column!({name, path, type}) when is_binary(path) do
+    %{name: to_string(name), path: path, type: type}
+  end
+
+  defp normalize_json_table_column!(%{name: name} = column) do
+    column
+    |> Map.put(:name, to_string(name))
+    |> Map.put_new(:type, if(Map.get(column, :for_ordinality), do: :integer, else: :string))
+  end
+
+  defp normalize_json_table_column!(other) do
+    raise ArgumentError,
+          "JSON_TABLE columns must be tuples or maps. Got: #{inspect(other)}"
+  end
+
+  defp register_json_table_columns(selecto, alias_name, columns) do
+    current_columns = Map.get(selecto.config, :columns, %{})
+
+    columns_to_add =
+      Enum.reduce(columns, %{}, fn %{name: name} = column, acc ->
+        Map.put(acc, "#{alias_name}.#{name}", %{
+          name: "#{alias_name}.#{name}",
+          field: name,
+          requires_join: alias_name,
+          type: Map.get(column, :type, :string)
+        })
+      end)
+
+    put_in(selecto.config[:columns], Map.merge(current_columns, columns_to_add))
+  end
+
+  defp register_sqlite_json_rowset_columns(selecto, alias_name) do
+    current_columns = Map.get(selecto.config, :columns, %{})
+
+    columns_to_add =
+      Enum.reduce(sqlite_json_rowset_columns(), %{}, fn {name, type}, acc ->
+        Map.put(acc, "#{alias_name}.#{name}", %{
+          name: "#{alias_name}.#{name}",
+          field: name,
+          requires_join: alias_name,
+          type: type
+        })
+      end)
+
+    put_in(selecto.config[:columns], Map.merge(current_columns, columns_to_add))
+  end
+
+  defp register_udf_table_columns(selecto, alias_name, columns) do
+    current_columns = Map.get(selecto.config, :columns, %{})
+
+    columns_to_add =
+      Enum.reduce(columns, %{}, fn {name, spec}, acc ->
+        type =
+          case spec do
+            %{type: type} -> type
+            %{"type" => type} -> type
+            _ -> :unknown
+          end
+
+        Map.put(acc, "#{alias_name}.#{name}", %{
+          name: "#{alias_name}.#{name}",
+          field: to_string(name),
+          requires_join: alias_name,
+          type: type
+        })
+      end)
+
+    put_in(selecto.config[:columns], Map.merge(current_columns, columns_to_add))
+  end
+
+  defp maybe_register_lateral_source_columns(
+         selecto,
+         {:json_table, _source_ref, _path, columns},
+         alias_name,
+         _opts
+       ) do
+    register_json_table_columns(selecto, alias_name, columns)
+  end
+
+  defp maybe_register_lateral_source_columns(
+         selecto,
+         {function_name, _source_ref, _path},
+         alias_name,
+         _opts
+       )
+       when function_name in [:json_each, :json_tree] do
+    register_sqlite_json_rowset_columns(selecto, alias_name)
+  end
+
+  defp maybe_register_lateral_source_columns(
+         selecto,
+         {:udf_table, function_id, _args},
+         alias_name,
+         _opts
+       ) do
+    case Selecto.UDF.fetch(selecto, function_id) do
+      {:ok, spec} ->
+        returns = Map.get(spec, :returns) || Map.get(spec, "returns") || %{}
+        columns = Map.get(returns, :columns) || Map.get(returns, "columns") || %{}
+        register_udf_table_columns(selecto, alias_name, columns)
+
+      :error ->
+        raise ArgumentError, "Unknown UDF '#{Selecto.UDF.normalize_id(function_id)}'"
+    end
+  end
+
+  defp maybe_register_lateral_source_columns(selecto, _lateral_source, _alias_name, _opts),
+    do: selecto
+
+  defp sqlite_json_rowset_columns do
+    [
+      {"key", :string},
+      {"value", :json},
+      {"type", :string},
+      {"atom", :string},
+      {"id", :integer},
+      {"parent", :integer},
+      {"fullkey", :string},
+      {"path", :string}
+    ]
+  end
+
+  defp sqlite_fts_rank_source_table!(selecto, fields) do
+    fields
+    |> Enum.map(&sqlite_fts_rank_field_conf!(selecto, &1))
+    |> Enum.map(fn conf -> Map.get(conf, :requires_join, :selecto_root) end)
+    |> Enum.map(fn
+      :selecto_root -> "selecto_root"
+      value -> to_string(value)
+    end)
+    |> Enum.uniq()
+    |> case do
+      ["selecto_root"] ->
+        selecto.domain.source.source_table
+
+      [alias_name] ->
+        raise ArgumentError,
+              "sqlite_fts_rank/3 currently supports only root-source FTS tables, got: #{inspect(alias_name)}"
+
+      aliases ->
+        raise ArgumentError,
+              "sqlite_fts_rank/3 requires FTS fields from one source alias, got: #{inspect(aliases)}"
+    end
+  end
+
+  defp sqlite_fts_rank_field_conf!(selecto, field) do
+    columns = selecto.config[:columns] || %{}
+    field_key = to_string(field)
+    conf = Map.get(columns, field_key) || Map.get(columns, safe_existing_atom(field_key))
+
+    cond do
+      is_nil(conf) ->
+        raise ArgumentError, "sqlite_fts_rank/3 field not found: #{inspect(field)}"
+
+      Map.get(conf, :type) == :fts5 or Map.get(conf, :sqlite_fts5) == true or
+          Map.get(conf, :text_search_backend) == :fts5 ->
+        conf
+
+      true ->
+        raise ArgumentError,
+              "sqlite_fts_rank/3 field is not configured for SQLite FTS5: #{inspect(field)}"
+    end
+  end
+
+  defp postgresql_text_search_rank_field_conf!(selecto, field) do
+    columns = selecto.config[:columns] || %{}
+    field_key = to_string(field)
+    conf = Map.get(columns, field_key) || Map.get(columns, safe_existing_atom(field_key))
+
+    cond do
+      is_nil(conf) ->
+        raise ArgumentError, "postgresql text_search_rank/3 field not found: #{inspect(field)}"
+
+      Map.get(conf, :type) == :tsvector or Map.get(conf, :text_search_backend) == :postgresql ->
+        conf
+
+      true ->
+        raise ArgumentError,
+              "postgresql text_search_rank/3 field is not configured for PostgreSQL text search: #{inspect(field)}"
+    end
+  end
+
+  defp postgresql_text_search_query_function!(:web), do: :websearch_to_tsquery
+  defp postgresql_text_search_query_function!(:websearch), do: :websearch_to_tsquery
+  defp postgresql_text_search_query_function!(:plain), do: :plainto_tsquery
+  defp postgresql_text_search_query_function!(:natural), do: :plainto_tsquery
+  defp postgresql_text_search_query_function!(:phrase), do: :phraseto_tsquery
+  defp postgresql_text_search_query_function!(:boolean), do: :to_tsquery
+
+  defp postgresql_text_search_query_function!(mode) do
+    raise ArgumentError, "postgresql text_search_rank/3 does not support mode #{inspect(mode)}"
+  end
+
+  defp mysql_rank_mode_sql(selecto, mode) do
+    adapter = Map.get(selecto, :adapter)
+
+    case mode do
+      nil ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :web ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :websearch ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :plain ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :natural ->
+        " IN NATURAL LANGUAGE MODE"
+
+      :boolean ->
+        if Selecto.AdapterSupport.supports_feature?(adapter, :text_search_boolean) do
+          " IN BOOLEAN MODE"
+        else
+          raise ArgumentError, "mysql text_search_rank/3 requires boolean text search support"
+        end
+
+      :query_expansion ->
+        if Selecto.AdapterSupport.supports_feature?(adapter, :text_search_query_expansion) do
+          " IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION"
+        else
+          raise ArgumentError,
+                "mysql text_search_rank/3 requires query expansion text search support"
+        end
+
+      :phrase ->
+        raise ArgumentError, "mysql text_search_rank/3 does not support :phrase"
+
+      other ->
+        raise ArgumentError, "mysql text_search_rank/3 does not support mode #{inspect(other)}"
+    end
+  end
+
+  defp escape_sql_literal(value) when is_binary(value), do: String.replace(value, "'", "''")
+
+  defp safe_existing_atom(value) when is_binary(value) do
+    try do
+      String.to_existing_atom(value)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp safe_existing_atom(_value), do: nil
 
   @doc """
   Add a VALUES clause to create an inline table from literal data.
@@ -1753,6 +2365,8 @@ defmodule Selecto do
       end)
 
     # Add to selecto set
+    Selecto.QueryValidator.validate_json_specs!(selecto, json_specs)
+
     current_json_selects = Map.get(selecto.set, :json_selects, [])
     updated_json_selects = current_json_selects ++ json_specs
 
@@ -1807,6 +2421,11 @@ defmodule Selecto do
             comparison: comparison
           )
 
+        {operation, column, path}
+        when operation in [:json_extract, :json_extract_text, :json_exists, :json_path_exists] and
+               is_binary(path) ->
+          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
+
         {operation, column, value} ->
           Selecto.Advanced.JsonOperations.create_json_operation(operation, column, value: value)
 
@@ -1815,6 +2434,8 @@ defmodule Selecto do
       end)
 
     # Add to selecto set
+    Selecto.QueryValidator.validate_json_specs!(selecto, json_specs)
+
     current_json_filters = Map.get(selecto.set, :json_filters, [])
     updated_json_filters = current_json_filters ++ json_specs
 
@@ -1876,6 +2497,11 @@ defmodule Selecto do
       end)
 
     # Add to selecto set
+    Selecto.QueryValidator.validate_json_specs!(
+      selecto,
+      Enum.map(json_specs, fn {spec, _direction} -> spec end)
+    )
+
     current_json_sorts = Map.get(selecto.set, :json_order_by, [])
     updated_json_sorts = current_json_sorts ++ json_specs
 
@@ -2481,6 +3107,33 @@ defmodule Selecto do
   defp normalize_named_query_member_opts(invalid_opts) do
     raise ArgumentError,
           "Named query member options must be a keyword list or map. Got: #{inspect(invalid_opts)}"
+  end
+
+  defp resolve_alias_name(overrides, default \\ nil) do
+    Keyword.get(
+      overrides,
+      :as,
+      Keyword.get(overrides, :alias, Keyword.get(overrides, :alias_name))
+    ) ||
+      default
+  end
+
+  defp resolve_override_or_spec_value(overrides, spec, override_keys, spec_keys) do
+    Enum.find_value(override_keys, fn key -> Keyword.get(overrides, key) end) ||
+      Enum.find_value(spec_keys, fn key -> Map.get(spec, key) end)
+  end
+
+  defp merge_named_member_options(overrides, kind, member_name, drop_keys) do
+    override_options = Keyword.drop(overrides, drop_keys ++ [:options])
+
+    nested_options =
+      ensure_keyword_opts(
+        Keyword.get(overrides, :options, :__missing__),
+        kind,
+        member_name
+      )
+
+    Keyword.merge(override_options, nested_options)
   end
 
   defp normalize_named_query_member_spec(spec) when is_map(spec) do
@@ -3160,6 +3813,8 @@ defmodule Selecto do
       end)
 
     # Add to selecto set filters
+    Selecto.QueryValidator.validate_array_specs!(selecto, array_specs)
+
     current_filters = Map.get(selecto.set, :array_filters, [])
     updated_filters = current_filters ++ array_specs
 
@@ -3252,6 +3907,8 @@ defmodule Selecto do
       end)
 
     # Add to selecto set
+    Selecto.QueryValidator.validate_array_specs!(selecto, array_specs)
+
     current_array_ops = Map.get(selecto.set, :array_operations, [])
     updated_array_ops = current_array_ops ++ array_specs
 

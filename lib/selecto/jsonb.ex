@@ -47,6 +47,8 @@ defmodule Selecto.Jsonb do
       Selecto.filter(selecto, {"attributes.warranty", :exists})
   """
 
+  alias Selecto.Error
+
   @doc """
   Parse a field reference that may contain JSONB dot notation.
 
@@ -71,7 +73,7 @@ defmodule Selecto.Jsonb do
       [first | rest] = parts
 
       # Check if first part is a JSONB column
-      case Map.get(columns, first) do
+      case Map.get(columns, first) || Map.get(columns, safe_existing_atom(first)) do
         %{type: type} when type in [:jsonb, :json] ->
           {:jsonb, first, rest}
 
@@ -85,6 +87,16 @@ defmodule Selecto.Jsonb do
   end
 
   def parse_field_reference(field, _domain), do: {:regular, field}
+
+  defp safe_existing_atom(value) when is_binary(value) do
+    try do
+      String.to_existing_atom(value)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp safe_existing_atom(_value), do: nil
 
   @doc """
   Get the JSONB schema for a path within a column.
@@ -142,6 +154,43 @@ defmodule Selecto.Jsonb do
     as_text = Keyword.get(opts, :as_text, true)
     cast = Keyword.get(opts, :cast)
     alias_name = Keyword.get(opts, :table_alias)
+    adapter = Keyword.get(opts, :adapter)
+
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        build_mssql_extraction(column, path,
+          as_text: as_text,
+          cast: cast,
+          table_alias: alias_name
+        )
+
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        build_mysql_extraction(column, path,
+          as_text: as_text,
+          cast: cast,
+          table_alias: alias_name
+        )
+
+      :sqlite ->
+        build_sqlite_extraction(column, path,
+          as_text: as_text,
+          cast: cast,
+          table_alias: alias_name
+        )
+
+      _ ->
+        build_postgres_extraction(column, path,
+          as_text: as_text,
+          cast: cast,
+          table_alias: alias_name
+        )
+    end
+  end
+
+  defp build_postgres_extraction(column, path, opts) do
+    as_text = Keyword.get(opts, :as_text, true)
+    cast = Keyword.get(opts, :cast)
+    alias_name = Keyword.get(opts, :table_alias)
 
     column_ref =
       if alias_name do
@@ -176,6 +225,73 @@ defmodule Selecto.Jsonb do
     end
   end
 
+  defp build_mssql_extraction(column, path, opts) do
+    as_text = Keyword.get(opts, :as_text, true)
+    cast = Keyword.get(opts, :cast)
+    alias_name = Keyword.get(opts, :table_alias)
+
+    column_ref = mssql_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+    extractor = if as_text, do: "JSON_VALUE", else: "JSON_QUERY"
+    extraction = "#{extractor}(#{column_ref}, '#{json_path}')"
+
+    case cast do
+      nil -> extraction
+      :integer -> "CAST(#{extraction} AS int)"
+      :decimal -> "CAST(#{extraction} AS decimal(38, 10))"
+      :float -> "CAST(#{extraction} AS float)"
+      :boolean -> "CAST(#{extraction} AS bit)"
+      :date -> "CAST(#{extraction} AS date)"
+      :datetime -> "CAST(#{extraction} AS datetime2)"
+      :utc_datetime -> "CAST(#{extraction} AS datetimeoffset)"
+      other -> "CAST(#{extraction} AS #{other})"
+    end
+  end
+
+  defp build_mysql_extraction(column, path, opts) do
+    as_text = Keyword.get(opts, :as_text, true)
+    cast = Keyword.get(opts, :cast)
+    alias_name = Keyword.get(opts, :table_alias)
+
+    column_ref = mysql_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+    extraction = "JSON_EXTRACT(#{column_ref}, '#{json_path}')"
+    extraction = if as_text, do: "JSON_UNQUOTE(#{extraction})", else: extraction
+
+    case cast do
+      nil -> extraction
+      :integer -> "CAST(#{extraction} AS SIGNED)"
+      :decimal -> "CAST(#{extraction} AS DECIMAL(38, 10))"
+      :float -> "CAST(#{extraction} AS DOUBLE)"
+      :boolean -> "CAST(#{extraction} AS UNSIGNED)"
+      :date -> "CAST(#{extraction} AS DATE)"
+      :datetime -> "CAST(#{extraction} AS DATETIME)"
+      :utc_datetime -> "CAST(#{extraction} AS DATETIME)"
+      other -> "CAST(#{extraction} AS #{other})"
+    end
+  end
+
+  defp build_sqlite_extraction(column, path, opts) do
+    cast = Keyword.get(opts, :cast)
+    alias_name = Keyword.get(opts, :table_alias)
+
+    column_ref = sqlite_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+    extraction = "json_extract(#{column_ref}, '#{json_path}')"
+
+    case cast do
+      nil -> extraction
+      :integer -> "CAST(#{extraction} AS INTEGER)"
+      :decimal -> "CAST(#{extraction} AS NUMERIC)"
+      :float -> "CAST(#{extraction} AS REAL)"
+      :boolean -> "CAST(#{extraction} AS INTEGER)"
+      :date -> "CAST(#{extraction} AS TEXT)"
+      :datetime -> "CAST(#{extraction} AS TEXT)"
+      :utc_datetime -> "CAST(#{extraction} AS TEXT)"
+      other -> "CAST(#{extraction} AS #{other})"
+    end
+  end
+
   @doc """
   Build a JSONB containment check expression.
 
@@ -186,16 +302,32 @@ defmodule Selecto.Jsonb do
   """
   def build_contains(column, value, opts \\ []) do
     alias_name = Keyword.get(opts, :table_alias)
-    json_value = Jason.encode!(value)
+    adapter = Keyword.get(opts, :adapter)
 
-    column_ref =
-      if alias_name do
-        ~s("#{alias_name}"."#{column}")
-      else
-        ~s("#{column}")
-      end
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        build_mssql_contains(column, value, alias_name)
 
-    ~s(#{column_ref} @> '#{json_value}'::jsonb)
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        column_ref = mysql_column_ref(column, alias_name)
+        json_value = Jason.encode!(value) |> escape_sql_literal()
+        "JSON_CONTAINS(#{column_ref}, '#{json_value}')"
+
+      :sqlite ->
+        build_sqlite_contains(column, value, alias_name)
+
+      _ ->
+        json_value = Jason.encode!(value)
+
+        column_ref =
+          if alias_name do
+            ~s("#{alias_name}"."#{column}")
+          else
+            ~s("#{column}")
+          end
+
+        ~s(#{column_ref} @> '#{json_value}'::jsonb)
+    end
   end
 
   @doc """
@@ -211,29 +343,48 @@ defmodule Selecto.Jsonb do
   """
   def build_key_exists(column, key_or_path, opts \\ []) do
     alias_name = Keyword.get(opts, :table_alias)
+    adapter = Keyword.get(opts, :adapter)
 
-    column_ref =
-      if alias_name do
-        ~s("#{alias_name}"."#{column}")
-      else
-        ~s("#{column}")
-      end
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        json_path = key_or_path |> normalize_path_segments() |> to_json_path()
+        column_ref = mssql_column_ref(column, alias_name)
 
-    case key_or_path do
-      key when is_binary(key) ->
-        ~s(#{column_ref} ? '#{key}')
+        "(JSON_QUERY(#{column_ref}, '#{json_path}') IS NOT NULL OR JSON_VALUE(#{column_ref}, '#{json_path}') IS NOT NULL)"
 
-      [single_key] ->
-        ~s(#{column_ref} ? '#{single_key}')
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        json_path = key_or_path |> normalize_path_segments() |> to_json_path()
+        column_ref = mysql_column_ref(column, alias_name)
+        "JSON_CONTAINS_PATH(#{column_ref}, 'one', '#{json_path}')"
 
-      keys when is_list(keys) ->
-        # Navigate to parent, then check for last key
-        {parent_path, [last_key]} = Enum.split(keys, -1)
+      :sqlite ->
+        json_path = key_or_path |> normalize_path_segments() |> to_json_path()
+        column_ref = sqlite_column_ref(column, alias_name)
+        "json_type(#{column_ref}, '#{json_path}') IS NOT NULL"
 
-        parent_expr =
-          build_extraction(column, parent_path, as_text: false, table_alias: alias_name)
+      _ ->
+        column_ref =
+          if alias_name do
+            ~s("#{alias_name}"."#{column}")
+          else
+            ~s("#{column}")
+          end
 
-        ~s(#{parent_expr} ? '#{last_key}')
+        case key_or_path do
+          key when is_binary(key) ->
+            ~s(#{column_ref} ? '#{key}')
+
+          [single_key] ->
+            ~s(#{column_ref} ? '#{single_key}')
+
+          keys when is_list(keys) ->
+            {parent_path, [last_key]} = Enum.split(keys, -1)
+
+            parent_expr =
+              build_extraction(column, parent_path, as_text: false, table_alias: alias_name)
+
+            ~s(#{parent_expr} ? '#{last_key}')
+        end
     end
   end
 
@@ -250,15 +401,29 @@ defmodule Selecto.Jsonb do
   """
   def build_array_contains(column, path, value, opts \\ []) do
     alias_name = Keyword.get(opts, :table_alias)
-    array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
+    adapter = Keyword.get(opts, :adapter)
 
-    case value do
-      v when is_binary(v) ->
-        ~s(#{array_expr} ? '#{v}')
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        build_mssql_array_contains(column, path, value, alias_name)
 
-      values when is_list(values) ->
-        escaped = Enum.map(values, fn v -> "'#{v}'" end) |> Enum.join(",")
-        ~s(#{array_expr} ?| array[#{escaped}])
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        build_mysql_array_contains(column, path, value, alias_name)
+
+      :sqlite ->
+        build_sqlite_array_contains(column, path, value, alias_name)
+
+      _ ->
+        array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
+
+        case value do
+          v when is_binary(v) ->
+            ~s(#{array_expr} ? '#{v}')
+
+          values when is_list(values) ->
+            escaped = Enum.map(values, fn v -> "'#{v}'" end) |> Enum.join(",")
+            ~s(#{array_expr} ?| array[#{escaped}])
+        end
     end
   end
 
@@ -272,10 +437,222 @@ defmodule Selecto.Jsonb do
   """
   def build_array_contains_all(column, path, values, opts \\ []) when is_list(values) do
     alias_name = Keyword.get(opts, :table_alias)
-    array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
-    escaped = Enum.map(values, fn v -> "'#{v}'" end) |> Enum.join(",")
-    ~s(#{array_expr} ?& array[#{escaped}])
+    adapter = Keyword.get(opts, :adapter)
+
+    case Selecto.AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        values
+        |> Enum.map(&build_mssql_array_contains(column, path, &1, alias_name))
+        |> Enum.intersperse(" AND ")
+
+      adapter_name when adapter_name in [:mysql, :mariadb] ->
+        values
+        |> Enum.map(&build_mysql_array_contains(column, path, &1, alias_name))
+        |> Enum.intersperse(" AND ")
+
+      :sqlite ->
+        values
+        |> Enum.map(&build_sqlite_array_contains(column, path, &1, alias_name))
+        |> Enum.intersperse(" AND ")
+
+      _ ->
+        array_expr = build_extraction(column, path, as_text: false, table_alias: alias_name)
+        escaped = Enum.map(values, fn v -> "'#{v}'" end) |> Enum.join(",")
+        ~s(#{array_expr} ?& array[#{escaped}])
+    end
   end
+
+  defp build_mssql_contains(column, value, alias_name) when is_map(value) do
+    value
+    |> flatten_mssql_contains([])
+    |> Enum.map(fn {path, path_value} ->
+      extraction = build_mssql_extraction(column, path, as_text: true, table_alias: alias_name)
+      [extraction, " = '", escape_sql_literal(path_value), "'"]
+    end)
+    |> Enum.intersperse(" AND ")
+  end
+
+  defp build_sqlite_contains(column, value, alias_name) when is_map(value) do
+    value
+    |> flatten_sqlite_contains([])
+    |> Enum.map(fn {path, path_value} ->
+      extraction = build_sqlite_extraction(column, path, table_alias: alias_name)
+      [extraction, " = ", sqlite_contains_literal(path_value)]
+    end)
+    |> Enum.intersperse(" AND ")
+  end
+
+  defp build_sqlite_contains(_column, value, _alias_name) do
+    error =
+      Error.validation_error(
+        "SQLite JSON containment currently supports only object/map comparisons",
+        %{
+          adapter: :sqlite,
+          value: value,
+          unsupported_feature: :json_contains
+        }
+      )
+
+    raise Error.to_exception(error)
+  end
+
+  defp flatten_mssql_contains(map, prefix) do
+    Enum.flat_map(map, fn
+      {key, nested} when is_map(nested) ->
+        flatten_mssql_contains(nested, prefix ++ [to_string(key)])
+
+      {key, value} when is_list(value) ->
+        error =
+          Error.validation_error("MSSQL JSON containment for arrays is not supported", %{
+            adapter: :mssql,
+            path: prefix ++ [to_string(key)],
+            unsupported_feature: :json_contains_array
+          })
+
+        raise Error.to_exception(error)
+
+      {key, value} ->
+        [{prefix ++ [to_string(key)], value}]
+    end)
+  end
+
+  defp flatten_sqlite_contains(map, prefix) do
+    Enum.flat_map(map, fn
+      {key, nested} when is_map(nested) ->
+        flatten_sqlite_contains(nested, prefix ++ [to_string(key)])
+
+      {key, value} when is_list(value) ->
+        error =
+          Error.validation_error("SQLite JSON containment for arrays is not supported", %{
+            adapter: :sqlite,
+            path: prefix ++ [to_string(key)],
+            unsupported_feature: :json_contains_array
+          })
+
+        raise Error.to_exception(error)
+
+      {key, value} ->
+        [{prefix ++ [to_string(key)], value}]
+    end)
+  end
+
+  defp sqlite_contains_literal(value) when is_binary(value),
+    do: ["'", escape_sql_literal(value), "'"]
+
+  defp sqlite_contains_literal(value) when is_integer(value), do: Integer.to_string(value)
+  defp sqlite_contains_literal(value) when is_float(value), do: Float.to_string(value)
+  defp sqlite_contains_literal(true), do: "1"
+  defp sqlite_contains_literal(false), do: "0"
+  defp sqlite_contains_literal(nil), do: "NULL"
+
+  defp sqlite_contains_literal(value) do
+    ["'", escape_sql_literal(Jason.encode!(value)), "'"]
+  end
+
+  defp build_mssql_array_contains(column, path, value, alias_name) do
+    column_ref = mssql_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+
+    [
+      "EXISTS (SELECT 1 FROM OPENJSON(",
+      column_ref,
+      ", '",
+      json_path,
+      "') WHERE value = '",
+      escape_sql_literal(value),
+      "')"
+    ]
+  end
+
+  defp build_mysql_array_contains(column, path, value, alias_name) when is_list(value) do
+    value
+    |> Enum.map(&build_mysql_array_contains(column, path, &1, alias_name))
+    |> Enum.intersperse(" OR ")
+  end
+
+  defp build_mysql_array_contains(column, path, value, alias_name) do
+    column_ref = mysql_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+    candidate = mysql_json_literal(value)
+
+    ["JSON_CONTAINS(", column_ref, ", '", candidate, "', '", json_path, "')"]
+  end
+
+  defp build_sqlite_array_contains(column, path, value, alias_name) when is_list(value) do
+    value
+    |> Enum.map(&build_sqlite_array_contains(column, path, &1, alias_name))
+    |> Enum.intersperse(" OR ")
+  end
+
+  defp build_sqlite_array_contains(column, path, value, alias_name) do
+    column_ref = sqlite_column_ref(column, alias_name)
+    json_path = to_json_path(path)
+
+    [
+      "EXISTS (SELECT 1 FROM json_each(",
+      column_ref,
+      ", '",
+      json_path,
+      "') WHERE value = '",
+      escape_sql_literal(value),
+      "')"
+    ]
+  end
+
+  defp normalize_path_segments(path) when is_binary(path) do
+    path
+    |> String.replace_prefix("$.", "")
+    |> String.split(~r/[\.\[\]]/, trim: true)
+  end
+
+  defp normalize_path_segments(path) when is_list(path), do: path
+
+  defp to_json_path(path) when is_list(path) do
+    Enum.reduce(path, "$", fn segment, acc ->
+      case Integer.parse(to_string(segment)) do
+        {index, ""} -> acc <> "[#{index}]"
+        _ -> acc <> "." <> to_string(segment)
+      end
+    end)
+  end
+
+  defp mssql_column_ref(column, nil), do: column
+  defp mssql_column_ref(column, alias_name), do: "#{alias_name}.#{column}"
+
+  defp mysql_column_ref(column, nil), do: "`#{escape_mysql_identifier(column)}`"
+
+  defp mysql_column_ref(column, alias_name) do
+    "`#{escape_mysql_identifier(alias_name)}`.`#{escape_mysql_identifier(column)}`"
+  end
+
+  defp escape_mysql_identifier(identifier) do
+    identifier
+    |> to_string()
+    |> String.replace("`", "``")
+  end
+
+  defp mysql_json_literal(value) do
+    value
+    |> Jason.encode!()
+    |> escape_sql_literal()
+  end
+
+  defp sqlite_column_ref(column, nil), do: ~s("#{escape_sqlite_identifier(column)}")
+
+  defp sqlite_column_ref(column, alias_name) do
+    ~s("#{escape_sqlite_identifier(alias_name)}"."#{escape_sqlite_identifier(column)}")
+  end
+
+  defp escape_sqlite_identifier(identifier) do
+    identifier
+    |> to_string()
+    |> String.replace("\"", "\"\"")
+  end
+
+  defp escape_sql_literal(value) when is_binary(value), do: String.replace(value, "'", "''")
+  defp escape_sql_literal(value) when is_boolean(value), do: if(value, do: "true", else: "false")
+  defp escape_sql_literal(nil), do: "null"
+  defp escape_sql_literal(value), do: to_string(value)
 
   @doc """
   Determine the PostgreSQL cast type for a JSONB schema type.

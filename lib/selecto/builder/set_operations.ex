@@ -185,7 +185,10 @@ defmodule Selecto.Builder.SetOperations do
   defp has_conflicting_clauses?(selecto) do
     # Set operations cannot be combined with certain clauses at the individual query level
     has_group_by = not Enum.empty?(Map.get(selecto.set, :group_by, []))
-    has_retarget = Map.has_key?(selecto.set, :retarget_state) or Map.has_key?(selecto.set, :pivot_state)
+
+    has_retarget =
+      Map.has_key?(selecto.set, :retarget_state) or Map.has_key?(selecto.set, :pivot_state)
+
     has_subselects = not Enum.empty?(Map.get(selecto.set, :subselected, []))
 
     has_group_by or has_retarget or has_subselects

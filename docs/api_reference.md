@@ -4,6 +4,60 @@ Complete API documentation for Selecto's advanced query builder with comprehensi
 
 ## Core Functions
 
+## Expression Authoring
+
+### `Selecto.Expr`
+
+Composable helper module for building Selecto AST as plain Elixir data.
+
+Typical uses:
+
+- dynamic filter assembly
+- reusable selector helpers
+- runtime-built order/group/select fragments
+
+Example:
+
+```elixir
+alias Selecto.Expr, as: X
+
+Selecto.filter(selecto, X.compact_and([
+  X.eq("status", "active"),
+  X.when_present(search, &X.ilike("customer.name", "%#{&1}%"))
+]))
+```
+
+### `Selecto.ExprMacros`
+
+Macro layer for authoring Selecto AST with Elixir syntax.
+
+- `where/1` - filter DSL
+- `select/1` - selector DSL
+- `order_by/1` - order DSL
+
+Example:
+
+```elixir
+import Selecto.ExprMacros
+
+filters = where(status == ^status and ilike(customer.name, ^pattern))
+selectors = select([customer.name, count_distinct(customer.id)])
+orders = order_by([desc_nulls_last(total), asc(customer.name)])
+```
+
+### `Selecto.Sigil`
+
+Filter-only sigil DSL.
+
+```elixir
+import Selecto.Sigil
+
+filters = ~SELECTO"total >= ^min_total and starts_with(customer.name, ^prefix)"
+```
+
+For the broader guide, examples, and current coverage snapshot, see
+`docs/expression_dsl.md`.
+
 ### `Selecto.configure/2`
 
 Configures a Selecto instance with domain configuration and connection input.

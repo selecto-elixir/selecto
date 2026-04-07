@@ -11,7 +11,9 @@ defmodule Selecto.Builder.Sql.Where do
   import Selecto.Builder.Sql.Helpers
 
   alias Selecto.AdapterSQL
+  alias Selecto.AdapterSupport
   alias Selecto.Builder.Sql.Select
+  alias Selecto.Error
   alias Selecto.Jsonb
 
   # Predicate formats supported:
@@ -62,19 +64,37 @@ defmodule Selecto.Builder.Sql.Where do
     build(selecto, {:case, when_clauses, nil})
   end
 
-  def build(selecto, {field, {:text_search, value}}) do
-    conf = field_conf(selecto, field)
-    # Extract actual field name, not display name
-    field_name = extract_database_field(field, conf)
+  def build(selecto, {:udf, function_id, args}) when is_list(args) do
+    {selector_iodata, joins, params} = Select.build_udf(selecto, function_id, args, :filter)
+    {List.wrap(joins), [" ", selector_iodata, " "], params}
+  end
 
-    {conf.requires_join,
-     [
-       " ",
-       build_selector_string(selecto, conf.requires_join, field_name),
-       " @@ websearch_to_tsquery(",
-       {:param, value},
-       ") "
-     ], []}
+  def build(selecto, {fields, {:text_search, value}})
+      when is_list(fields) and not is_list(value) do
+    build_text_search(selecto, fields, value)
+  end
+
+  def build(selecto, {fields, {:text_search, opts}}) when is_list(fields) and is_list(opts) do
+    {resolved_fields, value, text_search_opts} = normalize_text_search_spec(fields, opts)
+    build_text_search(selecto, resolved_fields, value, text_search_opts)
+  end
+
+  def build(selecto, {fields, {:text_search, value, opts}})
+      when is_list(fields) and is_list(opts) do
+    build_text_search(selecto, fields, value, opts)
+  end
+
+  def build(selecto, {field, {:text_search, opts}}) when is_list(opts) do
+    {resolved_fields, value, text_search_opts} = normalize_text_search_spec([field], opts)
+    build_text_search(selecto, resolved_fields, value, text_search_opts)
+  end
+
+  def build(selecto, {field, {:text_search, value}}) when not is_list(value) do
+    build_text_search(selecto, [field], value)
+  end
+
+  def build(selecto, {field, {:text_search, value, opts}}) when is_list(opts) do
+    build_text_search(selecto, [field], value, opts)
   end
 
   def build(selecto, {field, {:subquery, :in, %Selecto{} = query_selecto}}) do
@@ -191,17 +211,17 @@ defmodule Selecto.Builder.Sql.Where do
     field_name = extract_database_field(field, conf)
 
     # Use half-open interval for datetime types to avoid precision issues
-    if conf.type in [:date, :naive_datetime, :utc_datetime, :datetime] do
+    if date_like_type(conf) do
       {conf.requires_join,
        [
          " (",
          build_selector_string(selecto, conf.requires_join, field_name),
          " >= ",
-         {:param, to_type(conf.type, min)},
+         {:param, to_field_value(conf, min)},
          " and ",
          build_selector_string(selecto, conf.requires_join, field_name),
          " < ",
-         {:param, to_type(conf.type, max)},
+         {:param, to_field_value(conf, max)},
          ") "
        ], []}
     else
@@ -211,9 +231,9 @@ defmodule Selecto.Builder.Sql.Where do
          " ",
          build_selector_string(selecto, conf.requires_join, field_name),
          " between ",
-         {:param, to_type(conf.type, min)},
+         {:param, to_field_value(conf, min)},
          " and ",
-         {:param, to_type(conf.type, max)},
+         {:param, to_field_value(conf, max)},
          " "
        ], []}
     end
@@ -227,17 +247,17 @@ defmodule Selecto.Builder.Sql.Where do
     field_name = extract_database_field(field, conf)
 
     # Use half-open interval for datetime types to avoid precision issues
-    if conf.type in [:date, :naive_datetime, :utc_datetime, :datetime] do
+    if date_like_type(conf) do
       {conf.requires_join,
        [
          " (",
          build_selector_string(selecto, conf.requires_join, field_name),
          " >= ",
-         {:param, to_type(conf.type, min)},
+         {:param, to_field_value(conf, min)},
          " and ",
          build_selector_string(selecto, conf.requires_join, field_name),
          " < ",
-         {:param, to_type(conf.type, max)},
+         {:param, to_field_value(conf, max)},
          ") "
        ], []}
     else
@@ -247,9 +267,9 @@ defmodule Selecto.Builder.Sql.Where do
          " ",
          build_selector_string(selecto, conf.requires_join, field_name),
          " between ",
-         {:param, to_type(conf.type, min)},
+         {:param, to_field_value(conf, min)},
          " and ",
-         {:param, to_type(conf.type, max)},
+         {:param, to_field_value(conf, max)},
          " "
        ], []}
     end
@@ -259,6 +279,36 @@ defmodule Selecto.Builder.Sql.Where do
     # ### Value must have a % in it to work!
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(join), [" ", sel, " ", to_string(comp), " ", {:param, value}, " "], param}
+  end
+
+  def build(selecto, {field, {comp, {:ref, ref_field}}})
+      when comp in [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne] do
+    conf = field_conf(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {ref_sel, ref_join, ref_params} = Select.prep_selector(selecto, {:ref, ref_field})
+
+    sql_op =
+      case comp do
+        :gt -> ">"
+        :lt -> "<"
+        :gte -> ">="
+        :lte -> "<="
+        :eq -> "="
+        :ne -> "!="
+        other -> to_string(other)
+      end
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join) ++ List.wrap(ref_join),
+     [" ", sel, " ", sql_op, " ", ref_sel, " "], param ++ ref_params}
+  end
+
+  def build(selecto, {field, {comp, {:ref, ref_field}}}) when comp in ~w[= != < > <= >=] do
+    conf = field_conf(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {ref_sel, ref_join, ref_params} = Select.prep_selector(selecto, {:ref, ref_field})
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join) ++ List.wrap(ref_join),
+     [" ", sel, " ", comp, " ", ref_sel, " "], param ++ ref_params}
   end
 
   def build(selecto, {field, {:not_like, value}}) do
@@ -285,7 +335,7 @@ defmodule Selecto.Builder.Sql.Where do
       end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
-     [" ", sel, " ", sql_op, " ", {:param, to_type(conf.type, value)}, " "], param}
+     [" ", sel, " ", sql_op, " ", {:param, to_field_value(conf, value)}, " "], param}
   end
 
   def build(selecto, {field, {comp, value}}) when comp in ~w[= != < > <= >=] do
@@ -293,14 +343,14 @@ defmodule Selecto.Builder.Sql.Where do
     {sel, join, param} = Select.prep_selector(selecto, field)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
-     [" ", sel, " ", comp, " ", {:param, to_type(conf.type, value)}, " "], param}
+     [" ", sel, " ", comp, " ", {:param, to_field_value(conf, value)}, " "], param}
   end
 
   def build(selecto, {field, {:in, list}}) when is_list(list) do
     conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
+    typed_values = Enum.map(list, fn i -> to_field_value(conf, i) end)
     in_clause = build_list_clause(selecto, sel, typed_values, false)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
@@ -310,7 +360,7 @@ defmodule Selecto.Builder.Sql.Where do
     conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
+    typed_values = Enum.map(list, fn i -> to_field_value(conf, i) end)
     not_in_clause = build_list_clause(selecto, sel, typed_values, true)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), not_in_clause, param}
@@ -320,7 +370,7 @@ defmodule Selecto.Builder.Sql.Where do
     conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
 
-    typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
+    typed_values = Enum.map(list, fn i -> to_field_value(conf, i) end)
     in_clause = build_list_clause(selecto, sel, typed_values, false)
 
     {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
@@ -341,6 +391,15 @@ defmodule Selecto.Builder.Sql.Where do
     conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
     {List.wrap(conf.requires_join) ++ List.wrap(join), [" ", sel, " is null "], param}
+  end
+
+  def build(selecto, {field, {:ref, ref_field}}) do
+    conf = field_conf(selecto, field)
+    {sel, join, param} = Select.prep_selector(selecto, field)
+    {ref_sel, ref_join, ref_params} = Select.prep_selector(selecto, {:ref, ref_field})
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join) ++ List.wrap(ref_join),
+     [" ", sel, " = ", ref_sel, " "], param ++ ref_params}
   end
 
   # Handle array filter specifications (must come before generic {field, value})
@@ -404,7 +463,8 @@ defmodule Selecto.Builder.Sql.Where do
         extraction =
           Jsonb.build_extraction(column, path,
             as_text: false,
-            table_alias: get_root_alias(selecto)
+            table_alias: get_root_alias(selecto),
+            adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
           )
 
         {[], [" ", extraction, " @> ", {:param, json_value}, "::jsonb "], []}
@@ -423,7 +483,12 @@ defmodule Selecto.Builder.Sql.Where do
 
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} when path != [] ->
-        exists_expr = Jsonb.build_key_exists(column, path, table_alias: get_root_alias(selecto))
+        exists_expr =
+          Jsonb.build_key_exists(column, path,
+            table_alias: get_root_alias(selecto),
+            adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+          )
+
         {[], [" ", exists_expr, " "], []}
 
       _ ->
@@ -439,7 +504,10 @@ defmodule Selecto.Builder.Sql.Where do
     case Jsonb.parse_field_reference(field, domain) do
       {:jsonb, column, path} ->
         contains_expr =
-          Jsonb.build_array_contains(column, path, value, table_alias: get_root_alias(selecto))
+          Jsonb.build_array_contains(column, path, value,
+            table_alias: get_root_alias(selecto),
+            adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+          )
 
         {[], [" ", contains_expr, " "], []}
 
@@ -457,7 +525,8 @@ defmodule Selecto.Builder.Sql.Where do
       {:jsonb, column, path} ->
         contains_expr =
           Jsonb.build_array_contains_all(column, path, values,
-            table_alias: get_root_alias(selecto)
+            table_alias: get_root_alias(selecto),
+            adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
           )
 
         {[], [" ", contains_expr, " "], []}
@@ -496,7 +565,7 @@ defmodule Selecto.Builder.Sql.Where do
         # Not a JSONB field, use regular IN
         conf = field_conf(selecto, field)
         {sel, join, param} = Select.prep_selector(selecto, field)
-        typed_values = Enum.map(list, fn i -> to_type(conf.type, i) end)
+        typed_values = Enum.map(list, fn i -> to_field_value(conf, i) end)
         in_clause = build_list_clause(selecto, sel, typed_values, false)
 
         {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
@@ -516,17 +585,17 @@ defmodule Selecto.Builder.Sql.Where do
         conf = field_conf(selecto, field)
         field_name = extract_database_field(field, conf)
 
-        if conf.type in [:date, :naive_datetime, :utc_datetime, :datetime] do
+        if date_like_type(conf) do
           {conf.requires_join,
            [
              " (",
              build_selector_string(selecto, conf.requires_join, field_name),
              " >= ",
-             {:param, to_type(conf.type, min)},
+             {:param, to_field_value(conf, min)},
              " and ",
              build_selector_string(selecto, conf.requires_join, field_name),
              " < ",
-             {:param, to_type(conf.type, max)},
+             {:param, to_field_value(conf, max)},
              ") "
            ], []}
         else
@@ -535,9 +604,9 @@ defmodule Selecto.Builder.Sql.Where do
              " ",
              build_selector_string(selecto, conf.requires_join, field_name),
              " between ",
-             {:param, to_type(conf.type, min)},
+             {:param, to_field_value(conf, min)},
              " and ",
-             {:param, to_type(conf.type, max)},
+             {:param, to_field_value(conf, max)},
              " "
            ], []}
         end
@@ -605,7 +674,13 @@ defmodule Selecto.Builder.Sql.Where do
       end
     else
       operator = if negate?, do: " NOT IN (", else: " IN ("
-      [" ", selector, operator, {:param, typed_values}, ") "]
+
+      placeholders =
+        typed_values
+        |> Enum.map(fn value -> {:param, value} end)
+        |> Enum.intersperse(", ")
+
+      [" ", selector, operator, placeholders, ") "]
     end
   end
 
@@ -623,7 +698,8 @@ defmodule Selecto.Builder.Sql.Where do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: get_root_alias(selecto),
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     # For nil values, check if the key exists and is null vs key doesn't exist
@@ -644,7 +720,8 @@ defmodule Selecto.Builder.Sql.Where do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: get_root_alias(selecto),
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     sql_op =
@@ -678,7 +755,8 @@ defmodule Selecto.Builder.Sql.Where do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: get_root_alias(selecto),
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     # Convert list values to appropriate types
@@ -701,7 +779,8 @@ defmodule Selecto.Builder.Sql.Where do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: get_root_alias(selecto),
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     {[], [" ", extraction, " BETWEEN ", {:param, min}, " AND ", {:param, max}, " "], []}
@@ -723,7 +802,7 @@ defmodule Selecto.Builder.Sql.Where do
       end
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
-     [" ", sel, " ", sql_op, " ", {:param, to_type(conf.type, value)}, " "], param}
+     [" ", sel, " ", sql_op, " ", {:param, to_field_value(conf, value)}, " "], param}
   end
 
   defp get_root_alias(selecto) do
@@ -830,6 +909,16 @@ defmodule Selecto.Builder.Sql.Where do
     val
   end
 
+  defp to_field_value(conf, value) do
+    if Selecto.Temporal.epoch_storage(conf) && date_like_type(conf) do
+      Selecto.Temporal.coerce_filter_value(conf, value)
+    else
+      to_type(Map.get(conf, :type), value)
+    end
+  end
+
+  defp date_like_type(conf), do: Selecto.Temporal.date_like_type(conf)
+
   defp field_conf(selecto, field) do
     case fast_config_column(selecto, field) do
       nil -> Selecto.field(selecto, field)
@@ -874,6 +963,273 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   defp safe_existing_atom(_field), do: nil
+
+  defp build_text_search(selecto, fields, value, opts \\ []) when is_list(fields) do
+    adapter = Map.get(selecto, :adapter)
+    adapter_name = AdapterSupport.adapter_name(adapter)
+    mode = canonical_text_search_mode(Keyword.get(opts, :mode))
+
+    compiled_fields =
+      Enum.map(fields, fn field ->
+        conf = field_conf(selecto, field)
+        field_name = extract_database_field(field, conf)
+        {conf, field_name}
+      end)
+
+    joins =
+      compiled_fields
+      |> Enum.flat_map(fn {conf, _field_name} -> List.wrap(conf.requires_join) end)
+      |> Enum.uniq()
+
+    selectors =
+      Enum.map(compiled_fields, fn {conf, field_name} ->
+        build_selector_string(selecto, conf.requires_join, field_name)
+      end)
+
+    cond do
+      adapter_name == :sqlite and sqlite_fts5_enabled?(compiled_fields) and length(selectors) == 1 ->
+        ensure_sqlite_fts5_runtime_available!(selecto, adapter, fields)
+        ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
+        [selector] = selectors
+
+        {joins, [" ", selector, " MATCH ", {:param, sqlite_text_search_query(value, mode)}, " "],
+         []}
+
+      adapter_name == :sqlite and sqlite_fts5_enabled?(compiled_fields) ->
+        ensure_sqlite_fts5_runtime_available!(selecto, adapter, fields)
+        ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
+
+        clauses =
+          selectors
+          |> Enum.map(fn selector ->
+            [selector, " MATCH ", {:param, sqlite_text_search_query(value, mode)}]
+          end)
+          |> Enum.intersperse(" OR ")
+
+        {joins, [" (", clauses, ") "], []}
+
+      adapter_name == :sqlite ->
+        raise_text_search_error(
+          "SQLite text search requires an FTS5-configured field",
+          adapter_name,
+          :fts5,
+          fields
+        )
+
+      adapter_name == :mysql and AdapterSupport.supports_feature?(adapter, :text_search) and
+          length(selectors) == 1 ->
+        {joins,
+         [
+           " MATCH(",
+           hd(selectors),
+           ") AGAINST (",
+           {:param, value},
+           mysql_text_search_mode_sql(adapter, mode)
+         ], []}
+
+      adapter_name == :mysql and
+          AdapterSupport.supports_feature?(adapter, :text_search_multi_field) ->
+        {joins,
+         [
+           " MATCH(",
+           Enum.intersperse(selectors, ", "),
+           ") AGAINST (",
+           {:param, value},
+           mysql_text_search_mode_sql(adapter, mode)
+         ], []}
+
+      length(selectors) > 1 ->
+        raise_text_search_error(
+          "Adapter does not support multi-field text search",
+          adapter_name,
+          :text_search_multi_field,
+          fields
+        )
+
+      AdapterSupport.supports_feature?(adapter, :text_search) ->
+        ensure_supported_text_search_mode!(adapter_name, mode, fields)
+        [selector] = selectors
+
+        {joins,
+         [
+           " ",
+           selector,
+           " @@ ",
+           postgres_text_search_query_sql(mode),
+           "(",
+           {:param, value},
+           ") "
+         ], []}
+
+      true ->
+        raise_text_search_error(
+          "Adapter does not support text search",
+          adapter_name,
+          :text_search,
+          fields
+        )
+    end
+  end
+
+  defp raise_text_search_error(message, adapter_name, unsupported_feature, fields) do
+    error =
+      Error.validation_error(message, %{
+        adapter: adapter_name,
+        fields: fields,
+        unsupported_feature: unsupported_feature
+      })
+
+    raise Error.to_exception(error)
+  end
+
+  defp mysql_text_search_mode_sql(adapter, mode) do
+    case mode do
+      nil ->
+        " IN NATURAL LANGUAGE MODE) "
+
+      :plain ->
+        " IN NATURAL LANGUAGE MODE) "
+
+      :websearch ->
+        " IN NATURAL LANGUAGE MODE) "
+
+      :natural ->
+        " IN NATURAL LANGUAGE MODE) "
+
+      :boolean ->
+        if AdapterSupport.supports_feature?(adapter, :text_search_boolean) do
+          " IN BOOLEAN MODE) "
+        else
+          raise_text_search_error(
+            "Adapter does not support boolean-mode text search",
+            AdapterSupport.adapter_name(adapter),
+            :text_search_boolean,
+            []
+          )
+        end
+
+      :query_expansion ->
+        if AdapterSupport.supports_feature?(adapter, :text_search_query_expansion) do
+          " IN NATURAL LANGUAGE MODE WITH QUERY EXPANSION) "
+        else
+          raise_text_search_error(
+            "Adapter does not support query-expansion text search",
+            AdapterSupport.adapter_name(adapter),
+            :text_search_query_expansion,
+            []
+          )
+        end
+
+      other ->
+        raise_text_search_error(
+          "Unsupported text search mode",
+          AdapterSupport.adapter_name(adapter),
+          :text_search_mode,
+          [other]
+        )
+    end
+  end
+
+  defp ensure_supported_text_search_mode!(adapter_name, mode, fields)
+       when mode in [nil, :websearch, :plain, :phrase, :boolean, :natural] do
+    _ = {adapter_name, fields}
+    :ok
+  end
+
+  defp ensure_supported_text_search_mode!(adapter_name, mode, fields) do
+    raise_text_search_error(
+      "Adapter does not support this text search mode",
+      adapter_name,
+      :text_search_mode,
+      [{:mode, mode} | fields]
+    )
+  end
+
+  defp normalize_text_search_spec(default_fields, opts) when is_list(opts) do
+    {query, remaining_opts} = Keyword.pop(opts, :query)
+    fields = Keyword.get(remaining_opts, :fields, default_fields)
+
+    text_search_opts =
+      remaining_opts
+      |> Keyword.drop([:fields])
+      |> Keyword.update(:mode, nil, &canonical_text_search_mode/1)
+
+    if is_nil(query) do
+      raise ArgumentError, "text_search config requires a :query option"
+    end
+
+    {List.wrap(fields), query, text_search_opts}
+  end
+
+  defp canonical_text_search_mode(:web), do: :websearch
+  defp canonical_text_search_mode(mode), do: mode
+
+  defp postgres_text_search_query_sql(nil), do: "websearch_to_tsquery"
+  defp postgres_text_search_query_sql(:websearch), do: "websearch_to_tsquery"
+  defp postgres_text_search_query_sql(:plain), do: "plainto_tsquery"
+  defp postgres_text_search_query_sql(:natural), do: "plainto_tsquery"
+  defp postgres_text_search_query_sql(:phrase), do: "phraseto_tsquery"
+  defp postgres_text_search_query_sql(:boolean), do: "to_tsquery"
+
+  defp ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields)
+       when mode in [nil, :websearch, :boolean, :phrase] do
+    _ = {adapter_name, fields}
+    :ok
+  end
+
+  defp ensure_supported_sqlite_text_search_mode!(adapter_name, mode, fields) do
+    raise_text_search_error(
+      "SQLite FTS5 search does not support this text search mode",
+      adapter_name,
+      :text_search_mode,
+      [{:mode, mode} | fields]
+    )
+  end
+
+  defp sqlite_fts5_enabled?(compiled_fields) do
+    Enum.all?(compiled_fields, fn {conf, _field_name} ->
+      sqlite_fts5_field?(conf)
+    end)
+  end
+
+  defp ensure_sqlite_fts5_runtime_available!(selecto, adapter, fields) do
+    runtime_connection = Map.get(selecto, :connection)
+
+    cond do
+      runtime_connection in [nil, [], %{}] ->
+        :ok
+
+      not AdapterSupport.callback_available?(adapter, :fts5_available?, 1) ->
+        :ok
+
+      adapter.fts5_available?(runtime_connection) ->
+        :ok
+
+      true ->
+        raise_text_search_error(
+          "SQLite FTS5 is not available on the current connection",
+          AdapterSupport.adapter_name(adapter),
+          :fts5,
+          fields
+        )
+    end
+  end
+
+  defp sqlite_fts5_field?(conf) do
+    Map.get(conf, :type) == :fts5 or Map.get(conf, :sqlite_fts5) == true or
+      Map.get(conf, :text_search_backend) == :fts5
+  end
+
+  defp sqlite_text_search_query(value, :phrase) when is_binary(value) do
+    if String.starts_with?(value, "\"") and String.ends_with?(value, "\"") do
+      value
+    else
+      escaped = String.replace(value, "\"", "\"\"")
+      ~s("#{escaped}")
+    end
+  end
+
+  defp sqlite_text_search_query(value, _mode), do: value
 
   defp convert_sql_placeholders_to_iodata(sql, params)
        when is_binary(sql) and is_list(params) do

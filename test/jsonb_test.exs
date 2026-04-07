@@ -63,6 +63,72 @@ defmodule Selecto.JsonbTest do
              Jsonb.build_extraction("attributes", ["dimensions", "length"], cast: :decimal)
   end
 
+  test "build_extraction supports mssql json value and query functions" do
+    assert "JSON_VALUE(u.attributes, '$.color')" ==
+             Jsonb.build_extraction("attributes", ["color"],
+               adapter: SelectoDBMSSQL.Adapter,
+               table_alias: "u"
+             )
+
+    assert "JSON_QUERY(u.attributes, '$.dimensions')" ==
+             Jsonb.build_extraction("attributes", ["dimensions"],
+               adapter: SelectoDBMSSQL.Adapter,
+               table_alias: "u",
+               as_text: false
+             )
+
+    assert "CAST(JSON_VALUE(u.attributes, '$.dimensions.length') AS decimal(38, 10))" ==
+             Jsonb.build_extraction("attributes", ["dimensions", "length"],
+               adapter: SelectoDBMSSQL.Adapter,
+               table_alias: "u",
+               cast: :decimal
+             )
+  end
+
+  test "build_extraction supports mysql json extract functions" do
+    assert "JSON_UNQUOTE(JSON_EXTRACT(`u`.`attributes`, '$.color'))" ==
+             Jsonb.build_extraction("attributes", ["color"],
+               adapter: SelectoDBMySQL.Adapter,
+               table_alias: "u"
+             )
+
+    assert "JSON_EXTRACT(`u`.`attributes`, '$.dimensions')" ==
+             Jsonb.build_extraction("attributes", ["dimensions"],
+               adapter: SelectoDBMySQL.Adapter,
+               table_alias: "u",
+               as_text: false
+             )
+
+    assert "CAST(JSON_UNQUOTE(JSON_EXTRACT(`u`.`attributes`, '$.dimensions.length')) AS DECIMAL(38, 10))" ==
+             Jsonb.build_extraction("attributes", ["dimensions", "length"],
+               adapter: SelectoDBMySQL.Adapter,
+               table_alias: "u",
+               cast: :decimal
+             )
+  end
+
+  test "build_extraction supports sqlite json_extract functions" do
+    assert ~s|json_extract("u"."attributes", '$.color')| ==
+             Jsonb.build_extraction("attributes", ["color"],
+               adapter: SelectoDBSQLite.Adapter,
+               table_alias: "u"
+             )
+
+    assert ~s|json_extract("u"."attributes", '$.dimensions')| ==
+             Jsonb.build_extraction("attributes", ["dimensions"],
+               adapter: SelectoDBSQLite.Adapter,
+               table_alias: "u",
+               as_text: false
+             )
+
+    assert ~s|CAST(json_extract("u"."attributes", '$.dimensions.length') AS NUMERIC)| ==
+             Jsonb.build_extraction("attributes", ["dimensions", "length"],
+               adapter: SelectoDBSQLite.Adapter,
+               table_alias: "u",
+               cast: :decimal
+             )
+  end
+
   test "build_contains and key existence expressions" do
     contains = Jsonb.build_contains("attributes", %{"color" => "red"}, table_alias: "u")
     assert String.contains?(contains, ~s("u"."attributes" @>))
@@ -74,6 +140,148 @@ defmodule Selecto.JsonbTest do
     nested = Jsonb.build_key_exists("attributes", ["dimensions", "length"])
     assert String.contains?(nested, "? 'length'")
     assert String.contains?(nested, "->'dimensions'")
+  end
+
+  test "mssql contains and key existence use json functions" do
+    contains =
+      Jsonb.build_contains("attributes", %{"color" => "red", "dimensions" => %{"length" => 5}},
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert IO.iodata_to_binary(contains) =~ "JSON_VALUE(u.attributes, '$.color') = 'red'"
+
+    assert IO.iodata_to_binary(contains) =~
+             "JSON_VALUE(u.attributes, '$.dimensions.length') = '5'"
+
+    exists =
+      Jsonb.build_key_exists("attributes", ["dimensions", "length"],
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert exists =~ "JSON_QUERY(u.attributes, '$.dimensions.length') IS NOT NULL"
+    assert exists =~ "JSON_VALUE(u.attributes, '$.dimensions.length') IS NOT NULL"
+  end
+
+  test "mssql containment rejects array semantics explicitly" do
+    assert_raise RuntimeError, ~r/MSSQL JSON containment for arrays is not supported/, fn ->
+      Jsonb.build_contains("attributes", %{"tags" => ["featured"]},
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+    end
+  end
+
+  test "mysql contains and key existence use mysql json functions" do
+    contains =
+      Jsonb.build_contains("attributes", %{"color" => "red"},
+        adapter: SelectoDBMySQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert contains == "JSON_CONTAINS(`u`.`attributes`, '{\"color\":\"red\"}')"
+
+    exists =
+      Jsonb.build_key_exists("attributes", ["dimensions", "length"],
+        adapter: SelectoDBMySQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert exists == "JSON_CONTAINS_PATH(`u`.`attributes`, 'one', '$.dimensions.length')"
+  end
+
+  test "sqlite key existence and array helpers use sqlite json functions" do
+    exists =
+      Jsonb.build_key_exists("attributes", ["dimensions", "length"],
+        adapter: SelectoDBSQLite.Adapter,
+        table_alias: "u"
+      )
+
+    one =
+      Jsonb.build_array_contains("attributes", ["tags"], "featured",
+        adapter: SelectoDBSQLite.Adapter,
+        table_alias: "u"
+      )
+
+    all =
+      Jsonb.build_array_contains_all("attributes", ["tags"], ["featured", "new"],
+        adapter: SelectoDBSQLite.Adapter,
+        table_alias: "u"
+      )
+
+    assert exists == ~s|json_type("u"."attributes", '$.dimensions.length') IS NOT NULL|
+
+    assert IO.iodata_to_binary(one) =~
+             ~s|EXISTS (SELECT 1 FROM json_each("u"."attributes", '$.tags') WHERE value = 'featured')|
+
+    assert IO.iodata_to_binary(all) =~ ~s|json_each("u"."attributes", '$.tags')|
+    assert IO.iodata_to_binary(all) =~ "WHERE value = 'new'"
+  end
+
+  test "sqlite json containment rejects unsupported current abstraction" do
+    contains =
+      Jsonb.build_contains("attributes", %{"color" => "red", "dimensions" => %{"length" => 5}},
+        adapter: SelectoDBSQLite.Adapter,
+        table_alias: "u"
+      )
+
+    assert IO.iodata_to_binary(contains) =~ ~s|json_extract("u"."attributes", '$.color') = 'red'|
+
+    assert IO.iodata_to_binary(contains) =~
+             ~s|json_extract("u"."attributes", '$.dimensions.length') = 5|
+
+    assert_raise RuntimeError,
+                 ~r/SQLite JSON containment for arrays is not supported/,
+                 fn ->
+                   Jsonb.build_contains("attributes", %{"tags" => ["featured"]},
+                     adapter: SelectoDBSQLite.Adapter,
+                     table_alias: "u"
+                   )
+                 end
+  end
+
+  test "mssql json array helpers use openjson" do
+    one =
+      Jsonb.build_array_contains("attributes", ["tags"], "featured",
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+
+    all =
+      Jsonb.build_array_contains_all("attributes", ["tags"], ["featured", "new"],
+        adapter: SelectoDBMSSQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert IO.iodata_to_binary(one) =~ "OPENJSON(u.attributes, '$.tags')"
+    assert IO.iodata_to_binary(one) =~ "WHERE value = 'featured'"
+    assert IO.iodata_to_binary(all) =~ "OPENJSON(u.attributes, '$.tags')"
+    assert IO.iodata_to_binary(all) =~ "WHERE value = 'featured'"
+    assert IO.iodata_to_binary(all) =~ "WHERE value = 'new'"
+  end
+
+  test "mysql json array helpers use json_contains" do
+    one =
+      Jsonb.build_array_contains("attributes", ["tags"], "featured",
+        adapter: SelectoDBMySQL.Adapter,
+        table_alias: "u"
+      )
+
+    all =
+      Jsonb.build_array_contains_all("attributes", ["tags"], ["featured", "new"],
+        adapter: SelectoDBMySQL.Adapter,
+        table_alias: "u"
+      )
+
+    assert IO.iodata_to_binary(one) ==
+             "JSON_CONTAINS(`u`.`attributes`, '\"featured\"', '$.tags')"
+
+    assert IO.iodata_to_binary(all) =~
+             "JSON_CONTAINS(`u`.`attributes`, '\"featured\"', '$.tags')"
+
+    assert IO.iodata_to_binary(all) =~
+             "JSON_CONTAINS(`u`.`attributes`, '\"new\"', '$.tags')"
   end
 
   test "array contains helpers" do

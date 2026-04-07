@@ -74,17 +74,15 @@ defmodule Selecto.PropertyTest do
             value <- QueryGenerators.simple_value_generator(),
             max_runs: 60
           ) do
-      assert_raise RuntimeError, ~r/not found/i, fn ->
+      assert_raise ArgumentError, ~r/not found/i, fn ->
         base_query(:mock_connection)
         |> Selecto.select([invalid_field])
-        |> Selecto.to_sql()
       end
 
-      assert_raise RuntimeError, ~r/not found/i, fn ->
+      assert_raise ArgumentError, ~r/not found/i, fn ->
         base_query(:mock_connection)
         |> Selecto.select(["id"])
         |> Selecto.filter({invalid_field, value})
-        |> Selecto.to_sql()
       end
     end
   end

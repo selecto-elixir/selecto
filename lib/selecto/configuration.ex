@@ -219,6 +219,7 @@ defmodule Selecto.Configuration do
       columns: fields,
       joins: joins,
       filters: filters,
+      functions: Map.get(domain, :functions, %{}),
       domain_data: Map.get(domain, :domain_data),
       extensions: extension_specs
     }

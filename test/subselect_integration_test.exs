@@ -31,14 +31,24 @@ defmodule Selecto.SubselectIntegrationTest do
         orders: %{
           source_table: "orders",
           primary_key: :order_id,
-          fields: [:order_id, :attendee_id, :product_name, :quantity, :price],
+          fields: [:order_id, :attendee_id, :product_name, :quantity, :price, :metadata],
           redact_fields: [],
           columns: %{
             order_id: %{type: :integer},
             attendee_id: %{type: :integer},
             product_name: %{type: :string},
             quantity: %{type: :integer},
-            price: %{type: :decimal}
+            price: %{type: :decimal},
+            metadata: %{
+              type: :jsonb,
+              schema: %{
+                "priority" => %{type: :string},
+                "warehouse" => %{
+                  type: :object,
+                  schema: %{"zone" => %{type: :string}}
+                }
+              }
+            }
           },
           associations: %{}
         }
@@ -108,6 +118,30 @@ defmodule Selecto.SubselectIntegrationTest do
       assert params == finalized_params
     end
 
+    test "builds MSSQL JSON aggregation subselect with nested json path fields" do
+      selecto =
+        create_mssql_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name", "metadata.priority", "metadata.warehouse.zone"],
+            target_schema: :orders,
+            format: :json_agg,
+            alias: "order_items"
+          }
+        ])
+
+      {clauses, params} = Subselect.build_subselect_clauses(selecto)
+      {clause_sql, finalized_params} = Params.finalize(clauses)
+
+      assert clause_sql =~ ~r/for json path/i
+      assert clause_sql =~ "JSON_VALUE(sub_orders.metadata, '$.priority') AS [priority]"
+
+      assert clause_sql =~
+               "JSON_VALUE(sub_orders.metadata, '$.warehouse.zone') AS [zone]"
+
+      assert params == finalized_params
+    end
+
     test "builds array aggregation subselect" do
       selecto =
         create_test_selecto()
@@ -146,6 +180,52 @@ defmodule Selecto.SubselectIntegrationTest do
       assert clause_sql =~ ~r/string_agg/i
       assert clause_sql =~ ~r/as\s+"product_list"/i
       assert "; " in params
+    end
+
+    test "builds MSSQL string aggregation subselect" do
+      selecto =
+        create_mssql_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :string_agg,
+            alias: "product_list",
+            separator: "; "
+          }
+        ])
+
+      {clauses, params} = Subselect.build_subselect_clauses(selecto)
+      {clause_sql, finalized_params} = Params.finalize(clauses, adapter: SelectoDBMSSQL.Adapter)
+
+      assert clause_sql =~ ~r/string_agg/i
+      assert clause_sql =~ ~r/sub_orders\.\[product_name\]/i
+      assert clause_sql =~ ~r/as\s+\[product_list\]/i
+      assert params == finalized_params
+      assert params == ["; "]
+    end
+
+    test "builds MSSQL array aggregation subselect as json array" do
+      selecto =
+        create_mssql_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :array_agg,
+            alias: "product_names"
+          }
+        ])
+
+      {clauses, params} = Subselect.build_subselect_clauses(selecto)
+      {clause_sql, finalized_params} = Params.finalize(clauses, adapter: SelectoDBMSSQL.Adapter)
+
+      assert clause_sql =~ ~r/for json path/i
+      refute clause_sql =~ ~r/array_agg/i
+      assert clause_sql =~ ~r/as\s+\[product_names\]/i
+      assert clause_sql =~ ~r/sub_orders\.\[product_name\]\s+AS\s+\[product_name\]/i
+      assert params == finalized_params
+      assert params == []
     end
 
     test "builds count subselect" do

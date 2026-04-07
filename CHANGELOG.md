@@ -1,6 +1,88 @@
 
 # Selecto Library Changelog
 
+## V 0.4.3 - Published Views, Source Metadata, and Validation Expansion
+---------------------------------------------------------
+
+#### Fixed
+- Fixed aliased joins whose `source` points at a registered CTE so joined CTE
+  fields resolve like ordinary join fields in `select`, `filter`, `group_by`,
+  and `order_by`, with early validation for missing explicit CTE sources.
+- Added regression coverage for manual and multi-CTE alias joins in core tests
+  plus DuckDB-specific coverage for joined-CTE null filtering.
+- Expanded eager validation into helper/builder query surfaces so window specs,
+  UNNEST/JSON rowset helpers, and JSON/array helper builders now reject invalid
+  field references before SQL generation, with matching regression coverage.
+- Completed the composable expression follow-up surface with `group_by/1`
+  macro support, and documented the shipped v1 design around a single
+  `Selecto.Expr` module plus the filter-only uppercase `~SELECTO` sigil.
+- Formalized root/source `source_kind` and `readonly` metadata for table-,
+  view-, and materialized-view-backed domains, with domain validation coverage
+  for valid and invalid view-source configs.
+- Added `published_views` domain metadata plus `Selecto.ViewPublisher.validate/2`
+  so Selecto-authored view contracts can validate stable aliased output columns
+  and reject runtime-param queries before any DDL tooling is introduced.
+- Added `Selecto.ViewPublisher.build_sql/2` and DDL builders for `CREATE VIEW`
+  and `CREATE MATERIALIZED VIEW`, so validated published view specs can compile
+  into stable SQL and publication DDL without runtime side effects.
+- Added `Selecto.ViewPublisher.refresh/5` and `refresh_sql/2` helpers for
+  materialized-view publication workflows, including support for concurrent
+  refresh SQL where the adapter allows it.
+- Added optional published-view `indexes` metadata plus generated index SQL
+  suggestion helpers so materialized-view publication can carry explicit
+  follow-up indexing guidance without forcing runtime side effects.
+- Bump package version to `0.4.3`.
+
+## V 0.4.2 - Expression DSL and Adapter Feature Expansion
+---------------------------------------------------------
+
+#### Added
+- Added eager query-field validation through `Selecto.QueryValidator`, so core
+  query-building APIs now reject invalid field references before SQL generation.
+- Added focused regression coverage for eager validation across selectors,
+  filters, ordering, grouping, dynamic columns, CTE references, and subquery
+  placeholder binding.
+- Added a composable expression layer with `Selecto.Expr`, including helper
+  constructors for filters, selectors, ordering, window specs, and JSON select
+  operations that normalize into Selecto's existing query AST.
+- Added `Selecto.ExprMacros.where/1`, `Selecto.ExprMacros.select/1`, and the
+  uppercase `~SELECTO` sigil for an initial Elixir-AST-based expression DSL,
+  with focused coverage for helper composition and diagnostics.
+- Added shared text-search helpers across adapters, including multi-field search
+  helpers, capability alias normalization, and adapter-specific PostgreSQL,
+  MySQL, and SQLite search modes/ranking support.
+- Added expanded adapter-specific SQL support for JSON reads, lateral-style
+  correlated reads, window aggregates, subselect aggregation, and registered
+  UDFs across the PostgreSQL/MySQL/SQLite/MSSQL paths.
+
+#### Changed
+- Updated `Selecto.Query` to validate field references eagerly in `select/2`,
+  `filter/2`, `pre_retarget_filter/2`, `post_retarget_filter/2`, `order_by/2`,
+  and `group_by/2` while preserving build-time SQL validation as a safety net.
+- Updated `Selecto.Query` to normalize helper-shaped inputs before validation so
+  `Selecto.Expr` values can flow through the standard query-building APIs
+  without adding a separate execution path.
+- Updated text-search configuration handling to share mode/alias behavior across
+  adapters while documenting the macro-free expression pipeline alongside the
+  AST-backed DSL entry points.
+
+#### Fixed
+- Fixed eager validation for advanced field references, expanded list-filter
+  placeholder handling, and corrected `VALUES` / recursive CTE SQL generation
+  for MySQL-like and MSSQL adapters.
+- Bumped package version to `0.4.2`.
+
+## V 0.4.1 - Nested Subselect Correlation Fix
+---------------------------------------------------------
+
+#### Changed
+- Fixed subselect correlation to honor explicit nested join paths when multiple
+  relationship chains target the same schema, preventing repeated-schema paths
+  from collapsing into the same `EXISTS` / `json_agg(...)` SQL.
+- Added support for preserving `join_path` metadata on subselect configs so
+  upstream builders can pass exact ancestry into SQL compilation.
+- Bumped package version to `0.4.1`.
+
 ## V 0.4.0 - External Adapter Architecture
 ---------------------------------------------------------
 

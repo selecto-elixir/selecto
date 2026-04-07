@@ -40,6 +40,11 @@ defmodule Selecto.Types do
 
   @type column_definition :: %{
           required(:type) => column_type(),
+          optional(:icon) => atom() | String.t(),
+          optional(:icon_family) => atom() | String.t(),
+          optional(:presentation_type) => :date | :datetime | :utc_datetime | :naive_datetime,
+          optional(:datetime_storage) =>
+            :unix | :unix_s | :unix_seconds | :unix_ms | :unix_milliseconds | :javascript_ms,
           optional(:precision) => pos_integer(),
           optional(:scale) => non_neg_integer(),
           optional(:default) => term(),
@@ -127,6 +132,7 @@ defmodule Selecto.Types do
           required(:target_schema) => atom(),
           required(:format) => subselect_format(),
           optional(:alias) => String.t(),
+          optional(:join_path) => [atom() | String.t()],
           optional(:separator) => String.t(),
           optional(:order_by) => [order_spec()],
           optional(:filters) => [filter()]
@@ -226,6 +232,8 @@ defmodule Selecto.Types do
           | tagging_join_config()
           | dimension_join_config()
 
+  @type relation_source_kind :: :table | :view | :materialized_view
+
   # Schema types
   @type schema :: %{
           required(:name) => String.t(),
@@ -235,6 +243,8 @@ defmodule Selecto.Types do
           required(:redact_fields) => [atom()],
           required(:columns) => %{atom() => column_definition()},
           required(:associations) => %{atom() => association()},
+          optional(:source_kind) => relation_source_kind(),
+          optional(:readonly) => boolean(),
           optional(:custom_filters) => %{atom() => term()}
         }
 
@@ -245,7 +255,9 @@ defmodule Selecto.Types do
           required(:fields) => [atom()],
           required(:redact_fields) => [atom()],
           required(:columns) => %{atom() => column_definition()},
-          required(:associations) => %{atom() => association()}
+          required(:associations) => %{atom() => association()},
+          optional(:source_kind) => relation_source_kind(),
+          optional(:readonly) => boolean()
         }
 
   # Domain configuration
@@ -257,6 +269,24 @@ defmodule Selecto.Types do
           optional(:unnests) => %{optional(atom() | String.t()) => map()}
         }
 
+  @type function_arg_spec :: %{
+          required(:name) => atom() | String.t(),
+          required(:type) => term(),
+          required(:source) => :selector | :value | :literal
+        }
+
+  @type function_kind :: :scalar | :predicate | :table
+
+  @type function_spec :: %{
+          required(:kind) => function_kind(),
+          required(:sql_name) => String.t(),
+          optional(:args) => [function_arg_spec()],
+          optional(:returns) => term(),
+          optional(:allowed_in) => [atom()]
+        }
+
+  @type function_registry :: %{optional(atom() | String.t()) => function_spec()}
+
   @type detail_action_type :: :modal | :iframe_modal | :external_link | :live_component
 
   @type detail_action :: %{
@@ -266,6 +296,19 @@ defmodule Selecto.Types do
           optional(:required_fields) => [field_name()],
           optional(:payload) => map()
         }
+
+  @type published_view_kind :: :view | :materialized_view
+
+  @type published_view_spec :: %{
+          required(:database_name) => String.t(),
+          required(:kind) => published_view_kind(),
+          required(:query) => function(),
+          required(:columns) => %{optional(atom() | String.t()) => map()},
+          optional(:indexes) => [map()],
+          optional(:refresh) => map()
+        }
+
+  @type published_view_registry :: %{optional(atom() | String.t()) => published_view_spec()}
 
   @type domain :: %{
           required(:name) => String.t(),
@@ -281,7 +324,9 @@ defmodule Selecto.Types do
           optional(:detail_actions) => %{optional(atom() | String.t()) => detail_action()},
           optional(:domain_data) => term(),
           optional(:extensions) => [term()],
-          optional(:query_members) => query_member_registry()
+          optional(:functions) => function_registry(),
+          optional(:query_members) => query_member_registry(),
+          optional(:published_views) => published_view_registry()
         }
 
   # Query set (mutable query state)
@@ -327,6 +372,7 @@ defmodule Selecto.Types do
           required(:columns) => %{String.t() => %{required(:name) => String.t()}},
           required(:joins) => %{atom() => processed_join()},
           required(:filters) => %{String.t() => term()},
+          optional(:functions) => function_registry(),
           required(:domain_data) => term(),
           optional(:extensions) => [{module(), keyword()}]
         }

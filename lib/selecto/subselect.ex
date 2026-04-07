@@ -345,6 +345,7 @@ defmodule Selecto.Subselect do
       target_schema: Map.fetch!(config, :target_schema),
       format: Map.get(config, :format, default_format),
       alias: Map.get(config, :alias, generate_alias(config.target_schema, alias_prefix)),
+      join_path: Map.get(config, :join_path),
       separator: Map.get(config, :separator, ","),
       order_by: Map.get(config, :order_by, default_order_by),
       filters: Map.get(config, :filters, [])
@@ -371,9 +372,15 @@ defmodule Selecto.Subselect do
       Enum.filter(subselect_config.fields, fn field_name ->
         field_name_string = to_string(field_name)
 
-        not Enum.any?(target_schema_config.fields, fn existing_field ->
-          to_string(existing_field) == field_name_string
-        end)
+        case Selecto.Jsonb.parse_field_reference(field_name_string, target_schema_config) do
+          {:jsonb, _column, _path} ->
+            false
+
+          {:regular, _} ->
+            not Enum.any?(target_schema_config.fields, fn existing_field ->
+              to_string(existing_field) == field_name_string
+            end)
+        end
       end)
 
     case invalid_fields do
@@ -387,9 +394,15 @@ defmodule Selecto.Subselect do
   end
 
   defp validate_relationship_path(selecto, subselect_config) do
-    case resolve_join_path(selecto, subselect_config.target_schema) do
-      {:ok, _path} -> :ok
-      {:error, reason} -> {:error, "Cannot reach target schema: #{reason}"}
+    case Map.get(subselect_config, :join_path) do
+      join_path when is_list(join_path) and join_path != [] ->
+        Selecto.Retarget.validate_retarget_path(selecto, join_path)
+
+      _ ->
+        case resolve_join_path(selecto, subselect_config.target_schema) do
+          {:ok, _path} -> :ok
+          {:error, reason} -> {:error, "Cannot reach target schema: #{reason}"}
+        end
     end
   end
 

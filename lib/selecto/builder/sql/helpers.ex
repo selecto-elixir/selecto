@@ -230,12 +230,17 @@ defmodule Selecto.Builder.Sql.Helpers do
   end
 
   def build_selector_string(selecto, join, field) do
-    join_str = if is_atom(join), do: Atom.to_string(join), else: join
-    # Handle nil values
-    case {join_str, field} do
-      {nil, _} -> quote_identifier(selecto, field)
-      {_, nil} -> quote_identifier(selecto, join_str)
-      _ -> "#{quote_identifier(selecto, join_str)}.#{quote_identifier(selecto, field)}"
+    case {join, field} do
+      {nil, _} ->
+        quote_identifier(selecto, field)
+
+      {_, nil} ->
+        join_str = if is_atom(join), do: Atom.to_string(join), else: join
+        quote_identifier(selecto, join_str)
+
+      _ ->
+        join_str = if is_atom(join), do: Atom.to_string(join), else: join
+        "#{quote_identifier(selecto, join_str)}.#{quote_identifier(selecto, field)}"
     end
   end
 

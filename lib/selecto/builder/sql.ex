@@ -148,7 +148,12 @@ defmodule Selecto.Builder.Sql do
         where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
 
     {final_query_iodata, _cte_integrated_params} =
-      Cte.integrate_ctes_with_query(all_required_ctes, base_query_iodata, all_base_params)
+      Cte.integrate_ctes_with_query(
+        all_required_ctes,
+        base_query_iodata,
+        all_base_params,
+        adapter
+      )
 
     %{
       aliases: aliases,
@@ -375,7 +380,12 @@ defmodule Selecto.Builder.Sql do
         where_finalized_params ++ group_by_finalized_params ++ order_by_finalized_params
 
     {final_query_iodata, _cte_integrated_params} =
-      Cte.integrate_ctes_with_query(all_required_ctes, base_query_iodata, all_base_params)
+      Cte.integrate_ctes_with_query(
+        all_required_ctes,
+        base_query_iodata,
+        all_base_params,
+        adapter
+      )
 
     # Phase 4: All parameters are now properly handled through iodata - no sentinel patterns remain
     {sql, final_params} =
@@ -430,6 +440,16 @@ defmodule Selecto.Builder.Sql do
     selecto
     |> AdapterSQL.rollup_literal_order(index)
     |> IO.iodata_to_binary()
+  end
+
+  defp json_builder_opts(selecto) do
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+
+    if Selecto.AdapterSupport.adapter_name(adapter) in [:mssql, :mysql, :mariadb, :sqlite] do
+      [adapter: adapter, table_alias: "selecto_root"]
+    else
+      [adapter: adapter]
+    end
   end
 
   defp build_retarget_query(selecto, _opts) do
@@ -715,8 +735,12 @@ defmodule Selecto.Builder.Sql do
           {[], []}
 
         json_specs when is_list(json_specs) ->
+          json_builder_opts = json_builder_opts(selecto)
+
           clauses =
-            Enum.map(json_specs, &Selecto.Builder.JsonOperations.build_json_select/1)
+            Enum.map(json_specs, fn spec ->
+              Selecto.Builder.JsonOperations.build_json_select(spec, json_builder_opts)
+            end)
 
           if clauses == [] do
             {[], []}
@@ -845,8 +869,11 @@ defmodule Selecto.Builder.Sql do
           []
 
         json_specs when is_list(json_specs) ->
+          json_builder_opts = json_builder_opts(selecto)
+
           Enum.map(json_specs, fn spec ->
-            {:raw_sql_filter, Selecto.Builder.JsonOperations.build_json_filter(spec)}
+            {:raw_sql_filter,
+             Selecto.Builder.JsonOperations.build_json_filter(spec, json_builder_opts)}
           end)
       end
 
@@ -889,9 +916,11 @@ defmodule Selecto.Builder.Sql do
           {[], [], []}
 
         json_sorts when is_list(json_sorts) ->
+          json_builder_opts = json_builder_opts(selecto)
+
           json_sorts
           |> Enum.map(fn {spec, direction} ->
-            json_sql = Selecto.Builder.JsonOperations.build_json_select(spec)
+            json_sql = Selecto.Builder.JsonOperations.build_json_select(spec, json_builder_opts)
 
             dir_str =
               case direction do
@@ -1333,10 +1362,11 @@ defmodule Selecto.Builder.Sql do
   # Phase 4: LATERAL join integration functions
   defp build_lateral_joins(selecto) do
     lateral_specs = Map.get(selecto.set, :lateral_joins, [])
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     case lateral_specs do
       [] -> {[], []}
-      specs -> LateralJoin.build_lateral_joins(specs)
+      specs -> LateralJoin.build_lateral_joins(specs, adapter: adapter, selecto: selecto)
     end
   end
 
@@ -1433,9 +1463,10 @@ defmodule Selecto.Builder.Sql do
   # Phase 4.2: VALUES clause integration as CTEs
   defp build_values_clauses_as_ctes(selecto) do
     values_specs = Map.get(selecto.set, :values_clauses, [])
+    adapter = Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
 
     Enum.map(values_specs, fn spec ->
-      values_cte_sql = ValuesClause.build_values_cte(spec)
+      values_cte_sql = ValuesClause.build_values_cte(spec, adapter)
       # Raw CTE entry handled directly by Selecto.Builder.CteSql.
       {:raw_cte, values_cte_sql, []}
     end)

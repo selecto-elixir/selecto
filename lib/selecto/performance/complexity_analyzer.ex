@@ -284,7 +284,9 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
 
   # Check post-retarget filter complexity
   defp check_post_retarget_complexity(analysis, selecto) do
-    post_retarget_filters = Map.get(selecto.set, :post_retarget_filters) || Map.get(selecto.set, :post_pivot_filters, []) || []
+    post_retarget_filters =
+      Map.get(selecto.set, :post_retarget_filters) ||
+        Map.get(selecto.set, :post_pivot_filters, []) || []
 
     if length(post_retarget_filters) > 0 do
       %{
@@ -295,7 +297,8 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
               [
                 "Query contains #{length(post_retarget_filters)} post-retarget filter(s)"
               ],
-          details: Map.put(analysis.details, :post_retarget_filter_count, length(post_retarget_filters))
+          details:
+            Map.put(analysis.details, :post_retarget_filter_count, length(post_retarget_filters))
       }
     else
       %{analysis | details: Map.put(analysis.details, :post_retarget_filter_count, 0)}

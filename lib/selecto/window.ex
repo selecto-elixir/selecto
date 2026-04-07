@@ -149,6 +149,7 @@ defmodule Selecto.Window do
   """
   def add_window_function(selecto, function, arguments \\ [], options) do
     window_spec = build_window_spec(function, arguments, options)
+    Selecto.QueryValidator.validate_window_spec!(selecto, window_spec)
 
     current_windows = Map.get(selecto.set, :window_functions, [])
     updated_windows = current_windows ++ [window_spec]

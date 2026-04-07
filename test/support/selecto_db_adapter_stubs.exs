@@ -10,6 +10,15 @@ defmodule SelectoDBMySQL.Adapter do
   def placeholder(_index), do: "?"
   def quote_identifier(identifier), do: "`#{String.replace(to_string(identifier), "`", "``")}`"
   def supports?(:rollup_with_rollup), do: true
+  def supports?(:json_table), do: true
+  def supports?(:text_search), do: true
+  def supports?(:text_search_multi_field), do: true
+  def supports?(:text_search_boolean), do: true
+  def supports?(:text_search_boolean_mode), do: true
+  def supports?(:text_search_query_expansion), do: true
+  def supports?(:text_search_query_expansion_mode), do: true
+  def supports?(:match_against), do: true
+  def supports?(:on_duplicate_key_update), do: true
   def supports?(_feature), do: false
 
   def rollup_sql(grouped_clauses), do: [grouped_clauses, " with rollup"]
@@ -56,6 +65,8 @@ defmodule SelectoDBMSSQL.Adapter do
 
   def supports?(:offset_fetch_pagination), do: true
   def supports?(:requires_order_for_pagination), do: true
+  def supports?(:lateral_join), do: true
+  def supports?(:apply_join), do: true
   def supports?(_feature), do: false
 
   def format_datetime(sel_iodata, "YYYY-MM-DD") do
@@ -192,5 +203,6 @@ defmodule SelectoDBSQLite.Adapter do
     "\"#{escaped}\""
   end
 
+  def supports?(:json_rowset), do: true
   def supports?(_feature), do: false
 end

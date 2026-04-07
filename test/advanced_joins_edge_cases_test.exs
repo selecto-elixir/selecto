@@ -127,10 +127,9 @@ defmodule Selecto.AdvancedJoinsEdgeCasesTest do
 
       selecto = Selecto.configure(domain, mock_conn())
 
-      assert_raise RuntimeError, fn ->
+      assert_raise ArgumentError, fn ->
         selecto
         |> Selecto.select(["name; DROP TABLE users; --"])
-        |> Selecto.to_sql()
       end
     end
 

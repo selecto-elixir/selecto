@@ -2,6 +2,7 @@ defmodule Selecto.DomainValidatorTest do
   use ExUnit.Case
   alias Selecto.DomainValidator
   alias Selecto.DomainValidator.ValidationError
+  alias Selecto.ViewPublisher
 
   describe "validate_domain/1" do
     test "validates successful domain configuration" do
@@ -105,6 +106,259 @@ defmodule Selecto.DomainValidatorTest do
       }
 
       assert DomainValidator.validate_domain(domain_with_query_members) == :ok
+    end
+
+    test "accepts valid function registry configuration" do
+      domain_with_functions = %{
+        source: %{
+          source_table: "products",
+          primary_key: :id,
+          fields: [:id, :name],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, name: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        functions: %{
+          "similarity" => %{
+            kind: :scalar,
+            sql_name: "public.similarity",
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ],
+            returns: :float,
+            allowed_in: [:select, :order_by]
+          },
+          "matches_name" => %{
+            kind: :predicate,
+            sql_name: "public.matches_name",
+            args: [
+              %{name: :name, type: :string, source: :selector},
+              %{name: :pattern, type: :string, source: :value}
+            ],
+            returns: :boolean,
+            allowed_in: [:filter]
+          }
+        }
+      }
+
+      assert DomainValidator.validate_domain(domain_with_functions) == :ok
+    end
+
+    test "accepts view-backed source metadata" do
+      view_domain = %{
+        source: %{
+          source_table: "reporting.active_customers",
+          primary_key: :customer_id,
+          source_kind: :view,
+          readonly: true,
+          fields: [:customer_id, :name],
+          redact_fields: [],
+          columns: %{customer_id: %{type: :integer}, name: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        name: "Active Customers"
+      }
+
+      assert DomainValidator.validate_domain(view_domain) == :ok
+    end
+
+    test "validates invalid source metadata for views support" do
+      invalid_domain = %{
+        source: %{
+          source_table: "reporting.active_customers",
+          primary_key: :customer_id,
+          source_kind: :report,
+          readonly: :yes,
+          fields: [:customer_id, :name],
+          redact_fields: [],
+          columns: %{customer_id: %{type: :integer}, name: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        name: "Active Customers"
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
+
+      assert {:source_invalid_source_kind, :report} in errors
+      assert {:source_invalid_readonly, :yes} in errors
+    end
+
+    test "validates invalid function registry configuration" do
+      invalid_domain = %{
+        source: %{
+          source_table: "products",
+          primary_key: :id,
+          fields: [:id, :name],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, name: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        functions: %{
+          "bad_kind" => %{kind: :bogus, sql_name: "public.bad", returns: :string},
+          "bad_sql" => %{kind: :scalar, sql_name: "public.bad()", returns: :string},
+          "bad_predicate" => %{kind: :predicate, sql_name: "public.bad_pred", returns: :string},
+          "bad_table" => %{kind: :table, sql_name: "public.bad_table", returns: :integer},
+          "bad_args" => %{
+            kind: :scalar,
+            sql_name: "public.bad_args",
+            args: [%{name: :x, type: :string, source: :bogus}],
+            returns: :string
+          }
+        }
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(invalid_domain)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_kind", _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_sql", _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_predicate", _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_table", _message}} -> true
+               _ -> false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:functions_invalid, {"bad_args", _message}} -> true
+               _ -> false
+             end)
+    end
+
+    test "accepts valid published_views configuration" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status, :total],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}, total: %{type: :decimal}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        published_views: %{
+          "order_rollup" => %{
+            database_name: "reporting.order_rollup",
+            kind: :view,
+            query: fn selecto ->
+              selecto
+              |> Selecto.select([
+                {:field, "id", "order_id"},
+                {:field, "status", "status"}
+              ])
+            end,
+            columns: %{
+              order_id: %{type: :integer},
+              status: %{type: :string}
+            },
+            indexes: [
+              %{columns: [:order_id], unique: true},
+              %{columns: [:status], concurrently: false}
+            ]
+          }
+        }
+      }
+
+      assert DomainValidator.validate_domain(domain) == :ok
+    end
+
+    test "validates invalid published_views configuration" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status, :total],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}, total: %{type: :decimal}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        published_views: %{
+          "bad_rollup" => %{
+            database_name: "",
+            kind: :report,
+            query: fn selecto ->
+              selecto
+              |> Selecto.select([
+                {:field, "id", "order_id"},
+                {:field, "status", "status"}
+              ])
+              |> Selecto.filter({"status", "open"})
+            end,
+            columns: %{
+              only_order_id: %{type: :integer}
+            },
+            refresh: :manual
+          }
+        }
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(domain)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid,
+                {"bad_rollup", ":database_name must be a non-empty string"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid,
+                {"bad_rollup", ":kind must be :view or :materialized_view"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid, {"bad_rollup", ":refresh must be a map when provided"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid, {"bad_rollup", message}}
+               when is_binary(message) ->
+                 String.contains?(message, "declared :columns")
+
+               _ ->
+                 false
+             end)
+
+      assert Enum.any?(errors, fn
+               {:published_views_invalid,
+                {"bad_rollup", "published view queries cannot depend on runtime bind params"}} ->
+                 true
+
+               _ ->
+                 false
+             end)
     end
 
     test "validates invalid query_members configuration" do
@@ -352,8 +606,8 @@ defmodule Selecto.DomainValidatorTest do
         name: "TestDomain"
       }
 
-      # This validation happens during field building - schema validation focuses on structure
-      assert DomainValidator.validate_domain(invalid_domain) == :ok
+      assert {:error, [source_missing_column_defs: [:name]]} =
+               DomainValidator.validate_domain(invalid_domain)
     end
 
     test "validates association queryable references" do
@@ -636,6 +890,115 @@ defmodule Selecto.DomainValidatorTest do
                {:advanced_join_missing_key, {:product, :normalization_joins, _message}} -> true
                _ -> false
              end)
+    end
+  end
+
+  describe "Selecto.ViewPublisher" do
+    test "build_sql/2 returns compiled SQL and CREATE VIEW DDL" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{}
+      }
+
+      spec = %{
+        database_name: "reporting.order_rollup",
+        kind: :view,
+        query: fn selecto ->
+          selecto
+          |> Selecto.select([
+            {:field, "id", "order_id"},
+            {:field, "status", "status"}
+          ])
+        end,
+        columns: %{order_id: %{type: :integer}, status: %{type: :string}}
+      }
+
+      assert {:ok, result} = ViewPublisher.build_sql(domain, spec)
+      assert result.kind == :view
+      assert result.database_name == "reporting.order_rollup"
+      assert String.match?(result.sql, ~r/(?i)select/)
+      assert String.contains?(result.ddl, "CREATE VIEW reporting.order_rollup AS")
+    end
+
+    test "build_sql/2 returns CREATE MATERIALIZED VIEW DDL" do
+      assert ViewPublisher.ddl_for(:materialized_view, "reporting.daily_rollup", "select 1") ==
+               "CREATE MATERIALIZED VIEW reporting.daily_rollup AS\nselect 1;"
+    end
+
+    test "build_sql/2 returns suggested index statements when declared" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}, status: %{type: :string}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{}
+      }
+
+      spec = %{
+        database_name: "reporting.daily_rollup",
+        kind: :materialized_view,
+        query: fn selecto ->
+          selecto
+          |> Selecto.select([
+            {:field, "id", "order_id"},
+            {:field, "status", "status"}
+          ])
+        end,
+        columns: %{order_id: %{type: :integer}, status: %{type: :string}},
+        indexes: [%{columns: [:order_id], unique: true, concurrently: true}]
+      }
+
+      assert {:ok, result} = ViewPublisher.build_sql(domain, spec)
+
+      assert result.index_statements == [
+               "CREATE UNIQUE INDEX CONCURRENTLY daily_rollup_order_id_idx ON reporting.daily_rollup (order_id);"
+             ]
+    end
+
+    test "refresh_sql/2 supports concurrent refresh statements" do
+      assert ViewPublisher.refresh_sql("reporting.daily_rollup") ==
+               "REFRESH MATERIALIZED VIEW reporting.daily_rollup;"
+
+      assert ViewPublisher.refresh_sql("reporting.daily_rollup", concurrently: true) ==
+               "REFRESH MATERIALIZED VIEW CONCURRENTLY reporting.daily_rollup;"
+    end
+
+    test "refresh/5 rejects non-materialized published views" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{}
+      }
+
+      spec = %{
+        database_name: "reporting.order_rollup",
+        kind: :view,
+        query: fn selecto -> selecto |> Selecto.select([{:field, "id", "id"}]) end,
+        columns: %{id: %{type: :integer}}
+      }
+
+      assert {:error, :refresh_requires_materialized_view} =
+               ViewPublisher.refresh(domain, spec, SelectoDBPostgreSQL.Adapter, :fake_conn)
     end
   end
 

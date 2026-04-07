@@ -15,6 +15,7 @@ defmodule Selecto.Config.Overlay do
 
   - **Column configurations**: Deep merge - overlay extends/overrides base column properties
   - **Filters**: Additive merge - both base and overlay filters are available
+  - **Functions**: Deep merge - overlay can add or override named UDF specs
   - **Query members** (`query_members.ctes/values/subqueries`): Deep merge - overlay can
     add or override named query-member presets without replacing the full registry
   - **Schemas** (`schemas`): Deep merge - overlay can add/override schema entries
@@ -127,6 +128,7 @@ defmodule Selecto.Config.Overlay do
     |> merge_columns(overlay)
     |> merge_jsonb_schemas(overlay)
     |> merge_filters(overlay)
+    |> merge_functions(overlay)
     |> merge_detail_actions(overlay)
     |> merge_query_members(overlay)
     |> merge_schemas(overlay)
@@ -192,6 +194,19 @@ defmodule Selecto.Config.Overlay do
       update_in(base, [:filters], fn base_filters ->
         base_filters = base_filters || %{}
         Map.merge(base_filters, overlay_filters)
+      end)
+    else
+      base
+    end
+  end
+
+  defp merge_functions(base, overlay) do
+    overlay_functions = get_in(overlay, [:functions]) || %{}
+
+    if map_size(overlay_functions) > 0 do
+      update_in(base, [:functions], fn base_functions ->
+        base_functions = base_functions || %{}
+        deep_merge(base_functions, overlay_functions)
       end)
     else
       base
@@ -320,6 +335,7 @@ defmodule Selecto.Config.Overlay do
     skip_fields = [
       :columns,
       :filters,
+      :functions,
       :detail_actions,
       :redact_fields,
       :jsonb_schemas,

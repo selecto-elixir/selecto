@@ -4,6 +4,13 @@ defmodule Selecto.AdapterSupport do
   @default_adapter Selecto.DB.PostgreSQL
   @external_postgresql_adapter SelectoDBPostgreSQL.Adapter
   @legacy_postgresql_adapter Selecto.DB.PostgreSQL
+  @feature_aliases %{
+    text_search_boolean: [:text_search_boolean, :text_search_boolean_mode],
+    text_search_query_expansion: [
+      :text_search_query_expansion,
+      :text_search_query_expansion_mode
+    ]
+  }
 
   def default_adapter do
     cond do
@@ -43,13 +50,28 @@ defmodule Selecto.AdapterSupport do
 
   def supports_feature?(adapter, feature) when is_atom(adapter) and is_atom(feature) do
     if callback_available?(adapter, :supports?, 1) do
-      adapter.supports?(feature)
+      feature
+      |> feature_aliases()
+      |> Enum.any?(&adapter.supports?/1)
     else
       false
     end
   end
 
   def supports_feature?(_adapter, _feature), do: false
+
+  def canonical_feature_name(feature) when is_atom(feature) do
+    Enum.find_value(@feature_aliases, feature, fn {canonical, aliases} ->
+      if feature in aliases, do: canonical, else: nil
+    end)
+  end
+
+  def canonical_feature_name(feature), do: feature
+
+  defp feature_aliases(feature) when is_atom(feature) do
+    canonical = canonical_feature_name(feature)
+    Map.get(@feature_aliases, canonical, [canonical])
+  end
 
   def callback_available?(adapter, function, arity)
 

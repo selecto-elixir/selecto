@@ -10,6 +10,8 @@ defmodule Selecto.Builder.Sql.Select do
   import Selecto.Builder.Sql.Helpers
 
   alias Selecto.AdapterSQL
+  alias Selecto.AdapterSupport
+  alias Selecto.Error
   alias Selecto.Jsonb
 
   ### TODO alter prep_selector to return the data type
@@ -96,6 +98,10 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {:func, func_name, args, opts}) when is_list(opts) do
     prep_selector(selecto, {:func, func_name, args, opts}, %{})
+  end
+
+  def prep_selector(selecto, {:udf, function_id, args}) when is_list(args) do
+    prep_selector(selecto, {:udf, function_id, args}, %{})
   end
 
   def prep_selector(selecto, {:case, pairs}) when is_list(pairs) do
@@ -268,6 +274,11 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # Phase 4: iodata-based prep_selector/3 functions
+  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}, _pivot_aliases)
+      when is_binary(sql_template) do
+    prep_selector(selecto, {:custom_sql, sql_template, field_mappings})
+  end
+
   def prep_selector(_selecto, val, _pivot_aliases) when is_integer(val) do
     {{:param, val}, :selecto_root, [val]}
   end
@@ -278,6 +289,10 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(_selecto, val, _pivot_aliases) when is_boolean(val) do
     {{:param, val}, :selecto_root, [val]}
+  end
+
+  def prep_selector(selecto, {:ref, field_ref}, _pivot_aliases) when is_binary(field_ref) do
+    {[normalize_ref_field(selecto, field_ref)], :selecto_root, []}
   end
 
   def prep_selector(_selecto, {:count}, _pivot_aliases) do
@@ -626,6 +641,10 @@ defmodule Selecto.Builder.Sql.Select do
     {case_sql, join, param}
   end
 
+  def prep_selector(selecto, {:udf, function_id, args}, pivot_aliases) when is_list(args) do
+    build_udf(selecto, function_id, args, :select, pivot_aliases)
+  end
+
   def prep_selector(selecto, {:func, func_name}, pivot_aliases) do
     prep_selector(selecto, {:func, func_name, []}, pivot_aliases)
   end
@@ -665,8 +684,11 @@ defmodule Selecto.Builder.Sql.Select do
     {join_w, filters_iodata, param_w} =
       Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
 
-    func_name = Atom.to_string(func) |> check_string()
-    filter_iodata = [func_name, "(", sel_iodata, ") FILTER (where ", filters_iodata, ")"]
+    func_name = sql_function_name(selecto, func)
+
+    filter_iodata =
+      build_filtered_aggregate_iodata(selecto, func_name, [sel_iodata], false, filters_iodata)
+
     {filter_iodata, List.wrap(join) ++ List.wrap(join_w), param ++ param_w}
   end
 
@@ -721,8 +743,8 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, selector, pivot_aliases)
   end
 
-  def prep_selector(_selecto, {func}, _pivot_aliases) when is_atom(func) do
-    func_name = Atom.to_string(func) |> check_string()
+  def prep_selector(selecto, {func}, _pivot_aliases) when is_atom(func) do
+    func_name = sql_function_name(selecto, func)
     {[func_name, "()"], :selecto_root, []}
   end
 
@@ -829,7 +851,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {func, selector}, pivot_aliases) when is_atom(func) do
     {sel_iodata, join, param} = prep_selector(selecto, selector, pivot_aliases)
-    func_name = Atom.to_string(func) |> check_string()
+    func_name = sql_function_name(selecto, func)
     func_call_iodata = [func_name, "(", sel_iodata, ")"]
     {func_call_iodata, join, param}
   end
@@ -863,6 +885,61 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
+  def build_udf(selecto, function_id, args, call_site, pivot_aliases \\ %{})
+
+  def build_udf(selecto, function_id, args, call_site, pivot_aliases) when is_list(args) do
+    spec = fetch_udf_spec!(selecto, function_id)
+    kind = Map.get(spec, :kind) || Map.get(spec, "kind")
+    allowed_in = Map.get(spec, :allowed_in) || Map.get(spec, "allowed_in") || []
+    spec_args = Map.get(spec, :args) || Map.get(spec, "args") || []
+    sql_name = Map.get(spec, :sql_name) || Map.get(spec, "sql_name")
+
+    if kind == :table and call_site != :lateral do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' is a table function and cannot be used as a selector"
+    end
+
+    allowed_for_call_site? =
+      case call_site do
+        :lateral -> :lateral in allowed_in or :query_member in allowed_in
+        other -> other in allowed_in
+      end
+
+    if not allowed_for_call_site? do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' is not allowed in :#{call_site}. Allowed: #{inspect(allowed_in)}"
+    end
+
+    if length(args) != length(spec_args) do
+      raise ArgumentError,
+            "UDF '#{Selecto.UDF.normalize_id(function_id)}' expects #{length(spec_args)} argument(s), got #{length(args)}"
+    end
+
+    {arg_iodata_parts, join, param} =
+      Enum.zip(args, spec_args)
+      |> Enum.reduce({[], [], []}, fn {arg, arg_spec}, {select_acc, join_acc, param_acc} ->
+        {s_iodata, j, p} = prep_udf_arg(selecto, arg, arg_spec, pivot_aliases)
+
+        {
+          [s_iodata | select_acc],
+          Enum.reverse(List.wrap(j), join_acc),
+          Enum.reverse(p, param_acc)
+        }
+      end)
+
+    arg_iodata_parts = Enum.reverse(arg_iodata_parts)
+    join = Enum.reverse(join)
+    param = Enum.reverse(param)
+
+    args_iodata =
+      case arg_iodata_parts do
+        [] -> []
+        parts -> Enum.intersperse(parts, ", ")
+      end
+
+    {[sql_name, "(", args_iodata, ")"], join, param}
+  end
+
   # Handle JSONB path selectors - extract value from JSONB column
   defp prep_jsonb_selector(selecto, column, path, pivot_aliases) do
     domain = selecto.config
@@ -889,7 +966,8 @@ defmodule Selecto.Builder.Sql.Select do
       Jsonb.build_extraction(column, path,
         as_text: true,
         table_alias: table_alias_str,
-        cast: cast
+        cast: cast,
+        adapter: Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
       )
 
     requires_join = if conf, do: conf.requires_join, else: :selecto_root
@@ -1199,7 +1277,7 @@ defmodule Selecto.Builder.Sql.Select do
     join = Enum.reverse(join)
     param = Enum.reverse(param)
 
-    function_name = func_name |> to_string() |> check_string()
+    function_name = sql_function_name(selecto, func_name)
 
     args_iodata =
       case arg_iodata_parts do
@@ -1222,13 +1300,166 @@ defmodule Selecto.Builder.Sql.Select do
       {join_w, filters_iodata, param_w} =
         Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
 
-      filter_iodata = [function_call_iodata, " FILTER (where ", filters_iodata, ")"]
+      filter_iodata =
+        build_filtered_aggregate_iodata(
+          selecto,
+          function_name,
+          arg_iodata_parts,
+          distinct,
+          filters_iodata,
+          function_call_iodata
+        )
+
       {filter_iodata, List.wrap(join) ++ List.wrap(join_w), param ++ param_w}
     end
   end
 
+  defp fetch_udf_spec!(selecto, function_id) do
+    case Selecto.UDF.fetch(selecto, function_id) do
+      {:ok, spec} -> spec
+      :error -> raise ArgumentError, "Unknown UDF '#{Selecto.UDF.normalize_id(function_id)}'"
+    end
+  end
+
+  defp prep_udf_arg(selecto, arg, arg_spec, pivot_aliases) do
+    case Map.get(arg_spec, :source) || Map.get(arg_spec, "source") do
+      :selector ->
+        prep_selector(selecto, arg, pivot_aliases)
+
+      :value ->
+        prep_udf_value_arg(selecto, arg, pivot_aliases)
+
+      :literal ->
+        prep_udf_literal_arg(selecto, arg, pivot_aliases)
+
+      other ->
+        raise ArgumentError, "Unsupported UDF arg source: #{inspect(other)}"
+    end
+  end
+
+  defp prep_udf_value_arg(_selecto, {:param, value}, _pivot_aliases) do
+    {{:param, value}, :selecto_root, [value]}
+  end
+
+  defp prep_udf_value_arg(selecto, {:literal, value}, pivot_aliases) do
+    prep_selector(selecto, {:literal, value}, pivot_aliases)
+  end
+
+  defp prep_udf_value_arg(_selecto, arg, _pivot_aliases)
+       when is_binary(arg) or is_atom(arg) or is_number(arg) or is_boolean(arg) or is_nil(arg) or
+              is_list(arg) or is_map(arg) do
+    {{:param, arg}, :selecto_root, [arg]}
+  end
+
+  defp prep_udf_value_arg(_selecto, arg, _pivot_aliases) do
+    raise ArgumentError,
+          "UDF value args must be raw values, {:param, value}, or {:literal, value}. Got: #{inspect(arg)}"
+  end
+
+  defp prep_udf_literal_arg(selecto, {:literal, value}, pivot_aliases) do
+    prep_selector(selecto, {:literal, value}, pivot_aliases)
+  end
+
+  defp prep_udf_literal_arg(selecto, arg, pivot_aliases)
+       when is_binary(arg) or is_atom(arg) or is_number(arg) or is_boolean(arg) or is_nil(arg) do
+    prep_selector(selecto, {:literal, arg}, pivot_aliases)
+  end
+
+  defp prep_udf_literal_arg(_selecto, arg, _pivot_aliases) do
+    raise ArgumentError,
+          "UDF literal args must be literal values or {:literal, value}. Got: #{inspect(arg)}"
+  end
+
+  defp build_filtered_aggregate_iodata(
+         selecto,
+         function_name,
+         arg_iodata_parts,
+         distinct,
+         filters_iodata,
+         fallback_iodata \\ nil
+       ) do
+    case AdapterSupport.adapter_name(Map.get(selecto, :adapter, AdapterSupport.default_adapter())) do
+      :mssql ->
+        build_mssql_filtered_aggregate_iodata(
+          function_name,
+          arg_iodata_parts,
+          distinct,
+          filters_iodata
+        )
+
+      _ ->
+        function_call_iodata = fallback_iodata || [function_name, "(", arg_iodata_parts, ")"]
+        [function_call_iodata, " FILTER (where ", filters_iodata, ")"]
+    end
+  end
+
+  defp build_mssql_filtered_aggregate_iodata(
+         function_name,
+         arg_iodata_parts,
+         distinct,
+         filters_iodata
+       ) do
+    normalized_name = function_name |> to_string() |> String.downcase()
+
+    case {normalized_name, arg_iodata_parts} do
+      {name, [arg_iodata]} when name in ["count", "sum", "avg", "min", "max", "stdev", "var"] ->
+        conditional_arg =
+          mssql_filtered_aggregate_arg(normalized_name, arg_iodata, filters_iodata)
+
+        [function_name, "(", maybe_distinct_prefix(distinct), conditional_arg, ")"]
+
+      {"string_agg", [value_iodata, separator_iodata]} when not distinct ->
+        conditional_arg = ["CASE WHEN ", filters_iodata, " THEN ", value_iodata, " END"]
+        [function_name, "(", conditional_arg, ", ", separator_iodata, ")"]
+
+      _ ->
+        error =
+          Error.validation_error("MSSQL does not support this aggregate FILTER shape yet", %{
+            adapter: :mssql,
+            function: function_name,
+            distinct: distinct,
+            argument_count: length(arg_iodata_parts),
+            unsupported_feature: :aggregate_filter
+          })
+
+        raise Error.to_exception(error)
+    end
+  end
+
+  defp mssql_filtered_aggregate_arg("count", arg_iodata, filters_iodata) do
+    value_iodata = if star_selector_iodata?(arg_iodata), do: "1", else: arg_iodata
+    ["CASE WHEN ", filters_iodata, " THEN ", value_iodata, " END"]
+  end
+
+  defp mssql_filtered_aggregate_arg(_function_name, arg_iodata, filters_iodata) do
+    ["CASE WHEN ", filters_iodata, " THEN ", arg_iodata, " END"]
+  end
+
+  defp maybe_distinct_prefix(true), do: "DISTINCT "
+  defp maybe_distinct_prefix(false), do: []
+
+  defp star_selector_iodata?(iodata), do: IO.iodata_to_binary(iodata) == "*"
+
   defp to_boolean(value) when value in [true, false], do: value
   defp to_boolean(_value), do: false
+
+  defp sql_function_name(selecto, :stddev) do
+    case Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+         |> Selecto.AdapterSupport.adapter_name() do
+      :mssql -> "STDEV"
+      _ -> "stddev"
+    end
+  end
+
+  defp sql_function_name(selecto, :variance) do
+    case Map.get(selecto, :adapter, Selecto.AdapterSupport.default_adapter())
+         |> Selecto.AdapterSupport.adapter_name() do
+      :mssql -> "VAR"
+      _ -> "variance"
+    end
+  end
+
+  defp sql_function_name(_selecto, func_name), do: func_name |> to_string() |> check_string()
 
   defp regular_selector?(selector, domain) when is_binary(selector) do
     case :binary.match(selector, ".") do
@@ -1423,6 +1654,20 @@ defmodule Selecto.Builder.Sql.Select do
 
       true ->
         nil
+    end
+  end
+
+  defp normalize_ref_field(selecto, field_ref) do
+    case String.split(field_ref, ".", parts: 2) do
+      [prefix, field_name] ->
+        if prefix in ["selecto_root", Selecto.source_table(selecto)] do
+          "__selecto_outer__.#{field_name}"
+        else
+          field_ref
+        end
+
+      _ ->
+        field_ref
     end
   end
 end

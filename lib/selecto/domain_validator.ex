@@ -81,10 +81,13 @@ defmodule Selecto.DomainValidator do
 
     errors =
       errors
+      |> validate_source(domain)
       |> validate_schemas(domain)
       |> validate_associations(domain)
       |> validate_joins(domain)
+      |> validate_functions(domain)
       |> validate_query_members(domain)
+      |> validate_published_views(domain)
       |> validate_detail_actions(domain)
 
     # Only do complex validations if basic structure is sound
@@ -115,6 +118,40 @@ defmodule Selecto.DomainValidator do
   end
 
   # Validate schemas structure
+  defp validate_source(errors, domain) do
+    source = Map.get(domain, :source, %{})
+
+    if source == %{} do
+      errors
+    else
+      errors
+      |> validate_source_structure(source)
+      |> validate_source_columns(source)
+      |> validate_relation_source_metadata(:source, source)
+    end
+  end
+
+  defp validate_source_structure(errors, source) do
+    required_keys = [:source_table, :primary_key, :fields, :columns]
+    missing_keys = required_keys -- Map.keys(source)
+
+    case missing_keys do
+      [] -> errors
+      _ -> errors ++ [{:source_missing_keys, missing_keys}]
+    end
+  end
+
+  defp validate_source_columns(errors, source) do
+    fields = Map.get(source, :fields, [])
+    columns = Map.get(source, :columns, %{})
+    missing_columns = fields -- Map.keys(columns)
+
+    case missing_columns do
+      [] -> errors
+      _ -> errors ++ [{:source_missing_column_defs, missing_columns}]
+    end
+  end
+
   defp validate_schemas(errors, domain) do
     schemas = Map.get(domain, :schemas, %{})
 
@@ -122,6 +159,7 @@ defmodule Selecto.DomainValidator do
       acc
       |> validate_schema_structure(schema_name, schema)
       |> validate_schema_columns(schema_name, schema)
+      |> validate_relation_source_metadata(schema_name, schema)
     end)
   end
 
@@ -147,6 +185,53 @@ defmodule Selecto.DomainValidator do
       _ -> errors ++ [{:schema_missing_column_defs, {schema_name, missing_columns}}]
     end
   end
+
+  defp validate_relation_source_metadata(errors, relation_name, relation) do
+    errors
+    |> validate_relation_source_kind(relation_name, relation)
+    |> validate_relation_readonly(relation_name, relation)
+  end
+
+  defp validate_relation_source_kind(errors, relation_name, relation) do
+    case normalize_relation_source_kind(map_value(relation, :source_kind)) do
+      nil ->
+        errors
+
+      {:ok, _kind} ->
+        errors
+
+      {:error, invalid_kind} when relation_name == :source ->
+        errors ++ [{:source_invalid_source_kind, invalid_kind}]
+
+      {:error, invalid_kind} ->
+        errors ++ [{:schema_invalid_source_kind, {relation_name, invalid_kind}}]
+    end
+  end
+
+  defp validate_relation_readonly(errors, relation_name, relation) do
+    case map_value(relation, :readonly) do
+      nil ->
+        errors
+
+      readonly when is_boolean(readonly) ->
+        errors
+
+      invalid_value when relation_name == :source ->
+        errors ++ [{:source_invalid_readonly, invalid_value}]
+
+      invalid_value ->
+        errors ++ [{:schema_invalid_readonly, {relation_name, invalid_value}}]
+    end
+  end
+
+  defp normalize_relation_source_kind(nil), do: nil
+  defp normalize_relation_source_kind(:table), do: {:ok, :table}
+  defp normalize_relation_source_kind(:view), do: {:ok, :view}
+  defp normalize_relation_source_kind(:materialized_view), do: {:ok, :materialized_view}
+  defp normalize_relation_source_kind("table"), do: {:ok, :table}
+  defp normalize_relation_source_kind("view"), do: {:ok, :view}
+  defp normalize_relation_source_kind("materialized_view"), do: {:ok, :materialized_view}
+  defp normalize_relation_source_kind(other), do: {:error, other}
 
   # Validate associations reference valid schemas
   defp validate_associations(errors, domain) do
@@ -581,6 +666,182 @@ defmodule Selecto.DomainValidator do
     errors
   end
 
+  defp validate_functions(errors, domain) do
+    case Map.get(domain, :functions) do
+      nil ->
+        errors
+
+      functions when is_map(functions) ->
+        Enum.reduce(functions, errors, fn {function_id, spec}, acc ->
+          validate_function_spec(acc, function_id, spec)
+        end)
+
+      _invalid ->
+        errors ++ [{:functions_invalid, {:functions, ":functions must be a map of named specs"}}]
+    end
+  end
+
+  defp validate_function_spec(errors, function_id, spec) when is_map(spec) do
+    errors
+    |> validate_function_kind(spec, function_id)
+    |> validate_function_sql_name(spec, function_id)
+    |> validate_function_allowed_in(spec, function_id)
+    |> validate_function_args(spec, function_id)
+    |> validate_function_returns(spec, function_id)
+  end
+
+  defp validate_function_spec(errors, function_id, _invalid_spec) do
+    errors ++ [{:functions_invalid, {function_id, "function spec must be a map"}}]
+  end
+
+  defp validate_function_kind(errors, spec, function_id) do
+    kind = map_value(spec, :kind)
+
+    if Selecto.UDF.valid_kind?(kind) do
+      errors
+    else
+      errors ++
+        [{:functions_invalid, {function_id, ":kind must be :scalar, :predicate, or :table"}}]
+    end
+  end
+
+  defp validate_function_sql_name(errors, spec, function_id) do
+    sql_name = map_value(spec, :sql_name)
+
+    if Selecto.UDF.valid_sql_name?(sql_name) do
+      errors
+    else
+      errors ++
+        [
+          {:functions_invalid,
+           {function_id,
+            ":sql_name must be a safe function identifier like my_fn or public.my_fn"}}
+        ]
+    end
+  end
+
+  defp validate_function_allowed_in(errors, spec, function_id) do
+    allowed_in = map_value(spec, :allowed_in)
+
+    cond do
+      is_nil(allowed_in) ->
+        errors
+
+      is_list(allowed_in) and Enum.all?(allowed_in, &Selecto.UDF.valid_call_site?/1) ->
+        errors
+
+      true ->
+        errors ++
+          [
+            {:functions_invalid,
+             {function_id,
+              ":allowed_in must be a list of valid call sites like :select, :filter, or :order_by"}}
+          ]
+    end
+  end
+
+  defp validate_function_args(errors, spec, function_id) do
+    case map_value(spec, :args) do
+      nil ->
+        errors
+
+      args when is_list(args) ->
+        Enum.reduce(args, errors, fn arg_spec, acc ->
+          validate_function_arg_spec(acc, function_id, arg_spec)
+        end)
+
+      _invalid ->
+        errors ++ [{:functions_invalid, {function_id, ":args must be a list when provided"}}]
+    end
+  end
+
+  defp validate_function_arg_spec(errors, function_id, arg_spec) when is_map(arg_spec) do
+    name = map_value(arg_spec, :name)
+    type = fetch_map_value(arg_spec, :type)
+    source = map_value(arg_spec, :source)
+
+    errors =
+      if is_atom(name) or is_binary(name) do
+        errors
+      else
+        errors ++
+          [{:functions_invalid, {function_id, "each arg must declare :name as atom or string"}}]
+      end
+
+    errors =
+      if type == :__missing__ do
+        errors ++ [{:functions_invalid, {function_id, "each arg must declare :type"}}]
+      else
+        errors
+      end
+
+    if Selecto.UDF.valid_arg_source?(source) do
+      errors
+    else
+      errors ++
+        [
+          {:functions_invalid,
+           {function_id, "each arg :source must be :selector, :value, or :literal"}}
+        ]
+    end
+  end
+
+  defp validate_function_arg_spec(errors, function_id, _invalid_arg_spec) do
+    errors ++ [{:functions_invalid, {function_id, "each arg spec must be a map"}}]
+  end
+
+  defp validate_function_returns(errors, spec, function_id) do
+    kind = map_value(spec, :kind)
+    returns = map_value(spec, :returns)
+
+    case kind do
+      :predicate ->
+        if returns == :boolean do
+          errors
+        else
+          errors ++
+            [
+              {:functions_invalid,
+               {function_id, "predicate functions must declare returns: :boolean"}}
+            ]
+        end
+
+      :table ->
+        columns =
+          case returns do
+            %{} = returns_map ->
+              Map.get(returns_map, :columns) || Map.get(returns_map, "columns")
+
+            _ ->
+              nil
+          end
+
+        if is_map(columns) and map_size(columns) > 0 do
+          errors
+        else
+          errors ++
+            [
+              {:functions_invalid,
+               {function_id, "table functions must declare returns: %{columns: %{...}}"}}
+            ]
+        end
+
+      :scalar ->
+        if is_nil(returns) or is_atom(returns) or match?({:array, _}, returns) do
+          errors
+        else
+          errors ++
+            [
+              {:functions_invalid,
+               {function_id, "scalar functions must declare an atom or array return type"}}
+            ]
+        end
+
+      _ ->
+        errors
+    end
+  end
+
   defp validate_query_members(errors, domain) do
     case Map.get(domain, :query_members) do
       nil ->
@@ -601,6 +862,187 @@ defmodule Selecto.DomainValidator do
              {:query_members, "query_members must be a map with :ctes/:values/:subqueries maps"}}
           ]
     end
+  end
+
+  defp validate_published_views(errors, domain) do
+    case Map.get(domain, :published_views) do
+      nil ->
+        errors
+
+      published_views when is_map(published_views) ->
+        Enum.reduce(published_views, errors, fn {view_id, spec}, acc ->
+          validate_published_view_spec(acc, domain, view_id, spec)
+        end)
+
+      _invalid ->
+        errors ++
+          [
+            {:published_views_invalid,
+             {:published_views, ":published_views must be a map of named published view specs"}}
+          ]
+    end
+  end
+
+  defp validate_published_view_spec(errors, _domain, view_id, spec) when not is_map(spec) do
+    errors ++ [{:published_views_invalid, {view_id, "published view spec must be a map"}}]
+  end
+
+  defp validate_published_view_spec(errors, domain, view_id, spec) do
+    errors
+    |> validate_published_view_database_name(spec, view_id)
+    |> validate_published_view_kind(spec, view_id)
+    |> validate_published_view_query(spec, view_id)
+    |> validate_published_view_columns(spec, view_id)
+    |> validate_published_view_indexes(spec, view_id)
+    |> validate_published_view_refresh(spec, view_id)
+    |> validate_published_view_compilation(domain, spec, view_id)
+  end
+
+  defp validate_published_view_database_name(errors, spec, view_id) do
+    database_name = map_value(spec, :database_name)
+
+    if is_binary(database_name) and String.trim(database_name) != "" do
+      errors
+    else
+      errors ++
+        [{:published_views_invalid, {view_id, ":database_name must be a non-empty string"}}]
+    end
+  end
+
+  defp validate_published_view_kind(errors, spec, view_id) do
+    case map_value(spec, :kind) do
+      kind when kind in [:view, :materialized_view] ->
+        errors
+
+      _ ->
+        errors ++
+          [{:published_views_invalid, {view_id, ":kind must be :view or :materialized_view"}}]
+    end
+  end
+
+  defp validate_published_view_query(errors, spec, view_id) do
+    query = map_value(spec, :query)
+
+    if valid_arity?(query, [1]) do
+      errors
+    else
+      errors ++
+        [{:published_views_invalid, {view_id, ":query must be a function with arity 1"}}]
+    end
+  end
+
+  defp validate_published_view_columns(errors, spec, view_id) do
+    case map_value(spec, :columns) do
+      columns when is_map(columns) and map_size(columns) > 0 ->
+        Enum.reduce(columns, errors, fn {column_name, column_spec}, acc ->
+          validate_published_view_column(acc, view_id, column_name, column_spec)
+        end)
+
+      _ ->
+        errors ++
+          [
+            {:published_views_invalid,
+             {view_id, ":columns must be a non-empty map of published columns"}}
+          ]
+    end
+  end
+
+  defp validate_published_view_column(errors, _view_id, column_name, column_spec)
+       when (is_atom(column_name) or is_binary(column_name)) and is_map(column_spec) do
+    errors
+  end
+
+  defp validate_published_view_column(errors, view_id, _column_name, _column_spec) do
+    errors ++
+      [
+        {:published_views_invalid,
+         {view_id, "each published view column must use an atom/string key and map value"}}
+      ]
+  end
+
+  defp validate_published_view_refresh(errors, spec, view_id) do
+    case map_value(spec, :refresh) do
+      nil ->
+        errors
+
+      refresh when is_map(refresh) ->
+        errors
+
+      _ ->
+        errors ++ [{:published_views_invalid, {view_id, ":refresh must be a map when provided"}}]
+    end
+  end
+
+  defp validate_published_view_indexes(errors, spec, view_id) do
+    case map_value(spec, :indexes) do
+      nil ->
+        errors
+
+      indexes when is_list(indexes) ->
+        Enum.reduce(indexes, errors, fn index_spec, acc ->
+          validate_published_view_index(acc, view_id, index_spec)
+        end)
+
+      _ ->
+        errors ++ [{:published_views_invalid, {view_id, ":indexes must be a list when provided"}}]
+    end
+  end
+
+  defp validate_published_view_index(errors, view_id, index_spec) when is_map(index_spec) do
+    columns = map_value(index_spec, :columns)
+    unique = map_value(index_spec, :unique)
+    concurrently = map_value(index_spec, :concurrently)
+
+    errors =
+      if is_list(columns) and columns != [] and
+           Enum.all?(columns, &(is_atom(&1) or is_binary(&1))) do
+        errors
+      else
+        errors ++
+          [
+            {:published_views_invalid,
+             {view_id, "each published view index must declare a non-empty :columns list"}}
+          ]
+      end
+
+    errors =
+      if is_nil(unique) or is_boolean(unique) do
+        errors
+      else
+        errors ++
+          [
+            {:published_views_invalid,
+             {view_id, "each published view index :unique must be boolean when provided"}}
+          ]
+      end
+
+    if is_nil(concurrently) or is_boolean(concurrently) do
+      errors
+    else
+      errors ++
+        [
+          {:published_views_invalid,
+           {view_id, "each published view index :concurrently must be boolean when provided"}}
+        ]
+    end
+  end
+
+  defp validate_published_view_index(errors, view_id, _index_spec) do
+    errors ++
+      [{:published_views_invalid, {view_id, "each published view index spec must be a map"}}]
+  end
+
+  defp validate_published_view_compilation(errors, domain, spec, view_id) do
+    case Selecto.ViewPublisher.validate(domain, spec) do
+      :ok ->
+        errors
+
+      {:error, validation_errors} ->
+        errors ++ Enum.map(validation_errors, &{:published_views_invalid, {view_id, &1}})
+    end
+  rescue
+    error ->
+      errors ++ [{:published_views_invalid, {view_id, Exception.message(error)}}]
   end
 
   defp validate_query_member_group(errors, query_members, group_key) do
@@ -1061,6 +1503,14 @@ defmodule Selecto.DomainValidator do
     "Missing required domain keys: #{Enum.join(keys, ", ")}"
   end
 
+  defp format_error({:source_missing_keys, keys}) do
+    "Source missing required keys: #{Enum.join(keys, ", ")}"
+  end
+
+  defp format_error({:source_missing_column_defs, columns}) do
+    "Source fields missing column definitions: #{Enum.join(columns, ", ")}"
+  end
+
   defp format_error({:schema_missing_keys, {schema_name, keys}}) do
     "Schema '#{schema_name}' missing required keys: #{Enum.join(keys, ", ")}"
   end
@@ -1105,6 +1555,30 @@ defmodule Selecto.DomainValidator do
 
   defp format_error({:query_members_invalid, {section, message}}) do
     "Invalid query_members section '#{section}': #{message}"
+  end
+
+  defp format_error({:functions_invalid, {function_id, message}}) do
+    "Invalid function '#{function_id}': #{message}"
+  end
+
+  defp format_error({:published_views_invalid, {view_id, message}}) do
+    "Invalid published view '#{view_id}': #{message}"
+  end
+
+  defp format_error({:source_invalid_source_kind, source_kind}) do
+    "Source has invalid source_kind '#{inspect(source_kind)}'; expected :table, :view, or :materialized_view"
+  end
+
+  defp format_error({:source_invalid_readonly, value}) do
+    "Source has invalid readonly value '#{inspect(value)}'; expected a boolean"
+  end
+
+  defp format_error({:schema_invalid_source_kind, {schema_name, source_kind}}) do
+    "Schema '#{schema_name}' has invalid source_kind '#{inspect(source_kind)}'; expected :table, :view, or :materialized_view"
+  end
+
+  defp format_error({:schema_invalid_readonly, {schema_name, value}}) do
+    "Schema '#{schema_name}' has invalid readonly value '#{inspect(value)}'; expected a boolean"
   end
 
   defp format_error({:detail_actions_invalid, {action_id, message}}) do

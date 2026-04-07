@@ -10,6 +10,8 @@ defmodule Selecto.Builder.Window do
   """
 
   alias Selecto.Window.{Spec, Frame}
+  alias Selecto.AdapterSupport
+  alias Selecto.Error
 
   @doc """
   Build window function SQL for SELECT clause.
@@ -48,7 +50,12 @@ defmodule Selecto.Builder.Window do
     {function_iodata, function_params} = build_function_call(selecto, window_spec)
     {over_iodata, over_params} = build_over_clause(selecto, window_spec)
 
-    alias_part = if window_spec.alias, do: [" AS ", window_spec.alias], else: []
+    alias_part =
+      if window_spec.alias do
+        [" AS ", quote_alias(selecto, window_spec.alias)]
+      else
+        []
+      end
 
     iodata = [function_iodata, " OVER (", over_iodata, ")", alias_part]
     params = function_params ++ over_params
@@ -122,6 +129,8 @@ defmodule Selecto.Builder.Window do
   defp build_value_function(selecto, function, arguments) do
     case function do
       :nth_value ->
+        validate_nth_value_support!(selecto)
+
         # NTH_VALUE takes field and position
         case arguments do
           [field, n] when is_integer(n) ->
@@ -154,7 +163,7 @@ defmodule Selecto.Builder.Window do
 
       {func, field} when not is_nil(field) ->
         resolved_field = resolve_field_reference(selecto, field)
-        func_name = String.upcase(to_string(func))
+        func_name = aggregate_function_name(selecto, func)
         {[func_name, "(", resolved_field, ")"], []}
     end
   end
@@ -172,7 +181,7 @@ defmodule Selecto.Builder.Window do
        }) do
     {partition_iodata, partition_params} = build_partition_by(selecto, partition_by)
     {order_iodata, order_params} = build_order_by(selecto, order_by)
-    {frame_iodata, frame_params} = build_frame_clause(frame)
+    {frame_iodata, frame_params} = build_frame_clause(selecto, frame)
 
     # Combine clauses with appropriate spacing
     clauses =
@@ -216,9 +225,12 @@ defmodule Selecto.Builder.Window do
   end
 
   # Build window frame clause
-  defp build_frame_clause(nil), do: {[], []}
+  defp build_frame_clause(_selecto, nil), do: {[], []}
 
-  defp build_frame_clause(%Frame{type: type, start: start_bound, end: end_bound}) do
+  defp build_frame_clause(selecto, %Frame{type: type, start: start_bound, end: end_bound}) do
+    validate_frame_support!(selecto, start_bound)
+    validate_frame_support!(selecto, end_bound)
+
     type_str = String.upcase(to_string(type))
     start_str = build_frame_boundary(start_bound)
     end_str = build_frame_boundary(end_bound)
@@ -345,4 +357,68 @@ defmodule Selecto.Builder.Window do
   end
 
   defp is_empty_iodata(_), do: false
+
+  defp validate_frame_support!(selecto, {:interval, interval}) do
+    adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+
+    if AdapterSupport.adapter_name(adapter) == :mssql do
+      error =
+        Error.validation_error("MSSQL window frames do not support interval boundaries", %{
+          adapter: :mssql,
+          frame_boundary: {:interval, interval},
+          unsupported_feature: :window_interval_frame
+        })
+
+      raise Error.to_exception(error)
+    end
+  end
+
+  defp validate_frame_support!(_selecto, _boundary), do: :ok
+
+  defp validate_nth_value_support!(selecto) do
+    adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+
+    case AdapterSupport.adapter_name(adapter) do
+      :mssql ->
+        error =
+          Error.validation_error("MSSQL window functions do not support nth_value yet", %{
+            adapter: :mssql,
+            function: :nth_value,
+            unsupported_feature: :window_nth_value
+          })
+
+        raise Error.to_exception(error)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp aggregate_function_name(selecto, :stddev) do
+    case Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+         |> AdapterSupport.adapter_name() do
+      :mssql -> "STDEV"
+      _ -> "STDDEV"
+    end
+  end
+
+  defp aggregate_function_name(selecto, :variance) do
+    case Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+         |> AdapterSupport.adapter_name() do
+      :mssql -> "VAR"
+      _ -> "VARIANCE"
+    end
+  end
+
+  defp aggregate_function_name(_selecto, func), do: String.upcase(to_string(func))
+
+  defp quote_alias(selecto, alias_name) do
+    adapter = Map.get(selecto, :adapter, AdapterSupport.default_adapter())
+
+    if AdapterSupport.callback_available?(adapter, :quote_identifier, 1) do
+      adapter.quote_identifier(alias_name)
+    else
+      alias_name
+    end
+  end
 end

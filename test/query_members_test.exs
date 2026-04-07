@@ -13,7 +13,7 @@ defmodule Selecto.QueryMembersTest do
       source: %{
         source_table: "orders",
         primary_key: :id,
-        fields: [:id, :order_number, :status, :total, :tags, :customer_id],
+        fields: [:id, :order_number, :status, :total, :tags, :metadata, :customer_id],
         redact_fields: [],
         columns: %{
           id: %{type: :integer},
@@ -21,6 +21,7 @@ defmodule Selecto.QueryMembersTest do
           status: %{type: :string},
           total: %{type: :decimal},
           tags: %{type: {:array, :string}},
+          metadata: %{type: :json},
           customer_id: %{type: :integer}
         },
         associations: %{}
@@ -83,6 +84,16 @@ defmodule Selecto.QueryMembersTest do
           source: {:function, :generate_series, [1, 3]},
           as: "series_rows",
           join_type: :inner
+        },
+        line_item_rows: %{
+          source: {:json_each, "selecto_root.metadata", "$[*]"},
+          as: "item_rows",
+          join_type: :inner
+        },
+        line_item_tree: %{
+          source: {:json_tree, "selecto_root.metadata", nil},
+          as: "item_tree",
+          join_type: :left
         }
       },
       unnests: %{
@@ -218,6 +229,42 @@ defmodule Selecto.QueryMembersTest do
     assert params == [1, 3]
     assert sql =~ ~r/left\s+join\s+lateral/i
     assert sql =~ ~r/series_override/i
+  end
+
+  test "with_lateral/2 registers columns for named sqlite json_each laterals" do
+    query =
+      Selecto.configure(order_domain_with_query_members(), :mock_connection, validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.with_lateral(:line_item_rows)
+      |> Selecto.select(["order_number", "item_rows.key", "item_rows.value"])
+      |> Selecto.filter({"item_rows.value", "sku-123"})
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == ["sku-123"]
+    assert sql =~ "JSON_EACH(selecto_root.metadata, '$[*]')"
+    assert sql =~ "item_rows.\"key\""
+    assert sql =~ "item_rows.value"
+    assert sql =~ ~r/where.*item_rows\.value\s*=\s*\?/i
+    refute sql =~ ~r/join\s+lateral/i
+  end
+
+  test "with_lateral/3 supports alias override for named sqlite json_tree laterals" do
+    query =
+      Selecto.configure(order_domain_with_query_members(), :mock_connection, validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.with_lateral(:line_item_tree, as: "tree_override", join_type: :inner)
+      |> Selecto.select(["order_number", "tree_override.fullkey", "tree_override.parent"])
+      |> Selecto.filter({"tree_override.fullkey", "$.items[0].sku"})
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert params == ["$.items[0].sku"]
+    assert sql =~ "INNER JOIN JSON_TREE(selecto_root.metadata) AS tree_override ON true"
+    assert sql =~ "tree_override.fullkey"
+    assert sql =~ "tree_override.parent"
+    assert sql =~ ~r/where.*tree_override\.fullkey\s*=\s*\?/i
+    refute sql =~ ~r/join\s+lateral/i
   end
 
   test "with_unnest/2 resolves named unnest member" do
