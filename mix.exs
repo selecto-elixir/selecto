@@ -90,21 +90,21 @@ defmodule Selecto.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:postgrex, ">= 0.0.0", only: :test},
+      {:postgrex, "~> 0.22", only: :test},
       {:jason, "~> 1.2"},
-      {:nimble_options, "~> 1.0"},
+      {:nimble_options, "~> 1.1"},
       {:uuid, "~> 1.1"},
-      {:telemetry, "~> 1.0"},
+      {:telemetry, "~> 1.4"},
       {:db_connection, "~> 2.0"},
       {:decimal, ">= 0.0.0"},
-      {:ex_doc, "~> 0.29", only: :dev, runtime: false},
-      {:timex, "~> 3.7.9"},
+      {:ex_doc, "~> 0.40", only: :dev, runtime: false},
+      {:timex, "~> 3.7"},
       {:mneme, ">= 0.0.0", only: [:dev, :test]},
-      {:benchee, "~> 1.0", only: [:dev, :test], optional: true},
+      {:benchee, "~> 1.5", only: [:dev, :test], optional: true},
       {:benchee_html, "~> 1.0", only: [:dev, :test], optional: true},
-      {:dialyxir, "~> 1.3", only: [:dev], runtime: false},
-      {:ecto_sql, "~> 3.12", optional: true},
-      {:stream_data, "~> 1.1", only: :test},
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
+      {:ecto_sql, "~> 3.13", optional: true},
+      {:stream_data, "~> 1.3", only: :test},
       {:excoveralls, "~> 0.18", only: :test}
     ]
   end

@@ -599,16 +599,21 @@ defmodule Selecto.WindowJsonRegressionTest do
              ~s|order by selecto_root.price desc, json_extract("selecto_root"."metadata", '$.warehouse.zone') asc|
   end
 
-  test "sqlite json_filter rejects unsupported containment helper" do
+  test "sqlite json_filter supports containment helper" do
     query =
       Selecto.configure(product_domain(), [], validate: false)
       |> Map.put(:adapter, SelectoDBSQLite.Adapter)
       |> Selecto.select(["name"])
       |> Selecto.json_filter({:json_contains, "metadata", %{"price_band" => "premium"}})
 
-    assert_raise RuntimeError, ~r/does not support this JSON operation/, fn ->
-      Selecto.to_sql(query)
-    end
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ ~s|select selecto_root.name|
+
+    assert sql =~
+             ~s|where (( json_extract("selecto_root"."metadata", '$.price_band') = 'premium' ))|
   end
 
   test "unnest emits CROSS JOIN LATERAL clause in FROM" do
