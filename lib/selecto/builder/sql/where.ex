@@ -622,14 +622,20 @@ defmodule Selecto.Builder.Sql.Where do
         build_jsonb_equality(selecto, column, path, value)
 
       {:regular, _} ->
+        conf = field_conf(selecto, field)
         {sel, join, param} = Select.prep_selector(selecto, field)
-        {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
+
+        {List.wrap(conf.requires_join) ++ List.wrap(join),
+         [" ", sel, " = ", {:param, to_field_value(conf, value)}, " "], param}
     end
   end
 
   def build(selecto, {field, value}) do
+    conf = field_conf(selecto, field)
     {sel, join, param} = Select.prep_selector(selecto, field)
-    {List.wrap(join), [" ", sel, " = ", {:param, value}, " "], param}
+
+    {List.wrap(conf.requires_join) ++ List.wrap(join),
+     [" ", sel, " = ", {:param, to_field_value(conf, value)}, " "], param}
   end
 
   def build(_sel, other) do
@@ -895,6 +901,13 @@ defmodule Selecto.Builder.Sql.Where do
 
   defp to_type(:id, value) when is_bitstring(value) do
     String.to_integer(value)
+  end
+
+  defp to_type(type, value) when type in [:uuid, :binary_id] and is_binary(value) do
+    case Ecto.UUID.dump(value) do
+      {:ok, dumped} -> dumped
+      :error -> value
+    end
   end
 
   defp to_type(:integer, value) when is_integer(value) do

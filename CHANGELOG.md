@@ -1,6 +1,23 @@
 
 # Selecto Library Changelog
 
+## V 0.4.4 - UUID Filter Coercion and Dependency Refresh
+---------------------------------------------------------
+
+#### Fixed
+- Fixed SQL filter coercion for `:uuid` and `:binary_id` fields so equality and
+  list-style query predicates dump UUID values before execution, preventing
+  Postgrex encode errors when UUID-backed primary keys or filter columns are
+  queried with string inputs.
+- Updated stale SQLite JSON containment regression coverage to match the current
+  adapter behavior instead of expecting an unsupported-operation exception.
+
+#### Changed
+- Refreshed direct and transitive dependencies, including `timex`, `gettext`,
+  `ecto_sql`, `postgrex`, `telemetry`, `nimble_options`, `stream_data`,
+  `benchee`, `ex_doc`, `dialyxir`, and `mneme`.
+- Bump package version to `0.4.4`.
+
 ## V 0.4.3 - Published Views, Source Metadata, and Validation Expansion
 ---------------------------------------------------------
 
