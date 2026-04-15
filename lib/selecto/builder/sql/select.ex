@@ -762,40 +762,40 @@ defmodule Selecto.Builder.Sql.Select do
       cond do
         min == max ->
           [
-            "COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            "COUNT(CASE WHEN CURRENT_DATE - DATE(",
             field_iodata,
-            ")) = ",
+            ") = ",
             Integer.to_string(min),
             " THEN 1 END)"
           ]
 
         max == :infinity ->
           [
-            "COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            "COUNT(CASE WHEN CURRENT_DATE - DATE(",
             field_iodata,
-            ")) >= ",
+            ") >= ",
             Integer.to_string(min),
             " THEN 1 END)"
           ]
 
         min == :negative_infinity ->
           [
-            "COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            "COUNT(CASE WHEN CURRENT_DATE - DATE(",
             field_iodata,
-            ")) <= ",
+            ") <= ",
             Integer.to_string(max),
             " THEN 1 END)"
           ]
 
         true ->
           [
-            "COUNT(CASE WHEN EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            "COUNT(CASE WHEN CURRENT_DATE - DATE(",
             field_iodata,
-            ")) >= ",
+            ") >= ",
             Integer.to_string(min),
-            " AND EXTRACT(DAY FROM AGE(CURRENT_DATE, ",
+            " AND CURRENT_DATE - DATE(",
             field_iodata,
-            ")) <= ",
+            ") <= ",
             Integer.to_string(max),
             " THEN 1 END)"
           ]
