@@ -599,16 +599,21 @@ defmodule Selecto.WindowJsonRegressionTest do
              ~s|order by selecto_root.price desc, json_extract("selecto_root"."metadata", '$.warehouse.zone') asc|
   end
 
-  test "sqlite json_filter rejects unsupported containment helper" do
+  test "sqlite json_filter supports containment helper" do
     query =
       Selecto.configure(product_domain(), [], validate: false)
       |> Map.put(:adapter, SelectoDBSQLite.Adapter)
       |> Selecto.select(["name"])
       |> Selecto.json_filter({:json_contains, "metadata", %{"price_band" => "premium"}})
 
-    assert_raise RuntimeError, ~r/does not support this JSON operation/, fn ->
-      Selecto.to_sql(query)
-    end
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == []
+    assert sql =~ ~s|select selecto_root.name|
+
+    assert sql =~
+             ~s|where (( json_extract("selecto_root"."metadata", '$.price_band') = 'premium' ))|
   end
 
   test "unnest emits CROSS JOIN LATERAL clause in FROM" do
@@ -1275,6 +1280,39 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert params == []
     assert sql =~ "LEFT JOIN customers customer ON selecto_root.customer_id = customer.id"
     refute sql =~ "ON orders.customer_id = customer.id"
+  end
+
+  test "uuid and binary_id filters dump query params before execution" do
+    uuid = "550e8400-e29b-41d4-a716-446655440000"
+    {:ok, dumped_uuid} = Ecto.UUID.dump(uuid)
+
+    uuid_domain = %{
+      name: "Uuid Domain",
+      source: %{
+        source_table: "uuid_records",
+        primary_key: :public_id,
+        fields: [:public_id, :legacy_uuid, :name],
+        redact_fields: [],
+        columns: %{
+          public_id: %{type: :binary_id},
+          legacy_uuid: %{type: :uuid},
+          name: %{type: :string}
+        },
+        associations: %{}
+      },
+      schemas: %{},
+      joins: %{}
+    }
+
+    query =
+      Selecto.configure(uuid_domain, :mock_connection, validate: false)
+      |> Selecto.select(["public_id", "legacy_uuid", "name"])
+      |> Selecto.filter({"public_id", uuid})
+      |> Selecto.filter({"legacy_uuid", uuid})
+
+    {_sql, params} = Selecto.to_sql(query)
+
+    assert params == [dumped_uuid, dumped_uuid]
   end
 
   test "star_dimension join honors owner_key and my_key" do

@@ -624,6 +624,12 @@ defmodule Selecto.ExprCompiler do
     end
   end
 
+  defp compile_group_expr!({:grouping_set, _, [groups_ast]}) do
+    quote do
+      Selecto.Expr.grouping_set(unquote(compile_group_items!(groups_ast)))
+    end
+  end
+
   defp compile_group_expr!(ast) do
     compile_group_value!(ast)
   end

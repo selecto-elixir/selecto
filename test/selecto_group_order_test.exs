@@ -95,4 +95,42 @@ defmodule Selecto.GroupOrderTest do
     refute String.contains?(String.downcase(sql), "rollup")
     refute String.contains?(sql, ") as rollupfix")
   end
+
+  test "ROLLUP supports linked grouping-set steps" do
+    domain = %{
+      source: %{
+        source_table: "sales",
+        primary_key: :id,
+        fields: [:id, :region, :city, :state, :amount],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          region: %{type: :string},
+          city: %{type: :string},
+          state: %{type: :string},
+          amount: %{type: :decimal}
+        },
+        associations: %{}
+      },
+      schemas: %{},
+      joins: %{},
+      name: "Sales"
+    }
+
+    selecto =
+      Selecto.configure(domain, :mock_connection,
+        adapter: Selecto.DB.PostgreSQL,
+        rollup_sort_fix: false,
+        validate: false
+      )
+      |> Selecto.select([{:sum, "amount"}])
+      |> Selecto.group_by(rollup: ["region", {:grouping_set, ["city", "state"]}])
+
+    {sql, _aliases, _params} = Selecto.gen_sql(selecto, [])
+    sql = String.downcase(sql)
+
+    assert sql =~ "group by"
+    assert sql =~ "rollup"
+    assert sql =~ "(selecto_root.city, selecto_root.state)"
+  end
 end

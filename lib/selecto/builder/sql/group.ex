@@ -14,6 +14,11 @@ defmodule Selecto.Builder.Sql.Group do
     {joins, AdapterSQL.rollup_sql(selecto, clauses_iodata), params}
   end
 
+  def group(selecto, {:grouping_set, groups}) do
+    {joins, clauses_iodata, params} = group(selecto, groups)
+    {joins, ["(", clauses_iodata, ")"], params}
+  end
+
   def group(selecto, groups) when is_list(groups) do
     {joins, clauses_iodata, params} =
       groups

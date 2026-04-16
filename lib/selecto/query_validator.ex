@@ -361,6 +361,10 @@ defmodule Selecto.QueryValidator do
     validate_group_specs!(selecto, groups)
   end
 
+  defp validate_group_spec!(selecto, {:grouping_set, groups}) do
+    validate_group_specs!(selecto, groups)
+  end
+
   defp validate_group_spec!(selecto, {:udf, function_id, args}) when is_list(args) do
     validate_udf_call!(selecto, function_id, args, :group_by)
   end

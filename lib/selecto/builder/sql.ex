@@ -176,7 +176,7 @@ defmodule Selecto.Builder.Sql do
     build_from_with_ctes(selecto, joins_in_order)
   end
 
-  defp build_standard_query(selecto, _opts) do
+  defp build_standard_query(selecto, opts) do
     # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
     {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
 
@@ -203,13 +203,16 @@ defmodule Selecto.Builder.Sql do
 
     # Add user-defined CTEs
     user_ctes =
-      case Map.get(selecto.set, :ctes) do
-        nil ->
-          []
+      if Keyword.get(opts, :emit_user_ctes, true) do
+        case Map.get(selecto.set, :ctes) do
+          nil ->
+            []
 
-        ctes when is_list(ctes) ->
-          # Convert our simplified CTE specs to proper format
-          Enum.map(ctes, &convert_user_cte_spec/1)
+          ctes when is_list(ctes) ->
+            Enum.map(ctes, &convert_user_cte_spec/1)
+        end
+      else
+        []
       end
 
     all_required_ctes = required_ctes ++ values_ctes ++ user_ctes

@@ -119,10 +119,13 @@ defmodule Selecto.Builder.CteSql do
     selecto_query = spec.query_builder.()
 
     # Generate SQL from the Selecto query
-    {sql, _aliases, params} = Sql.build(selecto_query, [])
+    {sql, _aliases, params} = Sql.build(selecto_query, emit_user_ctes: false)
 
     # Convert SQL string back to iodata with param markers
-    sql_iodata = convert_sql_to_iodata(sql, params)
+    sql_iodata =
+      sql
+      |> rewrite_cte_root_alias(spec.name)
+      |> convert_sql_to_iodata(params)
 
     # Build CTE definition
     cte_name = escape_identifier(spec.name)
@@ -146,17 +149,25 @@ defmodule Selecto.Builder.CteSql do
 
     # Execute base query
     base_selecto = spec.base_query.()
-    {base_sql, _base_aliases, base_params} = Sql.build(base_selecto, [])
+    {base_sql, _base_aliases, base_params} = Sql.build(base_selecto, emit_user_ctes: false)
 
     # Execute recursive query with CTE reference
     recursive_selecto = spec.recursive_query.(cte_ref)
-    {recursive_sql, _recursive_aliases, recursive_params} = Sql.build(recursive_selecto, [])
+
+    {recursive_sql, _recursive_aliases, recursive_params} =
+      Sql.build(recursive_selecto, emit_user_ctes: false)
 
     # Convert SQL strings back to iodata with param markers
-    base_sql_iodata = convert_sql_to_iodata(base_sql, base_params)
+    base_sql_iodata =
+      base_sql
+      |> rewrite_cte_root_alias(spec.name)
+      |> convert_sql_to_iodata(base_params)
+
     # Adjust param indices for recursive part
     recursive_sql_iodata =
-      convert_sql_to_iodata_with_offset(recursive_sql, recursive_params, length(base_params))
+      recursive_sql
+      |> rewrite_cte_root_alias(spec.name)
+      |> convert_sql_to_iodata_with_offset(recursive_params, length(base_params))
 
     # Build recursive CTE definition
     cte_name = escape_identifier(spec.name)
@@ -277,4 +288,10 @@ defmodule Selecto.Builder.CteSql do
       end)
     end)
   end
+
+  defp rewrite_cte_root_alias(sql, cte_name) when is_binary(sql) and is_binary(cte_name) do
+    Regex.replace(~r/\bselecto_root\b/u, sql, cte_root_alias(cte_name))
+  end
+
+  defp cte_root_alias(cte_name), do: "cte_#{cte_name}"
 end
