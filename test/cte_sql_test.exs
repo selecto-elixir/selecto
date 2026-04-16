@@ -63,6 +63,8 @@ defmodule Selecto.CteSqlTest do
     assert with_sql =~ ~r/^with\s+/i
     assert with_sql =~ ~r/active_users\s+as\s*\(/i
     assert with_sql =~ ~r/select/i
+    assert with_sql =~ ~r/from users cte_active_users/i
+    refute with_sql =~ ~r/selecto_root/i
     assert params == [true]
     assert finalized_params == [true]
   end

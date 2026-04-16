@@ -1,6 +1,8 @@
 defmodule Selecto.QueryMembersTest do
   use ExUnit.Case, async: true
 
+  alias Selecto.Expr, as: X
+
   defp normalize_sql(sql) do
     sql
     |> then(&Regex.replace(~r/\s+/, &1, " "))
@@ -108,6 +110,42 @@ defmodule Selecto.QueryMembersTest do
     Map.put(domain, :query_members, query_members)
   end
 
+  defp order_domain_with_stacked_ctes do
+    domain = order_domain()
+
+    query_members = %{
+      ctes: %{
+        active_orders: %{
+          query: fn selecto ->
+            selecto
+            |> Selecto.select(["id", "customer_id", "status"])
+            |> Selecto.filter({"status", "delivered"})
+          end,
+          columns: ["id", "customer_id", "status"],
+          join: [owner_key: :id, related_key: :id, fields: :infer]
+        },
+        customer_order_rollups: %{
+          query: fn selecto ->
+            selecto
+            |> Selecto.select([
+              "customer_id",
+              X.as(X.count("*"), "order_count")
+            ])
+            |> Selecto.group_by(["customer_id"])
+          end,
+          columns: ["customer_id", "order_count"],
+          join: [owner_key: :customer_id, related_key: :customer_id, fields: :infer]
+        }
+      },
+      values: %{},
+      subqueries: %{},
+      laterals: %{},
+      unnests: %{}
+    }
+
+    Map.put(domain, :query_members, query_members)
+  end
+
   defp customer_domain_with_query_members do
     domain = customer_domain()
 
@@ -147,6 +185,9 @@ defmodule Selecto.QueryMembersTest do
 
     assert params == ["delivered"]
     assert sql =~ "WITH order_totals (id, total) AS ("
+    assert sql =~
+             "order_totals (id, total) AS ( select cte_order_totals.id, cte_order_totals.total from orders cte_order_totals"
+
     assert sql =~ "left join order_totals order_totals on order_totals.id = selecto_root.id"
   end
 
@@ -160,6 +201,21 @@ defmodule Selecto.QueryMembersTest do
     {sql, _params} = Selecto.to_sql(query)
 
     assert Regex.scan(~r/order_totals \(id, total\) AS \(/i, sql) |> length() == 1
+  end
+
+  test "stacked named CTEs do not nest prior user CTE WITH clauses inside later CTE bodies" do
+    query =
+      Selecto.configure(order_domain_with_stacked_ctes(), :mock_connection, validate: false)
+      |> Selecto.with_cte(:active_orders)
+      |> Selecto.with_cte(:customer_order_rollups)
+      |> Selecto.select(["order_number", "customer_order_rollups.order_count"])
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["delivered"]
+    assert Regex.scan(~r/WITH active_orders/i, sql) |> length() == 1
+    refute sql =~ "customer_order_rollups (customer_id, order_count) AS ( WITH active_orders"
   end
 
   test "with_values/2 resolves named VALUES member and applies configured join" do
