@@ -11,6 +11,8 @@ defmodule Selecto.Schema.Column do
   - custom columns declared in the domain
   """
 
+  alias Selecto.Presentation
+
   # Configure columns - move to column
   def configure_columns(join, fields, source, domain) do
     columns =
@@ -29,14 +31,13 @@ defmodule Selecto.Schema.Column do
       [
         {
           f,
-          Map.merge(
-            v,
-            %{
-              colid: f,
-              requires_join: join
-            }
-          )
+          v
+          |> Map.merge(%{
+            colid: f,
+            requires_join: join
+          })
           |> Map.put_new(:type, :custom_column)
+          |> Presentation.normalize_column()
         }
         | acc
       ]
@@ -145,6 +146,7 @@ defmodule Selecto.Schema.Column do
       format: Map.get(config, :format),
       icon: Map.get(config, :icon, Map.get(source_col, :icon)),
       icon_family: Map.get(config, :icon_family, Map.get(source_col, :icon_family)),
+      presentation: merge_presentation(config, source_col),
       presentation_type:
         Map.get(config, :presentation_type, Map.get(source_col, :presentation_type)),
       datetime_storage:
@@ -157,7 +159,27 @@ defmodule Selecto.Schema.Column do
       base_col
       |> add_filter_type(config)
       |> add_option_provider(config)
+      |> Presentation.normalize_column()
     }
+  end
+
+  defp merge_presentation(config, source_col) do
+    source_presentation = Map.get(source_col || %{}, :presentation, %{})
+    config_presentation = Map.get(config || %{}, :presentation, %{})
+
+    case {source_presentation, config_presentation} do
+      {%{} = source_presentation, %{} = config_presentation} ->
+        Map.merge(source_presentation, config_presentation)
+
+      {%{} = source_presentation, _} ->
+        source_presentation
+
+      {_, %{} = config_presentation} ->
+        config_presentation
+
+      _ ->
+        nil
+    end
   end
 
   # stolen from phoenix :D
