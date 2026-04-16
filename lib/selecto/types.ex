@@ -43,6 +43,17 @@ defmodule Selecto.Types do
           optional(:icon) => atom() | String.t(),
           optional(:icon_family) => atom() | String.t(),
           optional(:presentation_type) => :date | :datetime | :utc_datetime | :naive_datetime,
+          optional(:presentation) => %{
+            optional(:semantic_type) => :measurement | :temporal | :number,
+            optional(:quantity) => atom() | String.t(),
+            optional(:canonical_unit) => atom() | String.t(),
+            optional(:available_units) => [atom() | String.t()],
+            optional(:default_unit) => atom() | String.t(),
+            optional(:temporal_kind) => :instant | :local_date | :local_time | :naive_datetime,
+            optional(:storage_timezone) => String.t(),
+            optional(:display_timezone) => :viewer | String.t(),
+            optional(:format) => map()
+          },
           optional(:datetime_storage) =>
             :unix | :unix_s | :unix_seconds | :unix_ms | :unix_milliseconds | :javascript_ms,
           optional(:precision) => pos_integer(),
