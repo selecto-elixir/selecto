@@ -83,6 +83,7 @@ defmodule Selecto.Expr do
   def normalize({:desc_nulls_first, expression}), do: desc_nulls_first(expression)
   def normalize({:desc_nulls_last, expression}), do: desc_nulls_last(expression)
   def normalize({:rollup, groups}), do: rollup(groups)
+  def normalize({:grouping_set, groups}), do: grouping_set(groups)
 
   def normalize({:window, window_call, opts}) when is_list(opts) do
     {:window, normalize_window_call(window_call), normalize_window_opts(opts)}
@@ -473,6 +474,10 @@ defmodule Selecto.Expr do
   @doc "Builds a `GROUP BY ROLLUP(...)` keyword spec."
   @spec rollup(term()) :: keyword()
   def rollup(groups), do: [rollup: normalize(groups)]
+
+  @doc "Builds a composite grouping element for use inside `ROLLUP(...)`."
+  @spec grouping_set(term()) :: tuple()
+  def grouping_set(groups), do: {:grouping_set, normalize(groups)}
 
   @doc "Builds a window-function selector for `Selecto.select/2`."
   @spec window(atom(), term(), keyword()) :: tuple()
