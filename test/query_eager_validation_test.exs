@@ -124,6 +124,21 @@ defmodule Selecto.QueryEagerValidationTest do
     end
   end
 
+  test "post retarget filter validates against target root after retarget" do
+    query =
+      selecto()
+      |> Selecto.retarget(:order_items)
+      |> Selecto.post_retarget_filter({"quantity", 1})
+
+    assert query.set.post_retarget_filters == [{"quantity", 1}]
+
+    assert_raise ArgumentError, ~r/status/, fn ->
+      selecto()
+      |> Selecto.retarget(:order_items)
+      |> Selecto.post_retarget_filter({"status", "paid"})
+    end
+  end
+
   test "order_by validates fields eagerly" do
     query =
       selecto()

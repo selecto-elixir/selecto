@@ -103,6 +103,29 @@ defmodule Selecto.QueryEnhancementsTest do
     assert query.set.post_retarget_filters == [{"order_items.quantity", {:gt, 2}}]
   end
 
+  test "post_retarget_filter accepts unqualified target-root fields after retarget" do
+    query =
+      domain()
+      |> selecto()
+      |> Selecto.pre_retarget_filter({"status", "delivered"})
+      |> Selecto.retarget(:order_items)
+      |> Selecto.post_retarget_filter({"quantity", {:gt, 2}})
+
+    assert query.set.filtered == [{"status", "delivered"}]
+    assert query.set.post_retarget_filters == [{"quantity", {:gt, 2}}]
+  end
+
+  test "filter after retarget validates against the target root" do
+    query =
+      domain()
+      |> selecto()
+      |> Selecto.retarget(:order_items)
+      |> Selecto.filter({"quantity", 2})
+
+    assert query.set.filtered == []
+    assert query.set.post_retarget_filters == [{"quantity", 2}]
+  end
+
   test "query_filters exposes unified filters with optional post-retarget inclusion" do
     query =
       domain()

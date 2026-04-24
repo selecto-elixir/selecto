@@ -961,6 +961,47 @@ defmodule Selecto.WindowJsonRegressionTest do
     assert sql =~ ") high_value_delivered on selecto_root.id = high_value_delivered.customer_id"
   end
 
+  test "join_subquery exposes fields selected with expression field tuples" do
+    high_value_delivered_orders =
+      Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)
+      |> Selecto.select([
+        Selecto.Expr.field("customer_id"),
+        Selecto.Expr.field("order_number"),
+        Selecto.Expr.field("total")
+      ])
+      |> Selecto.filter(
+        {:and,
+         [
+           {"status", "delivered"},
+           {"total", {:>, 1000}}
+         ]}
+      )
+
+    query =
+      Selecto.configure(customer_domain(), :mock_connection, validate: false)
+      |> Selecto.join_subquery(:high_value_delivered, high_value_delivered_orders,
+        type: :inner,
+        on: [%{left: "id", right: "customer_id"}]
+      )
+      |> Selecto.select([
+        Selecto.Expr.field("name"),
+        Selecto.Expr.field("tier"),
+        Selecto.Expr.field("high_value_delivered.order_number"),
+        Selecto.Expr.field("high_value_delivered.total")
+      ])
+
+    {sql, params} = Selecto.to_sql(query)
+    sql = normalize_sql(sql)
+
+    assert params == ["delivered", 1000]
+
+    assert sql =~
+             "select subq_root_orders_high_value_delivered.customer_id, subq_root_orders_high_value_delivered.order_number, subq_root_orders_high_value_delivered.total"
+
+    assert sql =~ "high_value_delivered.order_number"
+    assert sql =~ "high_value_delivered.total"
+  end
+
   test "join_subquery uses unique root aliases across multiple subqueries" do
     delivered_orders =
       Selecto.configure(order_domain_with_customer_join(), :mock_connection, validate: false)

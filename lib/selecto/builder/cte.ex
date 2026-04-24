@@ -81,8 +81,11 @@ defmodule Selecto.Builder.CteSql do
     {raw_definitions, raw_params} =
       raw_ctes
       |> Enum.map(fn
-        {:raw_cte, cte_definition, params} -> {cte_definition, params}
-        {:raw_recursive_cte, cte_definition, params} -> {cte_definition, params}
+        {:raw_cte, cte_definition, params} ->
+          {normalize_raw_cte_definition(cte_definition, params), params}
+
+        {:raw_recursive_cte, cte_definition, params} ->
+          {normalize_raw_cte_definition(cte_definition, params), params}
       end)
       |> Enum.unzip()
 
@@ -266,6 +269,26 @@ defmodule Selecto.Builder.CteSql do
   defp convert_sql_to_iodata(sql, params) do
     convert_sql_to_iodata_with_offset(sql, params, 0)
   end
+
+  defp normalize_raw_cte_definition(cte_definition, []), do: cte_definition
+
+  defp normalize_raw_cte_definition(cte_definition, params) do
+    if contains_param_marker?(cte_definition) do
+      cte_definition
+    else
+      cte_definition
+      |> IO.iodata_to_binary()
+      |> convert_sql_to_iodata(params)
+    end
+  end
+
+  defp contains_param_marker?({:param, _value}), do: true
+
+  defp contains_param_marker?(items) when is_list(items) do
+    Enum.any?(items, &contains_param_marker?/1)
+  end
+
+  defp contains_param_marker?(_), do: false
 
   defp convert_sql_to_iodata_with_offset(sql, params, _offset) do
     params

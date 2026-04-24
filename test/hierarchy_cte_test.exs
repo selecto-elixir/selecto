@@ -2,6 +2,58 @@ defmodule Selecto.HierarchyCteTest do
   use ExUnit.Case
   alias Selecto.Builder.Sql.Hierarchy
 
+  defp employee_domain do
+    %{
+      name: "Employees",
+      source: %{
+        source_table: "employees",
+        primary_key: :id,
+        fields: [:id, :first_name, :last_name, :manager_id],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          first_name: %{type: :string},
+          last_name: %{type: :string},
+          manager_id: %{type: :integer}
+        },
+        associations: %{
+          manager_tree: %{
+            queryable: :employees,
+            field: :manager_tree,
+            owner_key: :manager_id,
+            related_key: :id
+          }
+        }
+      },
+      schemas: %{
+        employees: %{
+          source_table: "employees",
+          primary_key: :id,
+          fields: [:id, :first_name, :last_name, :manager_id],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :integer},
+            first_name: %{type: :string},
+            last_name: %{type: :string},
+            manager_id: %{type: :integer}
+          }
+        }
+      },
+      joins: %{
+        manager_tree: %{
+          name: "Manager Tree",
+          type: :hierarchical,
+          hierarchy_type: :adjacency_list,
+          depth_limit: 5,
+          id_field: :id,
+          parent_field: :manager_id,
+          name_field: :first_name,
+          fields: %{first_name: %{type: :string}, last_name: %{type: :string}}
+        }
+      }
+    }
+  end
+
   test "build_adjacency_list_cte generates valid recursive CTE" do
     # Mock selecto struct
     selecto = %{postgrex_opts: :mock_connection}
@@ -93,6 +145,27 @@ defmodule Selecto.HierarchyCteTest do
 
     # Should generate valid SQL
     assert String.contains?(cte_sql, "nodes_hierarchy AS (")
+  end
+
+  test "full adjacency hierarchy query preserves recursive CTE params" do
+    query =
+      employee_domain()
+      |> Selecto.configure(:mock_connection, validate: false)
+      |> Selecto.select([
+        "id",
+        "first_name",
+        "last_name",
+        "manager_tree.first_name",
+        "manager_tree_level",
+        "manager_tree_path"
+      ])
+      |> Selecto.limit(15)
+
+    {sql, params} = Selecto.to_sql(query)
+
+    assert sql =~ "WITH RECURSIVE manager_tree_hierarchy AS"
+    assert sql =~ "h.level < $1"
+    assert params == [5]
   end
 
   test "build_materialized_path_query generates path-based SQL" do

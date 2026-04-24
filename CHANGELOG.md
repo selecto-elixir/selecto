@@ -1,6 +1,18 @@
 
 # Selecto Library Changelog
 
+## Unreleased - Livebook Query Validation Fixes
+---------------------------------------------------------
+
+#### Fixed
+- Fixed raw and recursive CTE parameter preservation so CTE SQL with placeholders
+  keeps its params through final query assembly.
+- Fixed post-retarget filter validation so target-root fields such as
+  `"quantity"` validate after `retarget(:order_items)`.
+- Fixed `join_subquery/4` field exposure for expression macro selectors such as
+  `{:field, "order_number"}`, allowing joined subquery aliases to validate in
+  `select/2` and `order_by/2`.
+
 ## V 0.4.4 - UUID Filter Coercion and Dependency Refresh
 ---------------------------------------------------------
 
