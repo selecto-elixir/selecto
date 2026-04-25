@@ -431,13 +431,8 @@ defmodule Selecto.DynamicJoin do
   defp extract_subquery_fields(join_selecto, join_id) do
     # Extract selected fields from the subquery to make them available
     join_selecto.set.selected
-    |> Enum.map(fn
-      # Function with alias
-      {_, _, _} = tuple -> elem(tuple, 0)
-      field when is_binary(field) -> field
-      _ -> nil
-    end)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.flat_map(&subquery_output_fields/1)
+    |> Enum.uniq()
     |> Enum.reduce(%{}, fn field, acc ->
       field_key = "#{join_id}.#{field}"
 
@@ -448,6 +443,48 @@ defmodule Selecto.DynamicJoin do
         type: :unknown
       })
     end)
+  end
+
+  defp subquery_output_fields({:field, _selector, alias_name}) do
+    [to_string(alias_name)]
+  end
+
+  defp subquery_output_fields({:field, selector}) do
+    selector
+    |> subquery_output_field_name()
+    |> List.wrap()
+  end
+
+  defp subquery_output_fields({:row, _fields, alias_name}) do
+    [to_string(alias_name)]
+  end
+
+  defp subquery_output_fields({_function, _args, opts}) when is_list(opts) do
+    case Keyword.get(opts, :as) do
+      nil -> []
+      alias_name -> [to_string(alias_name)]
+    end
+  end
+
+  defp subquery_output_fields(field) when is_binary(field) or is_atom(field) do
+    [subquery_output_field_name(field)]
+  end
+
+  defp subquery_output_fields(_field), do: []
+
+  defp subquery_output_field_name({:field, _selector, alias_name}) do
+    to_string(alias_name)
+  end
+
+  defp subquery_output_field_name({:field, selector}) do
+    subquery_output_field_name(selector)
+  end
+
+  defp subquery_output_field_name(field) when is_binary(field) or is_atom(field) do
+    field
+    |> to_string()
+    |> String.split(".")
+    |> List.last()
   end
 
   defp register_dynamic_join_fields(selecto, join_id, join_config) do
