@@ -1,8 +1,14 @@
 
 # Selecto Library Changelog
 
-## Unreleased - Livebook Query Validation Fixes
+## V 0.4.5 - Presentation Metadata and Livebook Query Validation Fixes
 ---------------------------------------------------------
+
+#### Added
+- Added normalized presentation metadata helpers via `Selecto.Presentation`, so
+  column display semantics such as measurements, temporal storage/display
+  behavior, and formatted values can be described consistently from domain
+  metadata.
 
 #### Fixed
 - Fixed raw and recursive CTE parameter preservation so CTE SQL with placeholders
@@ -12,6 +18,9 @@
 - Fixed `join_subquery/4` field exposure for expression macro selectors such as
   `{:field, "order_number"}`, allowing joined subquery aliases to validate in
   `select/2` and `order_by/2`.
+
+#### Changed
+- Bump package version to `0.4.5`.
 
 ## V 0.4.4 - UUID Filter Coercion and Dependency Refresh
 ---------------------------------------------------------
