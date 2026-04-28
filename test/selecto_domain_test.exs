@@ -114,6 +114,102 @@ defmodule Selecto.DomainTest do
     end
   end
 
+  describe "project/2" do
+    test "projects a query-facing domain without unknown or write sections" do
+      {:ok, normalized, _diagnostics} = Domain.normalize(generated_style_domain())
+
+      projection = Domain.project(normalized, :query)
+
+      assert projection.schema_version == 1
+      assert projection.name == "Orders"
+      assert projection.source.source_table == "orders"
+      assert projection.default_selected == [:id, :name]
+      assert projection.filters["name"].type == :string
+      assert projection.custom_columns["name_upper"].type == :string
+      assert projection.pagination.default_limit == 50
+      assert projection.retarget == %{default_target: :customers}
+
+      refute Map.has_key?(projection, :pivot)
+      refute Map.has_key?(projection, :writes)
+      refute Map.has_key?(projection, :actions)
+      refute Map.has_key?(projection, :detail_actions)
+    end
+
+    test "projects a write-facing domain without old top-level write keys" do
+      {:ok, normalized, _diagnostics} = Domain.normalize(write_style_domain())
+
+      projection = Domain.project(normalized, :write)
+
+      assert projection.schema_version == 1
+      assert projection.columns.status.type == :string
+      assert projection.writes.operations.insert.fields == [:status, :total]
+      assert projection.actions == %{}
+      assert projection.capabilities == %{}
+      assert projection.source_relationships == %{}
+      assert projection.choice_sources == %{}
+
+      refute Map.has_key?(projection, :writable)
+      refute Map.has_key?(projection, :required_on_insert)
+      refute Map.has_key?(projection, :soft_delete_field)
+      refute Map.has_key?(projection, :transitions)
+      refute Map.has_key?(projection, :filters)
+      refute Map.has_key?(projection, :detail_actions)
+    end
+
+    test "projects a ui-facing domain with display defaults and actions" do
+      {:ok, normalized, _diagnostics} =
+        detail_action_domain()
+        |> Map.merge(future_sections())
+        |> Domain.normalize()
+
+      projection = Domain.project(normalized, :ui)
+
+      assert projection.detail_actions.profile.type == :modal
+      assert projection.actions.approve_invoice.type == :transition
+      assert projection.capabilities["invoice.view"].operations == [:select, :detail]
+      assert projection.choice_sources.customer_choices.domain == :customers
+      assert projection.filters == %{}
+
+      refute Map.has_key?(projection, :writes)
+      refute Map.has_key?(projection, :query_members)
+      refute Map.has_key?(projection, :source_relationships)
+      refute Map.has_key?(projection, :future_runtime_metadata)
+    end
+
+    test "projects an api-facing domain with read, write, action, and reference sections" do
+      {:ok, normalized, _diagnostics} =
+        write_style_domain()
+        |> Map.merge(future_sections())
+        |> Domain.normalize()
+
+      projection = Domain.project(normalized, :api)
+
+      assert projection.filters == %{}
+      assert projection.query_members == %{}
+      assert projection.columns.status.type == :string
+      assert projection.writes.operations.insert.fields == [:status, :total]
+      assert projection.actions.approve_invoice.type == :transition
+      assert projection.capabilities["invoice.view"].operations == [:select, :detail]
+      assert projection.source_relationships.customer.target_domain == :customers
+      assert projection.choice_sources.customer_choices.domain == :customers
+
+      refute Map.has_key?(projection, :writable)
+      refute Map.has_key?(projection, :future_runtime_metadata)
+    end
+
+    test "raises for unknown projections and raw domains" do
+      {:ok, normalized, _diagnostics} = Domain.normalize(minimal_query_domain())
+
+      assert_raise ArgumentError, ~r/unknown Selecto domain projection :export/, fn ->
+        Domain.project(normalized, :export)
+      end
+
+      assert_raise ArgumentError, ~r/expected a normalized Selecto domain/, fn ->
+        Domain.project(minimal_query_domain(), :query)
+      end
+    end
+  end
+
   defp warning_codes(diagnostics) do
     Enum.map(diagnostics.warnings, & &1.code)
   end
@@ -145,6 +241,12 @@ defmodule Selecto.DomainTest do
       filters: %{
         "name" => %{name: "Name", type: :string}
       },
+      domain_data: %{
+        source: :fixture
+      },
+      extensions: [
+        {ExampleExtension, []}
+      ],
       custom_columns: %{
         "name_upper" => %{name: "Upper Name", select: {:func, "upper", [:name]}, type: :string}
       },
@@ -167,6 +269,10 @@ defmodule Selecto.DomainTest do
       writable: [:status, :total],
       required_on_insert: [:status],
       soft_delete_field: :deleted_at,
+      columns: %{
+        status: %{type: :string},
+        total: %{type: :decimal}
+      },
       transitions: %{
         submitted: %{to: [:paid, :cancelled]}
       },
@@ -259,7 +365,11 @@ defmodule Selecto.DomainTest do
 
   defp future_section_domain do
     minimal_query_domain()
-    |> Map.merge(%{
+    |> Map.merge(future_sections())
+  end
+
+  defp future_sections do
+    %{
       schema_version: 2,
       capabilities: %{
         "invoice.view" => %{operations: [:select, :detail]}
@@ -286,6 +396,6 @@ defmodule Selecto.DomainTest do
         }
       },
       future_runtime_metadata: %{mode: :experimental}
-    })
+    }
   end
 end
