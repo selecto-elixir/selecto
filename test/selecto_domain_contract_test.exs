@@ -476,7 +476,16 @@ defmodule Selecto.DomainContractTest do
             value_source: "customers.id",
             caption_source: "customers.name",
             description_source: "customers.description",
-            filters: [{:eq, "customers.active", true}],
+            filters: [
+              {:eq, "customers.active", true},
+              [
+                "and",
+                [
+                  ["eq", "customers.tenant_id", {:context, :tenant_id}],
+                  {:not, ["eq", "customers.archived", true]}
+                ]
+              ]
+            ],
             order_by: ["customers.name", {"customers.id", :desc}],
             presentation: %{
               control: :autocomplete,
@@ -582,6 +591,30 @@ defmodule Selecto.DomainContractTest do
             value_field: :id,
             label_field: :name,
             filters: %{active: true}
+          },
+          bad_filter_operator: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: [{:unknown, "customers.active", true}]
+          },
+          bad_filter_path: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: [{:eq, ".active", true}]
+          },
+          bad_filter_expression: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: [123]
+          },
+          bad_filter_operands: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: [{:and, {:eq, "customers.active", true}}]
           },
           bad_order_by: %{
             domain: :customers,
@@ -792,6 +825,34 @@ defmodule Selecto.DomainContractTest do
                choice_source: :bad_filters,
                path: [:choice_sources, :bad_filters, :filters]
              } = error_for(diagnostics, :invalid_choice_source_filters)
+
+      assert %{
+               code: :invalid_choice_source_filter_operator,
+               choice_source: :bad_filter_operator,
+               operator: :unknown,
+               path: [:choice_sources, :bad_filter_operator, :filters, 0]
+             } = error_for(diagnostics, :invalid_choice_source_filter_operator)
+
+      assert %{
+               code: :invalid_choice_source_filter_path,
+               choice_source: :bad_filter_path,
+               field: ".active",
+               path: [:choice_sources, :bad_filter_path, :filters, 0, :field]
+             } = error_for(diagnostics, :invalid_choice_source_filter_path)
+
+      assert %{
+               code: :invalid_choice_source_filter_expression,
+               choice_source: :bad_filter_expression,
+               filter: 123,
+               path: [:choice_sources, :bad_filter_expression, :filters, 0]
+             } = error_for(diagnostics, :invalid_choice_source_filter_expression)
+
+      assert %{
+               code: :invalid_choice_source_filter_operands,
+               choice_source: :bad_filter_operands,
+               operator: :and,
+               path: [:choice_sources, :bad_filter_operands, :filters, 0]
+             } = error_for(diagnostics, :invalid_choice_source_filter_operands)
 
       assert %{
                code: :invalid_choice_source_order_by,

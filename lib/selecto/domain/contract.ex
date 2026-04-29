@@ -1606,7 +1606,16 @@ defmodule Selecto.Domain.Contract do
         errors
 
       filters when is_list(filters) ->
-        errors
+        filters
+        |> Enum.with_index()
+        |> Enum.reduce(errors, fn {filter, index}, acc ->
+          validate_choice_source_filter_expression(
+            acc,
+            choice_source_id,
+            filter,
+            path ++ [:filters, index]
+          )
+        end)
 
       filters ->
         [
@@ -1622,6 +1631,215 @@ defmodule Selecto.Domain.Contract do
         ]
     end
   end
+
+  defp validate_choice_source_filter_expression(errors, choice_source_id, filter, path)
+       when is_tuple(filter) do
+    validate_choice_source_filter_parts(
+      errors,
+      choice_source_id,
+      Tuple.to_list(filter),
+      filter,
+      path
+    )
+  end
+
+  defp validate_choice_source_filter_expression(errors, choice_source_id, filter, path)
+       when is_list(filter) do
+    validate_choice_source_filter_parts(errors, choice_source_id, filter, filter, path)
+  end
+
+  defp validate_choice_source_filter_expression(errors, choice_source_id, filter, path) do
+    [
+      error(
+        :invalid_choice_source_filter_expression,
+        path,
+        "choice source #{inspect(choice_source_id)} filter must be an operator tuple or list",
+        expected: "operator tuple or list",
+        actual: value_type(filter),
+        choice_source: choice_source_id,
+        filter: filter
+      )
+      | errors
+    ]
+  end
+
+  defp validate_choice_source_filter_parts(
+         errors,
+         choice_source_id,
+         [op, operands],
+         _filter,
+         path
+       ) do
+    cond do
+      choice_source_logical_filter_op?(op) ->
+        validate_choice_source_logical_filter(errors, choice_source_id, op, operands, path)
+
+      choice_source_unary_filter_op?(op) ->
+        validate_choice_source_filter_expression(
+          errors,
+          choice_source_id,
+          operands,
+          path ++ [:operand]
+        )
+
+      choice_source_known_filter_op?(op) ->
+        invalid_choice_source_filter_operands(errors, choice_source_id, op, path, operands)
+
+      choice_source_filter_operator_value?(op) ->
+        invalid_choice_source_filter_operator(errors, choice_source_id, op, path)
+
+      true ->
+        invalid_choice_source_filter_expression(errors, choice_source_id, [op, operands], path)
+    end
+  end
+
+  defp validate_choice_source_filter_parts(
+         errors,
+         choice_source_id,
+         [op, field, _value],
+         _filter,
+         path
+       ) do
+    validate_choice_source_field_filter(errors, choice_source_id, op, field, path)
+  end
+
+  defp validate_choice_source_filter_parts(
+         errors,
+         choice_source_id,
+         [op, field, _left, _right],
+         _filter,
+         path
+       ) do
+    validate_choice_source_field_filter(errors, choice_source_id, op, field, path)
+  end
+
+  defp validate_choice_source_filter_parts(
+         errors,
+         choice_source_id,
+         [op | _] = filter,
+         _raw,
+         path
+       ) do
+    cond do
+      choice_source_known_filter_op?(op) ->
+        invalid_choice_source_filter_operands(errors, choice_source_id, op, path, filter)
+
+      choice_source_filter_operator_value?(op) ->
+        invalid_choice_source_filter_operator(errors, choice_source_id, op, path)
+
+      true ->
+        invalid_choice_source_filter_expression(errors, choice_source_id, filter, path)
+    end
+  end
+
+  defp validate_choice_source_filter_parts(errors, choice_source_id, filter, _raw, path) do
+    invalid_choice_source_filter_expression(errors, choice_source_id, filter, path)
+  end
+
+  defp validate_choice_source_logical_filter(errors, choice_source_id, _op, filters, path)
+       when is_list(filters) do
+    filters
+    |> Enum.with_index()
+    |> Enum.reduce(errors, fn {filter, index}, acc ->
+      validate_choice_source_filter_expression(acc, choice_source_id, filter, path ++ [index])
+    end)
+  end
+
+  defp validate_choice_source_logical_filter(errors, choice_source_id, op, filters, path) do
+    invalid_choice_source_filter_operands(errors, choice_source_id, op, path, filters)
+  end
+
+  defp validate_choice_source_field_filter(errors, choice_source_id, op, field, path) do
+    cond do
+      choice_source_field_filter_op?(op) and valid_choice_source_path?(field) ->
+        errors
+
+      choice_source_field_filter_op?(op) ->
+        [
+          error(
+            :invalid_choice_source_filter_path,
+            path ++ [:field],
+            "choice source #{inspect(choice_source_id)} filter field must be a non-empty atom or dotted string path",
+            expected: "non-empty atom or dotted string path",
+            actual: value_type(field),
+            choice_source: choice_source_id,
+            field: field
+          )
+          | errors
+        ]
+
+      choice_source_known_filter_op?(op) ->
+        invalid_choice_source_filter_operands(errors, choice_source_id, op, path, field)
+
+      choice_source_filter_operator_value?(op) ->
+        invalid_choice_source_filter_operator(errors, choice_source_id, op, path)
+
+      true ->
+        invalid_choice_source_filter_expression(errors, choice_source_id, [op, field], path)
+    end
+  end
+
+  defp invalid_choice_source_filter_operator(errors, choice_source_id, op, path) do
+    [
+      error(
+        :invalid_choice_source_filter_operator,
+        path,
+        "choice source #{inspect(choice_source_id)} filter operator #{inspect(op)} is not supported",
+        expected: "known filter operator",
+        actual: value_type(op),
+        choice_source: choice_source_id,
+        operator: op
+      )
+      | errors
+    ]
+  end
+
+  defp invalid_choice_source_filter_operands(errors, choice_source_id, op, path, operands) do
+    [
+      error(
+        :invalid_choice_source_filter_operands,
+        path,
+        "choice source #{inspect(choice_source_id)} filter operator #{inspect(op)} has invalid operands",
+        expected: "operator operands",
+        actual: value_type(operands),
+        choice_source: choice_source_id,
+        operator: op
+      )
+      | errors
+    ]
+  end
+
+  defp invalid_choice_source_filter_expression(errors, choice_source_id, filter, path) do
+    [
+      error(
+        :invalid_choice_source_filter_expression,
+        path,
+        "choice source #{inspect(choice_source_id)} filter must be an operator tuple or list",
+        expected: "operator tuple or list",
+        actual: value_type(filter),
+        choice_source: choice_source_id,
+        filter: filter
+      )
+      | errors
+    ]
+  end
+
+  defp choice_source_known_filter_op?(op) do
+    choice_source_logical_filter_op?(op) or choice_source_unary_filter_op?(op) or
+      choice_source_field_filter_op?(op)
+  end
+
+  defp choice_source_logical_filter_op?(op), do: enum_value?(op, @logical_filter_ops)
+
+  defp choice_source_unary_filter_op?(op), do: enum_value?(op, @unary_filter_ops)
+
+  defp choice_source_field_filter_op?(op), do: enum_value?(op, @field_filter_ops)
+
+  defp choice_source_filter_operator_value?(op) when is_atom(op), do: not is_nil(op)
+
+  defp choice_source_filter_operator_value?(op) when is_binary(op), do: String.trim(op) != ""
+
+  defp choice_source_filter_operator_value?(_op), do: false
 
   defp validate_choice_source_order_by(errors, choice_source_id, choice_source, path) do
     case map_value(choice_source, :order_by) do

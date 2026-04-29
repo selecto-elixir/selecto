@@ -348,8 +348,11 @@ Choice source validation checks:
 - optional `capability` must reference a declared capability.
 - optional `source_path`, `value_source`, `caption_source`, and
   `description_source` must be non-empty atom or dotted string paths.
-- optional `filters` must be a list. Filter member semantics are left to future
-  source-domain resolution.
+- optional `filters` must be a list of static filter expressions. Field
+  operators such as `:eq`, `:gt`, `:between`, and `:in`, plus logical
+  `:and`, `:or`, and `:not`, may be atoms or strings.
+- choice-source filter field operands must be non-empty atom or dotted string
+  paths. Literal, context, and runtime values are preserved without evaluation.
 - optional `order_by` must be a list of paths or `{path, direction}` entries;
   direction must be `:asc` or `:desc`.
 - optional `presentation` must be a map. Known presentation hints are:
@@ -373,9 +376,9 @@ Field binding validation checks:
 - optional `reference.caption_field` must be an atom or string and must refer to
   a known working-domain field.
 
-The current slice validates static choice-source metadata only. It does not
-resolve external source-domain schemas, apply filters, fetch options, or execute
-membership checks.
+The current slice validates static choice-source metadata and filter expression
+syntax only. It does not resolve external source-domain schemas, apply filters,
+fetch options, or execute membership checks.
 
 ## Choice Membership API
 
