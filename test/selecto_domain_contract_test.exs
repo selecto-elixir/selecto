@@ -213,6 +213,77 @@ defmodule Selecto.DomainContractTest do
              )
     end
 
+    test "accepts capability catalog entries with atom and string operations" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "order.view" => %{
+            label: "View orders",
+            operations: [:select, "detail"],
+            target: :order
+          },
+          order_export: %{
+            operations: [:export],
+            sensitivity: :high
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates capability catalog shape" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          123 => %{operations: [:select]},
+          "missing.operations" => %{label: "Missing operations"},
+          "empty.operations" => %{operations: []},
+          "bad.operations" => %{operations: :select},
+          "bad.operation.member" => %{operations: [:select, 456]},
+          "bad.config" => [:not, :a, :map]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :invalid_capability_id,
+               capability: 123,
+               path: [:capabilities, 123]
+             } = error_for(diagnostics, :invalid_capability_id)
+
+      assert %{
+               code: :capability_missing_operations,
+               capability: "missing.operations",
+               path: [:capabilities, "missing.operations", :operations]
+             } = error_for(diagnostics, :capability_missing_operations)
+
+      assert %{
+               code: :capability_empty_operations,
+               capability: "empty.operations",
+               path: [:capabilities, "empty.operations", :operations]
+             } = error_for(diagnostics, :capability_empty_operations)
+
+      assert %{
+               code: :invalid_capability_operations,
+               capability: "bad.operations",
+               path: [:capabilities, "bad.operations", :operations]
+             } = error_for(diagnostics, :invalid_capability_operations)
+
+      assert %{
+               code: :invalid_capability_operation,
+               capability: "bad.operation.member",
+               operation: 456,
+               path: [:capabilities, "bad.operation.member", :operations, 1]
+             } = error_for(diagnostics, :invalid_capability_operation)
+
+      invalid_shapes = errors_for(diagnostics, :invalid_section_shape)
+
+      assert Enum.any?(
+               invalid_shapes,
+               &match?(%{capability: "bad.config", path: [:capabilities, "bad.config"]}, &1)
+             )
+    end
+
     test "DomainValidator normalized mode returns contract errors before legacy tuples" do
       domain =
         valid_domain()

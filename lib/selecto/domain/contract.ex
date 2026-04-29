@@ -65,6 +65,7 @@ defmodule Selecto.Domain.Contract do
     query = Map.get(normalized_domain, :query, %{})
     projection = Map.get(normalized_domain, :projection, %{})
     writes = Map.get(normalized_domain, :writes, %{})
+    capabilities = Map.get(normalized_domain, :capabilities, %{})
     field_index = field_index(source, schemas, projection)
 
     []
@@ -74,6 +75,7 @@ defmodule Selecto.Domain.Contract do
     |> validate_joins(joins, source, schemas)
     |> validate_filters(query, field_index)
     |> validate_writes(writes, field_index)
+    |> validate_capabilities(capabilities)
     |> Enum.reverse()
   end
 
@@ -723,6 +725,127 @@ defmodule Selecto.Domain.Contract do
       )
       | errors
     ]
+  end
+
+  defp validate_capabilities(errors, capabilities) when is_map(capabilities) do
+    Enum.reduce(capabilities, errors, fn {capability_id, capability}, acc ->
+      path = [:capabilities, capability_id]
+
+      acc
+      |> validate_capability_id(capability_id, path)
+      |> validate_capability(capability_id, capability, path)
+    end)
+  end
+
+  defp validate_capabilities(errors, capabilities) do
+    [
+      error(
+        :invalid_section_shape,
+        [:capabilities],
+        "domain section :capabilities must be a map",
+        expected: :map,
+        actual: value_type(capabilities)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_capability_id(errors, capability_id, _path)
+       when is_atom(capability_id) or is_binary(capability_id) do
+    errors
+  end
+
+  defp validate_capability_id(errors, capability_id, path) do
+    [
+      error(
+        :invalid_capability_id,
+        path,
+        "capability ids must be atoms or strings",
+        expected: "atom or string",
+        actual: value_type(capability_id),
+        capability: capability_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_capability(errors, capability_id, capability, path) when is_map(capability) do
+    case map_value(capability, :operations) do
+      nil ->
+        [
+          error(
+            :capability_missing_operations,
+            path ++ [:operations],
+            "capability #{inspect(capability_id)} must declare a non-empty operations list",
+            capability: capability_id
+          )
+          | errors
+        ]
+
+      [] ->
+        [
+          error(
+            :capability_empty_operations,
+            path ++ [:operations],
+            "capability #{inspect(capability_id)} must declare a non-empty operations list",
+            capability: capability_id
+          )
+          | errors
+        ]
+
+      operations when is_list(operations) ->
+        validate_capability_operations(errors, capability_id, operations, path ++ [:operations])
+
+      operations ->
+        [
+          error(
+            :invalid_capability_operations,
+            path ++ [:operations],
+            "capability #{inspect(capability_id)} operations must be a non-empty list",
+            expected: :list,
+            actual: value_type(operations),
+            capability: capability_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_capability(errors, capability_id, capability, path) do
+    [
+      error(
+        :invalid_section_shape,
+        path,
+        "capability #{inspect(capability_id)} must be a map",
+        expected: :map,
+        actual: value_type(capability),
+        capability: capability_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_capability_operations(errors, capability_id, operations, path) do
+    operations
+    |> Enum.with_index()
+    |> Enum.reduce(errors, fn {operation, index}, acc ->
+      if is_atom(operation) or is_binary(operation) do
+        acc
+      else
+        [
+          error(
+            :invalid_capability_operation,
+            path ++ [index],
+            "capability #{inspect(capability_id)} operations must be atoms or strings",
+            expected: "atom or string",
+            actual: value_type(operation),
+            capability: capability_id,
+            operation: operation
+          )
+          | acc
+        ]
+      end
+    end)
   end
 
   defp field_index(source, schemas, projection) do

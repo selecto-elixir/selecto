@@ -170,6 +170,67 @@ Validation checks:
 This validation does not execute writes and does not make `Selecto.configure/3`
 depend on the write contract.
 
+## Capability Catalog
+
+`capabilities` declares the stable capability names a domain can reference. It
+does not decide which actors have those capabilities; host applications and
+future resolver adapters own that policy decision.
+
+```elixir
+%{
+  capabilities: %{
+    "order.view" => %{
+      label: "View orders",
+      operations: [:select, :detail],
+      target: :order
+    },
+    "order.approve" => %{
+      label: "Approve order",
+      operations: [:action],
+      action: :approve_order
+    },
+    "order.export" => %{
+      label: "Export orders",
+      operations: [:export],
+      sensitivity: :high
+    }
+  }
+}
+```
+
+Validation checks:
+
+- `capabilities` must be a map when present.
+- capability ids must be atoms or strings.
+- each capability entry must be a map.
+- each capability must declare a non-empty `operations` list.
+- each operation must be an atom or string.
+
+Runtime capability checks use a shared request/decision value shape:
+
+```elixir
+request =
+  Selecto.Capabilities.request(
+    actor: current_user,
+    tenant: tenant_context,
+    domain: :orders,
+    capability: "order.approve",
+    operation: :execute_action,
+    target: %{type: :row, id: order_id},
+    context: %{surface: :components}
+  )
+
+decision =
+  Selecto.Capabilities.allow(:role_allowed,
+    effects: [{:required_filter, "tenant_id", {:eq, tenant_id}}],
+    obligations: [:audit_action]
+  )
+```
+
+Decision statuses are `:allow`, `:deny`, `:conditional`, and
+`:not_applicable`. Visibility recommendations are `:enabled`, `:disabled`,
+`:hidden`, and `:preview_only`.
+
 ## Elixir Example
 
 ```elixir
@@ -206,6 +267,10 @@ domain = %{
   },
   filters: %{
     "customer_name" => %{field: "customers.name"}
+  },
+  capabilities: %{
+    "order.view" => %{operations: [:select, :detail]},
+    "order.approve" => %{operations: [:action], action: :approve_order}
   },
   writes: %{
     transitions: %{
@@ -259,6 +324,10 @@ JSON domains use string keys and string field identifiers:
   },
   "filters": {
     "customer_name": {"field": "customers.name"}
+  },
+  "capabilities": {
+    "order.view": {"operations": ["select", "detail"]},
+    "order.approve": {"operations": ["action"], "action": "approve_order"}
   },
   "writes": {
     "transitions": {

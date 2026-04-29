@@ -59,6 +59,9 @@ defmodule Selecto.MixProject do
             Selecto.Schema.Column
           ],
           Utilities: [
+            Selecto.Capabilities,
+            Selecto.Capabilities.Decision,
+            Selecto.Capabilities.Request,
             Selecto.SQL.Params,
             Selecto.DomainValidator,
             Selecto.Helpers
