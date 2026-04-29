@@ -142,6 +142,77 @@ defmodule Selecto.DomainContractTest do
       refute Enum.any?(errors, &match?(%{field: "virtual_search"}, &1))
     end
 
+    test "accepts write transition graphs for known fields" do
+      domain =
+        valid_domain()
+        |> Map.put(:writes, %{
+          transitions: %{
+            status: %{
+              "pending" => ["ready", "cancelled"],
+              "ready" => [:complete, "cancelled"],
+              complete: []
+            }
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates write transition fields and state graph shape" do
+      domain =
+        valid_domain()
+        |> Map.put(:writes, %{
+          transitions: %{
+            :missing_status => %{"pending" => ["ready"]},
+            123 => %{"pending" => ["ready"]},
+            status: %{
+              "pending" => "ready",
+              456 => ["ready"],
+              "ready" => ["complete", 789]
+            },
+            customer_id: [:not, :a, :graph]
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :transition_field_not_found,
+               field: :missing_status,
+               path: [:writes, :transitions, :missing_status]
+             } = error_for(diagnostics, :transition_field_not_found)
+
+      assert %{
+               code: :invalid_transition_field,
+               field: 123,
+               path: [:writes, :transitions, 123]
+             } = error_for(diagnostics, :invalid_transition_field)
+
+      invalid_shapes = errors_for(diagnostics, :invalid_section_shape)
+
+      assert Enum.any?(
+               invalid_shapes,
+               &match?(%{field: :customer_id, path: [:writes, :transitions, :customer_id]}, &1)
+             )
+
+      assert %{
+               code: :invalid_transition_targets,
+               path: [:writes, :transitions, :status, "pending"]
+             } = error_for(diagnostics, :invalid_transition_targets)
+
+      invalid_states = errors_for(diagnostics, :invalid_transition_state)
+
+      assert Enum.any?(
+               invalid_states,
+               &match?(%{state: 456, path: [:writes, :transitions, :status, 456]}, &1)
+             )
+
+      assert Enum.any?(
+               invalid_states,
+               &match?(%{state: 789, path: [:writes, :transitions, :status, "ready", 1]}, &1)
+             )
+    end
+
     test "DomainValidator normalized mode returns contract errors before legacy tuples" do
       domain =
         valid_domain()

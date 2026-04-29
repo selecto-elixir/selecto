@@ -64,13 +64,16 @@ defmodule Selecto.Domain.Contract do
     joins = Map.get(normalized_domain, :joins, %{})
     query = Map.get(normalized_domain, :query, %{})
     projection = Map.get(normalized_domain, :projection, %{})
+    writes = Map.get(normalized_domain, :writes, %{})
+    field_index = field_index(source, schemas, projection)
 
     []
     |> validate_required_sections(authored_domain)
     |> validate_relation(:source, source, [:source])
     |> validate_schemas(schemas)
     |> validate_joins(joins, source, schemas)
-    |> validate_filters(query, field_index(source, schemas, projection))
+    |> validate_filters(query, field_index)
+    |> validate_writes(writes, field_index)
     |> Enum.reverse()
   end
 
@@ -583,6 +586,143 @@ defmodule Selecto.Domain.Contract do
         | errors
       ]
     end
+  end
+
+  defp validate_writes(errors, writes, field_index) when is_map(writes) do
+    case map_value(writes, :transitions) do
+      nil ->
+        errors
+
+      transitions when is_map(transitions) ->
+        validate_transition_graphs(errors, transitions, field_index)
+
+      transitions ->
+        [
+          error(
+            :invalid_section_shape,
+            [:writes, :transitions],
+            "domain section writes.transitions must be a map",
+            expected: :map,
+            actual: value_type(transitions)
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_writes(errors, writes, _field_index) do
+    [
+      error(
+        :invalid_section_shape,
+        [:writes],
+        "domain section :writes must be a map",
+        expected: :map,
+        actual: value_type(writes)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_transition_graphs(errors, transitions, field_index) do
+    Enum.reduce(transitions, errors, fn {field, graph}, acc ->
+      acc
+      |> validate_transition_field(field, field_index)
+      |> validate_transition_graph(field, graph)
+    end)
+  end
+
+  defp validate_transition_field(errors, field, field_index) do
+    cond do
+      not field_ref?(field) ->
+        [
+          error(
+            :invalid_transition_field,
+            [:writes, :transitions, field],
+            "write transition fields must be atoms or strings",
+            expected: "atom or string",
+            actual: value_type(field),
+            field: field
+          )
+          | errors
+        ]
+
+      known_field?(field_index, field) ->
+        errors
+
+      true ->
+        [
+          error(
+            :transition_field_not_found,
+            [:writes, :transitions, field],
+            "write transition field #{inspect(field)} is not defined in source, schemas, or custom columns",
+            field: field
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_transition_graph(errors, field, graph) when is_map(graph) do
+    Enum.reduce(graph, errors, fn {from_state, target_states}, acc ->
+      state_path = [:writes, :transitions, field, from_state]
+
+      acc
+      |> validate_transition_state(from_state, state_path)
+      |> validate_transition_targets(target_states, state_path)
+    end)
+  end
+
+  defp validate_transition_graph(errors, field, graph) do
+    [
+      error(
+        :invalid_section_shape,
+        [:writes, :transitions, field],
+        "write transition graph for #{inspect(field)} must be a map",
+        expected: :map,
+        actual: value_type(graph),
+        field: field
+      )
+      | errors
+    ]
+  end
+
+  defp validate_transition_targets(errors, target_states, path) when is_list(target_states) do
+    target_states
+    |> Enum.with_index()
+    |> Enum.reduce(errors, fn {target_state, index}, acc ->
+      validate_transition_state(acc, target_state, path ++ [index])
+    end)
+  end
+
+  defp validate_transition_targets(errors, target_states, path) do
+    [
+      error(
+        :invalid_transition_targets,
+        path,
+        "write transition targets must be a list of atoms or strings",
+        expected: :list,
+        actual: value_type(target_states)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_transition_state(errors, state, _path) when is_atom(state) or is_binary(state) do
+    errors
+  end
+
+  defp validate_transition_state(errors, state, path) do
+    [
+      error(
+        :invalid_transition_state,
+        path,
+        "write transition states must be atoms or strings",
+        expected: "atom or string",
+        actual: value_type(state),
+        state: state
+      )
+      | errors
+    ]
   end
 
   defp field_index(source, schemas, projection) do

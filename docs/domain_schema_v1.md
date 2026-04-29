@@ -138,6 +138,38 @@ The first contract also validates filter references. Registered filters with a
 
 Unknown filter fields produce `:filter_field_not_found` diagnostics.
 
+## Write Transitions
+
+`writes.transitions` is the first proposed write contract section with strict
+validation. It is a direct state graph keyed by a known domain field:
+
+```elixir
+%{
+  writes: %{
+    transitions: %{
+      status: %{
+        "pending" => ["ready", "cancelled"],
+        "ready" => [:complete, "cancelled"],
+        complete: []
+      }
+    }
+  }
+}
+```
+
+Validation checks:
+
+- `writes` must be a map when present.
+- `writes.transitions` must be a map when present.
+- each transition field key must be an atom or string
+- each transition field must exist in the source, schemas, or custom columns
+- each transition graph must be a map
+- each source state must be an atom or string
+- each target list must be a list of atoms or strings
+
+This validation does not execute writes and does not make `Selecto.configure/3`
+depend on the write contract.
+
 ## Elixir Example
 
 ```elixir
@@ -174,6 +206,15 @@ domain = %{
   },
   filters: %{
     "customer_name" => %{field: "customers.name"}
+  },
+  writes: %{
+    transitions: %{
+      status: %{
+        "pending" => ["ready", "cancelled"],
+        "ready" => ["complete", "cancelled"],
+        "complete" => []
+      }
+    }
   }
 }
 
@@ -218,6 +259,15 @@ JSON domains use string keys and string field identifiers:
   },
   "filters": {
     "customer_name": {"field": "customers.name"}
+  },
+  "writes": {
+    "transitions": {
+      "status": {
+        "pending": ["ready", "cancelled"],
+        "ready": ["complete", "cancelled"],
+        "complete": []
+      }
+    }
   }
 }
 ```
