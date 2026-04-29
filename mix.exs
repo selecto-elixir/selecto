@@ -32,6 +32,7 @@ defmodule Selecto.MixProject do
         main: "Selecto",
         extras: [
           "README.md",
+          "docs/domain_schema_v1.md",
           "guides/complex_join_patterns.md",
           "guides/olap_and_hierarchical_patterns.md",
           "guides/advanced_usage.md"
@@ -117,6 +118,7 @@ defmodule Selecto.MixProject do
         "README.md",
         "LICENSE",
         "CHANGELOG.md",
+        "docs/domain_schema_v1.md",
         "guides",
         ".formatter.exs"
       ],
