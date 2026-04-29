@@ -472,6 +472,17 @@ defmodule Selecto.DomainContractTest do
             domain: :customers,
             value_field: :id,
             label_field: :name,
+            source_path: "customers",
+            value_source: "customers.id",
+            caption_source: "customers.name",
+            description_source: "customers.description",
+            filters: [{:eq, "customers.active", true}],
+            order_by: ["customers.name", {"customers.id", :desc}],
+            presentation: %{
+              control: :autocomplete,
+              mode: :searchable,
+              cardinality: :one
+            },
             source_relationship: :customer,
             capability: "customer.choose"
           }
@@ -541,6 +552,78 @@ defmodule Selecto.DomainContractTest do
             value_field: :id,
             label_field: :name,
             capability: 555
+          },
+          bad_source_path: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            source_path: ""
+          },
+          bad_value_source: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            value_source: 666
+          },
+          bad_caption_source: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            caption_source: ".name"
+          },
+          bad_description_source: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            description_source: ["customers.description"]
+          },
+          bad_filters: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: %{active: true}
+          },
+          bad_order_by: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            order_by: :name
+          },
+          bad_order_by_entry: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            order_by: [123]
+          },
+          bad_order_by_direction: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            order_by: [{"customers.name", :sideways}]
+          },
+          bad_presentation: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: :select
+          },
+          bad_presentation_control: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: %{control: :wizard}
+          },
+          bad_presentation_mode: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: %{mode: :sparkly}
+          },
+          bad_presentation_cardinality: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: %{cardinality: :some}
           }
         })
         |> put_in([:source, :columns, :status, :choice_source], :missing_status_choices)
@@ -671,6 +754,98 @@ defmodule Selecto.DomainContractTest do
                capability: 555,
                path: [:choice_sources, :bad_capability, :capability]
              } = error_for(diagnostics, :invalid_choice_source_capability)
+
+      assert %{
+               code: :invalid_choice_source_source_path,
+               choice_source: :bad_source_path,
+               attribute: :source_path,
+               value: "",
+               path: [:choice_sources, :bad_source_path, :source_path]
+             } = error_for(diagnostics, :invalid_choice_source_source_path)
+
+      assert %{
+               code: :invalid_choice_source_value_source,
+               choice_source: :bad_value_source,
+               attribute: :value_source,
+               value: 666,
+               path: [:choice_sources, :bad_value_source, :value_source]
+             } = error_for(diagnostics, :invalid_choice_source_value_source)
+
+      assert %{
+               code: :invalid_choice_source_caption_source,
+               choice_source: :bad_caption_source,
+               attribute: :caption_source,
+               value: ".name",
+               path: [:choice_sources, :bad_caption_source, :caption_source]
+             } = error_for(diagnostics, :invalid_choice_source_caption_source)
+
+      assert %{
+               code: :invalid_choice_source_description_source,
+               choice_source: :bad_description_source,
+               attribute: :description_source,
+               value: ["customers.description"],
+               path: [:choice_sources, :bad_description_source, :description_source]
+             } = error_for(diagnostics, :invalid_choice_source_description_source)
+
+      assert %{
+               code: :invalid_choice_source_filters,
+               choice_source: :bad_filters,
+               path: [:choice_sources, :bad_filters, :filters]
+             } = error_for(diagnostics, :invalid_choice_source_filters)
+
+      assert %{
+               code: :invalid_choice_source_order_by,
+               choice_source: :bad_order_by,
+               path: [:choice_sources, :bad_order_by, :order_by]
+             } = error_for(diagnostics, :invalid_choice_source_order_by)
+
+      assert %{
+               code: :invalid_choice_source_order_by_entry,
+               choice_source: :bad_order_by_entry,
+               path: [:choice_sources, :bad_order_by_entry, :order_by, 0]
+             } = error_for(diagnostics, :invalid_choice_source_order_by_entry)
+
+      assert %{
+               code: :invalid_choice_source_order_by_direction,
+               choice_source: :bad_order_by_direction,
+               direction: :sideways,
+               path: [:choice_sources, :bad_order_by_direction, :order_by, 0]
+             } = error_for(diagnostics, :invalid_choice_source_order_by_direction)
+
+      assert %{
+               code: :invalid_choice_source_presentation,
+               choice_source: :bad_presentation,
+               path: [:choice_sources, :bad_presentation, :presentation]
+             } = error_for(diagnostics, :invalid_choice_source_presentation)
+
+      assert %{
+               code: :invalid_choice_source_presentation_control,
+               choice_source: :bad_presentation_control,
+               attribute: :control,
+               value: :wizard,
+               path: [:choice_sources, :bad_presentation_control, :presentation, :control]
+             } = error_for(diagnostics, :invalid_choice_source_presentation_control)
+
+      assert %{
+               code: :invalid_choice_source_presentation_mode,
+               choice_source: :bad_presentation_mode,
+               attribute: :mode,
+               value: :sparkly,
+               path: [:choice_sources, :bad_presentation_mode, :presentation, :mode]
+             } = error_for(diagnostics, :invalid_choice_source_presentation_mode)
+
+      assert %{
+               code: :invalid_choice_source_presentation_cardinality,
+               choice_source: :bad_presentation_cardinality,
+               attribute: :cardinality,
+               value: :some,
+               path: [
+                 :choice_sources,
+                 :bad_presentation_cardinality,
+                 :presentation,
+                 :cardinality
+               ]
+             } = error_for(diagnostics, :invalid_choice_source_presentation_cardinality)
 
       assert %{
                code: :field_choice_source_not_found,

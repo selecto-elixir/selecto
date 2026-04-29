@@ -36,6 +36,11 @@ defmodule Selecto.Domain.Contract do
     :array_overlap,
     :array_eq
   ]
+  @choice_source_path_keys [:source_path, :value_source, :caption_source, :description_source]
+  @choice_source_presentation_controls [:select, :autocomplete, :table_picker]
+  @choice_source_presentation_modes [:static, :searchable, :async, :inline]
+  @choice_source_presentation_cardinalities [:one, :many]
+  @order_directions [:asc, :desc]
 
   @type error :: %{
           required(:code) => atom(),
@@ -1508,6 +1513,10 @@ defmodule Selecto.Domain.Contract do
       choice_source: choice_source_id,
       label_field: map_value(choice_source, :label_field)
     )
+    |> validate_choice_source_paths(choice_source_id, choice_source, path)
+    |> validate_choice_source_filters(choice_source_id, choice_source, path)
+    |> validate_choice_source_order_by(choice_source_id, choice_source, path)
+    |> validate_choice_source_presentation(choice_source_id, choice_source, path)
     |> validate_choice_source_relationship(
       choice_source_id,
       choice_source,
@@ -1554,6 +1563,265 @@ defmodule Selecto.Domain.Contract do
             "choice source #{inspect(choice_source_id)} is missing required keys #{inspect(missing_keys)}",
             choice_source: choice_source_id,
             keys: missing_keys
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_source_paths(errors, choice_source_id, choice_source, path) do
+    Enum.reduce(@choice_source_path_keys, errors, fn key, acc ->
+      value = map_value(choice_source, key)
+
+      if is_nil(value) or valid_choice_source_path?(value) do
+        acc
+      else
+        [
+          error(
+            invalid_choice_source_path_code(key),
+            path ++ [key],
+            "choice source #{inspect(choice_source_id)} #{key} must be a non-empty atom or dotted string path",
+            expected: "non-empty atom or dotted string path",
+            actual: value_type(value),
+            choice_source: choice_source_id,
+            attribute: key,
+            value: value
+          )
+          | acc
+        ]
+      end
+    end)
+  end
+
+  defp invalid_choice_source_path_code(:source_path), do: :invalid_choice_source_source_path
+  defp invalid_choice_source_path_code(:value_source), do: :invalid_choice_source_value_source
+  defp invalid_choice_source_path_code(:caption_source), do: :invalid_choice_source_caption_source
+
+  defp invalid_choice_source_path_code(:description_source),
+    do: :invalid_choice_source_description_source
+
+  defp validate_choice_source_filters(errors, choice_source_id, choice_source, path) do
+    case map_value(choice_source, :filters) do
+      nil ->
+        errors
+
+      filters when is_list(filters) ->
+        errors
+
+      filters ->
+        [
+          error(
+            :invalid_choice_source_filters,
+            path ++ [:filters],
+            "choice source #{inspect(choice_source_id)} filters must be a list",
+            expected: :list,
+            actual: value_type(filters),
+            choice_source: choice_source_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_source_order_by(errors, choice_source_id, choice_source, path) do
+    case map_value(choice_source, :order_by) do
+      nil ->
+        errors
+
+      order_by when is_list(order_by) ->
+        order_by
+        |> Enum.with_index()
+        |> Enum.reduce(errors, fn {order_entry, index}, acc ->
+          validate_choice_source_order_entry(
+            acc,
+            choice_source_id,
+            order_entry,
+            path ++ [:order_by, index]
+          )
+        end)
+
+      order_by ->
+        [
+          error(
+            :invalid_choice_source_order_by,
+            path ++ [:order_by],
+            "choice source #{inspect(choice_source_id)} order_by must be a list",
+            expected: :list,
+            actual: value_type(order_by),
+            choice_source: choice_source_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_source_order_entry(errors, choice_source_id, order_entry, path)
+       when is_atom(order_entry) do
+    if valid_choice_source_path?(order_entry) do
+      errors
+    else
+      invalid_choice_source_order_entry_error(errors, choice_source_id, order_entry, path)
+    end
+  end
+
+  defp validate_choice_source_order_entry(errors, choice_source_id, order_entry, path)
+       when is_binary(order_entry) do
+    if valid_choice_source_path?(order_entry) do
+      errors
+    else
+      invalid_choice_source_order_entry_error(errors, choice_source_id, order_entry, path)
+    end
+  end
+
+  defp validate_choice_source_order_entry(errors, choice_source_id, {order_path, direction}, path) do
+    errors
+    |> validate_choice_source_order_path(choice_source_id, order_path, path)
+    |> validate_choice_source_order_direction(choice_source_id, direction, path)
+  end
+
+  defp validate_choice_source_order_entry(errors, choice_source_id, [order_path, direction], path) do
+    errors
+    |> validate_choice_source_order_path(choice_source_id, order_path, path)
+    |> validate_choice_source_order_direction(choice_source_id, direction, path)
+  end
+
+  defp validate_choice_source_order_entry(errors, choice_source_id, order_entry, path) do
+    invalid_choice_source_order_entry_error(errors, choice_source_id, order_entry, path)
+  end
+
+  defp validate_choice_source_order_path(errors, choice_source_id, order_path, path) do
+    if valid_choice_source_path?(order_path) do
+      errors
+    else
+      invalid_choice_source_order_entry_error(errors, choice_source_id, order_path, path)
+    end
+  end
+
+  defp invalid_choice_source_order_entry_error(errors, choice_source_id, order_entry, path) do
+    [
+      error(
+        :invalid_choice_source_order_by_entry,
+        path,
+        "choice source #{inspect(choice_source_id)} order_by entries must be paths or {path, direction}",
+        expected: "path or {path, direction}",
+        actual: value_type(order_entry),
+        choice_source: choice_source_id,
+        order_by: order_entry
+      )
+      | errors
+    ]
+  end
+
+  defp validate_choice_source_order_direction(errors, _choice_source_id, direction, _path)
+       when direction in @order_directions or direction in ["asc", "desc"] do
+    errors
+  end
+
+  defp validate_choice_source_order_direction(errors, choice_source_id, direction, path) do
+    [
+      error(
+        :invalid_choice_source_order_by_direction,
+        path,
+        "choice source #{inspect(choice_source_id)} order_by direction must be :asc or :desc",
+        expected: @order_directions,
+        actual: direction,
+        choice_source: choice_source_id,
+        direction: direction
+      )
+      | errors
+    ]
+  end
+
+  defp validate_choice_source_presentation(errors, choice_source_id, choice_source, path) do
+    case map_value(choice_source, :presentation) do
+      nil ->
+        errors
+
+      presentation when is_map(presentation) ->
+        errors
+        |> validate_choice_source_presentation_enum(
+          choice_source_id,
+          presentation,
+          path,
+          :control,
+          @choice_source_presentation_controls,
+          :invalid_choice_source_presentation_control
+        )
+        |> validate_choice_source_presentation_enum(
+          choice_source_id,
+          presentation,
+          path,
+          :mode,
+          @choice_source_presentation_modes,
+          :invalid_choice_source_presentation_mode
+        )
+        |> validate_choice_source_presentation_enum(
+          choice_source_id,
+          presentation,
+          path,
+          :cardinality,
+          @choice_source_presentation_cardinalities,
+          :invalid_choice_source_presentation_cardinality
+        )
+
+      presentation ->
+        [
+          error(
+            :invalid_choice_source_presentation,
+            path ++ [:presentation],
+            "choice source #{inspect(choice_source_id)} presentation must be a map",
+            expected: :map,
+            actual: value_type(presentation),
+            choice_source: choice_source_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_source_presentation_enum(
+         errors,
+         choice_source_id,
+         presentation,
+         path,
+         key,
+         allowed,
+         code
+       ) do
+    case map_value(presentation, key) do
+      nil ->
+        errors
+
+      value when is_atom(value) or is_binary(value) ->
+        if enum_value?(value, allowed) do
+          errors
+        else
+          [
+            error(
+              code,
+              path ++ [:presentation, key],
+              "choice source #{inspect(choice_source_id)} presentation #{key} has an unknown value",
+              expected: allowed,
+              actual: value,
+              choice_source: choice_source_id,
+              attribute: key,
+              value: value
+            )
+            | errors
+          ]
+        end
+
+      value ->
+        [
+          error(
+            code,
+            path ++ [:presentation, key],
+            "choice source #{inspect(choice_source_id)} presentation #{key} must be an atom or string",
+            expected: allowed,
+            actual: value_type(value),
+            choice_source: choice_source_id,
+            attribute: key,
+            value: value
           )
           | errors
         ]
@@ -2045,6 +2313,25 @@ defmodule Selecto.Domain.Contract do
   end
 
   defp field_ref?(field), do: is_atom(field) or is_binary(field)
+
+  defp valid_choice_source_path?(path) when is_atom(path), do: not is_nil(path)
+
+  defp valid_choice_source_path?(path) when is_binary(path) do
+    trimmed_path = String.trim(path)
+
+    trimmed_path != "" and not String.starts_with?(trimmed_path, ".") and
+      not String.ends_with?(trimmed_path, ".") and not String.contains?(trimmed_path, "..")
+  end
+
+  defp valid_choice_source_path?(_path), do: false
+
+  defp enum_value?(value, allowed) when is_atom(value), do: value in allowed
+
+  defp enum_value?(value, allowed) when is_binary(value) do
+    Enum.any?(allowed, &(Atom.to_string(&1) == value))
+  end
+
+  defp enum_value?(_value, _allowed), do: false
 
   defp map_value(map, key) when is_map(map) and is_atom(key) do
     case Map.fetch(map, key) do

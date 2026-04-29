@@ -308,6 +308,17 @@ providers.
       domain: :customers,
       value_field: :id,
       label_field: :name,
+      source_path: "customers",
+      value_source: "customers.id",
+      caption_source: "customers.name",
+      description_source: "customers.description",
+      filters: [{:eq, "customers.active", true}],
+      order_by: ["customers.name", {"customers.id", :desc}],
+      presentation: %{
+        control: :autocomplete,
+        mode: :searchable,
+        cardinality: :one
+      },
       source_relationship: :customer,
       capability: "customer.choose"
     }
@@ -335,6 +346,16 @@ Choice source validation checks:
 - `domain`, `value_field`, and `label_field` must be atoms or strings.
 - optional `source_relationship` must reference a declared source relationship.
 - optional `capability` must reference a declared capability.
+- optional `source_path`, `value_source`, `caption_source`, and
+  `description_source` must be non-empty atom or dotted string paths.
+- optional `filters` must be a list. Filter member semantics are left to future
+  source-domain resolution.
+- optional `order_by` must be a list of paths or `{path, direction}` entries;
+  direction must be `:asc` or `:desc`.
+- optional `presentation` must be a map. Known presentation hints are:
+  `control: :select | :autocomplete | :table_picker`,
+  `mode: :static | :searchable | :async | :inline`, and
+  `cardinality: :one | :many`.
 
 Field binding validation checks:
 
@@ -352,8 +373,9 @@ Field binding validation checks:
 - optional `reference.caption_field` must be an atom or string and must refer to
   a known working-domain field.
 
-The current slice validates the compact semantic contract only. It does not
-resolve external source-domain schemas or execute membership checks.
+The current slice validates static choice-source metadata only. It does not
+resolve external source-domain schemas, apply filters, fetch options, or execute
+membership checks.
 
 ## Choice Membership API
 
@@ -518,6 +540,16 @@ domain = %{
       domain: :customers,
       value_field: :id,
       label_field: :name,
+      source_path: "customers",
+      value_source: "customers.id",
+      caption_source: "customers.name",
+      filters: [{:eq, "customers.active", true}],
+      order_by: ["customers.name"],
+      presentation: %{
+        control: :autocomplete,
+        mode: :searchable,
+        cardinality: :one
+      },
       source_relationship: :customer,
       capability: "customer.choose"
     }
@@ -608,6 +640,16 @@ JSON domains use string keys and string field identifiers:
       "domain": "customers",
       "value_field": "id",
       "label_field": "name",
+      "source_path": "customers",
+      "value_source": "customers.id",
+      "caption_source": "customers.name",
+      "filters": [["eq", "customers.active", true]],
+      "order_by": ["customers.name"],
+      "presentation": {
+        "control": "autocomplete",
+        "mode": "searchable",
+        "cardinality": "one"
+      },
       "source_relationship": "customer",
       "capability": "customer.choose"
     }
