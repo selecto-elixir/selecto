@@ -355,6 +355,56 @@ Field binding validation checks:
 The current slice validates the compact semantic contract only. It does not
 resolve external source-domain schemas or execute membership checks.
 
+## Choice Membership API
+
+`Selecto.Domain.Choices` is the first shared API for asking whether a submitted
+value belongs to a field's declared choice source. In this slice it resolves
+domain metadata and builds a membership request, but it does not query source
+domains or databases unless a caller supplies an explicit resolver.
+
+```elixir
+{:ok, request} =
+  Selecto.Domain.Choices.request(domain, :customer_id, 42,
+    actor: current_user,
+    tenant: tenant_context,
+    record: %{customer_id: 42},
+    context: %{surface: :components}
+  )
+
+request.choice_source
+#=> :customer_choices
+
+{:error, result} =
+  Selecto.Domain.Choices.validate_choice(domain, :customer_id, 42)
+
+result.status
+#=> :unknown
+
+result.reason_code
+#=> :resolver_required
+```
+
+Callers that have a membership implementation can pass a resolver function:
+
+```elixir
+resolver = fn request ->
+  if source_member?(request) do
+    Selecto.Domain.Choices.valid(:source_member)
+  else
+    Selecto.Domain.Choices.invalid(:not_in_choice_source)
+  end
+end
+
+{:ok, result} =
+  Selecto.Domain.Choices.validate_choice(domain, :customer_id, 42,
+    resolver: resolver
+  )
+```
+
+The request/result shape lets Components, API, GraphQL, AI, actions, and Updato
+share one membership question later. Core Selecto remains conservative: without
+a resolver, membership is `:unknown`, not assumed valid.
+
 ## Elixir Example
 
 ```elixir
