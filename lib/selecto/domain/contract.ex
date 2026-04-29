@@ -67,6 +67,8 @@ defmodule Selecto.Domain.Contract do
     writes = Map.get(normalized_domain, :writes, %{})
     capabilities = Map.get(normalized_domain, :capabilities, %{})
     actions = Map.get(normalized_domain, :actions, %{})
+    source_relationships = Map.get(normalized_domain, :source_relationships, %{})
+    choice_sources = Map.get(normalized_domain, :choice_sources, %{})
     field_index = field_index(source, schemas, projection)
 
     []
@@ -78,6 +80,8 @@ defmodule Selecto.Domain.Contract do
     |> validate_writes(writes, field_index)
     |> validate_capabilities(capabilities)
     |> validate_actions(actions, capabilities, writes, field_index)
+    |> validate_source_relationships(source_relationships, field_index)
+    |> validate_choice_sources(choice_sources, source_relationships, capabilities)
     |> Enum.reverse()
   end
 
@@ -1267,6 +1271,392 @@ defmodule Selecto.Domain.Contract do
   end
 
   defp state_ref?(state), do: is_atom(state) or is_binary(state)
+
+  defp validate_source_relationships(errors, source_relationships, field_index)
+       when is_map(source_relationships) do
+    Enum.reduce(source_relationships, errors, fn {relationship_id, relationship}, acc ->
+      path = [:source_relationships, relationship_id]
+
+      acc
+      |> validate_source_relationship_id(relationship_id, path)
+      |> validate_source_relationship(relationship_id, relationship, path, field_index)
+    end)
+  end
+
+  defp validate_source_relationships(errors, source_relationships, _field_index) do
+    [
+      error(
+        :invalid_section_shape,
+        [:source_relationships],
+        "domain section :source_relationships must be a map",
+        expected: :map,
+        actual: value_type(source_relationships)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_source_relationship_id(errors, relationship_id, _path)
+       when is_atom(relationship_id) or is_binary(relationship_id) do
+    errors
+  end
+
+  defp validate_source_relationship_id(errors, relationship_id, path) do
+    [
+      error(
+        :invalid_source_relationship_id,
+        path,
+        "source relationship ids must be atoms or strings",
+        expected: "atom or string",
+        actual: value_type(relationship_id),
+        source_relationship: relationship_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_source_relationship(errors, relationship_id, relationship, path, field_index)
+       when is_map(relationship) do
+    errors
+    |> validate_source_relationship_required_keys(relationship_id, relationship, path)
+    |> validate_id_value(
+      map_value(relationship, :target_domain),
+      path ++ [:target_domain],
+      :invalid_source_relationship_target_domain,
+      "source relationship #{inspect(relationship_id)} target_domain must be an atom or string",
+      source_relationship: relationship_id,
+      target_domain: map_value(relationship, :target_domain)
+    )
+    |> validate_source_relationship_source_field(relationship_id, relationship, path, field_index)
+    |> validate_id_value(
+      map_value(relationship, :target_field),
+      path ++ [:target_field],
+      :invalid_source_relationship_target_field,
+      "source relationship #{inspect(relationship_id)} target_field must be an atom or string",
+      source_relationship: relationship_id,
+      target_field: map_value(relationship, :target_field)
+    )
+  end
+
+  defp validate_source_relationship(errors, relationship_id, relationship, path, _field_index) do
+    [
+      error(
+        :invalid_section_shape,
+        path,
+        "source relationship #{inspect(relationship_id)} must be a map",
+        expected: :map,
+        actual: value_type(relationship),
+        source_relationship: relationship_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_source_relationship_required_keys(errors, relationship_id, relationship, path) do
+    missing_keys =
+      Enum.reject([:target_domain, :source_field, :target_field], &has_key?(relationship, &1))
+
+    case missing_keys do
+      [] ->
+        errors
+
+      _ ->
+        [
+          error(
+            :source_relationship_missing_required_keys,
+            path,
+            "source relationship #{inspect(relationship_id)} is missing required keys #{inspect(missing_keys)}",
+            source_relationship: relationship_id,
+            keys: missing_keys
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_source_relationship_source_field(
+         errors,
+         relationship_id,
+         relationship,
+         path,
+         field_index
+       ) do
+    case map_value(relationship, :source_field) do
+      nil ->
+        errors
+
+      source_field when is_atom(source_field) or is_binary(source_field) ->
+        if known_field?(field_index, source_field) do
+          errors
+        else
+          [
+            error(
+              :source_relationship_source_field_not_found,
+              path ++ [:source_field],
+              "source relationship #{inspect(relationship_id)} source_field #{inspect(source_field)} is not defined in source, schemas, or custom columns",
+              source_relationship: relationship_id,
+              source_field: source_field
+            )
+            | errors
+          ]
+        end
+
+      source_field ->
+        [
+          error(
+            :invalid_source_relationship_source_field,
+            path ++ [:source_field],
+            "source relationship #{inspect(relationship_id)} source_field must be an atom or string",
+            expected: "atom or string",
+            actual: value_type(source_field),
+            source_relationship: relationship_id,
+            source_field: source_field
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_sources(errors, choice_sources, source_relationships, capabilities)
+       when is_map(choice_sources) do
+    Enum.reduce(choice_sources, errors, fn {choice_source_id, choice_source}, acc ->
+      path = [:choice_sources, choice_source_id]
+
+      acc
+      |> validate_choice_source_id(choice_source_id, path)
+      |> validate_choice_source(
+        choice_source_id,
+        choice_source,
+        path,
+        source_relationships,
+        capabilities
+      )
+    end)
+  end
+
+  defp validate_choice_sources(errors, choice_sources, _source_relationships, _capabilities) do
+    [
+      error(
+        :invalid_section_shape,
+        [:choice_sources],
+        "domain section :choice_sources must be a map",
+        expected: :map,
+        actual: value_type(choice_sources)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_choice_source_id(errors, choice_source_id, _path)
+       when is_atom(choice_source_id) or is_binary(choice_source_id) do
+    errors
+  end
+
+  defp validate_choice_source_id(errors, choice_source_id, path) do
+    [
+      error(
+        :invalid_choice_source_id,
+        path,
+        "choice source ids must be atoms or strings",
+        expected: "atom or string",
+        actual: value_type(choice_source_id),
+        choice_source: choice_source_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_choice_source(
+         errors,
+         choice_source_id,
+         choice_source,
+         path,
+         source_relationships,
+         capabilities
+       )
+       when is_map(choice_source) do
+    errors
+    |> validate_choice_source_required_keys(choice_source_id, choice_source, path)
+    |> validate_id_value(
+      map_value(choice_source, :domain),
+      path ++ [:domain],
+      :invalid_choice_source_domain,
+      "choice source #{inspect(choice_source_id)} domain must be an atom or string",
+      choice_source: choice_source_id,
+      domain: map_value(choice_source, :domain)
+    )
+    |> validate_id_value(
+      map_value(choice_source, :value_field),
+      path ++ [:value_field],
+      :invalid_choice_source_value_field,
+      "choice source #{inspect(choice_source_id)} value_field must be an atom or string",
+      choice_source: choice_source_id,
+      value_field: map_value(choice_source, :value_field)
+    )
+    |> validate_id_value(
+      map_value(choice_source, :label_field),
+      path ++ [:label_field],
+      :invalid_choice_source_label_field,
+      "choice source #{inspect(choice_source_id)} label_field must be an atom or string",
+      choice_source: choice_source_id,
+      label_field: map_value(choice_source, :label_field)
+    )
+    |> validate_choice_source_relationship(
+      choice_source_id,
+      choice_source,
+      path,
+      source_relationships
+    )
+    |> validate_choice_source_capability(choice_source_id, choice_source, path, capabilities)
+  end
+
+  defp validate_choice_source(
+         errors,
+         choice_source_id,
+         choice_source,
+         path,
+         _source_relationships,
+         _capabilities
+       ) do
+    [
+      error(
+        :invalid_section_shape,
+        path,
+        "choice source #{inspect(choice_source_id)} must be a map",
+        expected: :map,
+        actual: value_type(choice_source),
+        choice_source: choice_source_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_choice_source_required_keys(errors, choice_source_id, choice_source, path) do
+    missing_keys =
+      Enum.reject([:domain, :value_field, :label_field], &has_key?(choice_source, &1))
+
+    case missing_keys do
+      [] ->
+        errors
+
+      _ ->
+        [
+          error(
+            :choice_source_missing_required_keys,
+            path,
+            "choice source #{inspect(choice_source_id)} is missing required keys #{inspect(missing_keys)}",
+            choice_source: choice_source_id,
+            keys: missing_keys
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_source_relationship(
+         errors,
+         choice_source_id,
+         choice_source,
+         path,
+         source_relationships
+       ) do
+    case map_value(choice_source, :source_relationship) do
+      nil ->
+        errors
+
+      source_relationship when is_atom(source_relationship) or is_binary(source_relationship) ->
+        if is_map(source_relationships) and
+             fetch_key(source_relationships, source_relationship) != :error do
+          errors
+        else
+          [
+            error(
+              :choice_source_relationship_not_found,
+              path ++ [:source_relationship],
+              "choice source #{inspect(choice_source_id)} references missing source relationship #{inspect(source_relationship)}",
+              choice_source: choice_source_id,
+              source_relationship: source_relationship
+            )
+            | errors
+          ]
+        end
+
+      source_relationship ->
+        [
+          error(
+            :invalid_choice_source_relationship,
+            path ++ [:source_relationship],
+            "choice source #{inspect(choice_source_id)} source_relationship must be an atom or string",
+            expected: "atom or string",
+            actual: value_type(source_relationship),
+            choice_source: choice_source_id,
+            source_relationship: source_relationship
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_source_capability(
+         errors,
+         choice_source_id,
+         choice_source,
+         path,
+         capabilities
+       ) do
+    case map_value(choice_source, :capability) do
+      nil ->
+        errors
+
+      capability when is_atom(capability) or is_binary(capability) ->
+        if is_map(capabilities) and fetch_key(capabilities, capability) != :error do
+          errors
+        else
+          [
+            error(
+              :choice_source_capability_not_found,
+              path ++ [:capability],
+              "choice source #{inspect(choice_source_id)} references missing capability #{inspect(capability)}",
+              choice_source: choice_source_id,
+              capability: capability
+            )
+            | errors
+          ]
+        end
+
+      capability ->
+        [
+          error(
+            :invalid_choice_source_capability,
+            path ++ [:capability],
+            "choice source #{inspect(choice_source_id)} capability must be an atom or string",
+            expected: "atom or string",
+            actual: value_type(capability),
+            choice_source: choice_source_id,
+            capability: capability
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_id_value(errors, nil, _path, _code, _message, _attrs), do: errors
+
+  defp validate_id_value(errors, value, _path, _code, _message, _attrs)
+       when is_atom(value) or is_binary(value),
+       do: errors
+
+  defp validate_id_value(errors, value, path, code, message, attrs) do
+    [
+      error(
+        code,
+        path,
+        message,
+        Keyword.put(attrs, :actual, value_type(value))
+      )
+      | errors
+    ]
+  end
 
   defp field_index(source, schemas, projection) do
     source_fields =

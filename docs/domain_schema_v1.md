@@ -276,6 +276,57 @@ Validation checks:
 This validates that preview and execution can ask the same domain question; it
 does not execute actions.
 
+## Source Relationships And Choice Sources
+
+`source_relationships` declares the first compact working-domain to source-domain
+binding shape. It is used by `choice_sources` to describe context-safe option
+providers.
+
+```elixir
+%{
+  source_relationships: %{
+    customer: %{
+      target_domain: :customers,
+      source_field: :customer_id,
+      target_field: :id
+    }
+  },
+  choice_sources: %{
+    customer_choices: %{
+      domain: :customers,
+      value_field: :id,
+      label_field: :name,
+      source_relationship: :customer,
+      capability: "customer.choose"
+    }
+  }
+}
+```
+
+Source relationship validation checks:
+
+- `source_relationships` must be a map when present.
+- source relationship ids must be atoms or strings.
+- each source relationship entry must be a map.
+- each source relationship must declare `target_domain`, `source_field`, and
+  `target_field`.
+- `target_domain`, `source_field`, and `target_field` must be atoms or strings.
+- `source_field` must exist in the working domain source, schemas, or custom
+  columns.
+
+Choice source validation checks:
+
+- `choice_sources` must be a map when present.
+- choice source ids must be atoms or strings.
+- each choice source entry must be a map.
+- each choice source must declare `domain`, `value_field`, and `label_field`.
+- `domain`, `value_field`, and `label_field` must be atoms or strings.
+- optional `source_relationship` must reference a declared source relationship.
+- optional `capability` must reference a declared capability.
+
+The current slice validates the compact semantic contract only. It does not
+resolve external source-domain schemas or execute membership checks.
+
 ## Elixir Example
 
 ```elixir
@@ -313,9 +364,26 @@ domain = %{
   filters: %{
     "customer_name" => %{field: "customers.name"}
   },
+  source_relationships: %{
+    customer: %{
+      target_domain: :customers,
+      source_field: :customer_id,
+      target_field: :id
+    }
+  },
+  choice_sources: %{
+    customer_choices: %{
+      domain: :customers,
+      value_field: :id,
+      label_field: :name,
+      source_relationship: :customer,
+      capability: "customer.choose"
+    }
+  },
   capabilities: %{
     "order.view" => %{operations: [:select, :detail]},
-    "order.approve" => %{operations: [:action], action: :approve_order}
+    "order.approve" => %{operations: [:action], action: :approve_order},
+    "customer.choose" => %{operations: [:choice_source]}
   },
   writes: %{
     transitions: %{
@@ -379,9 +447,26 @@ JSON domains use string keys and string field identifiers:
   "filters": {
     "customer_name": {"field": "customers.name"}
   },
+  "source_relationships": {
+    "customer": {
+      "target_domain": "customers",
+      "source_field": "customer_id",
+      "target_field": "id"
+    }
+  },
+  "choice_sources": {
+    "customer_choices": {
+      "domain": "customers",
+      "value_field": "id",
+      "label_field": "name",
+      "source_relationship": "customer",
+      "capability": "customer.choose"
+    }
+  },
   "capabilities": {
     "order.view": {"operations": ["select", "detail"]},
-    "order.approve": {"operations": ["action"], "action": "approve_order"}
+    "order.approve": {"operations": ["action"], "action": "approve_order"},
+    "customer.choose": {"operations": ["choice_source"]}
   },
   "writes": {
     "transitions": {

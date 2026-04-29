@@ -454,6 +454,205 @@ defmodule Selecto.DomainContractTest do
              } = error_for(diagnostics, :action_execution_set_mismatch)
     end
 
+    test "accepts source relationships and choice sources" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "customer.choose" => %{operations: [:choice_source]}
+        })
+        |> Map.put(:source_relationships, %{
+          customer: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id
+          }
+        })
+        |> Map.put(:choice_sources, %{
+          customer_choices: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            source_relationship: :customer,
+            capability: "customer.choose"
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates source relationship and choice source shapes" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "customer.choose" => %{operations: [:choice_source]}
+        })
+        |> Map.put(:source_relationships, %{
+          123 => %{target_domain: :customers, source_field: :customer_id, target_field: :id},
+          bad_config: [:not, :a, :map],
+          missing_keys: %{target_domain: :customers},
+          bad_target_domain: %{target_domain: 456, source_field: :customer_id, target_field: :id},
+          missing_source_field: %{
+            target_domain: :customers,
+            source_field: :missing_customer_id,
+            target_field: :id
+          },
+          bad_source_field: %{target_domain: :customers, source_field: 789, target_field: :id},
+          bad_target_field: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: 987
+          }
+        })
+        |> Map.put(:choice_sources, %{
+          456 => %{domain: :customers, value_field: :id, label_field: :name},
+          bad_config: [:not, :a, :map],
+          missing_keys: %{domain: :customers},
+          bad_domain: %{domain: 111, value_field: :id, label_field: :name},
+          bad_value_field: %{domain: :customers, value_field: 222, label_field: :name},
+          bad_label_field: %{domain: :customers, value_field: :id, label_field: 333},
+          missing_relationship: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            source_relationship: :missing_customer
+          },
+          bad_relationship: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            source_relationship: 444
+          },
+          missing_capability: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            capability: "customer.missing"
+          },
+          bad_capability: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            capability: 555
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :invalid_source_relationship_id,
+               source_relationship: 123,
+               path: [:source_relationships, 123]
+             } = error_for(diagnostics, :invalid_source_relationship_id)
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_section_shape),
+               &match?(
+                 %{source_relationship: :bad_config, path: [:source_relationships, :bad_config]},
+                 &1
+               )
+             )
+
+      assert %{
+               code: :source_relationship_missing_required_keys,
+               source_relationship: :missing_keys,
+               path: [:source_relationships, :missing_keys]
+             } = error_for(diagnostics, :source_relationship_missing_required_keys)
+
+      assert %{
+               code: :invalid_source_relationship_target_domain,
+               source_relationship: :bad_target_domain,
+               target_domain: 456,
+               path: [:source_relationships, :bad_target_domain, :target_domain]
+             } = error_for(diagnostics, :invalid_source_relationship_target_domain)
+
+      assert %{
+               code: :source_relationship_source_field_not_found,
+               source_relationship: :missing_source_field,
+               source_field: :missing_customer_id,
+               path: [:source_relationships, :missing_source_field, :source_field]
+             } = error_for(diagnostics, :source_relationship_source_field_not_found)
+
+      assert %{
+               code: :invalid_source_relationship_source_field,
+               source_relationship: :bad_source_field,
+               source_field: 789,
+               path: [:source_relationships, :bad_source_field, :source_field]
+             } = error_for(diagnostics, :invalid_source_relationship_source_field)
+
+      assert %{
+               code: :invalid_source_relationship_target_field,
+               source_relationship: :bad_target_field,
+               target_field: 987,
+               path: [:source_relationships, :bad_target_field, :target_field]
+             } = error_for(diagnostics, :invalid_source_relationship_target_field)
+
+      assert %{
+               code: :invalid_choice_source_id,
+               choice_source: 456,
+               path: [:choice_sources, 456]
+             } = error_for(diagnostics, :invalid_choice_source_id)
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_section_shape),
+               &match?(%{choice_source: :bad_config, path: [:choice_sources, :bad_config]}, &1)
+             )
+
+      assert %{
+               code: :choice_source_missing_required_keys,
+               choice_source: :missing_keys,
+               path: [:choice_sources, :missing_keys]
+             } = error_for(diagnostics, :choice_source_missing_required_keys)
+
+      assert %{
+               code: :invalid_choice_source_domain,
+               choice_source: :bad_domain,
+               domain: 111,
+               path: [:choice_sources, :bad_domain, :domain]
+             } = error_for(diagnostics, :invalid_choice_source_domain)
+
+      assert %{
+               code: :invalid_choice_source_value_field,
+               choice_source: :bad_value_field,
+               value_field: 222,
+               path: [:choice_sources, :bad_value_field, :value_field]
+             } = error_for(diagnostics, :invalid_choice_source_value_field)
+
+      assert %{
+               code: :invalid_choice_source_label_field,
+               choice_source: :bad_label_field,
+               label_field: 333,
+               path: [:choice_sources, :bad_label_field, :label_field]
+             } = error_for(diagnostics, :invalid_choice_source_label_field)
+
+      assert %{
+               code: :choice_source_relationship_not_found,
+               choice_source: :missing_relationship,
+               source_relationship: :missing_customer,
+               path: [:choice_sources, :missing_relationship, :source_relationship]
+             } = error_for(diagnostics, :choice_source_relationship_not_found)
+
+      assert %{
+               code: :invalid_choice_source_relationship,
+               choice_source: :bad_relationship,
+               source_relationship: 444,
+               path: [:choice_sources, :bad_relationship, :source_relationship]
+             } = error_for(diagnostics, :invalid_choice_source_relationship)
+
+      assert %{
+               code: :choice_source_capability_not_found,
+               choice_source: :missing_capability,
+               capability: "customer.missing",
+               path: [:choice_sources, :missing_capability, :capability]
+             } = error_for(diagnostics, :choice_source_capability_not_found)
+
+      assert %{
+               code: :invalid_choice_source_capability,
+               choice_source: :bad_capability,
+               capability: 555,
+               path: [:choice_sources, :bad_capability, :capability]
+             } = error_for(diagnostics, :invalid_choice_source_capability)
+    end
+
     test "DomainValidator normalized mode returns contract errors before legacy tuples" do
       domain =
         valid_domain()
