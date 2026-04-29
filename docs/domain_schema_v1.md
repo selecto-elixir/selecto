@@ -284,6 +284,18 @@ providers.
 
 ```elixir
 %{
+  source: %{
+    columns: %{
+      customer_id: %{
+        type: :integer,
+        reference: %{
+          choice_source: :customer_choices,
+          value_source: "customers.id",
+          caption_source: "customers.name"
+        }
+      }
+    }
+  },
   source_relationships: %{
     customer: %{
       target_domain: :customers,
@@ -324,6 +336,22 @@ Choice source validation checks:
 - optional `source_relationship` must reference a declared source relationship.
 - optional `capability` must reference a declared capability.
 
+Field binding validation checks:
+
+- source, schema, and projection column metadata may use
+  `choice_source: choice_source_id` as compact field binding.
+- source, schema, and projection column metadata may use
+  `reference: %{choice_source: choice_source_id}` for richer bindings.
+- field-level `choice_source` references must be atoms or strings and must
+  reference a declared choice source.
+- `reference`, when present, must be a map.
+- `reference.choice_source`, when present, must be an atom or string and must
+  reference a declared choice source.
+- optional `reference.value_source` and `reference.caption_source` must be atoms
+  or strings.
+- optional `reference.caption_field` must be an atom or string and must refer to
+  a known working-domain field.
+
 The current slice validates the compact semantic contract only. It does not
 resolve external source-domain schemas or execute membership checks.
 
@@ -340,7 +368,14 @@ domain = %{
     columns: %{
       id: %{type: :integer},
       status: %{type: :string},
-      customer_id: %{type: :integer}
+      customer_id: %{
+        type: :integer,
+        reference: %{
+          choice_source: :customer_choices,
+          value_source: "customers.id",
+          caption_source: "customers.name"
+        }
+      }
     },
     associations: %{
       customer: %{queryable: :customers}
@@ -423,7 +458,14 @@ JSON domains use string keys and string field identifiers:
     "columns": {
       "id": {"type": "integer"},
       "status": {"type": "string"},
-      "customer_id": {"type": "integer"}
+      "customer_id": {
+        "type": "integer",
+        "reference": {
+          "choice_source": "customer_choices",
+          "value_source": "customers.id",
+          "caption_source": "customers.name"
+        }
+      }
     },
     "associations": {
       "customer": {"queryable": "customers"}

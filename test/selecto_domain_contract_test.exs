@@ -476,6 +476,14 @@ defmodule Selecto.DomainContractTest do
             capability: "customer.choose"
           }
         })
+        |> put_in([:source, :columns, :customer_id, :reference], %{
+          choice_source: :customer_choices,
+          value_source: "customers.id",
+          caption_source: "customers.name"
+        })
+        |> Map.put(:columns, %{
+          customer_id: %{choice_source: :customer_choices}
+        })
 
       assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
     end
@@ -534,6 +542,18 @@ defmodule Selecto.DomainContractTest do
             label_field: :name,
             capability: 555
           }
+        })
+        |> put_in([:source, :columns, :status, :choice_source], :missing_status_choices)
+        |> put_in([:source, :columns, :id, :reference], %{choice_source: 777})
+        |> put_in([:source, :columns, :customer_id, :reference], %{
+          choice_source: :missing_ref_choices,
+          value_source: 888,
+          caption_source: 999,
+          caption_field: :missing_customer_name
+        })
+        |> Map.put(:columns, %{
+          status: %{choice_source: 555},
+          customer_id: %{reference: :customer_choices}
         })
 
       assert {:error, diagnostics} = Domain.validate(domain)
@@ -651,6 +671,61 @@ defmodule Selecto.DomainContractTest do
                capability: 555,
                path: [:choice_sources, :bad_capability, :capability]
              } = error_for(diagnostics, :invalid_choice_source_capability)
+
+      assert %{
+               code: :field_choice_source_not_found,
+               field: :status,
+               choice_source: :missing_status_choices,
+               path: [:source, :columns, :status, :choice_source]
+             } = error_for(diagnostics, :field_choice_source_not_found)
+
+      assert %{
+               code: :invalid_field_choice_source,
+               field: :status,
+               choice_source: 555,
+               path: [:columns, :status, :choice_source]
+             } = error_for(diagnostics, :invalid_field_choice_source)
+
+      assert %{
+               code: :invalid_field_reference,
+               field: :customer_id,
+               path: [:columns, :customer_id, :reference]
+             } = error_for(diagnostics, :invalid_field_reference)
+
+      assert %{
+               code: :invalid_field_reference_choice_source,
+               field: :id,
+               choice_source: 777,
+               path: [:source, :columns, :id, :reference, :choice_source]
+             } = error_for(diagnostics, :invalid_field_reference_choice_source)
+
+      assert %{
+               code: :field_reference_choice_source_not_found,
+               field: :customer_id,
+               choice_source: :missing_ref_choices,
+               path: [:source, :columns, :customer_id, :reference, :choice_source]
+             } = error_for(diagnostics, :field_reference_choice_source_not_found)
+
+      assert %{
+               code: :invalid_field_reference_value_source,
+               field: :customer_id,
+               value_source: 888,
+               path: [:source, :columns, :customer_id, :reference, :value_source]
+             } = error_for(diagnostics, :invalid_field_reference_value_source)
+
+      assert %{
+               code: :invalid_field_reference_caption_source,
+               field: :customer_id,
+               caption_source: 999,
+               path: [:source, :columns, :customer_id, :reference, :caption_source]
+             } = error_for(diagnostics, :invalid_field_reference_caption_source)
+
+      assert %{
+               code: :field_reference_caption_field_not_found,
+               field: :customer_id,
+               caption_field: :missing_customer_name,
+               path: [:source, :columns, :customer_id, :reference, :caption_field]
+             } = error_for(diagnostics, :field_reference_caption_field_not_found)
     end
 
     test "DomainValidator normalized mode returns contract errors before legacy tuples" do
