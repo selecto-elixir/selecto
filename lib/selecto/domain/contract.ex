@@ -66,6 +66,7 @@ defmodule Selecto.Domain.Contract do
     projection = Map.get(normalized_domain, :projection, %{})
     writes = Map.get(normalized_domain, :writes, %{})
     capabilities = Map.get(normalized_domain, :capabilities, %{})
+    actions = Map.get(normalized_domain, :actions, %{})
     field_index = field_index(source, schemas, projection)
 
     []
@@ -76,6 +77,7 @@ defmodule Selecto.Domain.Contract do
     |> validate_filters(query, field_index)
     |> validate_writes(writes, field_index)
     |> validate_capabilities(capabilities)
+    |> validate_actions(actions, capabilities, writes, field_index)
     |> Enum.reverse()
   end
 
@@ -847,6 +849,424 @@ defmodule Selecto.Domain.Contract do
       end
     end)
   end
+
+  defp validate_actions(errors, actions, capabilities, writes, field_index)
+       when is_map(actions) do
+    Enum.reduce(actions, errors, fn {action_id, action}, acc ->
+      path = [:actions, action_id]
+
+      acc
+      |> validate_action_id(action_id, path)
+      |> validate_action(action_id, action, path, capabilities, writes, field_index)
+    end)
+  end
+
+  defp validate_actions(errors, actions, _capabilities, _writes, _field_index) do
+    [
+      error(
+        :invalid_section_shape,
+        [:actions],
+        "domain section :actions must be a map",
+        expected: :map,
+        actual: value_type(actions)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_action_id(errors, action_id, _path)
+       when is_atom(action_id) or is_binary(action_id) do
+    errors
+  end
+
+  defp validate_action_id(errors, action_id, path) do
+    [
+      error(
+        :invalid_action_id,
+        path,
+        "action ids must be atoms or strings",
+        expected: "atom or string",
+        actual: value_type(action_id),
+        action: action_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_action(errors, action_id, action, path, capabilities, writes, field_index)
+       when is_map(action) do
+    errors
+    |> validate_action_capability(action_id, action, path, capabilities)
+    |> validate_action_transition(action_id, action, path, writes, field_index)
+    |> validate_action_execution(action_id, action, path)
+  end
+
+  defp validate_action(errors, action_id, action, path, _capabilities, _writes, _field_index) do
+    [
+      error(
+        :invalid_section_shape,
+        path,
+        "action #{inspect(action_id)} must be a map",
+        expected: :map,
+        actual: value_type(action),
+        action: action_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_action_capability(errors, action_id, action, path, capabilities) do
+    case map_value(action, :capability) do
+      nil ->
+        errors
+
+      capability when is_atom(capability) or is_binary(capability) ->
+        if is_map(capabilities) and fetch_key(capabilities, capability) != :error do
+          errors
+        else
+          [
+            error(
+              :action_capability_not_found,
+              path ++ [:capability],
+              "action #{inspect(action_id)} references missing capability #{inspect(capability)}",
+              action: action_id,
+              capability: capability
+            )
+            | errors
+          ]
+        end
+
+      capability ->
+        [
+          error(
+            :invalid_action_capability,
+            path ++ [:capability],
+            "action #{inspect(action_id)} capability must be an atom or string",
+            expected: "atom or string",
+            actual: value_type(capability),
+            action: action_id,
+            capability: capability
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_action_transition(errors, action_id, action, path, writes, field_index) do
+    transition = map_value(action, :transition)
+    action_type = map_value(action, :type)
+
+    cond do
+      is_nil(transition) and transition_action_type?(action_type) ->
+        [
+          error(
+            :action_missing_transition,
+            path ++ [:transition],
+            "transition action #{inspect(action_id)} must declare a direct transition map",
+            action: action_id
+          )
+          | errors
+        ]
+
+      is_nil(transition) ->
+        errors
+
+      is_map(transition) ->
+        errors
+        |> validate_action_transition_required_keys(action_id, transition, path ++ [:transition])
+        |> validate_action_transition_field(action_id, transition, path, field_index)
+        |> validate_action_transition_states(action_id, transition, path)
+        |> validate_action_transition_edge(action_id, transition, path, writes, field_index)
+
+      true ->
+        [
+          error(
+            :invalid_action_transition,
+            path ++ [:transition],
+            "action #{inspect(action_id)} transition must be a map with :field, :from, and :to",
+            expected: :map,
+            actual: value_type(transition),
+            action: action_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_action_transition_required_keys(errors, action_id, transition, path) do
+    missing_keys = Enum.reject([:field, :from, :to], &has_key?(transition, &1))
+
+    case missing_keys do
+      [] ->
+        errors
+
+      _ ->
+        [
+          error(
+            :action_transition_missing_required_keys,
+            path,
+            "action #{inspect(action_id)} transition is missing required keys #{inspect(missing_keys)}",
+            action: action_id,
+            keys: missing_keys
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_action_transition_field(errors, action_id, transition, path, field_index) do
+    case map_value(transition, :field) do
+      nil ->
+        errors
+
+      field when is_atom(field) or is_binary(field) ->
+        if known_field?(field_index, field) do
+          errors
+        else
+          [
+            error(
+              :action_transition_field_not_found,
+              path ++ [:transition, :field],
+              "action #{inspect(action_id)} transition field #{inspect(field)} is not defined in source, schemas, or custom columns",
+              action: action_id,
+              field: field
+            )
+            | errors
+          ]
+        end
+
+      field ->
+        [
+          error(
+            :invalid_action_transition_field,
+            path ++ [:transition, :field],
+            "action #{inspect(action_id)} transition field must be an atom or string",
+            expected: "atom or string",
+            actual: value_type(field),
+            action: action_id,
+            field: field
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_action_transition_states(errors, action_id, transition, path) do
+    errors
+    |> validate_action_transition_state(
+      action_id,
+      map_value(transition, :from),
+      path ++ [:transition, :from],
+      :from
+    )
+    |> validate_action_transition_state(
+      action_id,
+      map_value(transition, :to),
+      path ++ [:transition, :to],
+      :to
+    )
+  end
+
+  defp validate_action_transition_state(errors, _action_id, nil, _path, _state_key), do: errors
+
+  defp validate_action_transition_state(errors, _action_id, state, _path, _state_key)
+       when is_atom(state) or is_binary(state),
+       do: errors
+
+  defp validate_action_transition_state(errors, action_id, state, path, state_key) do
+    [
+      error(
+        :invalid_action_transition_state,
+        path,
+        "action #{inspect(action_id)} transition #{inspect(state_key)} state must be an atom or string",
+        expected: "atom or string",
+        actual: value_type(state),
+        action: action_id,
+        state: state,
+        state_key: state_key
+      )
+      | errors
+    ]
+  end
+
+  defp validate_action_transition_edge(errors, action_id, transition, path, writes, field_index) do
+    field = map_value(transition, :field)
+    from_state = map_value(transition, :from)
+    to_state = map_value(transition, :to)
+
+    if field_ref?(field) and known_field?(field_index, field) and state_ref?(from_state) and
+         state_ref?(to_state) do
+      transitions = map_value(writes, :transitions)
+
+      if is_map(transitions) and transition_edge?(transitions, field, from_state, to_state) do
+        errors
+      else
+        [
+          error(
+            :action_transition_edge_not_found,
+            path ++ [:transition],
+            "action #{inspect(action_id)} transition edge #{inspect(field)} #{inspect(from_state)} -> #{inspect(to_state)} is not declared in writes.transitions",
+            action: action_id,
+            field: field,
+            from: from_state,
+            to: to_state
+          )
+          | errors
+        ]
+      end
+    else
+      errors
+    end
+  end
+
+  defp validate_action_execution(errors, action_id, action, path) do
+    transition = map_value(action, :transition)
+    action_type = map_value(action, :type)
+
+    if is_nil(transition) and not transition_action_type?(action_type) do
+      errors
+    else
+      validate_direct_action_execution(errors, action_id, action, path)
+    end
+  end
+
+  defp validate_direct_action_execution(errors, action_id, action, path) do
+    case map_value(action, :execution) do
+      nil ->
+        errors
+
+      execution when is_map(execution) ->
+        errors
+        |> validate_action_execution_kind(action_id, execution, path)
+        |> validate_action_execution_operation(action_id, execution, path)
+        |> validate_action_execution_set(action_id, action, execution, path)
+
+      execution ->
+        [
+          error(
+            :invalid_action_execution,
+            path ++ [:execution],
+            "action #{inspect(action_id)} execution must be a map",
+            expected: :map,
+            actual: value_type(execution),
+            action: action_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_action_execution_kind(errors, action_id, execution, path) do
+    case map_value(execution, :kind) do
+      nil ->
+        errors
+
+      kind when kind in [:updato, "updato"] ->
+        errors
+
+      kind ->
+        [
+          error(
+            :invalid_action_execution_kind,
+            path ++ [:execution, :kind],
+            "action #{inspect(action_id)} direct transition execution currently supports only :updato",
+            expected: :updato,
+            actual: kind,
+            action: action_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_action_execution_operation(errors, action_id, execution, path) do
+    case map_value(execution, :operation) do
+      nil ->
+        errors
+
+      operation when operation in [:update, "update"] ->
+        errors
+
+      operation ->
+        [
+          error(
+            :invalid_action_execution_operation,
+            path ++ [:execution, :operation],
+            "action #{inspect(action_id)} direct transition execution currently supports only :update",
+            expected: :update,
+            actual: operation,
+            action: action_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_action_execution_set(errors, action_id, action, execution, path) do
+    transition = map_value(action, :transition)
+
+    case map_value(execution, :set) do
+      nil ->
+        errors
+
+      set when is_map(set) and is_map(transition) ->
+        field = map_value(transition, :field)
+        to_state = map_value(transition, :to)
+
+        if field_ref?(field) and state_ref?(to_state) and
+             execution_sets_transition?(set, field, to_state) do
+          errors
+        else
+          [
+            error(
+              :action_execution_set_mismatch,
+              path ++ [:execution, :set],
+              "action #{inspect(action_id)} execution set must set the transition field to the target state",
+              action: action_id,
+              field: field,
+              to: to_state
+            )
+            | errors
+          ]
+        end
+
+      set when is_map(set) ->
+        errors
+
+      set ->
+        [
+          error(
+            :invalid_action_execution_set,
+            path ++ [:execution, :set],
+            "action #{inspect(action_id)} execution set must be a map",
+            expected: :map,
+            actual: value_type(set),
+            action: action_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp transition_action_type?(type), do: type in [:transition, "transition"]
+
+  defp transition_edge?(transitions, field, from_state, to_state) do
+    with {:ok, graph} when is_map(graph) <- fetch_key(transitions, field),
+         {:ok, target_states} when is_list(target_states) <- fetch_key(graph, from_state) do
+      Enum.any?(target_states, &(field_id(&1) == field_id(to_state)))
+    else
+      _ -> false
+    end
+  end
+
+  defp execution_sets_transition?(set, field, to_state) do
+    case fetch_key(set, field) do
+      {:ok, value} -> field_id(value) == field_id(to_state)
+      :error -> false
+    end
+  end
+
+  defp state_ref?(state), do: is_atom(state) or is_binary(state)
 
   defp field_index(source, schemas, projection) do
     source_fields =

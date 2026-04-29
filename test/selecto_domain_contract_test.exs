@@ -284,6 +284,176 @@ defmodule Selecto.DomainContractTest do
              )
     end
 
+    test "accepts direct transition-backed row actions" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "order.complete" => %{operations: [:action], action: :complete_order}
+        })
+        |> Map.put(:writes, %{
+          transitions: %{
+            status: %{
+              "pending" => ["ready", "cancelled"],
+              "ready" => ["complete", "cancelled"],
+              complete: []
+            }
+          }
+        })
+        |> Map.put(:actions, %{
+          complete_order: %{
+            target: :order,
+            scope: :row,
+            capability: "order.complete",
+            transition: %{
+              field: :status,
+              from: "ready",
+              to: :complete
+            },
+            execution: %{
+              kind: :updato,
+              operation: :update,
+              set: %{status: :complete}
+            }
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates direct transition-backed action references" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "order.complete" => %{operations: [:action], action: :complete_order}
+        })
+        |> Map.put(:writes, %{
+          transitions: %{
+            status: %{
+              "pending" => ["ready"],
+              "ready" => ["complete"]
+            }
+          }
+        })
+        |> Map.put(:actions, %{
+          123 => %{
+            transition: %{field: :status, from: "ready", to: "complete"}
+          },
+          bad_config: [:not, :a, :map],
+          missing_capability: %{
+            capability: "order.missing",
+            transition: %{field: :status, from: "ready", to: "complete"}
+          },
+          bad_capability: %{
+            capability: 456,
+            transition: %{field: :status, from: "ready", to: "complete"}
+          },
+          missing_transition: %{
+            type: :transition
+          },
+          bad_transition: %{
+            transition: :approve
+          },
+          missing_field: %{
+            transition: %{field: :missing_status, from: "ready", to: "complete"}
+          },
+          missing_edge: %{
+            transition: %{field: :status, from: "pending", to: "complete"}
+          },
+          invalid_state: %{
+            transition: %{field: :status, from: 789, to: "complete"}
+          },
+          bad_execution: %{
+            transition: %{field: :status, from: "ready", to: "complete"},
+            execution: %{kind: :other, operation: :delete, set: %{status: "cancelled"}}
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :invalid_action_id,
+               action: 123,
+               path: [:actions, 123]
+             } = error_for(diagnostics, :invalid_action_id)
+
+      invalid_shapes = errors_for(diagnostics, :invalid_section_shape)
+
+      assert Enum.any?(
+               invalid_shapes,
+               &match?(%{action: :bad_config, path: [:actions, :bad_config]}, &1)
+             )
+
+      assert %{
+               code: :action_capability_not_found,
+               action: :missing_capability,
+               capability: "order.missing",
+               path: [:actions, :missing_capability, :capability]
+             } = error_for(diagnostics, :action_capability_not_found)
+
+      assert %{
+               code: :invalid_action_capability,
+               action: :bad_capability,
+               capability: 456,
+               path: [:actions, :bad_capability, :capability]
+             } = error_for(diagnostics, :invalid_action_capability)
+
+      assert %{
+               code: :action_missing_transition,
+               action: :missing_transition,
+               path: [:actions, :missing_transition, :transition]
+             } = error_for(diagnostics, :action_missing_transition)
+
+      assert %{
+               code: :invalid_action_transition,
+               action: :bad_transition,
+               path: [:actions, :bad_transition, :transition]
+             } = error_for(diagnostics, :invalid_action_transition)
+
+      assert %{
+               code: :action_transition_field_not_found,
+               action: :missing_field,
+               field: :missing_status,
+               path: [:actions, :missing_field, :transition, :field]
+             } = error_for(diagnostics, :action_transition_field_not_found)
+
+      assert %{
+               code: :action_transition_edge_not_found,
+               action: :missing_edge,
+               field: :status,
+               from: "pending",
+               to: "complete",
+               path: [:actions, :missing_edge, :transition]
+             } = error_for(diagnostics, :action_transition_edge_not_found)
+
+      assert %{
+               code: :invalid_action_transition_state,
+               action: :invalid_state,
+               state: 789,
+               state_key: :from,
+               path: [:actions, :invalid_state, :transition, :from]
+             } = error_for(diagnostics, :invalid_action_transition_state)
+
+      assert %{
+               code: :invalid_action_execution_kind,
+               action: :bad_execution,
+               path: [:actions, :bad_execution, :execution, :kind]
+             } = error_for(diagnostics, :invalid_action_execution_kind)
+
+      assert %{
+               code: :invalid_action_execution_operation,
+               action: :bad_execution,
+               path: [:actions, :bad_execution, :execution, :operation]
+             } = error_for(diagnostics, :invalid_action_execution_operation)
+
+      assert %{
+               code: :action_execution_set_mismatch,
+               action: :bad_execution,
+               field: :status,
+               to: "complete",
+               path: [:actions, :bad_execution, :execution, :set]
+             } = error_for(diagnostics, :action_execution_set_mismatch)
+    end
+
     test "DomainValidator normalized mode returns contract errors before legacy tuples" do
       domain =
         valid_domain()

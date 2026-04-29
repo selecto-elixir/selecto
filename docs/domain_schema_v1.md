@@ -231,6 +231,51 @@ Decision statuses are `:allow`, `:deny`, `:conditional`, and
 `:not_applicable`. Visibility recommendations are `:enabled`, `:disabled`,
 `:hidden`, and `:preview_only`.
 
+## Direct Transition Actions
+
+`actions` declares named business commands. The first strict action shape is a
+row action that directly references a `writes.transitions` edge:
+
+```elixir
+%{
+  actions: %{
+    complete_order: %{
+      target: :order,
+      scope: :row,
+      capability: "order.complete",
+      transition: %{
+        field: :status,
+        from: "ready",
+        to: "complete"
+      },
+      execution: %{
+        kind: :updato,
+        operation: :update,
+        set: %{status: "complete"}
+      }
+    }
+  }
+}
+```
+
+Validation checks:
+
+- `actions` must be a map when present.
+- action ids must be atoms or strings.
+- each action entry must be a map.
+- `capability`, when present, must be an atom or string and must exist in the
+  domain capability catalog.
+- actions with `type: :transition` must declare a direct transition map.
+- `transition` must be a map with `field`, `from`, and `to`.
+- the transition field must exist in the source, schemas, or custom columns.
+- the transition edge must exist in `writes.transitions`.
+- optional direct execution metadata currently supports only
+  `%{kind: :updato, operation: :update}`.
+- optional execution `set` must set the transition field to the target state.
+
+This validates that preview and execution can ask the same domain question; it
+does not execute actions.
+
 ## Elixir Example
 
 ```elixir
@@ -279,6 +324,15 @@ domain = %{
         "ready" => ["complete", "cancelled"],
         "complete" => []
       }
+    }
+  },
+  actions: %{
+    complete_order: %{
+      target: :order,
+      scope: :row,
+      capability: "order.approve",
+      transition: %{field: :status, from: "ready", to: "complete"},
+      execution: %{kind: :updato, operation: :update, set: %{status: "complete"}}
     }
   }
 }
@@ -335,6 +389,19 @@ JSON domains use string keys and string field identifiers:
         "pending": ["ready", "cancelled"],
         "ready": ["complete", "cancelled"],
         "complete": []
+      }
+    }
+  },
+  "actions": {
+    "complete_order": {
+      "target": "order",
+      "scope": "row",
+      "capability": "order.approve",
+      "transition": {"field": "status", "from": "ready", "to": "complete"},
+      "execution": {
+        "kind": "updato",
+        "operation": "update",
+        "set": {"status": "complete"}
       }
     }
   }
