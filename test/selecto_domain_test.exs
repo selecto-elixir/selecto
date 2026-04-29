@@ -98,6 +98,7 @@ defmodule Selecto.DomainTest do
       assert normalized.source_relationships.customer.target_domain == :customers
       assert normalized.choice_sources.customer_choices.domain == :customers
 
+      assert :unsupported_schema_version in warning_codes(diagnostics)
       assert :actions in diagnostics.proposed_sections
       assert :capabilities in diagnostics.proposed_sections
       assert :choice_sources in diagnostics.proposed_sections
@@ -111,6 +112,75 @@ defmodule Selecto.DomainTest do
       assert {:error, diagnostics} = Domain.normalize(:not_a_domain)
 
       assert [%{code: :invalid_domain}] = diagnostics.errors
+    end
+
+    test "warns on invalid schema_version and uses the current version" do
+      domain = Map.put(minimal_query_domain(), :schema_version, "draft")
+
+      {:ok, normalized, diagnostics} = Domain.normalize(domain)
+
+      assert normalized.schema_version == 1
+      refute diagnostics.schema_version_inferred
+
+      assert %{
+               code: :invalid_schema_version,
+               value: "draft",
+               schema_version: 1
+             } = warning_for(diagnostics, :invalid_schema_version)
+    end
+
+    test "warns on malformed current section shapes without failing normalization" do
+      domain =
+        minimal_query_domain()
+        |> Map.merge(%{
+          name: %{bad: :name},
+          source: :orders,
+          schemas: [],
+          joins: "bad",
+          filters: [],
+          default_selected: :id,
+          custom_columns: [],
+          extensions: %{not: :a_list}
+        })
+
+      {:ok, normalized, diagnostics} = Domain.normalize(domain)
+
+      assert normalized.source == :orders
+
+      assert invalid_shape_sections(diagnostics) == [
+               :custom_columns,
+               :default_selected,
+               :extensions,
+               :filters,
+               :joins,
+               :name,
+               :schemas,
+               :source
+             ]
+    end
+
+    test "warns on malformed proposed section shapes without deep validation" do
+      domain =
+        minimal_query_domain()
+        |> Map.merge(%{
+          writes: [],
+          actions: [],
+          capabilities: [],
+          source_relationships: [],
+          choice_sources: []
+        })
+
+      {:ok, normalized, diagnostics} = Domain.normalize(domain)
+
+      assert normalized.writes == []
+
+      assert invalid_shape_sections(diagnostics) == [
+               :actions,
+               :capabilities,
+               :choice_sources,
+               :source_relationships,
+               :writes
+             ]
     end
   end
 
@@ -212,6 +282,17 @@ defmodule Selecto.DomainTest do
 
   defp warning_codes(diagnostics) do
     Enum.map(diagnostics.warnings, & &1.code)
+  end
+
+  defp warning_for(diagnostics, code) do
+    Enum.find(diagnostics.warnings, &(&1.code == code))
+  end
+
+  defp invalid_shape_sections(diagnostics) do
+    diagnostics.warnings
+    |> Enum.filter(&(&1.code == :invalid_section_shape))
+    |> Enum.map(& &1.section)
+    |> Enum.sort()
   end
 
   defp minimal_query_domain do

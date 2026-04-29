@@ -46,6 +46,37 @@ defmodule Selecto.Domain do
     :retarget,
     :redact_fields
   ]
+  @map_sections [
+    :source,
+    :schemas,
+    :joins,
+    :filters,
+    :functions,
+    :query_members,
+    :published_views,
+    :detail_actions,
+    :columns,
+    :custom_columns,
+    :jsonb_schemas,
+    :subfilters,
+    :window_functions,
+    :pagination,
+    :retarget,
+    :writes,
+    :actions,
+    :capabilities,
+    :source_relationships,
+    :choice_sources
+  ]
+  @list_sections [
+    :default_selected,
+    :required_selected,
+    :required_filters,
+    :required_order_by,
+    :required_group_by,
+    :redact_fields,
+    :extensions
+  ]
 
   @doc """
   Normalizes an authored domain map into a compatibility-safe contract.
@@ -63,11 +94,12 @@ defmodule Selecto.Domain do
   """
   @spec normalize(term()) :: {:ok, map(), Diagnostics.t()} | {:error, Diagnostics.t()}
   def normalize(domain) when is_map(domain) do
-    {schema_version, schema_version_inferred} = schema_version(domain)
+    {schema_version, schema_version_inferred, schema_version_warnings} = schema_version(domain)
     sections = Sections.classify_top_level_keys(domain)
 
     diagnostics =
       Diagnostics.new(
+        warnings: schema_version_warnings ++ section_shape_warnings(domain),
         sections: sections,
         schema_version: schema_version,
         schema_version_inferred: schema_version_inferred
@@ -247,21 +279,97 @@ defmodule Selecto.Domain do
 
   defp schema_version(domain) do
     case fetch_section(domain, :schema_version) do
-      {:ok, version} -> {normalize_schema_version(version), false}
-      :error -> {@current_schema_version, true}
+      {:ok, version} -> normalize_schema_version(version)
+      :error -> {@current_schema_version, true, []}
     end
   end
 
-  defp normalize_schema_version(version) when is_integer(version), do: version
+  defp normalize_schema_version(version) do
+    case parse_schema_version(version) do
+      version when is_integer(version) and version > @current_schema_version ->
+        {version, false, [unsupported_schema_version_warning(version)]}
 
-  defp normalize_schema_version(version) when is_binary(version) do
+      version when is_integer(version) and version > 0 ->
+        {version, false, []}
+
+      _invalid ->
+        {@current_schema_version, false, [invalid_schema_version_warning(version)]}
+    end
+  end
+
+  defp parse_schema_version(version) when is_integer(version), do: version
+
+  defp parse_schema_version(version) when is_binary(version) do
     case Integer.parse(version) do
       {integer, ""} -> integer
       _ -> version
     end
   end
 
-  defp normalize_schema_version(version), do: version
+  defp parse_schema_version(version), do: version
+
+  defp unsupported_schema_version_warning(version) do
+    %{
+      code: :unsupported_schema_version,
+      message: "schema_version is newer than this Selecto release understands",
+      schema_version: version,
+      supported_schema_version: @current_schema_version
+    }
+  end
+
+  defp invalid_schema_version_warning(version) do
+    %{
+      code: :invalid_schema_version,
+      message: "schema_version must be a positive integer; using the current schema version",
+      value: version,
+      schema_version: @current_schema_version
+    }
+  end
+
+  defp section_shape_warnings(domain) do
+    []
+    |> Kernel.++(shape_warnings(domain, [:name], "atom or string", &name?/1))
+    |> Kernel.++(shape_warnings(domain, @map_sections, "map", &is_map/1))
+    |> Kernel.++(shape_warnings(domain, @list_sections, "list", &is_list/1))
+  end
+
+  defp shape_warnings(domain, sections, expected, valid?) do
+    Enum.flat_map(sections, fn section ->
+      case fetch_section(domain, section) do
+        {:ok, value} ->
+          if valid?.(value) do
+            []
+          else
+            [invalid_section_shape_warning(section, expected, value)]
+          end
+
+        :error ->
+          []
+      end
+    end)
+  end
+
+  defp invalid_section_shape_warning(section, expected, value) do
+    %{
+      code: :invalid_section_shape,
+      message: "domain section #{inspect(section)} should be a #{expected}",
+      section: section,
+      expected: expected,
+      actual: value_type(value)
+    }
+  end
+
+  defp name?(value), do: is_atom(value) or is_binary(value)
+
+  defp value_type(value) when is_map(value), do: :map
+  defp value_type(value) when is_list(value), do: :list
+  defp value_type(value) when is_binary(value), do: :string
+  defp value_type(value) when is_atom(value), do: :atom
+  defp value_type(value) when is_integer(value), do: :integer
+  defp value_type(value) when is_float(value), do: :float
+  defp value_type(value) when is_tuple(value), do: :tuple
+  defp value_type(value) when is_function(value), do: :function
+  defp value_type(_value), do: :term
 
   defp section(domain, key, default \\ nil) do
     case fetch_section(domain, key) do
