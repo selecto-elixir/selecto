@@ -123,6 +123,26 @@ defmodule Selecto.Domain do
   end
 
   @doc """
+  Normalizes an authored domain and validates it against the first-wave
+  canonical contract.
+
+  This is still a compatibility-safe entry point: it does not participate in
+  `Selecto.configure/3` unless a caller opts in elsewhere.
+  """
+  @spec validate(term()) :: {:ok, map(), Diagnostics.t()} | {:error, Diagnostics.t()}
+  def validate(domain) do
+    with {:ok, normalized, diagnostics} <- normalize(domain) do
+      case Selecto.Domain.Contract.errors(normalized) do
+        [] ->
+          {:ok, normalized, diagnostics}
+
+        errors ->
+          {:error, %{diagnostics | errors: diagnostics.errors ++ errors}}
+      end
+    end
+  end
+
+  @doc """
   Projects a normalized domain into a read-only consumer view.
 
   Projection helpers are intentionally conservative in this slice. They reshape

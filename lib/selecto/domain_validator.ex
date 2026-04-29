@@ -98,7 +98,8 @@ defmodule Selecto.DomainValidator do
 
     with :ok <- validate_projection_name(projection),
          {:ok, normalized, diagnostics} <- Selecto.Domain.normalize(domain),
-         :ok <- validate_normalization_diagnostics(diagnostics) do
+         :ok <- validate_normalization_diagnostics(diagnostics),
+         :ok <- Selecto.Domain.Contract.validate(normalized) do
       normalized
       |> Selecto.Domain.project(projection)
       |> validate_authored_domain()
@@ -1656,6 +1657,10 @@ defmodule Selecto.DomainValidator do
 
   defp format_error({:domain_section_invalid_shape, {section, expected, actual}}) do
     "Domain section '#{section}' has invalid shape '#{actual}'; expected #{expected}"
+  end
+
+  defp format_error(%{message: message}) when is_binary(message) do
+    message
   end
 
   defp format_error(error) do

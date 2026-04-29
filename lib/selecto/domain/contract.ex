@@ -1,0 +1,720 @@
+defmodule Selecto.Domain.Contract do
+  @moduledoc """
+  First-wave canonical domain contract checks.
+
+  This module validates the normalized shape produced by `Selecto.Domain`.
+  It is intentionally small: it covers the required core sections and the first
+  strict subschemas for `source`, `schemas`, `joins`, and filter references.
+  Existing runtime configuration does not call this module unless a caller opts
+  into normalized validation.
+  """
+
+  @required_sections [:source, :schemas]
+  @relation_required_keys [:source_table, :primary_key, :fields, :columns]
+  @logical_filter_ops [:and, :or]
+  @unary_filter_ops [:not]
+  @field_filter_ops [
+    :eq,
+    :neq,
+    :not_eq,
+    :gt,
+    :gte,
+    :lt,
+    :lte,
+    :like,
+    :ilike,
+    :contains,
+    :starts_with,
+    :ends_with,
+    :between,
+    :in,
+    :not_in,
+    :text_search,
+    :match_against,
+    :array_contains,
+    :array_contained,
+    :array_overlap,
+    :array_eq
+  ]
+
+  @type error :: %{
+          required(:code) => atom(),
+          required(:message) => String.t(),
+          required(:path) => [term()]
+        }
+
+  @doc """
+  Returns `:ok` when a normalized domain satisfies the first-wave contract.
+  """
+  @spec validate(map()) :: :ok | {:error, [error()]}
+  def validate(normalized_domain) when is_map(normalized_domain) do
+    case errors(normalized_domain) do
+      [] -> :ok
+      errors -> {:error, errors}
+    end
+  end
+
+  @doc """
+  Returns structured contract errors for a normalized domain.
+  """
+  @spec errors(map()) :: [error()]
+  def errors(%{authored_domain: authored_domain} = normalized_domain) do
+    source = Map.get(normalized_domain, :source)
+    schemas = Map.get(normalized_domain, :schemas, %{})
+    joins = Map.get(normalized_domain, :joins, %{})
+    query = Map.get(normalized_domain, :query, %{})
+    projection = Map.get(normalized_domain, :projection, %{})
+
+    []
+    |> validate_required_sections(authored_domain)
+    |> validate_relation(:source, source, [:source])
+    |> validate_schemas(schemas)
+    |> validate_joins(joins, source, schemas)
+    |> validate_filters(query, field_index(source, schemas, projection))
+    |> Enum.reverse()
+  end
+
+  def errors(_normalized_domain) do
+    [
+      error(
+        :invalid_normalized_domain,
+        [],
+        "expected a normalized Selecto domain from Selecto.Domain.normalize/1"
+      )
+    ]
+  end
+
+  defp validate_required_sections(errors, authored_domain) do
+    Enum.reduce(@required_sections, errors, fn section, acc ->
+      if has_key?(authored_domain, section) do
+        acc
+      else
+        [
+          error(
+            :missing_required_section,
+            [section],
+            "required domain section #{inspect(section)} is missing",
+            section: section
+          )
+          | acc
+        ]
+      end
+    end)
+  end
+
+  defp validate_relation(errors, relation_id, relation, path) when is_map(relation) do
+    errors
+    |> validate_required_relation_keys(relation_id, relation, path)
+    |> validate_relation_source_table(relation_id, relation, path)
+    |> validate_relation_fields(relation_id, relation, path)
+    |> validate_relation_columns(relation_id, relation, path)
+    |> validate_relation_primary_key(relation_id, relation, path)
+    |> validate_relation_field_columns(relation_id, relation, path)
+  end
+
+  defp validate_relation(errors, relation_id, relation, path) do
+    [
+      error(
+        :invalid_section_shape,
+        path,
+        "domain relation #{inspect(relation_id)} must be a map",
+        expected: :map,
+        actual: value_type(relation)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_required_relation_keys(errors, relation_id, relation, path) do
+    missing_keys = Enum.reject(@relation_required_keys, &has_key?(relation, &1))
+
+    case missing_keys do
+      [] ->
+        errors
+
+      _ ->
+        [
+          error(
+            :missing_required_keys,
+            path,
+            "domain relation #{inspect(relation_id)} is missing required keys #{inspect(missing_keys)}",
+            relation: relation_id,
+            keys: missing_keys
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_relation_source_table(errors, relation_id, relation, path) do
+    case map_value(relation, :source_table) do
+      nil ->
+        errors
+
+      source_table when is_binary(source_table) or is_atom(source_table) ->
+        errors
+
+      source_table ->
+        [
+          error(
+            :invalid_source_table,
+            path ++ [:source_table],
+            "domain relation #{inspect(relation_id)} has an invalid source_table",
+            relation: relation_id,
+            expected: "atom or string",
+            actual: value_type(source_table)
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_relation_fields(errors, relation_id, relation, path) do
+    case map_value(relation, :fields) do
+      nil ->
+        errors
+
+      fields when is_list(fields) ->
+        errors
+
+      fields ->
+        [
+          error(
+            :invalid_fields,
+            path ++ [:fields],
+            "domain relation #{inspect(relation_id)} fields must be a list",
+            relation: relation_id,
+            expected: :list,
+            actual: value_type(fields)
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_relation_columns(errors, relation_id, relation, path) do
+    case map_value(relation, :columns) do
+      nil ->
+        errors
+
+      columns when is_map(columns) ->
+        errors
+
+      columns ->
+        [
+          error(
+            :invalid_columns,
+            path ++ [:columns],
+            "domain relation #{inspect(relation_id)} columns must be a map",
+            relation: relation_id,
+            expected: :map,
+            actual: value_type(columns)
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_relation_primary_key(errors, relation_id, relation, path) do
+    fields = map_value(relation, :fields)
+    primary_key = map_value(relation, :primary_key)
+
+    cond do
+      is_nil(primary_key) or not is_list(fields) ->
+        errors
+
+      field_ref?(primary_key) and field_in_list?(fields, primary_key) ->
+        errors
+
+      field_ref?(primary_key) ->
+        [
+          error(
+            :primary_key_not_found,
+            path ++ [:primary_key],
+            "domain relation #{inspect(relation_id)} primary_key #{inspect(primary_key)} is not listed in fields",
+            relation: relation_id,
+            field: primary_key
+          )
+          | errors
+        ]
+
+      true ->
+        [
+          error(
+            :invalid_primary_key,
+            path ++ [:primary_key],
+            "domain relation #{inspect(relation_id)} primary_key must be an atom or string",
+            relation: relation_id,
+            expected: "atom or string",
+            actual: value_type(primary_key)
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_relation_field_columns(errors, relation_id, relation, path) do
+    fields = map_value(relation, :fields)
+    columns = map_value(relation, :columns)
+
+    if is_list(fields) and is_map(columns) do
+      fields
+      |> Enum.reject(&has_key?(columns, &1))
+      |> Enum.reduce(errors, fn field, acc ->
+        [
+          error(
+            field_missing_column_code(relation_id),
+            path ++ [:columns, field],
+            "domain relation #{inspect(relation_id)} field #{inspect(field)} is missing a column definition",
+            relation: relation_id,
+            field: field
+          )
+          | acc
+        ]
+      end)
+    else
+      errors
+    end
+  end
+
+  defp field_missing_column_code(:source), do: :source_field_missing_column
+  defp field_missing_column_code(_relation_id), do: :schema_field_missing_column
+
+  defp validate_schemas(errors, schemas) when is_map(schemas) do
+    Enum.reduce(schemas, errors, fn {schema_id, schema}, acc ->
+      validate_relation(acc, schema_id, schema, [:schemas, schema_id])
+    end)
+  end
+
+  defp validate_schemas(errors, schemas) do
+    [
+      error(
+        :invalid_section_shape,
+        [:schemas],
+        "domain section :schemas must be a map",
+        expected: :map,
+        actual: value_type(schemas)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_joins(errors, joins, source, schemas) when is_map(joins) do
+    validate_join_tree(errors, joins, source, schemas, [:joins], :source)
+  end
+
+  defp validate_joins(errors, joins, _source, _schemas) do
+    [
+      error(
+        :invalid_section_shape,
+        [:joins],
+        "domain section :joins must be a map",
+        expected: :map,
+        actual: value_type(joins)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_join_tree(errors, joins, parent_relation, schemas, path, parent_id)
+       when is_map(joins) do
+    Enum.reduce(joins, errors, fn {join_id, join_config}, acc ->
+      join_path = path ++ [join_id]
+
+      acc
+      |> validate_join_config_shape(join_config, join_path)
+      |> validate_join_association(
+        join_id,
+        join_config,
+        parent_relation,
+        schemas,
+        join_path,
+        parent_id
+      )
+    end)
+  end
+
+  defp validate_join_config_shape(errors, join_config, path) when is_map(join_config) do
+    case map_value(join_config, :joins) do
+      nil ->
+        errors
+
+      nested_joins when is_map(nested_joins) ->
+        errors
+
+      nested_joins ->
+        [
+          error(
+            :invalid_section_shape,
+            path ++ [:joins],
+            "nested joins must be a map",
+            expected: :map,
+            actual: value_type(nested_joins)
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_join_config_shape(errors, join_config, path) do
+    [
+      error(
+        :invalid_section_shape,
+        path,
+        "join configuration must be a map",
+        expected: :map,
+        actual: value_type(join_config)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_join_association(
+         errors,
+         _join_id,
+         join_config,
+         _parent_relation,
+         _schemas,
+         _path,
+         _parent_id
+       )
+       when not is_map(join_config),
+       do: errors
+
+  defp validate_join_association(
+         errors,
+         join_id,
+         join_config,
+         parent_relation,
+         schemas,
+         path,
+         parent_id
+       ) do
+    associations = relation_associations(parent_relation)
+
+    case fetch_key(associations, join_id) do
+      {:ok, association} ->
+        validate_join_target(errors, join_id, join_config, association, schemas, path)
+
+      :error ->
+        [
+          error(
+            :join_missing_association,
+            path,
+            "join #{inspect(join_id)} is not declared as an association on #{inspect(parent_id)}",
+            parent: parent_id,
+            join: join_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_join_target(errors, join_id, join_config, association, schemas, path) do
+    queryable = map_value(association, :queryable)
+
+    cond do
+      is_nil(queryable) ->
+        [
+          error(
+            :join_association_missing_queryable,
+            path,
+            "join #{inspect(join_id)} association is missing :queryable",
+            join: join_id
+          )
+          | errors
+        ]
+
+      fetch_key(schemas, queryable) == :error and queryable != :source and queryable != "source" ->
+        [
+          error(
+            :join_target_schema_not_found,
+            path,
+            "join #{inspect(join_id)} targets missing schema #{inspect(queryable)}",
+            join: join_id,
+            schema: queryable
+          )
+          | errors
+        ]
+
+      true ->
+        case map_value(join_config, :joins) do
+          nested_joins when is_map(nested_joins) ->
+            target_relation =
+              if queryable == :source or queryable == "source" do
+                nil
+              else
+                {:ok, relation} = fetch_key(schemas, queryable)
+                relation
+              end
+
+            validate_join_tree(
+              errors,
+              nested_joins,
+              target_relation,
+              schemas,
+              path ++ [:joins],
+              queryable
+            )
+
+          _ ->
+            errors
+        end
+    end
+  end
+
+  defp relation_associations(relation) when is_map(relation) do
+    case map_value(relation, :associations) do
+      associations when is_map(associations) -> associations
+      _ -> %{}
+    end
+  end
+
+  defp relation_associations(_relation), do: %{}
+
+  defp validate_filters(errors, query, field_index) do
+    filters = map_value(query, :filters) || %{}
+    required_filters = map_value(query, :required_filters) || []
+
+    errors
+    |> validate_filter_registry(filters, field_index)
+    |> validate_required_filters(required_filters, field_index)
+  end
+
+  defp validate_filter_registry(errors, filters, field_index) when is_map(filters) do
+    Enum.reduce(filters, errors, fn {filter_id, filter_config}, acc ->
+      case map_value(filter_config, :field) do
+        nil ->
+          acc
+
+        field ->
+          validate_field_reference(acc, field, [:filters, filter_id, :field], field_index)
+      end
+    end)
+  end
+
+  defp validate_filter_registry(errors, filters, _field_index) do
+    [
+      error(
+        :invalid_section_shape,
+        [:filters],
+        "domain section :filters must be a map",
+        expected: :map,
+        actual: value_type(filters)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_required_filters(errors, required_filters, field_index)
+       when is_list(required_filters) do
+    required_filters
+    |> Enum.with_index()
+    |> Enum.reduce(errors, fn {filter, index}, acc ->
+      validate_filter_expression(acc, filter, [:required_filters, index], field_index)
+    end)
+  end
+
+  defp validate_required_filters(errors, required_filters, _field_index) do
+    [
+      error(
+        :invalid_section_shape,
+        [:required_filters],
+        "domain section :required_filters must be a list",
+        expected: :list,
+        actual: value_type(required_filters)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_filter_expression(errors, {op, filters}, path, field_index)
+       when op in @logical_filter_ops and is_list(filters) do
+    filters
+    |> Enum.with_index()
+    |> Enum.reduce(errors, fn {filter, index}, acc ->
+      validate_filter_expression(acc, filter, path ++ [index], field_index)
+    end)
+  end
+
+  defp validate_filter_expression(errors, {op, filter}, path, field_index)
+       when op in @unary_filter_ops do
+    validate_filter_expression(errors, filter, path ++ [op], field_index)
+  end
+
+  defp validate_filter_expression(errors, {op, field, _value}, path, field_index)
+       when op in @field_filter_ops do
+    validate_field_reference(errors, field, path ++ [:field], field_index)
+  end
+
+  defp validate_filter_expression(errors, {op, field, _left, _right}, path, field_index)
+       when op in @field_filter_ops do
+    validate_field_reference(errors, field, path ++ [:field], field_index)
+  end
+
+  defp validate_filter_expression(errors, {field, _value}, path, field_index) do
+    validate_field_reference(errors, field, path ++ [:field], field_index)
+  end
+
+  defp validate_filter_expression(errors, {field, _op, _value}, path, field_index) do
+    validate_field_reference(errors, field, path ++ [:field], field_index)
+  end
+
+  defp validate_filter_expression(errors, filter, path, field_index) when is_map(filter) do
+    case map_value(filter, :field) do
+      nil -> errors
+      field -> validate_field_reference(errors, field, path ++ [:field], field_index)
+    end
+  end
+
+  defp validate_filter_expression(errors, _filter, _path, _field_index), do: errors
+
+  defp validate_field_reference(errors, field, path, field_index) do
+    if known_field?(field_index, field) do
+      errors
+    else
+      [
+        error(
+          :filter_field_not_found,
+          path,
+          "filter field #{inspect(field)} is not defined in source, schemas, or custom columns",
+          field: field
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp field_index(source, schemas, projection) do
+    source_fields =
+      source
+      |> relation_fields()
+      |> MapSet.new()
+
+    schema_fields =
+      if is_map(schemas) do
+        Enum.flat_map(schemas, fn {schema_id, schema} ->
+          schema
+          |> relation_fields()
+          |> Enum.map(&"#{field_id(schema_id)}.#{&1}")
+        end)
+      else
+        []
+      end
+
+    custom_fields =
+      projection
+      |> map_value(:custom_columns)
+      |> case do
+        custom_columns when is_map(custom_columns) ->
+          Enum.map(custom_columns, fn {field, _} -> field_id(field) end)
+
+        _ ->
+          []
+      end
+
+    source_fields
+    |> MapSet.union(MapSet.new(schema_fields))
+    |> MapSet.union(MapSet.new(custom_fields))
+  end
+
+  defp relation_fields(relation) when is_map(relation) do
+    fields =
+      case map_value(relation, :fields) do
+        fields when is_list(fields) -> fields
+        _ -> []
+      end
+
+    columns =
+      case map_value(relation, :columns) do
+        columns when is_map(columns) -> Map.keys(columns)
+        _ -> []
+      end
+
+    Enum.map(fields ++ columns, &field_id/1)
+  end
+
+  defp relation_fields(_relation), do: []
+
+  defp known_field?(_field_index, field) when not (is_atom(field) or is_binary(field)), do: true
+  defp known_field?(field_index, field), do: MapSet.member?(field_index, field_id(field))
+
+  defp field_in_list?(fields, field) do
+    field_id = field_id(field)
+    Enum.any?(fields, &(field_id(&1) == field_id))
+  end
+
+  defp field_ref?(field), do: is_atom(field) or is_binary(field)
+
+  defp map_value(map, key) when is_map(map) and is_atom(key) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, Atom.to_string(key))
+    end
+  end
+
+  defp map_value(_map, _key), do: nil
+
+  defp has_key?(map, key) when is_map(map) and is_atom(key) do
+    Map.has_key?(map, key) or Map.has_key?(map, Atom.to_string(key))
+  end
+
+  defp has_key?(map, key) when is_map(map), do: Map.has_key?(map, key)
+  defp has_key?(_map, _key), do: false
+
+  defp fetch_key(map, key) when is_map(map) do
+    cond do
+      Map.has_key?(map, key) ->
+        {:ok, Map.fetch!(map, key)}
+
+      is_atom(key) and Map.has_key?(map, Atom.to_string(key)) ->
+        {:ok, Map.fetch!(map, Atom.to_string(key))}
+
+      is_binary(key) ->
+        atom_key = safe_existing_atom(key)
+
+        if not is_nil(atom_key) and Map.has_key?(map, atom_key) do
+          {:ok, Map.fetch!(map, atom_key)}
+        else
+          :error
+        end
+
+      true ->
+        :error
+    end
+  end
+
+  defp fetch_key(_map, _key), do: :error
+
+  defp safe_existing_atom(value) when is_binary(value) do
+    try do
+      String.to_existing_atom(value)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp field_id(field) when is_atom(field), do: Atom.to_string(field)
+  defp field_id(field) when is_binary(field), do: field
+  defp field_id(field), do: inspect(field)
+
+  defp error(code, path, message, attrs \\ []) do
+    attrs
+    |> Enum.into(%{})
+    |> Map.merge(%{
+      code: code,
+      path: path,
+      message: message
+    })
+  end
+
+  defp value_type(value) when is_map(value), do: :map
+  defp value_type(value) when is_list(value), do: :list
+  defp value_type(value) when is_binary(value), do: :string
+  defp value_type(value) when is_atom(value), do: :atom
+  defp value_type(value) when is_integer(value), do: :integer
+  defp value_type(value) when is_float(value), do: :float
+  defp value_type(value) when is_tuple(value), do: :tuple
+  defp value_type(value) when is_function(value), do: :function
+  defp value_type(_value), do: :term
+end
