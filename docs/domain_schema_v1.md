@@ -405,6 +405,63 @@ The request/result shape lets Components, API, GraphQL, AI, actions, and Updato
 share one membership question later. Core Selecto remains conservative: without
 a resolver, membership is `:unknown`, not assumed valid.
 
+## Choice Option Lists
+
+`Selecto.Domain.Choices` also exposes the sibling option-list request shape for
+surfaces that need to ask "what options should this field show?" The request can
+be built from a field binding or directly from a declared choice source.
+
+```elixir
+{:ok, request} =
+  Selecto.Domain.Choices.options_request(domain, :customer_id,
+    search: "acme",
+    limit: 20,
+    offset: 0,
+    actor: current_user,
+    tenant: tenant_context,
+    record: %{customer_id: 42},
+    context: %{surface: :components}
+  )
+
+request.choice_source
+#=> :customer_choices
+
+{:ok, direct_request} =
+  Selecto.Domain.Choices.options_request(domain, :customer_choices,
+    by: :choice_source,
+    search: "acme"
+  )
+```
+
+As with membership checks, core Selecto does not fetch option rows without an
+explicit resolver:
+
+```elixir
+{:error, result} =
+  Selecto.Domain.Choices.list_options(domain, :customer_id, search: "acme")
+
+result.status
+#=> :unknown
+
+resolver = fn request ->
+  options =
+    fetch_options(request)
+    |> Enum.map(&%{value: &1.id, label: &1.name})
+
+  Selecto.Domain.Choices.options_resolved(options)
+end
+
+{:ok, result} =
+  Selecto.Domain.Choices.list_options(domain, :customer_id,
+    search: "acme",
+    resolver: resolver
+  )
+```
+
+The option-list API is a projection contract for future Components, API,
+GraphQL, AI, operations, and Updato integrations. It does not change
+`Selecto.configure/3` behavior.
+
 ## Elixir Example
 
 ```elixir

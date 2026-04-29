@@ -8,7 +8,7 @@ defmodule Selecto.Domain.Choices do
   explicit resolver.
   """
 
-  alias Selecto.Domain.Choices.{Request, Result}
+  alias Selecto.Domain.Choices.{OptionsRequest, OptionsResult, Request, Result}
 
   @type field :: atom() | String.t()
   @type choice_error :: %{
@@ -77,6 +77,64 @@ defmodule Selecto.Domain.Choices do
   end
 
   @doc """
+  Builds a choice-source option-list request.
+
+  By default the target is treated as a working-domain field and resolved
+  through its field binding. Pass `by: :choice_source` to build the request
+  directly from a declared choice source.
+  """
+  @spec options_request(map(), field(), map() | keyword()) ::
+          {:ok, OptionsRequest.t()} | {:error, choice_error()}
+  def options_request(domain_or_normalized, target, attrs \\ [])
+      when is_map(domain_or_normalized) do
+    attrs = attrs_map(attrs)
+    {by, request_attrs} = pop_attr(attrs, :by, :field)
+
+    case options_target_kind(by) do
+      :field ->
+        field_options_request(domain_or_normalized, target, request_attrs)
+
+      :choice_source ->
+        choice_source_options_request(domain_or_normalized, target, request_attrs)
+
+      :error ->
+        {:error,
+         error(
+           :invalid_options_request_target,
+           [:options_request, :by],
+           "options request :by must be :field or :choice_source",
+           by: by
+         )}
+    end
+  end
+
+  @doc """
+  Builds an option-list request directly from a declared choice source.
+  """
+  @spec choice_source_options_request(map(), atom() | String.t(), map() | keyword()) ::
+          {:ok, OptionsRequest.t()} | {:error, choice_error()}
+  def choice_source_options_request(domain_or_normalized, choice_source_id, attrs \\ [])
+      when is_map(domain_or_normalized) do
+    attrs = attrs_map(attrs)
+
+    with {:ok, normalized} <- normalized_domain(domain_or_normalized),
+         {:ok, choice_source_config} <- fetch_choice_source(normalized, choice_source_id),
+         {:ok, source_relationship_config} <-
+           source_relationship_config(normalized, choice_source_config) do
+      {:ok,
+       OptionsRequest.new(
+         Map.merge(attrs, %{
+           domain: domain_name(normalized),
+           choice_source: choice_source_id,
+           choice_source_config: choice_source_config,
+           source_relationship: map_value(choice_source_config, :source_relationship),
+           source_relationship_config: source_relationship_config
+         })
+       )}
+    end
+  end
+
+  @doc """
   Validates a choice-source membership question.
 
   Without a resolver this returns an `:unknown` result instead of guessing. A
@@ -87,7 +145,7 @@ defmodule Selecto.Domain.Choices do
           {:ok, Result.t()} | {:error, Result.t() | choice_error()}
   def validate_choice(domain_or_normalized, field, value, attrs \\ []) do
     attrs = attrs_map(attrs)
-    {resolver, request_attrs} = Map.pop(attrs, :resolver)
+    {resolver, request_attrs} = pop_attr(attrs, :resolver)
 
     with {:ok, request} <- request(domain_or_normalized, field, value, request_attrs) do
       case resolver do
@@ -124,6 +182,40 @@ defmodule Selecto.Domain.Choices do
   end
 
   @doc """
+  Resolves an option-list request through an explicit resolver.
+
+  Without a resolver this returns an `:unknown` result. A resolver may be a
+  one-arity function that receives an `%OptionsRequest{}` and returns an
+  `%OptionsResult{}`, `{:ok, %OptionsResult{}}`, or
+  `{:error, %OptionsResult{}}`.
+  """
+  @spec list_options(map(), field(), map() | keyword()) ::
+          {:ok, OptionsResult.t()} | {:error, OptionsResult.t() | choice_error()}
+  def list_options(domain_or_normalized, target, attrs \\ []) do
+    attrs = attrs_map(attrs)
+    {resolver, request_attrs} = pop_attr(attrs, :resolver)
+
+    with {:ok, request} <- options_request(domain_or_normalized, target, request_attrs) do
+      case resolver do
+        nil ->
+          {:error, OptionsResult.unknown(:resolver_required, request: request)}
+
+        resolver when is_function(resolver, 1) ->
+          resolver
+          |> options_resolver_result(request)
+          |> normalize_options_resolver_result(request)
+
+        resolver ->
+          {:error,
+           OptionsResult.unknown(:invalid_resolver,
+             request: request,
+             metadata: %{resolver: inspect(resolver)}
+           )}
+      end
+    end
+  end
+
+  @doc """
   Builds a valid membership result.
   """
   @spec valid(atom() | String.t(), map() | keyword()) :: Result.t()
@@ -141,6 +233,26 @@ defmodule Selecto.Domain.Choices do
   @spec unknown(atom() | String.t(), map() | keyword()) :: Result.t()
   def unknown(reason_code \\ :resolver_required, attrs \\ []),
     do: Result.unknown(reason_code, attrs)
+
+  @doc """
+  Builds a resolved option-list result.
+  """
+  @spec options_resolved([map()], map() | keyword()) :: OptionsResult.t()
+  def options_resolved(options, attrs \\ []), do: OptionsResult.resolved(options, attrs)
+
+  @doc """
+  Builds an unknown option-list result.
+  """
+  @spec options_unknown(atom() | String.t(), map() | keyword()) :: OptionsResult.t()
+  def options_unknown(reason_code \\ :resolver_required, attrs \\ []),
+    do: OptionsResult.unknown(reason_code, attrs)
+
+  @doc """
+  Builds an error option-list result.
+  """
+  @spec options_error(atom() | String.t(), map() | keyword()) :: OptionsResult.t()
+  def options_error(reason_code \\ :options_error, attrs \\ []),
+    do: OptionsResult.error(reason_code, attrs)
 
   defp normalized_domain(
          %{schema_version: _schema_version, authored_domain: _authored} = normalized
@@ -165,6 +277,29 @@ defmodule Selecto.Domain.Choices do
          error(:invalid_domain_contract, [], "domain contract is invalid",
            errors: diagnostics.errors
          )}
+    end
+  end
+
+  defp field_options_request(domain_or_normalized, field, attrs) do
+    with {:ok, normalized} <- normalized_domain(domain_or_normalized),
+         {:ok, binding} <- binding(normalized, field),
+         {:ok, choice_source_config} <-
+           fetch_choice_source(normalized, Map.fetch!(binding, :choice_source)),
+         {:ok, source_relationship_config} <-
+           source_relationship_config(normalized, choice_source_config) do
+      {:ok,
+       OptionsRequest.new(
+         Map.merge(attrs, %{
+           domain: domain_name(normalized),
+           field: Map.fetch!(binding, :field),
+           choice_source: Map.fetch!(binding, :choice_source),
+           choice_source_config: choice_source_config,
+           source_relationship: map_value(choice_source_config, :source_relationship),
+           source_relationship_config: source_relationship_config,
+           field_binding: binding,
+           reference: Map.get(binding, :reference, %{})
+         })
+       )}
     end
   end
 
@@ -358,6 +493,37 @@ defmodule Selecto.Domain.Choices do
      )}
   end
 
+  defp options_resolver_result(resolver, request), do: resolver.(request)
+
+  defp normalize_options_resolver_result({:ok, %OptionsResult{} = result}, request) do
+    {:ok, ensure_options_result_request(result, request)}
+  end
+
+  defp normalize_options_resolver_result({:error, %OptionsResult{} = result}, request) do
+    {:error, ensure_options_result_request(result, request)}
+  end
+
+  defp normalize_options_resolver_result(%OptionsResult{status: :resolved} = result, request) do
+    {:ok, ensure_options_result_request(result, request)}
+  end
+
+  defp normalize_options_resolver_result(%OptionsResult{} = result, request) do
+    {:error, ensure_options_result_request(result, request)}
+  end
+
+  defp normalize_options_resolver_result(other, request) do
+    {:error,
+     OptionsResult.unknown(:invalid_resolver_result,
+       request: request,
+       metadata: %{result: inspect(other)}
+     )}
+  end
+
+  defp ensure_options_result_request(%OptionsResult{request: nil} = result, request),
+    do: %{result | request: request}
+
+  defp ensure_options_result_request(%OptionsResult{} = result, _request), do: result
+
   defp ensure_result_request(%Result{request: nil} = result, request),
     do: %{result | request: request}
 
@@ -388,6 +554,25 @@ defmodule Selecto.Domain.Choices do
   defp attrs_map(attrs) when is_list(attrs), do: Enum.into(attrs, %{})
 
   defp id_ref?(value), do: (is_atom(value) and not is_nil(value)) or is_binary(value)
+
+  defp options_target_kind(:field), do: :field
+  defp options_target_kind("field"), do: :field
+  defp options_target_kind(:choice_source), do: :choice_source
+  defp options_target_kind("choice_source"), do: :choice_source
+  defp options_target_kind(_by), do: :error
+
+  defp pop_attr(attrs, key, default \\ nil) do
+    cond do
+      Map.has_key?(attrs, key) ->
+        Map.pop(attrs, key)
+
+      Map.has_key?(attrs, Atom.to_string(key)) ->
+        Map.pop(attrs, Atom.to_string(key))
+
+      true ->
+        {default, attrs}
+    end
+  end
 
   defp map_value(map, key) when is_map(map) and is_atom(key) do
     case Map.fetch(map, key) do
