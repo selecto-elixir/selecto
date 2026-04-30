@@ -12,7 +12,8 @@ defmodule Selecto.Domain do
   alias Selecto.Domain.Sections
 
   @current_schema_version 1
-  @projections [:query, :write, :ui, :api]
+  @projections [:query, :write, :ui, :api, :query_contract]
+  @query_member_groups [:ctes, :values, :subqueries, :laterals, :unnests]
   @query_projection_sections [
     :custom_columns,
     :jsonb_schemas,
@@ -227,6 +228,40 @@ defmodule Selecto.Domain do
   end
 
   @doc """
+  Returns the constrained query contract projection for an authored or normalized
+  domain.
+
+  This is a convenience wrapper around `normalize/1` and
+  `project(normalized, :query_contract)` for Components, AI tooling, and other
+  consumers that should not need to walk the normalized domain map directly.
+  """
+  @spec query_contract(term()) :: {:ok, map(), Diagnostics.t()} | {:error, Diagnostics.t()}
+  def query_contract(
+        %{
+          schema_version: schema_version,
+          domain: %{} = _domain,
+          query: %{} = _query,
+          projection: %{} = _projection,
+          sections: sections
+        } = normalized
+      ) do
+    diagnostics =
+      Diagnostics.new(
+        sections: sections,
+        schema_version: schema_version,
+        schema_version_inferred: false
+      )
+
+    {:ok, project(normalized, :query_contract), diagnostics}
+  end
+
+  def query_contract(domain) do
+    with {:ok, normalized, diagnostics} <- normalize(domain) do
+      {:ok, project(normalized, :query_contract), diagnostics}
+    end
+  end
+
+  @doc """
   Projects a normalized domain into a read-only consumer view.
 
   Projection helpers are intentionally conservative in this slice. They reshape
@@ -239,13 +274,40 @@ defmodule Selecto.Domain do
   - `:write` - write/action/reference sections
   - `:ui` - display defaults, choices, actions, and detail actions
   - `:api` - read/write/action contract for API-style consumers
+  - `:query_contract` - constrained query metadata for tools, Components, and AI
   """
-  @spec project(map(), :query | :write | :ui | :api) :: map()
+  @spec project(map(), :query | :write | :ui | :api | :query_contract) :: map()
   def project(%{schema_version: _schema_version, domain: _domain} = normalized, :query) do
     normalized
     |> base_projection()
     |> Map.merge(Map.fetch!(normalized, :query))
     |> Map.merge(take_projection_sections(normalized, @query_projection_sections))
+  end
+
+  def project(
+        %{schema_version: _schema_version, domain: _domain, query: %{} = query} = normalized,
+        :query_contract
+      ) do
+    field_choice_bindings = field_choice_bindings(normalized)
+
+    %{
+      schema_version: Map.fetch!(normalized, :schema_version),
+      name: map_section(Map.fetch!(normalized, :domain), :name),
+      projection: :query_contract,
+      source: query_contract_source(normalized),
+      fields: query_contract_fields(normalized, field_choice_bindings),
+      joins: query_contract_joins(normalized),
+      defaults: query_contract_defaults(query),
+      filters: query_contract_filters(map_value(query, :filters)),
+      functions: query_contract_functions(map_value(query, :functions)),
+      query_members: query_contract_query_members(map_value(query, :query_members)),
+      published_views: query_contract_published_views(map_value(query, :published_views)),
+      source_relationships:
+        query_contract_source_relationships(Map.get(normalized, :source_relationships, %{})),
+      choice_sources: query_contract_choice_sources(Map.get(normalized, :choice_sources, %{})),
+      field_choice_bindings: query_contract_choice_bindings(field_choice_bindings),
+      capability_ids: sorted_keys(Map.get(normalized, :capabilities, %{}))
+    }
   end
 
   def project(%{schema_version: _schema_version, domain: _domain} = normalized, :write) do
@@ -502,6 +564,458 @@ defmodule Selecto.Domain do
   end
 
   defp inspect_choice_sources(_choice_sources), do: []
+
+  defp query_contract_source(normalized) do
+    source = Map.get(normalized, :source, %{})
+
+    %{
+      source_table: map_value(source, :source_table),
+      primary_key: map_value(source, :primary_key)
+    }
+  end
+
+  defp query_contract_defaults(query) do
+    %{
+      default_selected: map_value(query, :default_selected) || [],
+      required_selected: map_value(query, :required_selected) || [],
+      required_filters: map_value(query, :required_filters) || [],
+      required_order_by: map_value(query, :required_order_by) || [],
+      required_group_by: map_value(query, :required_group_by) || []
+    }
+  end
+
+  defp query_contract_fields(normalized, field_choice_bindings) do
+    choice_index = query_contract_choice_index(field_choice_bindings)
+
+    []
+    |> Kernel.++(
+      query_contract_relation_fields(
+        :source,
+        Map.get(normalized, :source),
+        :source,
+        choice_index
+      )
+    )
+    |> Kernel.++(query_contract_schema_fields(Map.get(normalized, :schemas), choice_index))
+    |> Kernel.++(
+      query_contract_custom_fields(
+        map_value(Map.get(normalized, :projection, %{}), :custom_columns),
+        choice_index
+      )
+    )
+    |> Enum.sort_by(& &1.id)
+  end
+
+  defp query_contract_schema_fields(schemas, choice_index) when is_map(schemas) do
+    schemas
+    |> sorted_entries()
+    |> Enum.flat_map(fn {schema_id, schema} ->
+      query_contract_relation_fields(schema_id, schema, :schema, choice_index)
+    end)
+  end
+
+  defp query_contract_schema_fields(_schemas, _choice_index), do: []
+
+  defp query_contract_relation_fields(relation_id, relation, source_kind, choice_index)
+       when is_map(relation) do
+    relation
+    |> relation_field_entries()
+    |> Enum.map(fn {field, column} ->
+      field_ref = relation_field_ref(relation_id, field)
+      id = field_id(field_ref)
+
+      %{
+        id: id,
+        source: source_kind,
+        relation: relation_id,
+        field: field_id(field),
+        type: map_value(column, :type),
+        label: field_label(column),
+        capability: map_value(column, :capability),
+        choice_source: query_contract_choice_source(choice_index, id)
+      }
+    end)
+  end
+
+  defp query_contract_relation_fields(_relation_id, _relation, _source_kind, _choice_index),
+    do: []
+
+  defp query_contract_custom_fields(custom_columns, choice_index) when is_map(custom_columns) do
+    custom_columns
+    |> sorted_entries()
+    |> Enum.map(fn {field, column} ->
+      id = field_id(field)
+
+      %{
+        id: id,
+        source: :custom_column,
+        relation: nil,
+        field: id,
+        type: map_value(column, :type),
+        label: field_label(column),
+        capability: map_value(column, :capability),
+        choice_source: query_contract_choice_source(choice_index, id)
+      }
+    end)
+  end
+
+  defp query_contract_custom_fields(_custom_columns, _choice_index), do: []
+
+  defp query_contract_joins(normalized) do
+    query_contract_join_tree(
+      Map.get(normalized, :joins, %{}),
+      Map.get(normalized, :source),
+      Map.get(normalized, :schemas, %{}),
+      [],
+      :source
+    )
+  end
+
+  defp query_contract_join_tree(joins, parent_relation, schemas, path, parent_id)
+       when is_map(joins) do
+    joins
+    |> sorted_entries()
+    |> Enum.flat_map(fn {join_id, join_config} ->
+      join_path = path ++ [join_id]
+      association = relation_association(parent_relation, join_id)
+      target_schema = if is_map(association), do: map_value(association, :queryable)
+
+      target_relation =
+        query_contract_join_target_relation(target_schema, parent_relation, schemas)
+
+      nested_joins = map_value(join_config, :joins)
+
+      entry = %{
+        id: field_id(join_id),
+        path: Enum.map(join_path, &field_id/1),
+        parent: parent_id,
+        target_schema: target_schema,
+        type: map_value(join_config, :type),
+        fields: relation_field_ids(target_relation),
+        nested_count: map_count(nested_joins)
+      }
+
+      [
+        entry
+        | query_contract_join_tree(
+            nested_joins,
+            target_relation,
+            schemas,
+            join_path,
+            target_schema
+          )
+      ]
+    end)
+  end
+
+  defp query_contract_join_tree(_joins, _parent_relation, _schemas, _path, _parent_id), do: []
+
+  defp query_contract_join_target_relation(target_schema, source, _schemas)
+       when target_schema in [:source, "source"] do
+    source
+  end
+
+  defp query_contract_join_target_relation(target_schema, _source, schemas) do
+    case fetch_key(schemas, target_schema) do
+      {:ok, schema} -> schema
+      :error -> nil
+    end
+  end
+
+  defp query_contract_filters(filters) when is_map(filters) do
+    filters
+    |> sorted_entries()
+    |> Enum.map(fn {id, filter} ->
+      %{
+        id: id,
+        field: field_ref_or_nil(map_value(filter, :field)),
+        type: map_value(filter, :type),
+        label: field_label(filter),
+        capability: map_value(filter, :capability),
+        virtual?: is_nil(map_value(filter, :field))
+      }
+    end)
+  end
+
+  defp query_contract_filters(_filters), do: []
+
+  defp query_contract_functions(functions) when is_map(functions) do
+    functions
+    |> sorted_entries()
+    |> Enum.map(fn {id, function} ->
+      %{
+        id: id,
+        kind: map_value(function, :kind),
+        sql_name: map_value(function, :sql_name),
+        allowed_in: List.wrap(map_value(function, :allowed_in)),
+        args: query_contract_function_args(map_value(function, :args)),
+        returns: map_value(function, :returns),
+        capability: map_value(function, :capability)
+      }
+    end)
+  end
+
+  defp query_contract_functions(_functions), do: []
+
+  defp query_contract_function_args(args) when is_list(args) do
+    Enum.map(args, fn
+      arg when is_map(arg) ->
+        %{
+          name: map_value(arg, :name),
+          type: map_value(arg, :type),
+          source: map_value(arg, :source)
+        }
+
+      _arg ->
+        %{}
+    end)
+  end
+
+  defp query_contract_function_args(_args), do: []
+
+  defp query_contract_query_members(query_members) when is_map(query_members) do
+    Enum.into(@query_member_groups, %{}, fn group ->
+      {group, query_contract_query_member_group(group, map_value(query_members, group))}
+    end)
+  end
+
+  defp query_contract_query_members(_query_members) do
+    Enum.into(@query_member_groups, %{}, &{&1, []})
+  end
+
+  defp query_contract_query_member_group(group, members) when is_map(members) do
+    members
+    |> sorted_entries()
+    |> Enum.map(fn {id, member} -> query_contract_query_member(group, id, member) end)
+  end
+
+  defp query_contract_query_member_group(_group, _members), do: []
+
+  defp query_contract_query_member(group, id, member) when is_map(member) do
+    base = %{
+      id: id,
+      capability: map_value(member, :capability)
+    }
+
+    case group do
+      :ctes ->
+        Map.merge(base, %{
+          columns: List.wrap(map_value(member, :columns)),
+          recursive?:
+            has_key_variant?(member, :base_query) or has_key_variant?(member, :recursive_query),
+          join?: not is_nil(map_value(member, :join))
+        })
+
+      :values ->
+        Map.merge(base, %{
+          columns: List.wrap(map_value(member, :columns)),
+          alias: query_contract_alias(member),
+          rows_count: list_count(map_value(member, :rows) || map_value(member, :data))
+        })
+
+      :subqueries ->
+        Map.merge(base, %{
+          kind: map_value(member, :kind),
+          join_type: map_value(member, :type),
+          join_id: map_value(member, :join_id),
+          on_count: list_count(map_value(member, :on))
+        })
+
+      :laterals ->
+        Map.merge(base, %{
+          join_type: map_value(member, :join_type) || map_value(member, :type),
+          alias: query_contract_alias(member),
+          source: query_contract_lateral_source(member)
+        })
+
+      :unnests ->
+        Map.merge(base, %{
+          field: field_ref_or_nil(map_value(member, :array_field) || map_value(member, :field)),
+          alias: query_contract_alias(member),
+          ordinality: map_value(member, :ordinality)
+        })
+    end
+  end
+
+  defp query_contract_query_member(_group, id, _member), do: %{id: id}
+
+  defp query_contract_published_views(published_views) when is_map(published_views) do
+    published_views
+    |> sorted_entries()
+    |> Enum.map(fn {id, view} ->
+      %{
+        id: id,
+        database_name: map_value(view, :database_name),
+        kind: map_value(view, :kind),
+        columns: query_contract_columns(map_value(view, :columns)),
+        indexes_count: list_count(map_value(view, :indexes)),
+        refresh: map_value(view, :refresh),
+        capability: map_value(view, :capability)
+      }
+    end)
+  end
+
+  defp query_contract_published_views(_published_views), do: []
+
+  defp query_contract_source_relationships(source_relationships)
+       when is_map(source_relationships) do
+    source_relationships
+    |> sorted_entries()
+    |> Enum.map(fn {id, relationship} ->
+      %{
+        id: id,
+        target_domain: map_value(relationship, :target_domain),
+        source_field: field_ref_or_nil(map_value(relationship, :source_field)),
+        target_field: field_ref_or_nil(map_value(relationship, :target_field)),
+        source_path: map_value(relationship, :source_path),
+        virtual_join_count: list_count(map_value(relationship, :virtual_join)),
+        filters_count: list_count(map_value(relationship, :filters))
+      }
+    end)
+  end
+
+  defp query_contract_source_relationships(_source_relationships), do: []
+
+  defp query_contract_choice_sources(choice_sources) when is_map(choice_sources) do
+    choice_sources
+    |> sorted_entries()
+    |> Enum.map(fn {id, choice_source} ->
+      %{
+        id: id,
+        domain: map_value(choice_source, :domain),
+        source_relationship: map_value(choice_source, :source_relationship),
+        value_field: field_ref_or_nil(map_value(choice_source, :value_field)),
+        label_field: field_ref_or_nil(map_value(choice_source, :label_field)),
+        source_path: map_value(choice_source, :source_path),
+        value_source: field_ref_or_nil(map_value(choice_source, :value_source)),
+        caption_source: field_ref_or_nil(map_value(choice_source, :caption_source)),
+        filters_count: list_count(map_value(choice_source, :filters)),
+        order_by_count: list_count(map_value(choice_source, :order_by)),
+        presentation: map_value(choice_source, :presentation),
+        capability: map_value(choice_source, :capability)
+      }
+    end)
+  end
+
+  defp query_contract_choice_sources(_choice_sources), do: []
+
+  defp query_contract_choice_bindings(field_choice_bindings) do
+    Enum.map(field_choice_bindings, fn binding ->
+      %{
+        field: field_id(binding.field),
+        choice_source: binding.choice_source,
+        compact?: binding.compact?,
+        reference?: binding.reference?,
+        path: binding.path
+      }
+    end)
+  end
+
+  defp query_contract_columns(columns) when is_map(columns) do
+    columns
+    |> sorted_entries()
+    |> Enum.map(fn {id, column} ->
+      %{
+        id: field_id(id),
+        type: map_value(column, :type),
+        label: field_label(column),
+        capability: map_value(column, :capability)
+      }
+    end)
+  end
+
+  defp query_contract_columns(_columns), do: []
+
+  defp query_contract_alias(member) do
+    first_map_value(member, [:as, :alias, :alias_name])
+  end
+
+  defp query_contract_lateral_source(member) do
+    source = first_map_value(member, [:query, :source, :lateral_source])
+
+    cond do
+      is_function(source) -> :function
+      is_tuple(source) -> :tuple
+      is_nil(source) -> nil
+      true -> value_type(source)
+    end
+  end
+
+  defp query_contract_choice_index(field_choice_bindings) do
+    field_choice_bindings
+    |> Enum.group_by(&field_id(&1.field), & &1.choice_source)
+    |> Map.new(fn {field, choice_sources} ->
+      {field, choice_sources |> Enum.reject(&is_nil/1) |> Enum.uniq_by(&field_id/1)}
+    end)
+  end
+
+  defp query_contract_choice_source(choice_index, field) do
+    case Map.get(choice_index, field, []) do
+      [] -> nil
+      [choice_source] -> choice_source
+      choice_sources -> choice_sources
+    end
+  end
+
+  defp relation_field_entries(relation) when is_map(relation) do
+    columns =
+      case map_value(relation, :columns) do
+        columns when is_map(columns) -> columns
+        _columns -> %{}
+      end
+
+    fields =
+      case map_value(relation, :fields) do
+        fields when is_list(fields) -> fields
+        _fields -> []
+      end
+
+    (fields ++ Map.keys(columns))
+    |> Enum.uniq_by(&field_id/1)
+    |> Enum.sort_by(&field_id/1)
+    |> Enum.map(fn field ->
+      column =
+        case fetch_key(columns, field) do
+          {:ok, column} when is_map(column) -> column
+          _ -> %{}
+        end
+
+      {field, column}
+    end)
+  end
+
+  defp relation_field_entries(_relation), do: []
+
+  defp relation_association(relation, association_id) when is_map(relation) do
+    case map_value(relation, :associations) do
+      associations when is_map(associations) ->
+        case fetch_key(associations, association_id) do
+          {:ok, association} -> association
+          :error -> nil
+        end
+
+      _associations ->
+        nil
+    end
+  end
+
+  defp relation_association(_relation, _association_id), do: nil
+
+  defp field_label(map) when is_map(map) do
+    map_value(map, :label) || map_value(map, :name) || map_value(map, :display_name)
+  end
+
+  defp field_label(_map), do: nil
+
+  defp field_ref_or_nil(value) when is_atom(value) and not is_nil(value), do: field_id(value)
+  defp field_ref_or_nil(value) when is_binary(value), do: value
+  defp field_ref_or_nil(_value), do: nil
+
+  defp first_map_value(map, keys) when is_map(map) do
+    Enum.find_value(keys, &map_value(map, &1))
+  end
+
+  defp first_map_value(_map, _keys), do: nil
 
   defp field_choice_bindings(normalized) do
     []
@@ -1373,6 +1887,40 @@ defmodule Selecto.Domain do
   end
 
   defp map_value(_map, _key), do: nil
+
+  defp fetch_key(map, key) when is_map(map) do
+    cond do
+      Map.has_key?(map, key) ->
+        {:ok, Map.fetch!(map, key)}
+
+      is_atom(key) and Map.has_key?(map, Atom.to_string(key)) ->
+        {:ok, Map.fetch!(map, Atom.to_string(key))}
+
+      is_binary(key) ->
+        atom_key = safe_existing_atom(key)
+
+        if not is_nil(atom_key) and Map.has_key?(map, atom_key) do
+          {:ok, Map.fetch!(map, atom_key)}
+        else
+          :error
+        end
+
+      true ->
+        :error
+    end
+  end
+
+  defp fetch_key(_map, _key), do: :error
+
+  defp safe_existing_atom(value) when is_binary(value) do
+    try do
+      String.to_existing_atom(value)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
+  defp safe_existing_atom(_value), do: nil
 
   defp section(domain, key, default \\ nil) do
     case fetch_section(domain, key) do

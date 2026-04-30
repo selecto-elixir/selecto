@@ -389,7 +389,7 @@ defmodule Selecto.DomainTest do
 
       assert inspection.schema_version == 1
       assert inspection.name == "Orders"
-      assert inspection.projections == [:query, :write, :ui, :api]
+      assert inspection.projections == [:query, :write, :ui, :api, :query_contract]
       assert inspection.diagnostics.error_count == 0
       assert inspection.counts.source_fields == 4
       assert inspection.counts.choice_sources == 1
@@ -551,6 +551,145 @@ defmodule Selecto.DomainTest do
       refute Map.has_key?(projection, :future_runtime_metadata)
     end
 
+    test "projects a constrained query contract for tools and AI" do
+      {:ok, normalized, _diagnostics} = Domain.normalize(query_contract_domain())
+
+      projection = Domain.project(normalized, :query_contract)
+
+      assert projection.schema_version == 1
+      assert projection.name == "Orders"
+      assert projection.projection == :query_contract
+      assert projection.source == %{source_table: "orders", primary_key: :id}
+      assert projection.defaults.default_selected == [:id, "customers.name"]
+
+      assert %{
+               id: "customer_id",
+               source: :source,
+               relation: :source,
+               field: "customer_id",
+               type: :integer,
+               label: "Customer",
+               choice_source: :customer_choices
+             } = Enum.find(projection.fields, &(&1.id == "customer_id"))
+
+      assert %{
+               id: "customers.name",
+               source: :schema,
+               relation: :customers,
+               field: "name",
+               type: :string
+             } = Enum.find(projection.fields, &(&1.id == "customers.name"))
+
+      assert %{
+               id: "status_label",
+               source: :custom_column,
+               relation: nil,
+               type: :string
+             } = Enum.find(projection.fields, &(&1.id == "status_label"))
+
+      assert [
+               %{
+                 id: "customer",
+                 path: ["customer"],
+                 parent: :source,
+                 target_schema: :customers,
+                 type: :left,
+                 fields: ["id", "name"],
+                 nested_count: 0
+               }
+             ] = projection.joins
+
+      assert [
+               %{
+                 id: "status_filter",
+                 field: "status",
+                 type: :string,
+                 capability: "order.filter",
+                 virtual?: false
+               }
+             ] = projection.filters
+
+      assert [
+               %{
+                 id: "similarity",
+                 kind: :scalar,
+                 sql_name: "public.similarity",
+                 allowed_in: [:select, :order_by],
+                 capability: "order.rank",
+                 args: [
+                   %{name: :left, type: :string, source: :selector},
+                   %{name: :right, type: :string, source: :value}
+                 ]
+               }
+             ] = projection.functions
+
+      assert [
+               %{id: :recent_orders, columns: ["id", "status"], join?: true}
+             ] = projection.query_members.ctes
+
+      assert [
+               %{
+                 id: :status_lookup,
+                 columns: ["status", "label"],
+                 alias: "status_lookup",
+                 rows_count: 1,
+                 capability: "order.member"
+               }
+             ] = projection.query_members.values
+
+      assert [
+               %{
+                 id: "order_rollup",
+                 database_name: "reporting.order_rollup",
+                 kind: :view,
+                 columns: [%{id: "order_id", type: :integer}],
+                 capability: "order.view"
+               }
+             ] = projection.published_views
+
+      assert [
+               %{
+                 id: :customer_choices,
+                 domain: :customers,
+                 source_relationship: :customer,
+                 value_field: "id",
+                 label_field: "name",
+                 capability: "customer.choose"
+               }
+             ] = projection.choice_sources
+
+      assert [
+               %{
+                 id: :customer,
+                 target_domain: :customers,
+                 source_field: "customer_id",
+                 target_field: "id"
+               }
+             ] = projection.source_relationships
+
+      assert [
+               %{
+                 field: "customer_id",
+                 choice_source: :customer_choices,
+                 compact?: true,
+                 reference?: false
+               }
+             ] = projection.field_choice_bindings
+
+      assert projection.capability_ids == [
+               "customer.choose",
+               "order.filter",
+               "order.member",
+               "order.rank",
+               "order.view"
+             ]
+
+      refute Map.has_key?(projection, :writes)
+      refute Map.has_key?(projection, :actions)
+      refute Map.has_key?(projection, :detail_actions)
+      refute inspect(projection) =~ "#Function<"
+    end
+
     test "raises for unknown projections and raw domains" do
       {:ok, normalized, _diagnostics} = Domain.normalize(minimal_query_domain())
 
@@ -561,6 +700,36 @@ defmodule Selecto.DomainTest do
       assert_raise ArgumentError, ~r/expected a normalized Selecto domain/, fn ->
         Domain.project(minimal_query_domain(), :query)
       end
+    end
+  end
+
+  describe "query_contract/1" do
+    test "normalizes authored domains and returns query contract diagnostics" do
+      assert {:ok, contract, diagnostics} = Domain.query_contract(query_contract_domain())
+
+      assert contract.projection == :query_contract
+      assert contract.source == %{source_table: "orders", primary_key: :id}
+      assert Enum.any?(contract.fields, &(&1.id == "customer_id"))
+      assert "order.filter" in contract.capability_ids
+      assert diagnostics.schema_version_inferred
+      assert :schema_version_inferred in warning_codes(diagnostics)
+    end
+
+    test "accepts normalized domains directly" do
+      {:ok, normalized, _normalize_diagnostics} = Domain.normalize(query_contract_domain())
+
+      assert {:ok, contract, diagnostics} = Domain.query_contract(normalized)
+
+      assert contract.projection == :query_contract
+      assert Enum.any?(contract.choice_sources, &(&1.id == :customer_choices))
+      refute diagnostics.schema_version_inferred
+      refute :schema_version_inferred in warning_codes(diagnostics)
+    end
+
+    test "returns diagnostics for invalid query contract inputs" do
+      assert {:error, diagnostics} = Domain.query_contract(:not_a_domain)
+
+      assert [%{code: :invalid_domain}] = diagnostics.errors
     end
   end
 
@@ -724,6 +893,110 @@ defmodule Selecto.DomainTest do
           as: "tag",
           ordinality: "tag_position"
         }
+      }
+    })
+  end
+
+  defp query_contract_domain do
+    minimal_query_domain()
+    |> put_in([:source, :fields], [:id, :status, :total, :customer_id])
+    |> put_in([:source, :columns, :customer_id], %{
+      type: :integer,
+      label: "Customer",
+      choice_source: :customer_choices
+    })
+    |> put_in([:source, :associations, :customer], %{
+      queryable: :customers,
+      owner_key: :customer_id,
+      related_key: :id
+    })
+    |> Map.put(:schemas, %{
+      customers: %{
+        source_table: "customers",
+        primary_key: :id,
+        fields: [:id, :name],
+        columns: %{
+          id: %{type: :integer},
+          name: %{type: :string}
+        },
+        associations: %{}
+      }
+    })
+    |> Map.merge(%{
+      joins: %{customer: %{type: :left}},
+      default_selected: [:id, "customers.name"],
+      filters: %{
+        "status_filter" => %{
+          field: :status,
+          type: :string,
+          label: "Status",
+          capability: "order.filter"
+        }
+      },
+      functions: %{
+        "similarity" => %{
+          kind: :scalar,
+          sql_name: "public.similarity",
+          allowed_in: [:select, :order_by],
+          capability: "order.rank",
+          args: [
+            %{name: :left, type: :string, source: :selector},
+            %{name: :right, type: :string, source: :value}
+          ],
+          returns: :float
+        }
+      },
+      query_members: %{
+        ctes: %{
+          recent_orders: %{
+            query: fn selecto -> selecto end,
+            columns: ["id", "status"],
+            join: [owner_key: :id, related_key: :id]
+          }
+        },
+        values: %{
+          status_lookup: %{
+            rows: [["open", "Open"]],
+            columns: ["status", "label"],
+            as: "status_lookup",
+            capability: "order.member"
+          }
+        }
+      },
+      published_views: %{
+        "order_rollup" => %{
+          database_name: "reporting.order_rollup",
+          kind: :view,
+          query: fn selecto -> selecto end,
+          columns: %{order_id: %{type: :integer}},
+          capability: "order.view"
+        }
+      },
+      custom_columns: %{
+        "status_label" => %{select: {:field, :status}, type: :string}
+      },
+      source_relationships: %{
+        customer: %{
+          target_domain: :customers,
+          source_field: :customer_id,
+          target_field: :id
+        }
+      },
+      choice_sources: %{
+        customer_choices: %{
+          domain: :customers,
+          value_field: :id,
+          label_field: :name,
+          source_relationship: :customer,
+          capability: "customer.choose"
+        }
+      },
+      capabilities: %{
+        "customer.choose" => %{operations: [:choice_source]},
+        "order.filter" => %{operations: [:filter]},
+        "order.member" => %{operations: [:query_member]},
+        "order.rank" => %{operations: [:select]},
+        "order.view" => %{operations: [:select]}
       }
     })
   end

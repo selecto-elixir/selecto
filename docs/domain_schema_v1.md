@@ -652,6 +652,39 @@ Composition semantics are deterministic:
 After overlays merge, declared extension `merge_domain/2` callbacks run in
 declaration order and the result is normalized again.
 
+## Domain Projections
+
+`Selecto.Domain.project/2` turns a normalized domain into read-only consumer
+views. These projections are opt-in and do not change `Selecto.configure/3`
+behavior.
+
+Supported projections are:
+
+- `:query` for query/runtime-facing sections
+- `:write` for write/action/reference metadata
+- `:ui` for display defaults, choices, actions, and detail actions
+- `:api` for combined read/write/action API-style consumers
+- `:query_contract` for constrained query metadata used by tools, Components,
+  and AI query contracts
+
+The `:query_contract` projection is intentionally summary-only. It exposes:
+
+- source table and primary key
+- selectable fields from `source`, `schemas`, and `custom_columns`
+- join summaries with target schemas and target field ids
+- query defaults and required query lists
+- filter, function, query-member, and published-view summaries
+- source relationship and choice-source summaries
+- field-to-choice-source bindings
+- declared capability ids
+
+It does not include write/action/detail-action sections, raw authored unknown
+keys, or function captures from query members and published views.
+
+For consumers that do not need the lower-level projection API,
+`Selecto.Domain.query_contract/1` accepts either an authored domain or an
+already-normalized domain and returns `{:ok, query_contract, diagnostics}`.
+
 ## Domain Inspection
 
 `Selecto.Domain.describe/1` returns a compact structured inspection map for an
