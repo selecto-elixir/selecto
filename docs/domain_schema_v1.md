@@ -432,6 +432,37 @@ syntax plus static source-relationship metadata. It does not resolve external
 source-domain schemas, apply filters, fetch options, or execute membership
 checks.
 
+## Domain Composition
+
+`Selecto.Domain.compose/2` is the opt-in Stage 2 boundary for combining an
+authored domain with overlays before projecting or validating it. It does not
+change `Selecto.configure/3` behavior.
+
+```elixir
+{:ok, normalized, diagnostics} =
+  Selecto.Domain.compose(base_domain, [
+    %{
+      source: %{
+        columns: %{total: %{label: "Total", format: :currency}},
+        redact_fields: [:tenant_secret]
+      },
+      filters: %{"status" => %{field: :status}}
+    }
+  ])
+```
+
+Composition semantics are deterministic:
+
+- maps deep-merge by section.
+- `redact_fields`, including `source.redact_fields`, are unioned.
+- `extensions` are appended uniquely.
+- other lists and scalar values are replaced by later overlays.
+- governance/reference registry collisions, such as `choice_sources` or
+  `source_relationships`, produce `:domain_composition_collision` warnings.
+
+After overlays merge, declared extension `merge_domain/2` callbacks run in
+declaration order and the result is normalized again.
+
 ## Choice Membership API
 
 `Selecto.Domain.Choices` is the first shared API for asking whether a submitted

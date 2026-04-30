@@ -3,6 +3,21 @@ defmodule Selecto.DomainTest do
 
   alias Selecto.Domain
 
+  defmodule ComposeExtension do
+    @behaviour Selecto.Extension
+
+    @impl true
+    def merge_domain(domain, opts) do
+      filter_id = Keyword.get(opts, :filter_id, "extension_filter")
+
+      Selecto.Extensions.deep_merge(domain, %{
+        filters: %{
+          filter_id => %{field: :status, source: :extension}
+        }
+      })
+    end
+  end
+
   describe "normalize/1" do
     test "normalizes a minimal query domain and infers schema_version" do
       {:ok, normalized, diagnostics} = Domain.normalize(minimal_query_domain())
@@ -245,6 +260,112 @@ defmodule Selecto.DomainTest do
                :source_relationships,
                :writes
              ]
+    end
+  end
+
+  describe "compose/2" do
+    test "deep-merges overlays with explicit list semantics" do
+      base =
+        minimal_query_domain()
+        |> put_in([:source, :redact_fields], [:internal_notes])
+        |> put_in([:filters], %{
+          "status" => %{field: :status, label: "Status"}
+        })
+
+      overlay_one = %{
+        source: %{
+          columns: %{
+            total: %{label: "Total"}
+          },
+          redact_fields: [:tenant_secret]
+        },
+        filters: %{
+          "status" => %{label: "Order Status"}
+        }
+      }
+
+      overlay_two = %{
+        source: %{
+          columns: %{
+            total: %{format: :currency}
+          },
+          redact_fields: [:tenant_secret, :audit_token]
+        },
+        required_selected: [:id, :status]
+      }
+
+      assert {:ok, normalized, diagnostics} = Domain.compose(base, [overlay_one, overlay_two])
+
+      assert normalized.source.columns.total == %{
+               type: :decimal,
+               label: "Total",
+               format: :currency
+             }
+
+      assert normalized.source.redact_fields == [:internal_notes, :tenant_secret, :audit_token]
+      assert normalized.query.filters["status"] == %{field: :status, label: "Order Status"}
+      assert normalized.query.required_selected == [:id, :status]
+
+      refute :domain_composition_collision in warning_codes(diagnostics)
+    end
+
+    test "applies extension merge_domain callbacks after overlay composition" do
+      overlay = %{
+        extensions: [
+          {ComposeExtension, filter_id: "extension_status"}
+        ]
+      }
+
+      assert {:ok, normalized, _diagnostics} = Domain.compose(minimal_query_domain(), overlay)
+
+      assert normalized.extensions == [{ComposeExtension, [filter_id: "extension_status"]}]
+
+      assert normalized.query.filters["extension_status"] == %{
+               field: :status,
+               source: :extension
+             }
+    end
+
+    test "warns when overlays update existing reference registry entries" do
+      base =
+        minimal_query_domain()
+        |> Map.put(:choice_sources, %{
+          customer_choices: %{domain: :customers, value_field: :id, label_field: :name}
+        })
+
+      overlay = %{
+        choice_sources: %{
+          "customer_choices" => %{presentation: %{control: :autocomplete}}
+        }
+      }
+
+      assert {:ok, normalized, diagnostics} = Domain.compose(base, overlay)
+
+      assert normalized.choice_sources.customer_choices == %{
+               domain: :customers,
+               value_field: :id,
+               label_field: :name,
+               presentation: %{control: :autocomplete}
+             }
+
+      assert %{
+               code: :domain_composition_collision,
+               section: :choice_sources,
+               key: "customer_choices",
+               overlay_index: 0
+             } = warning_for(diagnostics, :domain_composition_collision)
+    end
+
+    test "returns diagnostics for invalid overlays" do
+      assert {:error, diagnostics} = Domain.compose(minimal_query_domain(), [:not_an_overlay])
+
+      assert [
+               %{
+                 code: :invalid_domain_overlay,
+                 overlay_index: 0,
+                 actual: :atom
+               }
+             ] = diagnostics.errors
     end
   end
 

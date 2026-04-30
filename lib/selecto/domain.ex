@@ -77,6 +77,13 @@ defmodule Selecto.Domain do
     :redact_fields,
     :extensions
   ]
+  @known_sections [:schema_version, :name | @map_sections ++ @list_sections]
+  @collision_warning_sections [
+    :actions,
+    :capabilities,
+    :source_relationships,
+    :choice_sources
+  ]
 
   @doc """
   Normalizes an authored domain map into a compatibility-safe contract.
@@ -143,6 +150,45 @@ defmodule Selecto.Domain do
 
         errors ->
           {:error, %{diagnostics | errors: diagnostics.errors ++ errors}}
+      end
+    end
+  end
+
+  @doc """
+  Composes an authored domain with one or more domain overlays.
+
+  This is the Stage 2 composition boundary. It is opt-in and does not participate
+  in `Selecto.configure/3` yet. Composition uses explicit, deterministic merge
+  semantics:
+
+  - maps deep-merge by section
+  - `redact_fields`, including `source.redact_fields`, are unioned
+  - `extensions` are appended uniquely
+  - other lists and scalar values are replaced by later overlays
+
+  After overlays are merged, declared extension `merge_domain/2` callbacks are
+  applied in declaration order and the result is normalized again.
+  """
+  @spec compose(term(), term()) :: {:ok, map(), Diagnostics.t()} | {:error, Diagnostics.t()}
+  def compose(domain, overlays \\ []) do
+    with {:ok, normalized, _diagnostics} <- normalize(domain),
+         {:ok, overlays} <- domain_overlays(overlays) do
+      {composed_domain, composition_warnings} =
+        overlays
+        |> Enum.with_index()
+        |> Enum.reduce({normalized.domain, []}, fn {overlay, index}, {acc, warnings} ->
+          overlay = normalize_authoring_shorthand(overlay)
+
+          {
+            merge_domain_maps(acc, overlay),
+            warnings ++ composition_collision_warnings(acc, overlay, index)
+          }
+        end)
+
+      composed_domain = apply_composed_extensions(composed_domain)
+
+      with {:ok, normalized, diagnostics} <- normalize(composed_domain) do
+        {:ok, normalized, %{diagnostics | warnings: composition_warnings ++ diagnostics.warnings}}
       end
     end
   end
@@ -242,6 +288,176 @@ defmodule Selecto.Domain do
       extensions: section(canonical_domain, :extensions, [])
     }
   end
+
+  defp domain_overlays(nil), do: {:ok, []}
+  defp domain_overlays([]), do: {:ok, []}
+  defp domain_overlays(%{} = overlay), do: {:ok, [overlay]}
+
+  defp domain_overlays(overlays) when is_list(overlays) do
+    overlays
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {overlay, index}, {:ok, acc} ->
+      if is_map(overlay) do
+        {:cont, {:ok, [overlay | acc]}}
+      else
+        {:halt, {:error, invalid_domain_overlay_diagnostics(overlay, index)}}
+      end
+    end)
+    |> case do
+      {:ok, overlays} -> {:ok, Enum.reverse(overlays)}
+      error -> error
+    end
+  end
+
+  defp domain_overlays(overlay), do: {:error, invalid_domain_overlay_diagnostics(overlay, nil)}
+
+  defp invalid_domain_overlay_diagnostics(overlay, index) do
+    Diagnostics.new(
+      errors: [
+        %{
+          code: :invalid_domain_overlay,
+          message: "Selecto domain overlays must be maps",
+          overlay_index: index,
+          actual: value_type(overlay)
+        }
+      ]
+    )
+  end
+
+  defp apply_composed_extensions(domain) do
+    extension_specs =
+      domain
+      |> section(:extensions, [])
+      |> Selecto.Extensions.normalize_specs()
+
+    domain
+    |> Selecto.Extensions.merge_domain_extensions(extension_specs)
+    |> normalize_authoring_shorthand()
+  end
+
+  defp merge_domain_maps(base, overlay) when is_map(base) and is_map(overlay) do
+    Enum.reduce(overlay, base, fn {key, overlay_value}, acc ->
+      section_key = canonical_section_key(key)
+      base_value = fetch_merge_value(acc, section_key)
+
+      merged_value =
+        merge_section_value(section_key, base_value, overlay_value, [section_key])
+
+      put_merge_value(acc, section_key, merged_value)
+    end)
+  end
+
+  defp merge_section_value(:extensions, base, overlay, _path)
+       when is_list(base) and is_list(overlay),
+       do: unique_list(base ++ overlay)
+
+  defp merge_section_value(:redact_fields, base, overlay, _path)
+       when is_list(base) and is_list(overlay),
+       do: unique_list(base ++ overlay)
+
+  defp merge_section_value(:source, base, overlay, path) when is_map(base) and is_map(overlay) do
+    deep_merge_domain_maps(base, overlay, path)
+  end
+
+  defp merge_section_value(section, base, overlay, path)
+       when section in @collision_warning_sections and is_map(base) and is_map(overlay) do
+    merge_registry_maps(base, overlay, path)
+  end
+
+  defp merge_section_value(section, base, overlay, path)
+       when section in @map_sections and is_map(base) and is_map(overlay) do
+    deep_merge_domain_maps(base, overlay, path)
+  end
+
+  defp merge_section_value(_section, _base, overlay, _path), do: overlay
+
+  defp deep_merge_domain_maps(base, overlay, path) do
+    Map.merge(base, overlay, fn key, base_value, overlay_value ->
+      merge_nested_value(path ++ [canonical_section_key(key)], base_value, overlay_value)
+    end)
+  end
+
+  defp merge_nested_value([:source, :redact_fields], base, overlay)
+       when is_list(base) and is_list(overlay),
+       do: unique_list(base ++ overlay)
+
+  defp merge_nested_value(_path, base, overlay) when is_map(base) and is_map(overlay) do
+    deep_merge_domain_maps(base, overlay, [])
+  end
+
+  defp merge_nested_value(_path, _base, overlay), do: overlay
+
+  defp merge_registry_maps(base, overlay, path) do
+    Enum.reduce(overlay, base, fn {overlay_key, overlay_value}, acc ->
+      case equivalent_map_key(acc, overlay_key) do
+        nil ->
+          Map.put(acc, overlay_key, overlay_value)
+
+        base_key ->
+          merged_value =
+            merge_nested_value(path ++ [base_key], Map.fetch!(acc, base_key), overlay_value)
+
+          Map.put(acc, base_key, merged_value)
+      end
+    end)
+  end
+
+  defp equivalent_map_key(map, key) do
+    Enum.find(Map.keys(map), &(merge_key_id(&1) == merge_key_id(key)))
+  end
+
+  defp composition_collision_warnings(base, overlay, overlay_index) do
+    Enum.flat_map(@collision_warning_sections, fn section ->
+      base_section = section(base, section, %{})
+      overlay_section = section(overlay, section, %{})
+
+      if is_map(base_section) and is_map(overlay_section) do
+        base_keys = Map.keys(base_section)
+
+        overlay_section
+        |> Map.keys()
+        |> Enum.filter(&merge_key_member?(base_keys, &1))
+        |> Enum.map(&composition_collision_warning(section, &1, overlay_index))
+      else
+        []
+      end
+    end)
+  end
+
+  defp composition_collision_warning(section, key, overlay_index) do
+    %{
+      code: :domain_composition_collision,
+      message:
+        "domain overlay #{overlay_index} updates existing #{inspect(section)} entry #{inspect(key)}",
+      section: section,
+      key: key,
+      overlay_index: overlay_index
+    }
+  end
+
+  defp merge_key_member?(keys, key) do
+    Enum.any?(keys, &(merge_key_id(&1) == merge_key_id(key)))
+  end
+
+  defp merge_key_id(key) when is_atom(key), do: Atom.to_string(key)
+  defp merge_key_id(key) when is_binary(key), do: key
+  defp merge_key_id(key), do: inspect(key)
+
+  defp fetch_merge_value(map, key) when is_atom(key), do: section(map, key)
+  defp fetch_merge_value(map, key), do: Map.get(map, key)
+
+  defp put_merge_value(map, key, value) when is_atom(key), do: put_section(map, key, value)
+  defp put_merge_value(map, key, value), do: Map.put(map, key, value)
+
+  defp canonical_section_key(key) when is_atom(key), do: key
+
+  defp canonical_section_key(key) when is_binary(key) do
+    Enum.find(@known_sections, &(Atom.to_string(&1) == key)) || key
+  end
+
+  defp canonical_section_key(key), do: key
+
+  defp unique_list(values), do: Enum.uniq(values)
 
   defp normalize_authoring_shorthand(domain) do
     choice_sources = section(domain, :choice_sources, %{})
