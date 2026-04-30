@@ -463,6 +463,32 @@ Composition semantics are deterministic:
 After overlays merge, declared extension `merge_domain/2` callbacks run in
 declaration order and the result is normalized again.
 
+## Domain Inspection
+
+`Selecto.Domain.describe/1` returns a compact structured inspection map for an
+authored or normalized domain. The output is intended for generators, docs,
+Studio, tests, and other tools that need stable metadata without walking the
+full normalized domain shape.
+
+```elixir
+{:ok, inspection, diagnostics} = Selecto.Domain.describe(domain)
+
+inspection.counts.choice_sources
+inspection.registries.source_fields
+inspection.source_relationships
+inspection.field_choice_bindings
+```
+
+The inspection output includes:
+
+- section categories and normalization diagnostics summary
+- counts for source fields, registries, writes, actions, capabilities,
+  source relationships, choice sources, and field choice bindings
+- sorted registry ids for filters, functions, query members, joins, schemas,
+  actions, capabilities, source relationships, and choice sources
+- compact summaries of `writes`, actions, capabilities, source relationships,
+  choice sources, and field-to-choice-source bindings
+
 ## Choice Membership API
 
 `Selecto.Domain.Choices` is the first shared API for asking whether a submitted

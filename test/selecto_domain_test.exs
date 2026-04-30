@@ -369,6 +369,105 @@ defmodule Selecto.DomainTest do
     end
   end
 
+  describe "describe/1" do
+    test "returns structured inspection output for normalized domains" do
+      domain =
+        choice_source_shorthand_domain()
+        |> Map.put(:capabilities, %{
+          "customer.choose" => %{operations: [:choice_source]}
+        })
+        |> Map.put(:actions, %{
+          choose_customer: %{type: :choice_source, capability: "customer.choose"}
+        })
+        |> Map.put(:writes, %{
+          fields: %{customer_id: %{updatable: true}},
+          transitions: %{status: %{"open" => ["closed"]}}
+        })
+
+      assert {:ok, normalized, _diagnostics} = Domain.normalize(domain)
+      assert {:ok, inspection, diagnostics} = Domain.describe(normalized)
+
+      assert inspection.schema_version == 1
+      assert inspection.name == "Orders"
+      assert inspection.projections == [:query, :write, :ui, :api]
+      assert inspection.diagnostics.error_count == 0
+      assert inspection.counts.source_fields == 4
+      assert inspection.counts.choice_sources == 1
+      assert inspection.counts.source_relationships == 1
+      assert inspection.counts.field_choice_bindings == 1
+      assert inspection.counts.writes.fields == 1
+      assert inspection.counts.actions == 1
+      assert inspection.counts.capabilities == 1
+
+      assert inspection.registries.source_fields == ["customer_id", "id", "status", "total"]
+      assert inspection.registries.choice_sources == [:customer_choices]
+      assert inspection.writes.transitions == [:status]
+
+      assert [
+               %{
+                 id: :customer,
+                 target_domain: :customers,
+                 source_field: :customer_id,
+                 target_field: "id",
+                 source_path: "customers",
+                 virtual_join_count: 1,
+                 filters_count: 1
+               }
+             ] = inspection.source_relationships
+
+      assert [
+               %{
+                 id: :customer_choices,
+                 domain: :customers,
+                 source_relationship: :customer,
+                 value_field: "id",
+                 label_field: "name",
+                 source_path: "customers",
+                 filters_count: 1,
+                 order_by_count: 1,
+                 presentation: %{control: :select}
+               }
+             ] = inspection.choice_sources
+
+      assert [
+               %{
+                 field: :customer_id,
+                 choice_source: :customer_choices,
+                 compact?: true,
+                 reference?: true,
+                 path: [:source, :columns, :customer_id]
+               }
+             ] = inspection.field_choice_bindings
+
+      assert [
+               %{id: "customer.choose", operations: [:choice_source], action: nil}
+             ] = inspection.capabilities
+
+      assert [
+               %{id: :choose_customer, type: :choice_source, capability: "customer.choose"}
+             ] = inspection.actions
+
+      assert diagnostics.schema_version == 1
+    end
+
+    test "accepts authored domains and includes normalization diagnostics" do
+      assert {:ok, inspection, diagnostics} = Domain.describe(generated_style_domain())
+
+      assert inspection.registries.filters == ["name"]
+      assert inspection.registries.custom_columns == ["name_upper"]
+      assert inspection.counts.query_members == 0
+      assert :schema_version_inferred in inspection.diagnostics.warning_codes
+      assert :unknown_sections in inspection.diagnostics.warning_codes
+      assert diagnostics.schema_version_inferred
+    end
+
+    test "returns diagnostics for invalid inspection inputs" do
+      assert {:error, diagnostics} = Domain.describe(:not_a_domain)
+
+      assert [%{code: :invalid_domain}] = diagnostics.errors
+    end
+  end
+
   describe "project/2" do
     test "projects a query-facing domain without unknown or write sections" do
       {:ok, normalized, _diagnostics} = Domain.normalize(generated_style_domain())

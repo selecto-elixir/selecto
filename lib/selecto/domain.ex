@@ -194,6 +194,39 @@ defmodule Selecto.Domain do
   end
 
   @doc """
+  Returns structured inspection output for an authored or normalized domain.
+
+  The inspection map is intentionally compact and deterministic so generators,
+  Studio, docs, and tests can reason about the normalized contract without
+  walking the whole domain map directly.
+  """
+  @spec describe(term()) :: {:ok, map(), Diagnostics.t()} | {:error, Diagnostics.t()}
+  def describe(
+        %{
+          schema_version: schema_version,
+          domain: %{} = _domain,
+          query: %{} = _query,
+          projection: %{} = _projection,
+          sections: sections
+        } = normalized
+      ) do
+    diagnostics =
+      Diagnostics.new(
+        sections: sections,
+        schema_version: schema_version,
+        schema_version_inferred: false
+      )
+
+    {:ok, inspection_output(normalized, diagnostics), diagnostics}
+  end
+
+  def describe(domain) do
+    with {:ok, normalized, diagnostics} <- normalize(domain) do
+      {:ok, inspection_output(normalized, diagnostics), diagnostics}
+    end
+  end
+
+  @doc """
   Projects a normalized domain into a read-only consumer view.
 
   Projection helpers are intentionally conservative in this slice. They reshape
@@ -288,6 +321,371 @@ defmodule Selecto.Domain do
       extensions: section(canonical_domain, :extensions, [])
     }
   end
+
+  defp inspection_output(normalized, diagnostics) do
+    field_choice_bindings = field_choice_bindings(normalized)
+
+    %{
+      schema_version: Map.fetch!(normalized, :schema_version),
+      name: map_value(Map.fetch!(normalized, :domain), :name),
+      sections: inspection_sections(diagnostics),
+      diagnostics: inspection_diagnostics(diagnostics),
+      projections: @projections,
+      counts: inspection_counts(normalized, field_choice_bindings, diagnostics),
+      registries: inspection_registries(normalized),
+      writes: inspect_writes(Map.get(normalized, :writes, %{})),
+      actions: inspect_actions(Map.get(normalized, :actions, %{})),
+      capabilities: inspect_capabilities(Map.get(normalized, :capabilities, %{})),
+      source_relationships:
+        inspect_source_relationships(Map.get(normalized, :source_relationships, %{})),
+      choice_sources: inspect_choice_sources(Map.get(normalized, :choice_sources, %{})),
+      field_choice_bindings: field_choice_bindings
+    }
+  end
+
+  defp inspection_sections(diagnostics) do
+    %{
+      canonical: diagnostics.canonical_sections,
+      projection: diagnostics.projection_sections,
+      proposed: diagnostics.proposed_sections,
+      unknown: diagnostics.unknown_sections
+    }
+  end
+
+  defp inspection_diagnostics(diagnostics) do
+    %{
+      error_count: length(diagnostics.errors),
+      warning_count: length(diagnostics.warnings),
+      error_codes: diagnostics.errors |> diagnostic_codes() |> Enum.uniq(),
+      warning_codes: diagnostics.warnings |> diagnostic_codes() |> Enum.uniq(),
+      schema_version_inferred: diagnostics.schema_version_inferred
+    }
+  end
+
+  defp diagnostic_codes(diagnostics) do
+    Enum.map(diagnostics, &Map.get(&1, :code))
+  end
+
+  defp inspection_counts(normalized, field_choice_bindings, diagnostics) do
+    query = Map.get(normalized, :query, %{})
+    projection = Map.get(normalized, :projection, %{})
+    writes = Map.get(normalized, :writes, %{})
+
+    %{
+      source_fields: length(relation_field_ids(Map.get(normalized, :source))),
+      schemas: map_count(Map.get(normalized, :schemas)),
+      joins: map_count(Map.get(normalized, :joins)),
+      filters: map_count(map_value(query, :filters)),
+      functions: map_count(map_value(query, :functions)),
+      query_members: query_member_count(map_value(query, :query_members)),
+      custom_columns: map_count(map_value(projection, :custom_columns)),
+      writes: %{
+        operations: map_count(map_value(writes, :operations)),
+        fields: map_count(map_value(writes, :fields)),
+        transitions: map_count(map_value(writes, :transitions)),
+        validations: list_count(map_value(writes, :validations)),
+        constraints: list_count(map_value(writes, :constraints))
+      },
+      actions: map_count(Map.get(normalized, :actions)),
+      capabilities: map_count(Map.get(normalized, :capabilities)),
+      source_relationships: map_count(Map.get(normalized, :source_relationships)),
+      choice_sources: map_count(Map.get(normalized, :choice_sources)),
+      field_choice_bindings: length(field_choice_bindings),
+      warnings: length(diagnostics.warnings),
+      errors: length(diagnostics.errors)
+    }
+  end
+
+  defp inspection_registries(normalized) do
+    query = Map.get(normalized, :query, %{})
+    projection = Map.get(normalized, :projection, %{})
+
+    %{
+      source_fields: relation_field_ids(Map.get(normalized, :source)),
+      schemas: sorted_keys(Map.get(normalized, :schemas)),
+      schema_fields: schema_fields(Map.get(normalized, :schemas)),
+      joins: sorted_keys(Map.get(normalized, :joins)),
+      filters: sorted_keys(map_value(query, :filters)),
+      functions: sorted_keys(map_value(query, :functions)),
+      query_members: query_member_keys(map_value(query, :query_members)),
+      custom_columns: sorted_keys(map_value(projection, :custom_columns)),
+      actions: sorted_keys(Map.get(normalized, :actions)),
+      capabilities: sorted_keys(Map.get(normalized, :capabilities)),
+      source_relationships: sorted_keys(Map.get(normalized, :source_relationships)),
+      choice_sources: sorted_keys(Map.get(normalized, :choice_sources))
+    }
+  end
+
+  defp inspect_writes(writes) when is_map(writes) do
+    %{
+      operations: sorted_keys(map_value(writes, :operations)),
+      fields: sorted_keys(map_value(writes, :fields)),
+      transitions: sorted_keys(map_value(writes, :transitions)),
+      validations_count: list_count(map_value(writes, :validations)),
+      constraints_count: list_count(map_value(writes, :constraints))
+    }
+  end
+
+  defp inspect_writes(_writes) do
+    %{
+      operations: [],
+      fields: [],
+      transitions: [],
+      validations_count: 0,
+      constraints_count: 0
+    }
+  end
+
+  defp inspect_actions(actions) when is_map(actions) do
+    actions
+    |> sorted_entries()
+    |> Enum.map(fn {id, action} ->
+      %{
+        id: id,
+        type: map_value(action, :type),
+        capability: map_value(action, :capability),
+        transition: map_value(action, :transition)
+      }
+    end)
+  end
+
+  defp inspect_actions(_actions), do: []
+
+  defp inspect_capabilities(capabilities) when is_map(capabilities) do
+    capabilities
+    |> sorted_entries()
+    |> Enum.map(fn {id, capability} ->
+      %{
+        id: id,
+        operations: List.wrap(map_value(capability, :operations)),
+        action: map_value(capability, :action)
+      }
+    end)
+  end
+
+  defp inspect_capabilities(_capabilities), do: []
+
+  defp inspect_source_relationships(source_relationships) when is_map(source_relationships) do
+    source_relationships
+    |> sorted_entries()
+    |> Enum.map(fn {id, relationship} ->
+      %{
+        id: id,
+        target_domain: map_value(relationship, :target_domain),
+        source_field: map_value(relationship, :source_field),
+        target_field: map_value(relationship, :target_field),
+        source_path: map_value(relationship, :source_path),
+        virtual_join_count: list_count(map_value(relationship, :virtual_join)),
+        filters_count: list_count(map_value(relationship, :filters))
+      }
+    end)
+  end
+
+  defp inspect_source_relationships(_source_relationships), do: []
+
+  defp inspect_choice_sources(choice_sources) when is_map(choice_sources) do
+    choice_sources
+    |> sorted_entries()
+    |> Enum.map(fn {id, choice_source} ->
+      %{
+        id: id,
+        domain: map_value(choice_source, :domain),
+        source_relationship: map_value(choice_source, :source_relationship),
+        value_field: map_value(choice_source, :value_field),
+        label_field: map_value(choice_source, :label_field),
+        source_path: map_value(choice_source, :source_path),
+        filters_count: list_count(map_value(choice_source, :filters)),
+        order_by_count: list_count(map_value(choice_source, :order_by)),
+        presentation: map_value(choice_source, :presentation)
+      }
+    end)
+  end
+
+  defp inspect_choice_sources(_choice_sources), do: []
+
+  defp field_choice_bindings(normalized) do
+    []
+    |> Kernel.++(
+      relation_field_choice_bindings(:source, Map.get(normalized, :source), [:source, :columns])
+    )
+    |> Kernel.++(schema_field_choice_bindings(Map.get(normalized, :schemas)))
+    |> Kernel.++(
+      column_field_choice_bindings(
+        map_value(Map.get(normalized, :projection, %{}), :columns),
+        [:columns],
+        & &1
+      )
+    )
+    |> Enum.sort_by(&{field_id(&1.field), field_id(&1.choice_source), inspect(&1.path)})
+  end
+
+  defp schema_field_choice_bindings(schemas) when is_map(schemas) do
+    schemas
+    |> sorted_entries()
+    |> Enum.flat_map(fn {schema_id, schema} ->
+      relation_field_choice_bindings(schema_id, schema, [:schemas, schema_id, :columns])
+    end)
+  end
+
+  defp schema_field_choice_bindings(_schemas), do: []
+
+  defp relation_field_choice_bindings(relation_id, relation, path) when is_map(relation) do
+    relation
+    |> map_value(:columns)
+    |> column_field_choice_bindings(path, &relation_field_ref(relation_id, &1))
+  end
+
+  defp relation_field_choice_bindings(_relation_id, _relation, _path), do: []
+
+  defp column_field_choice_bindings(columns, path, field_ref_fun) when is_map(columns) do
+    columns
+    |> sorted_entries()
+    |> Enum.flat_map(fn {field, column} ->
+      column_field_choice_binding(field_ref_fun.(field), column, path ++ [field])
+    end)
+  end
+
+  defp column_field_choice_bindings(_columns, _path, _field_ref_fun), do: []
+
+  defp column_field_choice_binding(field, column, path) when is_map(column) do
+    compact_choice_source = id_value(map_value(column, :choice_source))
+
+    reference_choice_source =
+      case map_value(column, :reference) do
+        reference when is_map(reference) -> id_value(map_value(reference, :choice_source))
+        _reference -> nil
+      end
+
+    cond do
+      is_nil(compact_choice_source) and is_nil(reference_choice_source) ->
+        []
+
+      is_nil(reference_choice_source) or compact_choice_source == reference_choice_source ->
+        [
+          %{
+            field: field,
+            choice_source: compact_choice_source,
+            compact?: not is_nil(compact_choice_source),
+            reference?: not is_nil(reference_choice_source),
+            path: path
+          }
+        ]
+
+      is_nil(compact_choice_source) ->
+        [
+          %{
+            field: field,
+            choice_source: reference_choice_source,
+            compact?: false,
+            reference?: true,
+            path: path ++ [:reference]
+          }
+        ]
+
+      true ->
+        [
+          %{
+            field: field,
+            choice_source: compact_choice_source,
+            compact?: true,
+            reference?: false,
+            path: path
+          },
+          %{
+            field: field,
+            choice_source: reference_choice_source,
+            compact?: false,
+            reference?: true,
+            path: path ++ [:reference]
+          }
+        ]
+    end
+  end
+
+  defp column_field_choice_binding(_field, _column, _path), do: []
+
+  defp id_value(value) when is_atom(value) and not is_nil(value), do: value
+  defp id_value(value) when is_binary(value), do: value
+  defp id_value(_value), do: nil
+
+  defp schema_fields(schemas) when is_map(schemas) do
+    schemas
+    |> sorted_entries()
+    |> Enum.into(%{}, fn {schema_id, schema} -> {schema_id, relation_field_ids(schema)} end)
+  end
+
+  defp schema_fields(_schemas), do: %{}
+
+  defp relation_field_ids(relation) when is_map(relation) do
+    fields =
+      case map_value(relation, :fields) do
+        fields when is_list(fields) -> fields
+        _fields -> []
+      end
+
+    columns =
+      case map_value(relation, :columns) do
+        columns when is_map(columns) -> Map.keys(columns)
+        _columns -> []
+      end
+
+    (fields ++ columns)
+    |> Enum.map(&field_id/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp relation_field_ids(_relation), do: []
+
+  defp query_member_keys(query_members) when is_map(query_members) do
+    %{
+      ctes: sorted_keys(map_value(query_members, :ctes)),
+      values: sorted_keys(map_value(query_members, :values)),
+      subqueries: sorted_keys(map_value(query_members, :subqueries)),
+      laterals: sorted_keys(map_value(query_members, :laterals)),
+      unnests: sorted_keys(map_value(query_members, :unnests))
+    }
+  end
+
+  defp query_member_keys(_query_members) do
+    %{
+      ctes: [],
+      values: [],
+      subqueries: [],
+      laterals: [],
+      unnests: []
+    }
+  end
+
+  defp query_member_count(query_members) when is_map(query_members) do
+    query_members
+    |> query_member_keys()
+    |> Map.values()
+    |> Enum.map(&length/1)
+    |> Enum.sum()
+  end
+
+  defp query_member_count(_query_members), do: 0
+
+  defp sorted_entries(map) when is_map(map) do
+    Enum.sort_by(map, fn {key, _value} -> field_id(key) end)
+  end
+
+  defp sorted_entries(_map), do: []
+
+  defp sorted_keys(map) when is_map(map) do
+    map
+    |> Map.keys()
+    |> Enum.sort_by(&field_id/1)
+  end
+
+  defp sorted_keys(_map), do: []
+
+  defp map_count(map) when is_map(map), do: map_size(map)
+  defp map_count(_map), do: 0
+
+  defp list_count(list) when is_list(list), do: length(list)
+  defp list_count(_list), do: 0
 
   defp domain_overlays(nil), do: {:ok, []}
   defp domain_overlays([]), do: {:ok, []}
@@ -716,6 +1114,9 @@ defmodule Selecto.Domain do
 
   defp scoped_field_ref({:schema, schema_id}, field),
     do: "#{field_id(schema_id)}.#{field_id(field)}"
+
+  defp relation_field_ref(:source, field), do: field
+  defp relation_field_ref(relation_id, field), do: "#{field_id(relation_id)}.#{field_id(field)}"
 
   defp normalize_choice_source_presentation(choice_source) do
     case map_value(choice_source, :presentation) do
