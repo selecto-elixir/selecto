@@ -216,6 +216,95 @@ defmodule Selecto.DomainContractTest do
                )
     end
 
+    test "validates query field list references" do
+      domain =
+        valid_domain()
+        |> Map.put(:custom_columns, %{
+          "status_label" => %{select: {:field, "status"}, type: :string}
+        })
+        |> Map.merge(%{
+          default_selected: [:id, "status", "customers.name", {:field, "status_label", "label"}],
+          required_selected: ["status_label"],
+          required_order_by: [:status, {"customers.name", :desc}, {:asc_nulls_last, :id}],
+          required_group_by: [:status, {:rollup, ["customers.name"]}]
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates query field list shapes and direct references" do
+      bad_shapes =
+        valid_domain()
+        |> Map.merge(%{
+          default_selected: :id,
+          required_selected: :status,
+          required_order_by: :status,
+          required_group_by: :status
+        })
+
+      assert {:error, shape_diagnostics} = Domain.validate(bad_shapes)
+
+      invalid_shapes = errors_for(shape_diagnostics, :invalid_section_shape)
+
+      assert Enum.any?(invalid_shapes, &match?(%{path: [:default_selected]}, &1))
+      assert Enum.any?(invalid_shapes, &match?(%{path: [:required_selected]}, &1))
+      assert Enum.any?(invalid_shapes, &match?(%{path: [:required_order_by]}, &1))
+      assert Enum.any?(invalid_shapes, &match?(%{path: [:required_group_by]}, &1))
+
+      bad_references =
+        valid_domain()
+        |> Map.merge(%{
+          default_selected: [:missing_select, 123],
+          required_selected: [""],
+          required_order_by: [{"missing_sort", :asc}, {"status", :sideways}],
+          required_group_by: [{:rollup, ["missing_group"]}, {:grouping_set, :status}, 456]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(bad_references)
+
+      assert %{code: :query_field_not_found, section: :default_selected, field: :missing_select} =
+               Enum.find(
+                 errors_for(diagnostics, :query_field_not_found),
+                 &(&1.section == :default_selected)
+               )
+
+      assert %{code: :invalid_query_field_reference, section: :default_selected, field: 123} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_field_reference),
+                 &(&1.section == :default_selected)
+               )
+
+      assert %{code: :invalid_query_field_reference, section: :required_selected, field: ""} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_field_reference),
+                 &(&1.section == :required_selected)
+               )
+
+      assert %{code: :query_field_not_found, section: :required_order_by, field: "missing_sort"} =
+               Enum.find(
+                 errors_for(diagnostics, :query_field_not_found),
+                 &(&1.section == :required_order_by)
+               )
+
+      assert %{code: :invalid_query_order_direction, direction: :sideways} =
+               error_for(diagnostics, :invalid_query_order_direction)
+
+      assert %{code: :query_field_not_found, section: :required_group_by, field: "missing_group"} =
+               Enum.find(
+                 errors_for(diagnostics, :query_field_not_found),
+                 &(&1.section == :required_group_by)
+               )
+
+      assert %{code: :invalid_query_group_wrapper, wrapper: :grouping_set} =
+               error_for(diagnostics, :invalid_query_group_wrapper)
+
+      assert %{code: :invalid_query_field_reference, section: :required_group_by, field: 456} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_field_reference),
+                 &(&1.section == :required_group_by)
+               )
+    end
+
     test "accepts valid function registry metadata" do
       domain =
         valid_domain()

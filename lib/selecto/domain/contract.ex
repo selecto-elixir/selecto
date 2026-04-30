@@ -41,6 +41,15 @@ defmodule Selecto.Domain.Contract do
   @choice_source_presentation_modes [:static, :searchable, :async, :inline]
   @choice_source_presentation_cardinalities [:one, :many]
   @order_directions [:asc, :desc]
+  @query_order_directions [
+    :asc,
+    :desc,
+    :asc_nulls_first,
+    :asc_nulls_last,
+    :desc_nulls_first,
+    :desc_nulls_last
+  ]
+  @query_group_wrappers [:rollup, :grouping_set]
   @query_member_groups [:ctes, :values, :subqueries, :laterals, :unnests]
   @query_member_join_types [:left, :inner, :right, :full]
   @detail_action_types [:modal, :iframe_modal, :external_link, :live_component]
@@ -85,6 +94,7 @@ defmodule Selecto.Domain.Contract do
     |> validate_relation(:source, source, [:source])
     |> validate_schemas(schemas)
     |> validate_joins(joins, source, schemas)
+    |> validate_query_field_lists(query, field_index)
     |> validate_filters(query, field_index)
     |> validate_functions(query)
     |> validate_query_members(query)
@@ -502,6 +512,257 @@ defmodule Selecto.Domain.Contract do
   end
 
   defp relation_associations(_relation), do: %{}
+
+  defp validate_query_field_lists(errors, query, field_index) do
+    errors
+    |> validate_query_selection_list(query, :default_selected, field_index)
+    |> validate_query_selection_list(query, :required_selected, field_index)
+    |> validate_query_order_list(query, :required_order_by, field_index)
+    |> validate_query_group_list(query, :required_group_by, field_index)
+  end
+
+  defp validate_query_selection_list(errors, query, section, field_index) do
+    case map_value(query, section) do
+      nil ->
+        errors
+
+      selections when is_list(selections) ->
+        selections
+        |> Enum.with_index()
+        |> Enum.reduce(errors, fn {selection, index}, acc ->
+          validate_query_selection_entry(acc, section, selection, [section, index], field_index)
+        end)
+
+      selections ->
+        invalid_query_list(errors, section, selections)
+    end
+  end
+
+  defp validate_query_order_list(errors, query, section, field_index) do
+    case map_value(query, section) do
+      nil ->
+        errors
+
+      order_by when is_list(order_by) ->
+        order_by
+        |> Enum.with_index()
+        |> Enum.reduce(errors, fn {order_entry, index}, acc ->
+          validate_query_order_entry(acc, section, order_entry, [section, index], field_index)
+        end)
+
+      order_by ->
+        invalid_query_list(errors, section, order_by)
+    end
+  end
+
+  defp validate_query_group_list(errors, query, section, field_index) do
+    case map_value(query, section) do
+      nil ->
+        errors
+
+      group_by when is_list(group_by) ->
+        group_by
+        |> Enum.with_index()
+        |> Enum.reduce(errors, fn {group_entry, index}, acc ->
+          validate_query_group_entry(acc, section, group_entry, [section, index], field_index)
+        end)
+
+      group_by ->
+        invalid_query_list(errors, section, group_by)
+    end
+  end
+
+  defp invalid_query_list(errors, section, value) do
+    [
+      error(
+        :invalid_section_shape,
+        [section],
+        "domain section #{inspect(section)} must be a list",
+        expected: :list,
+        actual: value_type(value)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_query_selection_entry(errors, section, field, path, field_index)
+       when is_atom(field) or is_binary(field) do
+    validate_query_field_reference(errors, section, field, path, field_index)
+  end
+
+  defp validate_query_selection_entry(errors, section, {:field, field}, path, field_index) do
+    validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+  end
+
+  defp validate_query_selection_entry(
+         errors,
+         section,
+         {:field, field, _alias},
+         path,
+         field_index
+       ) do
+    validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+  end
+
+  defp validate_query_selection_entry(errors, _section, entry, _path, _field_index)
+       when is_tuple(entry) or is_map(entry) do
+    errors
+  end
+
+  defp validate_query_selection_entry(errors, section, entry, path, _field_index) do
+    invalid_query_field_reference(errors, section, entry, path)
+  end
+
+  defp validate_query_order_entry(errors, _section, {:raw_sql, _sql}, _path, _field_index) do
+    errors
+  end
+
+  defp validate_query_order_entry(
+         errors,
+         _section,
+         {:udf, _function_id, args},
+         _path,
+         _field_index
+       )
+       when is_list(args) do
+    errors
+  end
+
+  defp validate_query_order_entry(errors, section, {direction, field}, path, field_index)
+       when direction in @query_order_directions do
+    validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+  end
+
+  defp validate_query_order_entry(errors, section, {field, direction}, path, field_index)
+       when direction in @query_order_directions do
+    validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+  end
+
+  defp validate_query_order_entry(errors, section, {field, direction}, path, field_index)
+       when (is_atom(field) or is_binary(field)) and (is_atom(direction) or is_binary(direction)) do
+    if query_order_direction?(direction) do
+      validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+    else
+      [
+        error(
+          :invalid_query_order_direction,
+          path ++ [:direction],
+          "query order direction #{inspect(direction)} is not supported",
+          expected: @query_order_directions,
+          actual: value_type(direction),
+          section: section,
+          direction: direction
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_query_order_entry(errors, section, field, path, field_index)
+       when is_atom(field) or is_binary(field) do
+    validate_query_field_reference(errors, section, field, path, field_index)
+  end
+
+  defp validate_query_order_entry(errors, _section, entry, _path, _field_index)
+       when is_tuple(entry) or is_map(entry) do
+    errors
+  end
+
+  defp validate_query_order_entry(errors, section, entry, path, _field_index) do
+    invalid_query_field_reference(errors, section, entry, path)
+  end
+
+  defp validate_query_group_entry(errors, _section, {:raw_sql, _sql}, _path, _field_index) do
+    errors
+  end
+
+  defp validate_query_group_entry(
+         errors,
+         _section,
+         {:udf, _function_id, args},
+         _path,
+         _field_index
+       )
+       when is_list(args) do
+    errors
+  end
+
+  defp validate_query_group_entry(errors, section, {wrapper, groups}, path, field_index)
+       when wrapper in @query_group_wrappers do
+    if is_list(groups) do
+      groups
+      |> Enum.with_index()
+      |> Enum.reduce(errors, fn {group, index}, acc ->
+        validate_query_group_entry(acc, section, group, path ++ [wrapper, index], field_index)
+      end)
+    else
+      [
+        error(
+          :invalid_query_group_wrapper,
+          path,
+          "query group wrapper #{inspect(wrapper)} must contain a list of fields",
+          expected: :list,
+          actual: value_type(groups),
+          section: section,
+          wrapper: wrapper
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_query_group_entry(errors, section, field, path, field_index)
+       when is_atom(field) or is_binary(field) do
+    validate_query_field_reference(errors, section, field, path, field_index)
+  end
+
+  defp validate_query_group_entry(errors, _section, entry, _path, _field_index)
+       when is_tuple(entry) or is_map(entry) do
+    errors
+  end
+
+  defp validate_query_group_entry(errors, section, entry, path, _field_index) do
+    invalid_query_field_reference(errors, section, entry, path)
+  end
+
+  defp validate_query_field_reference(errors, section, field, path, field_index) do
+    cond do
+      not valid_static_source_path?(field) ->
+        invalid_query_field_reference(errors, section, field, path)
+
+      known_field?(field_index, field) ->
+        errors
+
+      true ->
+        [
+          error(
+            :query_field_not_found,
+            path,
+            "query field #{inspect(field)} is not defined in source, schemas, or custom columns",
+            section: section,
+            field: field
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp invalid_query_field_reference(errors, section, field, path) do
+    [
+      error(
+        :invalid_query_field_reference,
+        path,
+        "query field references must be non-empty atoms or dotted string paths",
+        expected: "non-empty atom or dotted string path",
+        actual: value_type(field),
+        section: section,
+        field: field
+      )
+      | errors
+    ]
+  end
+
+  defp query_order_direction?(direction), do: enum_value?(direction, @query_order_directions)
 
   defp validate_filters(errors, query, field_index) do
     filters = map_value(query, :filters) || %{}

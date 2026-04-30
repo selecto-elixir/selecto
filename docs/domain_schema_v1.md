@@ -127,6 +127,34 @@ Validation checks:
 association on its parent relation, and each association must point at a schema
 available in `schemas` unless it explicitly targets `:source`.
 
+## Query Field Lists
+
+The normalized contract validates query field-list metadata before runtime query
+execution:
+
+- `default_selected`
+- `required_selected`
+- `required_order_by`
+- `required_group_by`
+
+Each section must be a list when present. Direct atom/string field references
+must refer to known fields from the root `source`, joined `schemas` using
+`"schema.field"` paths, or `custom_columns`.
+
+Order entries may use a direct field, `{field, direction}`, or
+`{direction, field}`. Supported directions are `:asc`, `:desc`,
+`:asc_nulls_first`, `:asc_nulls_last`, `:desc_nulls_first`, and
+`:desc_nulls_last`.
+
+Group entries may use direct fields or wrapper tuples such as
+`{:rollup, fields}` and `{:grouping_set, fields}`. Tuple/map expressions that
+are not direct field references are left permissive in this slice.
+
+Invalid query list metadata produces `:invalid_section_shape`,
+`:invalid_query_field_reference`, `:query_field_not_found`,
+`:invalid_query_order_direction`, or `:invalid_query_group_wrapper`
+diagnostics.
+
 ## Filter References
 
 The first contract also validates filter registry metadata and filter
