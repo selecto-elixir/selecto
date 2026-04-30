@@ -1348,6 +1348,9 @@ defmodule Selecto.Domain.Contract do
       source_relationship: relationship_id,
       target_field: map_value(relationship, :target_field)
     )
+    |> validate_source_relationship_source_path(relationship_id, relationship, path)
+    |> validate_source_relationship_virtual_join(relationship_id, relationship, path, field_index)
+    |> validate_source_relationship_filters(relationship_id, relationship, path)
   end
 
   defp validate_source_relationship(errors, relationship_id, relationship, path, _field_index) do
@@ -1423,6 +1426,270 @@ defmodule Selecto.Domain.Contract do
             actual: value_type(source_field),
             source_relationship: relationship_id,
             source_field: source_field
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_source_relationship_source_path(errors, relationship_id, relationship, path) do
+    case map_value(relationship, :source_path) do
+      nil ->
+        errors
+
+      source_path ->
+        if valid_static_source_path?(source_path) do
+          errors
+        else
+          [
+            error(
+              :invalid_source_relationship_source_path,
+              path ++ [:source_path],
+              "source relationship #{inspect(relationship_id)} source_path must be a non-empty atom or dotted string path",
+              expected: "non-empty atom or dotted string path",
+              actual: value_type(source_path),
+              source_relationship: relationship_id,
+              source_path: source_path
+            )
+            | errors
+          ]
+        end
+    end
+  end
+
+  defp validate_source_relationship_virtual_join(
+         errors,
+         relationship_id,
+         relationship,
+         path,
+         field_index
+       ) do
+    case map_value(relationship, :virtual_join) do
+      nil ->
+        errors
+
+      virtual_join when is_list(virtual_join) ->
+        virtual_join
+        |> Enum.with_index()
+        |> Enum.reduce(errors, fn {entry, index}, acc ->
+          validate_source_relationship_virtual_join_entry(
+            acc,
+            relationship_id,
+            entry,
+            path ++ [:virtual_join, index],
+            field_index
+          )
+        end)
+
+      virtual_join ->
+        [
+          error(
+            :invalid_source_relationship_virtual_join,
+            path ++ [:virtual_join],
+            "source relationship #{inspect(relationship_id)} virtual_join must be a list",
+            expected: :list,
+            actual: value_type(virtual_join),
+            source_relationship: relationship_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_source_relationship_virtual_join_entry(
+         errors,
+         relationship_id,
+         entry,
+         path,
+         field_index
+       )
+       when is_map(entry) do
+    errors
+    |> validate_source_relationship_virtual_join_required_keys(relationship_id, entry, path)
+    |> validate_source_relationship_virtual_join_working_field(
+      relationship_id,
+      entry,
+      path,
+      field_index
+    )
+    |> validate_source_relationship_virtual_join_source_field(relationship_id, entry, path)
+    |> validate_source_relationship_virtual_join_required(relationship_id, entry, path)
+  end
+
+  defp validate_source_relationship_virtual_join_entry(
+         errors,
+         relationship_id,
+         entry,
+         path,
+         _field_index
+       ) do
+    [
+      error(
+        :invalid_source_relationship_virtual_join_entry,
+        path,
+        "source relationship #{inspect(relationship_id)} virtual_join entries must be maps",
+        expected: :map,
+        actual: value_type(entry),
+        source_relationship: relationship_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_source_relationship_virtual_join_required_keys(
+         errors,
+         relationship_id,
+         entry,
+         path
+       ) do
+    missing_keys = Enum.reject([:working_field, :source_field], &has_key?(entry, &1))
+
+    case missing_keys do
+      [] ->
+        errors
+
+      _ ->
+        [
+          error(
+            :source_relationship_virtual_join_missing_required_keys,
+            path,
+            "source relationship #{inspect(relationship_id)} virtual_join entry is missing required keys #{inspect(missing_keys)}",
+            source_relationship: relationship_id,
+            keys: missing_keys
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_source_relationship_virtual_join_working_field(
+         errors,
+         relationship_id,
+         entry,
+         path,
+         field_index
+       ) do
+    case map_value(entry, :working_field) do
+      nil ->
+        errors
+
+      working_field when is_atom(working_field) or is_binary(working_field) ->
+        if known_field?(field_index, working_field) do
+          errors
+        else
+          [
+            error(
+              :source_relationship_virtual_join_working_field_not_found,
+              path ++ [:working_field],
+              "source relationship #{inspect(relationship_id)} virtual_join working_field #{inspect(working_field)} is not defined in source, schemas, or custom columns",
+              source_relationship: relationship_id,
+              working_field: working_field
+            )
+            | errors
+          ]
+        end
+
+      working_field ->
+        [
+          error(
+            :invalid_source_relationship_virtual_join_working_field,
+            path ++ [:working_field],
+            "source relationship #{inspect(relationship_id)} virtual_join working_field must be an atom or string",
+            expected: "atom or string",
+            actual: value_type(working_field),
+            source_relationship: relationship_id,
+            working_field: working_field
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_source_relationship_virtual_join_source_field(
+         errors,
+         relationship_id,
+         entry,
+         path
+       ) do
+    case map_value(entry, :source_field) do
+      nil ->
+        errors
+
+      source_field ->
+        if valid_static_source_path?(source_field) do
+          errors
+        else
+          [
+            error(
+              :invalid_source_relationship_virtual_join_source_field,
+              path ++ [:source_field],
+              "source relationship #{inspect(relationship_id)} virtual_join source_field must be a non-empty atom or dotted string path",
+              expected: "non-empty atom or dotted string path",
+              actual: value_type(source_field),
+              source_relationship: relationship_id,
+              source_field: source_field
+            )
+            | errors
+          ]
+        end
+    end
+  end
+
+  defp validate_source_relationship_virtual_join_required(
+         errors,
+         relationship_id,
+         entry,
+         path
+       ) do
+    case map_value(entry, :required) do
+      nil ->
+        errors
+
+      required when is_boolean(required) ->
+        errors
+
+      required ->
+        [
+          error(
+            :invalid_source_relationship_virtual_join_required,
+            path ++ [:required],
+            "source relationship #{inspect(relationship_id)} virtual_join required must be a boolean",
+            expected: :boolean,
+            actual: value_type(required),
+            source_relationship: relationship_id,
+            required: required
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_source_relationship_filters(errors, relationship_id, relationship, path) do
+    case map_value(relationship, :filters) do
+      nil ->
+        errors
+
+      filters when is_list(filters) ->
+        filters
+        |> Enum.with_index()
+        |> Enum.reduce(errors, fn {filter, index}, acc ->
+          validate_static_filter_expression(
+            acc,
+            static_filter_owner(:source_relationship, relationship_id),
+            filter,
+            path ++ [:filters, index]
+          )
+        end)
+
+      filters ->
+        [
+          error(
+            :invalid_source_relationship_filters,
+            path ++ [:filters],
+            "source relationship #{inspect(relationship_id)} filters must be a list",
+            expected: :list,
+            actual: value_type(filters),
+            source_relationship: relationship_id
           )
           | errors
         ]
@@ -1633,213 +1900,257 @@ defmodule Selecto.Domain.Contract do
   end
 
   defp validate_choice_source_filter_expression(errors, choice_source_id, filter, path)
-       when is_tuple(filter) do
-    validate_choice_source_filter_parts(
+       when is_tuple(filter) or is_list(filter) do
+    validate_static_filter_expression(
       errors,
-      choice_source_id,
-      Tuple.to_list(filter),
+      static_filter_owner(:choice_source, choice_source_id),
       filter,
       path
     )
   end
 
-  defp validate_choice_source_filter_expression(errors, choice_source_id, filter, path)
-       when is_list(filter) do
-    validate_choice_source_filter_parts(errors, choice_source_id, filter, filter, path)
-  end
-
   defp validate_choice_source_filter_expression(errors, choice_source_id, filter, path) do
-    [
-      error(
-        :invalid_choice_source_filter_expression,
-        path,
-        "choice source #{inspect(choice_source_id)} filter must be an operator tuple or list",
-        expected: "operator tuple or list",
-        actual: value_type(filter),
-        choice_source: choice_source_id,
-        filter: filter
-      )
-      | errors
-    ]
+    invalid_static_filter_expression(
+      errors,
+      static_filter_owner(:choice_source, choice_source_id),
+      filter,
+      path
+    )
   end
 
-  defp validate_choice_source_filter_parts(
+  defp validate_static_filter_expression(errors, owner, filter, path) when is_tuple(filter) do
+    validate_static_filter_parts(errors, owner, Tuple.to_list(filter), filter, path)
+  end
+
+  defp validate_static_filter_expression(errors, owner, filter, path) when is_list(filter) do
+    validate_static_filter_parts(errors, owner, filter, filter, path)
+  end
+
+  defp validate_static_filter_expression(errors, owner, filter, path) do
+    invalid_static_filter_expression(errors, owner, filter, path)
+  end
+
+  defp validate_static_filter_parts(
          errors,
-         choice_source_id,
+         owner,
          [op, operands],
          _filter,
          path
        ) do
     cond do
-      choice_source_logical_filter_op?(op) ->
-        validate_choice_source_logical_filter(errors, choice_source_id, op, operands, path)
+      static_logical_filter_op?(op) ->
+        validate_static_logical_filter(errors, owner, op, operands, path)
 
-      choice_source_unary_filter_op?(op) ->
-        validate_choice_source_filter_expression(
+      static_unary_filter_op?(op) ->
+        validate_static_filter_expression(
           errors,
-          choice_source_id,
+          owner,
           operands,
           path ++ [:operand]
         )
 
-      choice_source_known_filter_op?(op) ->
-        invalid_choice_source_filter_operands(errors, choice_source_id, op, path, operands)
+      static_known_filter_op?(op) ->
+        invalid_static_filter_operands(errors, owner, op, path, operands)
 
-      choice_source_filter_operator_value?(op) ->
-        invalid_choice_source_filter_operator(errors, choice_source_id, op, path)
+      static_filter_operator_value?(op) ->
+        invalid_static_filter_operator(errors, owner, op, path)
 
       true ->
-        invalid_choice_source_filter_expression(errors, choice_source_id, [op, operands], path)
+        invalid_static_filter_expression(errors, owner, [op, operands], path)
     end
   end
 
-  defp validate_choice_source_filter_parts(
+  defp validate_static_filter_parts(
          errors,
-         choice_source_id,
+         owner,
          [op, field, _value],
          _filter,
          path
        ) do
-    validate_choice_source_field_filter(errors, choice_source_id, op, field, path)
+    validate_static_field_filter(errors, owner, op, field, path)
   end
 
-  defp validate_choice_source_filter_parts(
+  defp validate_static_filter_parts(
          errors,
-         choice_source_id,
+         owner,
          [op, field, _left, _right],
          _filter,
          path
        ) do
-    validate_choice_source_field_filter(errors, choice_source_id, op, field, path)
+    validate_static_field_filter(errors, owner, op, field, path)
   end
 
-  defp validate_choice_source_filter_parts(
+  defp validate_static_filter_parts(
          errors,
-         choice_source_id,
+         owner,
          [op | _] = filter,
          _raw,
          path
        ) do
     cond do
-      choice_source_known_filter_op?(op) ->
-        invalid_choice_source_filter_operands(errors, choice_source_id, op, path, filter)
+      static_known_filter_op?(op) ->
+        invalid_static_filter_operands(errors, owner, op, path, filter)
 
-      choice_source_filter_operator_value?(op) ->
-        invalid_choice_source_filter_operator(errors, choice_source_id, op, path)
+      static_filter_operator_value?(op) ->
+        invalid_static_filter_operator(errors, owner, op, path)
 
       true ->
-        invalid_choice_source_filter_expression(errors, choice_source_id, filter, path)
+        invalid_static_filter_expression(errors, owner, filter, path)
     end
   end
 
-  defp validate_choice_source_filter_parts(errors, choice_source_id, filter, _raw, path) do
-    invalid_choice_source_filter_expression(errors, choice_source_id, filter, path)
+  defp validate_static_filter_parts(errors, owner, filter, _raw, path) do
+    invalid_static_filter_expression(errors, owner, filter, path)
   end
 
-  defp validate_choice_source_logical_filter(errors, choice_source_id, _op, filters, path)
+  defp validate_static_logical_filter(errors, owner, _op, filters, path)
        when is_list(filters) do
     filters
     |> Enum.with_index()
     |> Enum.reduce(errors, fn {filter, index}, acc ->
-      validate_choice_source_filter_expression(acc, choice_source_id, filter, path ++ [index])
+      validate_static_filter_expression(acc, owner, filter, path ++ [index])
     end)
   end
 
-  defp validate_choice_source_logical_filter(errors, choice_source_id, op, filters, path) do
-    invalid_choice_source_filter_operands(errors, choice_source_id, op, path, filters)
+  defp validate_static_logical_filter(errors, owner, op, filters, path) do
+    invalid_static_filter_operands(errors, owner, op, path, filters)
   end
 
-  defp validate_choice_source_field_filter(errors, choice_source_id, op, field, path) do
+  defp validate_static_field_filter(errors, owner, op, field, path) do
     cond do
-      choice_source_field_filter_op?(op) and valid_choice_source_path?(field) ->
+      static_field_filter_op?(op) and valid_static_source_path?(field) ->
         errors
 
-      choice_source_field_filter_op?(op) ->
+      static_field_filter_op?(op) ->
         [
           error(
-            :invalid_choice_source_filter_path,
+            static_filter_error_code(owner, :path),
             path ++ [:field],
-            "choice source #{inspect(choice_source_id)} filter field must be a non-empty atom or dotted string path",
-            expected: "non-empty atom or dotted string path",
-            actual: value_type(field),
-            choice_source: choice_source_id,
-            field: field
+            "#{static_filter_subject(owner)} filter field must be a non-empty atom or dotted string path",
+            static_filter_attrs(owner,
+              expected: "non-empty atom or dotted string path",
+              actual: value_type(field),
+              field: field
+            )
           )
           | errors
         ]
 
-      choice_source_known_filter_op?(op) ->
-        invalid_choice_source_filter_operands(errors, choice_source_id, op, path, field)
+      static_known_filter_op?(op) ->
+        invalid_static_filter_operands(errors, owner, op, path, field)
 
-      choice_source_filter_operator_value?(op) ->
-        invalid_choice_source_filter_operator(errors, choice_source_id, op, path)
+      static_filter_operator_value?(op) ->
+        invalid_static_filter_operator(errors, owner, op, path)
 
       true ->
-        invalid_choice_source_filter_expression(errors, choice_source_id, [op, field], path)
+        invalid_static_filter_expression(errors, owner, [op, field], path)
     end
   end
 
-  defp invalid_choice_source_filter_operator(errors, choice_source_id, op, path) do
+  defp invalid_static_filter_operator(errors, owner, op, path) do
     [
       error(
-        :invalid_choice_source_filter_operator,
+        static_filter_error_code(owner, :operator),
         path,
-        "choice source #{inspect(choice_source_id)} filter operator #{inspect(op)} is not supported",
-        expected: "known filter operator",
-        actual: value_type(op),
-        choice_source: choice_source_id,
-        operator: op
+        "#{static_filter_subject(owner)} filter operator #{inspect(op)} is not supported",
+        static_filter_attrs(owner,
+          expected: "known filter operator",
+          actual: value_type(op),
+          operator: op
+        )
       )
       | errors
     ]
   end
 
-  defp invalid_choice_source_filter_operands(errors, choice_source_id, op, path, operands) do
+  defp invalid_static_filter_operands(errors, owner, op, path, operands) do
     [
       error(
-        :invalid_choice_source_filter_operands,
+        static_filter_error_code(owner, :operands),
         path,
-        "choice source #{inspect(choice_source_id)} filter operator #{inspect(op)} has invalid operands",
-        expected: "operator operands",
-        actual: value_type(operands),
-        choice_source: choice_source_id,
-        operator: op
+        "#{static_filter_subject(owner)} filter operator #{inspect(op)} has invalid operands",
+        static_filter_attrs(owner,
+          expected: "operator operands",
+          actual: value_type(operands),
+          operator: op
+        )
       )
       | errors
     ]
   end
 
-  defp invalid_choice_source_filter_expression(errors, choice_source_id, filter, path) do
+  defp invalid_static_filter_expression(errors, owner, filter, path) do
     [
       error(
-        :invalid_choice_source_filter_expression,
+        static_filter_error_code(owner, :expression),
         path,
-        "choice source #{inspect(choice_source_id)} filter must be an operator tuple or list",
-        expected: "operator tuple or list",
-        actual: value_type(filter),
-        choice_source: choice_source_id,
-        filter: filter
+        "#{static_filter_subject(owner)} filter must be an operator tuple or list",
+        static_filter_attrs(owner,
+          expected: "operator tuple or list",
+          actual: value_type(filter),
+          filter: filter
+        )
       )
       | errors
     ]
   end
 
-  defp choice_source_known_filter_op?(op) do
-    choice_source_logical_filter_op?(op) or choice_source_unary_filter_op?(op) or
-      choice_source_field_filter_op?(op)
+  defp static_known_filter_op?(op) do
+    static_logical_filter_op?(op) or static_unary_filter_op?(op) or static_field_filter_op?(op)
   end
 
-  defp choice_source_logical_filter_op?(op), do: enum_value?(op, @logical_filter_ops)
+  defp static_logical_filter_op?(op), do: enum_value?(op, @logical_filter_ops)
 
-  defp choice_source_unary_filter_op?(op), do: enum_value?(op, @unary_filter_ops)
+  defp static_unary_filter_op?(op), do: enum_value?(op, @unary_filter_ops)
 
-  defp choice_source_field_filter_op?(op), do: enum_value?(op, @field_filter_ops)
+  defp static_field_filter_op?(op), do: enum_value?(op, @field_filter_ops)
 
-  defp choice_source_filter_operator_value?(op) when is_atom(op), do: not is_nil(op)
+  defp static_filter_operator_value?(op) when is_atom(op), do: not is_nil(op)
 
-  defp choice_source_filter_operator_value?(op) when is_binary(op), do: String.trim(op) != ""
+  defp static_filter_operator_value?(op) when is_binary(op), do: String.trim(op) != ""
 
-  defp choice_source_filter_operator_value?(_op), do: false
+  defp static_filter_operator_value?(_op), do: false
+
+  defp static_filter_owner(:choice_source, id) do
+    %{kind: :choice_source, id: id, attr: :choice_source, label: "choice source"}
+  end
+
+  defp static_filter_owner(:source_relationship, id) do
+    %{
+      kind: :source_relationship,
+      id: id,
+      attr: :source_relationship,
+      label: "source relationship"
+    }
+  end
+
+  defp static_filter_subject(owner), do: "#{owner.label} #{inspect(owner.id)}"
+
+  defp static_filter_attrs(owner, attrs), do: Keyword.put(attrs, owner.attr, owner.id)
+
+  defp static_filter_error_code(%{kind: :choice_source}, :operator),
+    do: :invalid_choice_source_filter_operator
+
+  defp static_filter_error_code(%{kind: :choice_source}, :path),
+    do: :invalid_choice_source_filter_path
+
+  defp static_filter_error_code(%{kind: :choice_source}, :expression),
+    do: :invalid_choice_source_filter_expression
+
+  defp static_filter_error_code(%{kind: :choice_source}, :operands),
+    do: :invalid_choice_source_filter_operands
+
+  defp static_filter_error_code(%{kind: :source_relationship}, :operator),
+    do: :invalid_source_relationship_filter_operator
+
+  defp static_filter_error_code(%{kind: :source_relationship}, :path),
+    do: :invalid_source_relationship_filter_path
+
+  defp static_filter_error_code(%{kind: :source_relationship}, :expression),
+    do: :invalid_source_relationship_filter_expression
+
+  defp static_filter_error_code(%{kind: :source_relationship}, :operands),
+    do: :invalid_source_relationship_filter_operands
 
   defp validate_choice_source_order_by(errors, choice_source_id, choice_source, path) do
     case map_value(choice_source, :order_by) do
@@ -2532,16 +2843,18 @@ defmodule Selecto.Domain.Contract do
 
   defp field_ref?(field), do: is_atom(field) or is_binary(field)
 
-  defp valid_choice_source_path?(path) when is_atom(path), do: not is_nil(path)
+  defp valid_choice_source_path?(path), do: valid_static_source_path?(path)
 
-  defp valid_choice_source_path?(path) when is_binary(path) do
+  defp valid_static_source_path?(path) when is_atom(path), do: not is_nil(path)
+
+  defp valid_static_source_path?(path) when is_binary(path) do
     trimmed_path = String.trim(path)
 
     trimmed_path != "" and not String.starts_with?(trimmed_path, ".") and
       not String.ends_with?(trimmed_path, ".") and not String.contains?(trimmed_path, "..")
   end
 
-  defp valid_choice_source_path?(_path), do: false
+  defp valid_static_source_path?(_path), do: false
 
   defp enum_value?(value, allowed) when is_atom(value), do: value in allowed
 

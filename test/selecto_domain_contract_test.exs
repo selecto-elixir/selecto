@@ -464,7 +464,15 @@ defmodule Selecto.DomainContractTest do
           customer: %{
             target_domain: :customers,
             source_field: :customer_id,
-            target_field: :id
+            target_field: :id,
+            source_path: "customers",
+            virtual_join: [
+              %{working_field: :customer_id, source_field: "customers.id", required: true}
+            ],
+            filters: [
+              {:eq, "customers.active", true},
+              ["not", ["eq", "customers.archived", true]]
+            ]
           }
         })
         |> Map.put(:choice_sources, %{
@@ -529,6 +537,86 @@ defmodule Selecto.DomainContractTest do
             target_domain: :customers,
             source_field: :customer_id,
             target_field: 987
+          },
+          bad_relationship_source_path: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            source_path: ".customers"
+          },
+          bad_relationship_filters: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: %{active: true}
+          },
+          bad_relationship_filter_operator: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: [{:unknown, "customers.active", true}]
+          },
+          bad_relationship_filter_path: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: [{:eq, ".active", true}]
+          },
+          bad_relationship_filter_expression: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: [123]
+          },
+          bad_relationship_filter_operands: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: [{:and, {:eq, "customers.active", true}}]
+          },
+          bad_virtual_join: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: :customer
+          },
+          bad_virtual_join_entry: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [123]
+          },
+          missing_virtual_join_keys: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [%{working_field: :customer_id}]
+          },
+          bad_virtual_join_working_field: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [%{working_field: 789, source_field: "customers.id"}]
+          },
+          missing_virtual_join_working_field: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [%{working_field: :missing_customer_id, source_field: "customers.id"}]
+          },
+          bad_virtual_join_source_field: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [%{working_field: :customer_id, source_field: ".id"}]
+          },
+          bad_virtual_join_required: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [
+              %{working_field: :customer_id, source_field: "customers.id", required: :yes}
+            ]
           }
         })
         |> Map.put(:choice_sources, %{
@@ -721,6 +809,119 @@ defmodule Selecto.DomainContractTest do
                target_field: 987,
                path: [:source_relationships, :bad_target_field, :target_field]
              } = error_for(diagnostics, :invalid_source_relationship_target_field)
+
+      assert %{
+               code: :invalid_source_relationship_source_path,
+               source_relationship: :bad_relationship_source_path,
+               source_path: ".customers",
+               path: [:source_relationships, :bad_relationship_source_path, :source_path]
+             } = error_for(diagnostics, :invalid_source_relationship_source_path)
+
+      assert %{
+               code: :invalid_source_relationship_filters,
+               source_relationship: :bad_relationship_filters,
+               path: [:source_relationships, :bad_relationship_filters, :filters]
+             } = error_for(diagnostics, :invalid_source_relationship_filters)
+
+      assert %{
+               code: :invalid_source_relationship_filter_operator,
+               source_relationship: :bad_relationship_filter_operator,
+               operator: :unknown,
+               path: [:source_relationships, :bad_relationship_filter_operator, :filters, 0]
+             } = error_for(diagnostics, :invalid_source_relationship_filter_operator)
+
+      assert %{
+               code: :invalid_source_relationship_filter_path,
+               source_relationship: :bad_relationship_filter_path,
+               field: ".active",
+               path: [:source_relationships, :bad_relationship_filter_path, :filters, 0, :field]
+             } = error_for(diagnostics, :invalid_source_relationship_filter_path)
+
+      assert %{
+               code: :invalid_source_relationship_filter_expression,
+               source_relationship: :bad_relationship_filter_expression,
+               filter: 123,
+               path: [:source_relationships, :bad_relationship_filter_expression, :filters, 0]
+             } = error_for(diagnostics, :invalid_source_relationship_filter_expression)
+
+      assert %{
+               code: :invalid_source_relationship_filter_operands,
+               source_relationship: :bad_relationship_filter_operands,
+               operator: :and,
+               path: [:source_relationships, :bad_relationship_filter_operands, :filters, 0]
+             } = error_for(diagnostics, :invalid_source_relationship_filter_operands)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join,
+               source_relationship: :bad_virtual_join,
+               path: [:source_relationships, :bad_virtual_join, :virtual_join]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join_entry,
+               source_relationship: :bad_virtual_join_entry,
+               path: [:source_relationships, :bad_virtual_join_entry, :virtual_join, 0]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join_entry)
+
+      assert %{
+               code: :source_relationship_virtual_join_missing_required_keys,
+               source_relationship: :missing_virtual_join_keys,
+               keys: [:source_field],
+               path: [:source_relationships, :missing_virtual_join_keys, :virtual_join, 0]
+             } = error_for(diagnostics, :source_relationship_virtual_join_missing_required_keys)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join_working_field,
+               source_relationship: :bad_virtual_join_working_field,
+               working_field: 789,
+               path: [
+                 :source_relationships,
+                 :bad_virtual_join_working_field,
+                 :virtual_join,
+                 0,
+                 :working_field
+               ]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join_working_field)
+
+      assert %{
+               code: :source_relationship_virtual_join_working_field_not_found,
+               source_relationship: :missing_virtual_join_working_field,
+               working_field: :missing_customer_id,
+               path: [
+                 :source_relationships,
+                 :missing_virtual_join_working_field,
+                 :virtual_join,
+                 0,
+                 :working_field
+               ]
+             } =
+               error_for(diagnostics, :source_relationship_virtual_join_working_field_not_found)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join_source_field,
+               source_relationship: :bad_virtual_join_source_field,
+               source_field: ".id",
+               path: [
+                 :source_relationships,
+                 :bad_virtual_join_source_field,
+                 :virtual_join,
+                 0,
+                 :source_field
+               ]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join_source_field)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join_required,
+               source_relationship: :bad_virtual_join_required,
+               required: :yes,
+               path: [
+                 :source_relationships,
+                 :bad_virtual_join_required,
+                 :virtual_join,
+                 0,
+                 :required
+               ]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join_required)
 
       assert %{
                code: :invalid_choice_source_id,

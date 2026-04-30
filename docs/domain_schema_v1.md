@@ -300,7 +300,14 @@ providers.
     customer: %{
       target_domain: :customers,
       source_field: :customer_id,
-      target_field: :id
+      target_field: :id,
+      source_path: "customers",
+      virtual_join: [
+        %{working_field: :customer_id, source_field: "customers.id", required: true}
+      ],
+      filters: [
+        {:eq, "customers.active", true}
+      ]
     }
   },
   choice_sources: %{
@@ -336,6 +343,13 @@ Source relationship validation checks:
 - `target_domain`, `source_field`, and `target_field` must be atoms or strings.
 - `source_field` must exist in the working domain source, schemas, or custom
   columns.
+- optional `source_path` must be a non-empty atom or dotted string path.
+- optional `virtual_join` must be a list of maps with `working_field` and
+  `source_field`; `working_field` must exist in the working domain,
+  `source_field` must be a non-empty atom or dotted string path, and optional
+  `required` must be a boolean.
+- optional `filters` must be a list of static filter expressions using the same
+  operator and path syntax as choice-source filters.
 
 Choice source validation checks:
 
@@ -377,8 +391,9 @@ Field binding validation checks:
   a known working-domain field.
 
 The current slice validates static choice-source metadata and filter expression
-syntax only. It does not resolve external source-domain schemas, apply filters,
-fetch options, or execute membership checks.
+syntax plus static source-relationship metadata. It does not resolve external
+source-domain schemas, apply filters, fetch options, or execute membership
+checks.
 
 ## Choice Membership API
 
@@ -535,7 +550,12 @@ domain = %{
     customer: %{
       target_domain: :customers,
       source_field: :customer_id,
-      target_field: :id
+      target_field: :id,
+      source_path: "customers",
+      virtual_join: [
+        %{working_field: :customer_id, source_field: "customers.id", required: true}
+      ],
+      filters: [{:eq, "customers.active", true}]
     }
   },
   choice_sources: %{
@@ -635,7 +655,12 @@ JSON domains use string keys and string field identifiers:
     "customer": {
       "target_domain": "customers",
       "source_field": "customer_id",
-      "target_field": "id"
+      "target_field": "id",
+      "source_path": "customers",
+      "virtual_join": [
+        {"working_field": "customer_id", "source_field": "customers.id", "required": true}
+      ],
+      "filters": [["eq", "customers.active", true]]
     }
   },
   "choice_sources": {
