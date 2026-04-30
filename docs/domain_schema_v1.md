@@ -212,6 +212,33 @@ Invalid query-member metadata produces diagnostics such as
 `:invalid_query_member_rows`, `:invalid_query_member_join_type`,
 `:invalid_query_member_source`, or `:invalid_query_member_field`.
 
+## Published Views
+
+`published_views` must be a map when present. The normalized contract validates
+published-view metadata shape only; it does not compile the query or generate
+DDL.
+
+Each published view id must be a non-empty atom or string, and each spec must be
+a map with:
+
+- `database_name` as a non-empty string
+- `kind` as `:view` or `:materialized_view`
+- `query` as a function with arity `1`
+- `columns` as a non-empty map of non-empty atom/string ids to column spec maps
+
+Optional metadata:
+
+- `indexes` must be a list when present. Each index spec must be a map with
+  `columns` as a non-empty list of atom/string names. Optional `unique` and
+  `concurrently` flags must be booleans.
+- `refresh` must be a map when present.
+
+Invalid published-view metadata produces diagnostics such as
+`:invalid_published_view_id`, `:invalid_published_view_spec`,
+`:invalid_published_view_database_name`, `:invalid_published_view_kind`,
+`:invalid_published_view_query`, `:invalid_published_view_columns`,
+`:invalid_published_view_index_columns`, or `:invalid_published_view_refresh`.
+
 ## Write Transitions
 
 `writes.transitions` is the first proposed write contract section with strict

@@ -550,6 +550,147 @@ defmodule Selecto.DomainContractTest do
              } = error_for(diagnostics, :invalid_query_member_ordinality)
     end
 
+    test "accepts valid published view registry metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:published_views, %{
+          "order_rollup" => %{
+            database_name: "reporting.order_rollup",
+            kind: :materialized_view,
+            query: fn selecto -> selecto end,
+            columns: %{
+              order_id: %{type: :integer},
+              status: %{type: :string}
+            },
+            indexes: [
+              %{columns: [:order_id], unique: true},
+              %{columns: ["status"], concurrently: false}
+            ],
+            refresh: %{concurrently: true}
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates published view section and spec shapes" do
+      section_domain = valid_domain() |> Map.put(:published_views, [:not, :a, :map])
+
+      assert {:error, section_diagnostics} = Domain.validate(section_domain)
+
+      assert %{
+               code: :invalid_section_shape,
+               path: [:published_views],
+               expected: :map,
+               actual: :list
+             } = error_for(section_diagnostics, :invalid_section_shape)
+
+      domain =
+        valid_domain()
+        |> Map.put(:published_views, %{
+          123 => %{
+            database_name: "reporting.order_rollup",
+            kind: :view,
+            query: fn selecto -> selecto end,
+            columns: %{order_id: %{type: :integer}}
+          },
+          "" => %{
+            database_name: "reporting.empty_id",
+            kind: :view,
+            query: fn selecto -> selecto end,
+            columns: %{order_id: %{type: :integer}}
+          },
+          "bad_spec" => :not_a_map,
+          "bad_metadata" => %{
+            database_name: "",
+            kind: :report,
+            query: fn -> :not_arity_one end,
+            columns: %{},
+            indexes: :not_a_list,
+            refresh: :manual
+          },
+          "bad_columns" => %{
+            database_name: "reporting.bad_columns",
+            kind: :view,
+            query: fn selecto -> selecto end,
+            columns: %{"" => %{type: :integer}, status: :not_a_map}
+          },
+          "bad_indexes" => %{
+            database_name: "reporting.bad_indexes",
+            kind: :view,
+            query: fn selecto -> selecto end,
+            columns: %{order_id: %{type: :integer}},
+            indexes: [
+              :not_a_map,
+              %{columns: [], unique: :yes, concurrently: :no},
+              %{columns: ["status", 123]}
+            ]
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_published_view_id, view: 123, path: [:published_views, 123]} =
+               Enum.find(errors_for(diagnostics, :invalid_published_view_id), &(&1.view == 123))
+
+      assert %{code: :invalid_published_view_id, view: "", path: [:published_views, ""]} =
+               Enum.find(errors_for(diagnostics, :invalid_published_view_id), &(&1.view == ""))
+
+      assert %{code: :invalid_published_view_spec, view: "bad_spec"} =
+               error_for(diagnostics, :invalid_published_view_spec)
+
+      assert %{code: :invalid_published_view_database_name, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_database_name)
+
+      assert %{code: :invalid_published_view_kind, view: "bad_metadata", kind: :report} =
+               error_for(diagnostics, :invalid_published_view_kind)
+
+      assert %{code: :invalid_published_view_query, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_query)
+
+      assert %{code: :invalid_published_view_columns, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_columns)
+
+      assert %{code: :invalid_published_view_indexes, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_indexes)
+
+      assert %{code: :invalid_published_view_refresh, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_refresh)
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_column),
+               &match?(%{view: "bad_columns", column: ""}, &1)
+             )
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_column),
+               &match?(%{view: "bad_columns", column: :status}, &1)
+             )
+
+      assert %{code: :invalid_published_view_index, view: "bad_indexes"} =
+               error_for(diagnostics, :invalid_published_view_index)
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_index_columns),
+               &match?(%{view: "bad_indexes", columns: []}, &1)
+             )
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_index_columns),
+               &match?(%{view: "bad_indexes", columns: ["status", 123]}, &1)
+             )
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_index_option),
+               &match?(%{view: "bad_indexes", option: :unique}, &1)
+             )
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_index_option),
+               &match?(%{view: "bad_indexes", option: :concurrently}, &1)
+             )
+    end
+
     test "accepts write transition graphs for known fields" do
       domain =
         valid_domain()
