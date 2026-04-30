@@ -1042,6 +1042,176 @@ defmodule Selecto.DomainContractTest do
              )
     end
 
+    test "accepts query-facing capability references" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "order.filter" => %{operations: [:filter]},
+          "order.function" => %{operations: [:select]},
+          "order.member" => %{operations: [:query_member]},
+          "order.view" => %{operations: [:select]},
+          "order.detail" => %{operations: [:detail]}
+        })
+        |> Map.merge(%{
+          filters: %{
+            "status_picker" => %{field: :status, type: :string, capability: "order.filter"}
+          },
+          functions: %{
+            "lower_status" => %{
+              kind: :scalar,
+              sql_name: "lower",
+              capability: "order.function"
+            }
+          },
+          query_members: %{
+            values: %{
+              "status_lookup" => %{
+                rows: [["open", "Open"]],
+                capability: "order.member"
+              }
+            }
+          },
+          published_views: %{
+            "order_rollup" => %{
+              database_name: "reporting.order_rollup",
+              kind: :view,
+              query: fn selecto -> selecto end,
+              columns: %{order_id: %{type: :integer}},
+              capability: "order.view"
+            }
+          },
+          detail_actions: %{
+            profile: %{name: "Profile", type: :modal, capability: "order.detail"}
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates query-facing capability references" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{"known" => %{operations: [:select]}})
+        |> Map.merge(%{
+          filters: %{
+            "missing_filter" => %{type: :string, capability: "missing.filter"},
+            "bad_filter" => %{type: :string, capability: 123}
+          },
+          functions: %{
+            "missing_function" => %{
+              kind: :scalar,
+              sql_name: "lower",
+              capability: "missing.function"
+            },
+            "bad_function" => %{kind: :scalar, sql_name: "lower", capability: []}
+          },
+          query_members: %{
+            values: %{
+              "missing_member" => %{rows: [], capability: "missing.member"},
+              "bad_member" => %{rows: [], capability: %{}}
+            }
+          },
+          published_views: %{
+            "missing_view" => %{
+              database_name: "reporting.missing_view",
+              kind: :view,
+              query: fn selecto -> selecto end,
+              columns: %{order_id: %{type: :integer}},
+              capability: "missing.view"
+            },
+            "bad_view" => %{
+              database_name: "reporting.bad_view",
+              kind: :view,
+              query: fn selecto -> selecto end,
+              columns: %{order_id: %{type: :integer}},
+              capability: 456
+            }
+          },
+          detail_actions: %{
+            "missing_detail" => %{
+              name: "Missing Detail",
+              type: :modal,
+              capability: "missing.detail"
+            },
+            "bad_detail" => %{name: "Bad Detail", type: :modal, capability: [:bad]}
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :filter_capability_not_found,
+               filter: "missing_filter",
+               capability: "missing.filter",
+               path: [:filters, "missing_filter", :capability]
+             } = error_for(diagnostics, :filter_capability_not_found)
+
+      assert %{
+               code: :invalid_filter_capability,
+               filter: "bad_filter",
+               capability: 123,
+               path: [:filters, "bad_filter", :capability]
+             } = error_for(diagnostics, :invalid_filter_capability)
+
+      assert %{
+               code: :function_capability_not_found,
+               function: "missing_function",
+               capability: "missing.function",
+               path: [:functions, "missing_function", :capability]
+             } = error_for(diagnostics, :function_capability_not_found)
+
+      assert %{
+               code: :invalid_function_capability,
+               function: "bad_function",
+               capability: [],
+               path: [:functions, "bad_function", :capability]
+             } = error_for(diagnostics, :invalid_function_capability)
+
+      assert %{
+               code: :query_member_capability_not_found,
+               group: :values,
+               member: "missing_member",
+               capability: "missing.member",
+               path: [:query_members, :values, "missing_member", :capability]
+             } = error_for(diagnostics, :query_member_capability_not_found)
+
+      assert %{
+               code: :invalid_query_member_capability,
+               group: :values,
+               member: "bad_member",
+               capability: %{},
+               path: [:query_members, :values, "bad_member", :capability]
+             } = error_for(diagnostics, :invalid_query_member_capability)
+
+      assert %{
+               code: :published_view_capability_not_found,
+               view: "missing_view",
+               capability: "missing.view",
+               path: [:published_views, "missing_view", :capability]
+             } = error_for(diagnostics, :published_view_capability_not_found)
+
+      assert %{
+               code: :invalid_published_view_capability,
+               view: "bad_view",
+               capability: 456,
+               path: [:published_views, "bad_view", :capability]
+             } = error_for(diagnostics, :invalid_published_view_capability)
+
+      assert %{
+               code: :detail_action_capability_not_found,
+               action: "missing_detail",
+               capability: "missing.detail",
+               path: [:detail_actions, "missing_detail", :capability]
+             } = error_for(diagnostics, :detail_action_capability_not_found)
+
+      assert %{
+               code: :invalid_detail_action_capability,
+               action: "bad_detail",
+               capability: [:bad],
+               path: [:detail_actions, "bad_detail", :capability]
+             } = error_for(diagnostics, :invalid_detail_action_capability)
+    end
+
     test "accepts direct transition-backed row actions" do
       domain =
         valid_domain()

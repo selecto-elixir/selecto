@@ -366,6 +366,19 @@ Validation checks:
 - each capability must declare a non-empty `operations` list.
 - each operation must be an atom or string.
 
+The domain contract also validates optional `capability` references on
+query-facing metadata:
+
+- filters
+- functions
+- query members
+- published views
+- detail actions
+
+When present, the value must be an atom or string and must exist in the domain
+capability catalog. These checks only validate metadata references; they do not
+perform authorization or alter `Selecto.configure/3` behavior.
+
 Runtime capability checks use a shared request/decision value shape:
 
 ```elixir

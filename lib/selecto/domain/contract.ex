@@ -102,6 +102,7 @@ defmodule Selecto.Domain.Contract do
     |> validate_detail_actions(detail_actions, field_index)
     |> validate_writes(writes, field_index)
     |> validate_capabilities(capabilities)
+    |> validate_query_capability_references(query, detail_actions, capabilities)
     |> validate_actions(actions, capabilities, writes, field_index)
     |> validate_source_relationships(source_relationships, field_index)
     |> validate_choice_sources(choice_sources, source_relationships, capabilities)
@@ -2780,6 +2781,204 @@ defmodule Selecto.Domain.Contract do
         ]
       end
     end)
+  end
+
+  defp validate_query_capability_references(errors, query, detail_actions, capabilities) do
+    errors
+    |> validate_filter_capability_references(map_value(query, :filters), capabilities)
+    |> validate_function_capability_references(map_value(query, :functions), capabilities)
+    |> validate_query_member_capability_references(map_value(query, :query_members), capabilities)
+    |> validate_published_view_capability_references(
+      map_value(query, :published_views),
+      capabilities
+    )
+    |> validate_detail_action_capability_references(detail_actions, capabilities)
+  end
+
+  defp validate_filter_capability_references(errors, filters, capabilities)
+       when is_map(filters) do
+    Enum.reduce(filters, errors, fn
+      {filter_id, filter_config}, acc when is_map(filter_config) ->
+        validate_capability_reference(
+          acc,
+          map_value(filter_config, :capability),
+          [:filters, filter_id, :capability],
+          capabilities,
+          :filter_capability_not_found,
+          :invalid_filter_capability,
+          "filter #{inspect(filter_id)}",
+          filter: filter_id
+        )
+
+      _entry, acc ->
+        acc
+    end)
+  end
+
+  defp validate_filter_capability_references(errors, _filters, _capabilities), do: errors
+
+  defp validate_function_capability_references(errors, functions, capabilities)
+       when is_map(functions) do
+    Enum.reduce(functions, errors, fn
+      {function_id, function_spec}, acc when is_map(function_spec) ->
+        validate_capability_reference(
+          acc,
+          map_value(function_spec, :capability),
+          [:functions, function_id, :capability],
+          capabilities,
+          :function_capability_not_found,
+          :invalid_function_capability,
+          "function #{inspect(function_id)}",
+          function: function_id
+        )
+
+      _entry, acc ->
+        acc
+    end)
+  end
+
+  defp validate_function_capability_references(errors, _functions, _capabilities), do: errors
+
+  defp validate_query_member_capability_references(errors, query_members, capabilities)
+       when is_map(query_members) do
+    Enum.reduce(@query_member_groups, errors, fn group_key, acc ->
+      case fetch_map_value(query_members, group_key) do
+        members when is_map(members) ->
+          Enum.reduce(members, acc, fn
+            {member_id, member_spec}, member_acc when is_map(member_spec) ->
+              validate_capability_reference(
+                member_acc,
+                map_value(member_spec, :capability),
+                [:query_members, group_key, member_id, :capability],
+                capabilities,
+                :query_member_capability_not_found,
+                :invalid_query_member_capability,
+                "query member #{inspect(member_id)}",
+                group: group_key,
+                member: member_id
+              )
+
+            _entry, member_acc ->
+              member_acc
+          end)
+
+        _members ->
+          acc
+      end
+    end)
+  end
+
+  defp validate_query_member_capability_references(errors, _query_members, _capabilities),
+    do: errors
+
+  defp validate_published_view_capability_references(errors, published_views, capabilities)
+       when is_map(published_views) do
+    Enum.reduce(published_views, errors, fn
+      {view_id, view_spec}, acc when is_map(view_spec) ->
+        validate_capability_reference(
+          acc,
+          map_value(view_spec, :capability),
+          [:published_views, view_id, :capability],
+          capabilities,
+          :published_view_capability_not_found,
+          :invalid_published_view_capability,
+          "published view #{inspect(view_id)}",
+          view: view_id
+        )
+
+      _entry, acc ->
+        acc
+    end)
+  end
+
+  defp validate_published_view_capability_references(errors, _published_views, _capabilities),
+    do: errors
+
+  defp validate_detail_action_capability_references(errors, detail_actions, capabilities)
+       when is_map(detail_actions) do
+    Enum.reduce(detail_actions, errors, fn
+      {action_id, action_spec}, acc when is_map(action_spec) ->
+        validate_capability_reference(
+          acc,
+          map_value(action_spec, :capability),
+          [:detail_actions, action_id, :capability],
+          capabilities,
+          :detail_action_capability_not_found,
+          :invalid_detail_action_capability,
+          "detail action #{inspect(action_id)}",
+          action: action_id
+        )
+
+      _entry, acc ->
+        acc
+    end)
+  end
+
+  defp validate_detail_action_capability_references(errors, _detail_actions, _capabilities),
+    do: errors
+
+  defp validate_capability_reference(
+         errors,
+         nil,
+         _path,
+         _capabilities,
+         _missing,
+         _invalid,
+         _subject,
+         _attrs
+       ) do
+    errors
+  end
+
+  defp validate_capability_reference(
+         errors,
+         capability,
+         path,
+         capabilities,
+         missing_code,
+         _invalid_code,
+         subject,
+         attrs
+       )
+       when is_atom(capability) or is_binary(capability) do
+    if is_map(capabilities) and fetch_key(capabilities, capability) != :error do
+      errors
+    else
+      [
+        error(
+          missing_code,
+          path,
+          "#{subject} references missing capability #{inspect(capability)}",
+          Keyword.put(attrs, :capability, capability)
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_capability_reference(
+         errors,
+         capability,
+         path,
+         _capabilities,
+         _missing_code,
+         invalid_code,
+         subject,
+         attrs
+       ) do
+    [
+      error(
+        invalid_code,
+        path,
+        "#{subject} capability must be an atom or string",
+        Keyword.merge(attrs,
+          expected: "atom or string",
+          actual: value_type(capability),
+          capability: capability
+        )
+      )
+      | errors
+    ]
   end
 
   defp validate_actions(errors, actions, capabilities, writes, field_index)
