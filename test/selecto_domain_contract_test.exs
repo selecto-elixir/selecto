@@ -305,6 +305,230 @@ defmodule Selecto.DomainContractTest do
                )
     end
 
+    test "accepts query field list UDF references" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          "similarity" => %{
+            kind: :scalar,
+            sql_name: "public.similarity",
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ],
+            returns: :float,
+            allowed_in: [:select, :order_by, :group_by]
+          },
+          name_key: %{
+            kind: :scalar,
+            sql_name: "lower",
+            args: [%{name: :value, type: :string, source: :selector}],
+            allowed_in: [:select]
+          }
+        })
+        |> Map.merge(%{
+          default_selected: [
+            {:udf, "similarity", ["status", "open"]},
+            {:field, {:udf, "similarity", ["customers.name", "Acme"]}, "score"},
+            {:udf, "similarity", [{:udf, "name_key", ["status"]}, "open"]}
+          ],
+          required_selected: [{:udf, "name_key", ["status"]}],
+          required_order_by: [{{:udf, "similarity", ["status", "open"]}, :desc}],
+          required_group_by: [{:rollup, [{:udf, "similarity", ["status", "open"]}]}]
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates query field list UDF references" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          "select_only" => %{kind: :scalar, sql_name: "lower", allowed_in: [:select]},
+          "order_only" => %{kind: :scalar, sql_name: "lower", allowed_in: [:order_by]}
+        })
+        |> Map.merge(%{
+          default_selected: [{:udf, 123, []}, {:udf, "missing_select", []}],
+          required_selected: [{:field, {:udf, "missing_alias", []}, "bad"}],
+          required_order_by: [{{:udf, "select_only", []}, :asc}, {:udf, "missing_order", []}],
+          required_group_by: [{:udf, "order_only", []}, {:rollup, [{:udf, "missing_group", []}]}]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :invalid_query_function_id,
+               section: :default_selected,
+               function: 123,
+               call_site: :select,
+               path: [:default_selected, 0, :function]
+             } = error_for(diagnostics, :invalid_query_function_id)
+
+      assert %{
+               code: :query_function_not_found,
+               section: :default_selected,
+               function: "missing_select",
+               call_site: :select,
+               path: [:default_selected, 1, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_not_found),
+                 &(&1.function == "missing_select")
+               )
+
+      assert %{
+               code: :query_function_not_found,
+               section: :required_selected,
+               function: "missing_alias",
+               call_site: :select,
+               path: [:required_selected, 0, :field, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_not_found),
+                 &(&1.function == "missing_alias")
+               )
+
+      assert %{
+               code: :query_function_call_site_not_allowed,
+               section: :required_order_by,
+               function: "select_only",
+               call_site: :order_by,
+               allowed_in: [:select],
+               path: [:required_order_by, 0, :field, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_call_site_not_allowed),
+                 &(&1.function == "select_only")
+               )
+
+      assert %{
+               code: :query_function_not_found,
+               section: :required_order_by,
+               function: "missing_order",
+               call_site: :order_by,
+               path: [:required_order_by, 1, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_not_found),
+                 &(&1.function == "missing_order")
+               )
+
+      assert %{
+               code: :query_function_call_site_not_allowed,
+               section: :required_group_by,
+               function: "order_only",
+               call_site: :group_by,
+               allowed_in: [:order_by],
+               path: [:required_group_by, 0, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_call_site_not_allowed),
+                 &(&1.function == "order_only")
+               )
+
+      assert %{
+               code: :query_function_not_found,
+               section: :required_group_by,
+               function: "missing_group",
+               call_site: :group_by,
+               path: [:required_group_by, 1, :rollup, 0, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_not_found),
+                 &(&1.function == "missing_group")
+               )
+    end
+
+    test "validates query field list UDF argument metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          "needs_selector" => %{
+            kind: :scalar,
+            sql_name: "lower",
+            args: [%{name: :input, type: :string, source: :selector}],
+            allowed_in: [:select]
+          },
+          "two_args" => %{
+            kind: :scalar,
+            sql_name: "concat",
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ],
+            allowed_in: [:select]
+          },
+          "nested_order_only" => %{
+            kind: :scalar,
+            sql_name: "lower",
+            args: [%{name: :input, type: :string, source: :selector}],
+            allowed_in: [:order_by]
+          }
+        })
+        |> Map.merge(%{
+          default_selected: [
+            {:udf, "needs_selector", ["missing_status"]},
+            {:udf, "needs_selector", []},
+            {:udf, "two_args", ["status"]},
+            {:udf, "needs_selector", [{:udf, "nested_order_only", ["status"]}]}
+          ]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :query_field_not_found,
+               section: :default_selected,
+               field: "missing_status",
+               path: [:default_selected, 0, :args, 0]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_field_not_found),
+                 &(&1.field == "missing_status")
+               )
+
+      assert %{
+               code: :query_function_arg_count_mismatch,
+               section: :default_selected,
+               function: "needs_selector",
+               call_site: :select,
+               expected: 1,
+               actual: 0,
+               path: [:default_selected, 1, :args]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_arg_count_mismatch),
+                 &(&1.function == "needs_selector")
+               )
+
+      assert %{
+               code: :query_function_arg_count_mismatch,
+               section: :default_selected,
+               function: "two_args",
+               call_site: :select,
+               expected: 2,
+               actual: 1,
+               path: [:default_selected, 2, :args]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_arg_count_mismatch),
+                 &(&1.function == "two_args")
+               )
+
+      assert %{
+               code: :query_function_call_site_not_allowed,
+               section: :default_selected,
+               function: "nested_order_only",
+               call_site: :select,
+               allowed_in: [:order_by],
+               path: [:default_selected, 3, :args, 0, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_call_site_not_allowed),
+                 &(&1.function == "nested_order_only")
+               )
+    end
+
     test "accepts valid function registry metadata" do
       domain =
         valid_domain()

@@ -515,14 +515,16 @@ defmodule Selecto.Domain.Contract do
   defp relation_associations(_relation), do: %{}
 
   defp validate_query_field_lists(errors, query, field_index) do
+    functions = map_value(query, :functions)
+
     errors
-    |> validate_query_selection_list(query, :default_selected, field_index)
-    |> validate_query_selection_list(query, :required_selected, field_index)
-    |> validate_query_order_list(query, :required_order_by, field_index)
-    |> validate_query_group_list(query, :required_group_by, field_index)
+    |> validate_query_selection_list(query, :default_selected, field_index, functions)
+    |> validate_query_selection_list(query, :required_selected, field_index, functions)
+    |> validate_query_order_list(query, :required_order_by, field_index, functions)
+    |> validate_query_group_list(query, :required_group_by, field_index, functions)
   end
 
-  defp validate_query_selection_list(errors, query, section, field_index) do
+  defp validate_query_selection_list(errors, query, section, field_index, functions) do
     case map_value(query, section) do
       nil ->
         errors
@@ -531,7 +533,14 @@ defmodule Selecto.Domain.Contract do
         selections
         |> Enum.with_index()
         |> Enum.reduce(errors, fn {selection, index}, acc ->
-          validate_query_selection_entry(acc, section, selection, [section, index], field_index)
+          validate_query_selection_entry(
+            acc,
+            section,
+            selection,
+            [section, index],
+            field_index,
+            functions
+          )
         end)
 
       selections ->
@@ -539,7 +548,7 @@ defmodule Selecto.Domain.Contract do
     end
   end
 
-  defp validate_query_order_list(errors, query, section, field_index) do
+  defp validate_query_order_list(errors, query, section, field_index, functions) do
     case map_value(query, section) do
       nil ->
         errors
@@ -548,7 +557,14 @@ defmodule Selecto.Domain.Contract do
         order_by
         |> Enum.with_index()
         |> Enum.reduce(errors, fn {order_entry, index}, acc ->
-          validate_query_order_entry(acc, section, order_entry, [section, index], field_index)
+          validate_query_order_entry(
+            acc,
+            section,
+            order_entry,
+            [section, index],
+            field_index,
+            functions
+          )
         end)
 
       order_by ->
@@ -556,7 +572,7 @@ defmodule Selecto.Domain.Contract do
     end
   end
 
-  defp validate_query_group_list(errors, query, section, field_index) do
+  defp validate_query_group_list(errors, query, section, field_index, functions) do
     case map_value(query, section) do
       nil ->
         errors
@@ -565,7 +581,14 @@ defmodule Selecto.Domain.Contract do
         group_by
         |> Enum.with_index()
         |> Enum.reduce(errors, fn {group_entry, index}, acc ->
-          validate_query_group_entry(acc, section, group_entry, [section, index], field_index)
+          validate_query_group_entry(
+            acc,
+            section,
+            group_entry,
+            [section, index],
+            field_index,
+            functions
+          )
         end)
 
       group_by ->
@@ -586,13 +609,28 @@ defmodule Selecto.Domain.Contract do
     ]
   end
 
-  defp validate_query_selection_entry(errors, section, field, path, field_index)
+  defp validate_query_selection_entry(errors, section, field, path, field_index, _functions)
        when is_atom(field) or is_binary(field) do
     validate_query_field_reference(errors, section, field, path, field_index)
   end
 
-  defp validate_query_selection_entry(errors, section, {:field, field}, path, field_index) do
-    validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+  defp validate_query_selection_entry(
+         errors,
+         section,
+         {:field, field},
+         path,
+         field_index,
+         functions
+       ) do
+    validate_query_selector_reference(
+      errors,
+      section,
+      :select,
+      field,
+      path ++ [:field],
+      field_index,
+      functions
+    )
   end
 
   defp validate_query_selection_entry(
@@ -600,46 +638,130 @@ defmodule Selecto.Domain.Contract do
          section,
          {:field, field, _alias},
          path,
-         field_index
+         field_index,
+         functions
        ) do
-    validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+    validate_query_selector_reference(
+      errors,
+      section,
+      :select,
+      field,
+      path ++ [:field],
+      field_index,
+      functions
+    )
   end
 
-  defp validate_query_selection_entry(errors, _section, entry, _path, _field_index)
+  defp validate_query_selection_entry(
+         errors,
+         section,
+         {:udf, function_id, args},
+         path,
+         field_index,
+         functions
+       )
+       when is_list(args) do
+    validate_query_function_reference(
+      errors,
+      section,
+      :select,
+      function_id,
+      args,
+      path,
+      field_index,
+      functions
+    )
+  end
+
+  defp validate_query_selection_entry(errors, _section, entry, _path, _field_index, _functions)
        when is_tuple(entry) or is_map(entry) do
     errors
   end
 
-  defp validate_query_selection_entry(errors, section, entry, path, _field_index) do
+  defp validate_query_selection_entry(errors, section, entry, path, _field_index, _functions) do
     invalid_query_field_reference(errors, section, entry, path)
-  end
-
-  defp validate_query_order_entry(errors, _section, {:raw_sql, _sql}, _path, _field_index) do
-    errors
   end
 
   defp validate_query_order_entry(
          errors,
          _section,
-         {:udf, _function_id, args},
+         {:raw_sql, _sql},
          _path,
-         _field_index
-       )
-       when is_list(args) do
+         _field_index,
+         _functions
+       ) do
     errors
   end
 
-  defp validate_query_order_entry(errors, section, {direction, field}, path, field_index)
-       when direction in @query_order_directions do
-    validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+  defp validate_query_order_entry(
+         errors,
+         section,
+         {:udf, function_id, args},
+         path,
+         field_index,
+         functions
+       )
+       when is_list(args) do
+    validate_query_function_reference(
+      errors,
+      section,
+      :order_by,
+      function_id,
+      args,
+      path,
+      field_index,
+      functions
+    )
   end
 
-  defp validate_query_order_entry(errors, section, {field, direction}, path, field_index)
+  defp validate_query_order_entry(
+         errors,
+         section,
+         {direction, field},
+         path,
+         field_index,
+         functions
+       )
        when direction in @query_order_directions do
-    validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
+    validate_query_selector_reference(
+      errors,
+      section,
+      :order_by,
+      field,
+      path ++ [:field],
+      field_index,
+      functions
+    )
   end
 
-  defp validate_query_order_entry(errors, section, {field, direction}, path, field_index)
+  defp validate_query_order_entry(
+         errors,
+         section,
+         {field, direction},
+         path,
+         field_index,
+         functions
+       )
+       when direction in @query_order_directions do
+    validate_query_selector_reference(
+      errors,
+      section,
+      :order_by,
+      field,
+      path ++ [:field],
+      field_index,
+      functions
+    )
+  end
+
+  defp validate_query_order_entry(
+         errors,
+         section,
+         {field, direction},
+         path,
+         field_index,
+         _functions
+       )
        when (is_atom(field) or is_binary(field)) and (is_atom(direction) or is_binary(direction)) do
     if query_order_direction?(direction) do
       validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
@@ -659,42 +781,73 @@ defmodule Selecto.Domain.Contract do
     end
   end
 
-  defp validate_query_order_entry(errors, section, field, path, field_index)
+  defp validate_query_order_entry(errors, section, field, path, field_index, _functions)
        when is_atom(field) or is_binary(field) do
     validate_query_field_reference(errors, section, field, path, field_index)
   end
 
-  defp validate_query_order_entry(errors, _section, entry, _path, _field_index)
+  defp validate_query_order_entry(errors, _section, entry, _path, _field_index, _functions)
        when is_tuple(entry) or is_map(entry) do
     errors
   end
 
-  defp validate_query_order_entry(errors, section, entry, path, _field_index) do
+  defp validate_query_order_entry(errors, section, entry, path, _field_index, _functions) do
     invalid_query_field_reference(errors, section, entry, path)
-  end
-
-  defp validate_query_group_entry(errors, _section, {:raw_sql, _sql}, _path, _field_index) do
-    errors
   end
 
   defp validate_query_group_entry(
          errors,
          _section,
-         {:udf, _function_id, args},
+         {:raw_sql, _sql},
          _path,
-         _field_index
-       )
-       when is_list(args) do
+         _field_index,
+         _functions
+       ) do
     errors
   end
 
-  defp validate_query_group_entry(errors, section, {wrapper, groups}, path, field_index)
+  defp validate_query_group_entry(
+         errors,
+         section,
+         {:udf, function_id, args},
+         path,
+         field_index,
+         functions
+       )
+       when is_list(args) do
+    validate_query_function_reference(
+      errors,
+      section,
+      :group_by,
+      function_id,
+      args,
+      path,
+      field_index,
+      functions
+    )
+  end
+
+  defp validate_query_group_entry(
+         errors,
+         section,
+         {wrapper, groups},
+         path,
+         field_index,
+         functions
+       )
        when wrapper in @query_group_wrappers do
     if is_list(groups) do
       groups
       |> Enum.with_index()
       |> Enum.reduce(errors, fn {group, index}, acc ->
-        validate_query_group_entry(acc, section, group, path ++ [wrapper, index], field_index)
+        validate_query_group_entry(
+          acc,
+          section,
+          group,
+          path ++ [wrapper, index],
+          field_index,
+          functions
+        )
       end)
     else
       [
@@ -712,18 +865,431 @@ defmodule Selecto.Domain.Contract do
     end
   end
 
-  defp validate_query_group_entry(errors, section, field, path, field_index)
+  defp validate_query_group_entry(errors, section, field, path, field_index, _functions)
        when is_atom(field) or is_binary(field) do
     validate_query_field_reference(errors, section, field, path, field_index)
   end
 
-  defp validate_query_group_entry(errors, _section, entry, _path, _field_index)
+  defp validate_query_group_entry(errors, _section, entry, _path, _field_index, _functions)
        when is_tuple(entry) or is_map(entry) do
     errors
   end
 
-  defp validate_query_group_entry(errors, section, entry, path, _field_index) do
+  defp validate_query_group_entry(errors, section, entry, path, _field_index, _functions) do
     invalid_query_field_reference(errors, section, entry, path)
+  end
+
+  defp validate_query_selector_reference(
+         errors,
+         section,
+         call_site,
+         {:udf, function_id, args},
+         path,
+         field_index,
+         functions
+       )
+       when is_list(args) do
+    validate_query_function_reference(
+      errors,
+      section,
+      call_site,
+      function_id,
+      args,
+      path,
+      field_index,
+      functions
+    )
+  end
+
+  defp validate_query_selector_reference(
+         errors,
+         section,
+         _call_site,
+         field,
+         path,
+         field_index,
+         _functions
+       )
+       when is_atom(field) or is_binary(field) do
+    validate_query_field_reference(errors, section, field, path, field_index)
+  end
+
+  defp validate_query_selector_reference(
+         errors,
+         _section,
+         _call_site,
+         expression,
+         _path,
+         _field_index,
+         _functions
+       )
+       when is_tuple(expression) or is_map(expression) do
+    errors
+  end
+
+  defp validate_query_selector_reference(
+         errors,
+         section,
+         _call_site,
+         field,
+         path,
+         _field_index,
+         _functions
+       ) do
+    invalid_query_field_reference(errors, section, field, path)
+  end
+
+  defp validate_query_function_reference(
+         errors,
+         section,
+         call_site,
+         function_id,
+         args,
+         path,
+         field_index,
+         functions
+       ) do
+    function_path = path ++ [:function]
+
+    cond do
+      not non_empty_atom_or_string?(function_id) ->
+        [
+          error(
+            :invalid_query_function_id,
+            function_path,
+            "query function references must use a non-empty atom or string id",
+            expected: "non-empty atom or string",
+            actual: value_type(function_id),
+            section: section,
+            function: function_id,
+            call_site: call_site
+          )
+          | errors
+        ]
+
+      not is_map(functions) ->
+        query_function_not_found_error(errors, section, call_site, function_id, function_path)
+
+      true ->
+        case fetch_key(functions, function_id) do
+          {:ok, function_spec} ->
+            errors
+            |> validate_query_function_call_site(
+              section,
+              call_site,
+              function_id,
+              function_spec,
+              function_path
+            )
+            |> validate_query_function_args(
+              section,
+              call_site,
+              function_id,
+              args,
+              function_spec,
+              path,
+              field_index,
+              functions
+            )
+
+          :error ->
+            query_function_not_found_error(errors, section, call_site, function_id, function_path)
+        end
+    end
+  end
+
+  defp query_function_not_found_error(errors, section, call_site, function_id, path) do
+    [
+      error(
+        :query_function_not_found,
+        path,
+        "query references missing function #{inspect(function_id)}",
+        section: section,
+        function: function_id,
+        call_site: call_site
+      )
+      | errors
+    ]
+  end
+
+  defp validate_query_function_call_site(
+         errors,
+         _section,
+         _call_site,
+         _function_id,
+         function_spec,
+         _path
+       )
+       when not is_map(function_spec) do
+    errors
+  end
+
+  defp validate_query_function_call_site(
+         errors,
+         section,
+         call_site,
+         function_id,
+         function_spec,
+         path
+       ) do
+    case map_value(function_spec, :allowed_in) do
+      nil ->
+        errors
+
+      allowed_in when is_list(allowed_in) ->
+        if call_site in allowed_in do
+          errors
+        else
+          [
+            error(
+              :query_function_call_site_not_allowed,
+              path,
+              "function #{inspect(function_id)} is not allowed in query #{call_site}",
+              section: section,
+              function: function_id,
+              call_site: call_site,
+              allowed_in: allowed_in
+            )
+            | errors
+          ]
+        end
+
+      _allowed_in ->
+        errors
+    end
+  end
+
+  defp validate_query_function_args(
+         errors,
+         _section,
+         _call_site,
+         _function_id,
+         _args,
+         function_spec,
+         _path,
+         _field_index,
+         _functions
+       )
+       when not is_map(function_spec) do
+    errors
+  end
+
+  defp validate_query_function_args(
+         errors,
+         section,
+         call_site,
+         function_id,
+         args,
+         function_spec,
+         path,
+         field_index,
+         functions
+       ) do
+    case query_function_spec_args(function_spec) do
+      :invalid ->
+        errors
+
+      spec_args ->
+        errors
+        |> validate_query_function_arg_count(
+          section,
+          call_site,
+          function_id,
+          args,
+          spec_args,
+          path
+        )
+        |> validate_query_function_selector_args(
+          section,
+          function_id,
+          args,
+          spec_args,
+          path,
+          field_index,
+          functions
+        )
+    end
+  end
+
+  defp query_function_spec_args(function_spec) do
+    case map_value(function_spec, :args) do
+      nil -> []
+      args when is_list(args) -> args
+      _args -> :invalid
+    end
+  end
+
+  defp validate_query_function_arg_count(
+         errors,
+         section,
+         call_site,
+         function_id,
+         args,
+         spec_args,
+         path
+       ) do
+    expected = length(spec_args)
+    actual = length(args)
+
+    if expected == actual do
+      errors
+    else
+      [
+        error(
+          :query_function_arg_count_mismatch,
+          path ++ [:args],
+          "function #{inspect(function_id)} expects #{expected} query argument(s), got #{actual}",
+          expected: expected,
+          actual: actual,
+          section: section,
+          function: function_id,
+          call_site: call_site
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_query_function_selector_args(
+         errors,
+         section,
+         function_id,
+         args,
+         spec_args,
+         path,
+         field_index,
+         functions
+       ) do
+    args
+    |> Enum.zip(spec_args)
+    |> Enum.with_index()
+    |> Enum.reduce(errors, fn {{arg, arg_spec}, index}, acc ->
+      validate_query_function_arg(
+        acc,
+        section,
+        function_id,
+        arg,
+        arg_spec,
+        path ++ [:args, index],
+        field_index,
+        functions
+      )
+    end)
+  end
+
+  defp validate_query_function_arg(
+         errors,
+         section,
+         _function_id,
+         arg,
+         arg_spec,
+         path,
+         field_index,
+         functions
+       )
+       when is_map(arg_spec) do
+    case map_value(arg_spec, :source) do
+      :selector ->
+        validate_query_function_selector_arg(errors, section, arg, path, field_index, functions)
+
+      _source ->
+        errors
+    end
+  end
+
+  defp validate_query_function_arg(
+         errors,
+         _section,
+         _function_id,
+         _arg,
+         _arg_spec,
+         _path,
+         _field_index,
+         _functions
+       ) do
+    errors
+  end
+
+  defp validate_query_function_selector_arg(
+         errors,
+         section,
+         {:field, field},
+         path,
+         field_index,
+         functions
+       ) do
+    validate_query_selector_reference(
+      errors,
+      section,
+      :select,
+      field,
+      path ++ [:field],
+      field_index,
+      functions
+    )
+  end
+
+  defp validate_query_function_selector_arg(
+         errors,
+         section,
+         {:field, field, _alias},
+         path,
+         field_index,
+         functions
+       ) do
+    validate_query_selector_reference(
+      errors,
+      section,
+      :select,
+      field,
+      path ++ [:field],
+      field_index,
+      functions
+    )
+  end
+
+  defp validate_query_function_selector_arg(
+         errors,
+         section,
+         {:udf, function_id, args},
+         path,
+         field_index,
+         functions
+       )
+       when is_list(args) do
+    validate_query_function_reference(
+      errors,
+      section,
+      :select,
+      function_id,
+      args,
+      path,
+      field_index,
+      functions
+    )
+  end
+
+  defp validate_query_function_selector_arg(
+         errors,
+         section,
+         field,
+         path,
+         field_index,
+         _functions
+       )
+       when is_atom(field) or is_binary(field) do
+    validate_query_field_reference(errors, section, field, path, field_index)
+  end
+
+  defp validate_query_function_selector_arg(
+         errors,
+         _section,
+         _expression,
+         _path,
+         _field_index,
+         _functions
+       ) do
+    errors
   end
 
   defp validate_query_field_reference(errors, section, field, path, field_index) do

@@ -141,6 +141,20 @@ Each section must be a list when present. Direct atom/string field references
 must refer to known fields from the root `source`, joined `schemas` using
 `"schema.field"` paths, or `custom_columns`.
 
+Explicit UDF references using `{:udf, function_id, args}` are checked against
+the function registry when they appear in selected, ordered, or grouped query
+field lists. Aliased selectors such as `{:field, {:udf, function_id, args},
+alias}` are checked the same way. The validator checks that the function id is
+a non-empty atom or string, exists in `functions`, and is allowed for the query
+call site when `allowed_in` is declared. It does not inspect UDF argument
+values or compile SQL.
+
+For registered UDFs with `args` metadata, query-list validation also checks
+argument count. Arguments declared with `source: :selector` get static field
+reference validation for direct atom/string selectors and nested UDF references.
+Arguments declared as `:value` or `:literal` are left to runtime execution
+validation.
+
 Order entries may use a direct field, `{field, direction}`, or
 `{direction, field}`. Supported directions are `:asc`, `:desc`,
 `:asc_nulls_first`, `:asc_nulls_last`, `:desc_nulls_first`, and
@@ -152,8 +166,10 @@ are not direct field references are left permissive in this slice.
 
 Invalid query list metadata produces `:invalid_section_shape`,
 `:invalid_query_field_reference`, `:query_field_not_found`,
-`:invalid_query_order_direction`, or `:invalid_query_group_wrapper`
-diagnostics.
+`:invalid_query_order_direction`, `:invalid_query_group_wrapper`,
+`:invalid_query_function_id`, `:query_function_not_found`, or
+`:query_function_call_site_not_allowed`, or
+`:query_function_arg_count_mismatch` diagnostics.
 
 ## Filter References
 
