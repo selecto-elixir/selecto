@@ -216,6 +216,163 @@ defmodule Selecto.DomainContractTest do
                )
     end
 
+    test "accepts valid function registry metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          "similarity" => %{
+            kind: :scalar,
+            sql_name: "public.similarity",
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ],
+            returns: :float,
+            allowed_in: [:select, :order_by]
+          },
+          "matches_status" => %{
+            kind: :predicate,
+            sql_name: "public.matches_status",
+            args: [
+              %{name: :status, type: :string, source: :selector},
+              %{name: :pattern, type: :string, source: :value}
+            ],
+            returns: :boolean,
+            allowed_in: [:filter]
+          },
+          "nearby_orders" => %{
+            kind: :table,
+            sql_name: "gis.nearby_orders",
+            args: [%{name: :origin, type: :string, source: :value}],
+            returns: %{columns: %{id: %{type: :integer}, distance_m: %{type: :float}}},
+            allowed_in: [:lateral, :query_member]
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates function registry metadata shape" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          123 => %{kind: :scalar, sql_name: "lower"},
+          "" => %{kind: :scalar, sql_name: "lower"},
+          "bad_spec" => [:not, :a, :map],
+          "bad_kind" => %{kind: :window, sql_name: "lower"},
+          "bad_sql" => %{kind: :scalar, sql_name: "public.drop;table"},
+          "bad_allowed_in" => %{kind: :scalar, sql_name: "lower", allowed_in: :select},
+          "bad_call_site" => %{kind: :scalar, sql_name: "lower", allowed_in: [:select, :bogus]},
+          "bad_args" => %{kind: :scalar, sql_name: "lower", args: :not_a_list},
+          "bad_arg_spec" => %{kind: :scalar, sql_name: "lower", args: [:not_a_map]},
+          "bad_arg_metadata" => %{
+            kind: :scalar,
+            sql_name: "lower",
+            args: [%{name: "", source: :unknown}]
+          },
+          "bad_predicate" => %{kind: :predicate, sql_name: "matches_status", returns: :string},
+          "bad_table" => %{kind: :table, sql_name: "nearby_orders", returns: %{columns: %{}}},
+          "bad_scalar" => %{kind: :scalar, sql_name: "lower", returns: ["string"]}
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_function_id, function: 123, path: [:functions, 123]} =
+               Enum.find(errors_for(diagnostics, :invalid_function_id), &(&1.function == 123))
+
+      assert %{code: :invalid_function_id, function: "", path: [:functions, ""]} =
+               Enum.find(errors_for(diagnostics, :invalid_function_id), &(&1.function == ""))
+
+      assert %{
+               code: :invalid_function_spec,
+               function: "bad_spec",
+               path: [:functions, "bad_spec"]
+             } = error_for(diagnostics, :invalid_function_spec)
+
+      assert %{
+               code: :invalid_function_kind,
+               function: "bad_kind",
+               kind: :window,
+               path: [:functions, "bad_kind", :kind]
+             } = error_for(diagnostics, :invalid_function_kind)
+
+      assert %{
+               code: :invalid_function_sql_name,
+               function: "bad_sql",
+               path: [:functions, "bad_sql", :sql_name]
+             } = error_for(diagnostics, :invalid_function_sql_name)
+
+      assert %{
+               code: :invalid_function_allowed_in,
+               function: "bad_allowed_in",
+               path: [:functions, "bad_allowed_in", :allowed_in]
+             } = error_for(diagnostics, :invalid_function_allowed_in)
+
+      assert %{
+               code: :invalid_function_call_site,
+               function: "bad_call_site",
+               call_site: :bogus,
+               path: [:functions, "bad_call_site", :allowed_in, 1]
+             } = error_for(diagnostics, :invalid_function_call_site)
+
+      assert %{
+               code: :invalid_function_args,
+               function: "bad_args",
+               path: [:functions, "bad_args", :args]
+             } = error_for(diagnostics, :invalid_function_args)
+
+      assert %{
+               code: :invalid_function_arg_spec,
+               function: "bad_arg_spec",
+               path: [:functions, "bad_arg_spec", :args, 0]
+             } = error_for(diagnostics, :invalid_function_arg_spec)
+
+      assert %{
+               code: :invalid_function_arg_name,
+               function: "bad_arg_metadata",
+               path: [:functions, "bad_arg_metadata", :args, 0, :name]
+             } = error_for(diagnostics, :invalid_function_arg_name)
+
+      assert %{
+               code: :missing_function_arg_type,
+               function: "bad_arg_metadata",
+               path: [:functions, "bad_arg_metadata", :args, 0, :type]
+             } = error_for(diagnostics, :missing_function_arg_type)
+
+      assert %{
+               code: :invalid_function_arg_source,
+               function: "bad_arg_metadata",
+               source: :unknown,
+               path: [:functions, "bad_arg_metadata", :args, 0, :source]
+             } = error_for(diagnostics, :invalid_function_arg_source)
+
+      returns_errors = errors_for(diagnostics, :invalid_function_returns)
+
+      assert Enum.any?(
+               returns_errors,
+               &match?(
+                 %{function: "bad_predicate", path: [:functions, "bad_predicate", :returns]},
+                 &1
+               )
+             )
+
+      assert Enum.any?(
+               returns_errors,
+               &match?(
+                 %{function: "bad_table", path: [:functions, "bad_table", :returns]},
+                 &1
+               )
+             )
+
+      assert Enum.any?(
+               returns_errors,
+               &match?(
+                 %{function: "bad_scalar", path: [:functions, "bad_scalar", :returns]},
+                 &1
+               )
+             )
+    end
+
     test "accepts write transition graphs for known fields" do
       domain =
         valid_domain()

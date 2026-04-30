@@ -147,6 +147,28 @@ Invalid filter registry metadata produces `:invalid_filter_id`,
 `:invalid_filter_config`, `:invalid_filter_field`, or `:invalid_filter_type`
 diagnostics.
 
+## Function Registry
+
+`functions` must be a map when present. Each function id must be a non-empty
+atom or string, and each function spec must be a map. Function specs validate
+the current UDF metadata contract:
+
+- `kind` must be `:scalar`, `:predicate`, or `:table`.
+- `sql_name` must be a safe SQL function identifier such as `"lower"` or
+  `"public.similarity"`.
+- optional `allowed_in` must be a list of supported call sites.
+- optional `args` must be a list of arg maps with non-empty `name`, declared
+  `type`, and `source` set to `:selector`, `:value`, or `:literal`.
+- predicate functions must return `:boolean`.
+- table functions must return `%{columns: %{...}}`.
+- scalar function returns may be omitted or declared as an atom or
+  `{:array, type}` tuple.
+
+Invalid function metadata produces diagnostics such as `:invalid_function_id`,
+`:invalid_function_spec`, `:invalid_function_kind`,
+`:invalid_function_sql_name`, `:invalid_function_call_site`,
+`:invalid_function_arg_source`, or `:invalid_function_returns`.
+
 ## Write Transitions
 
 `writes.transitions` is the first proposed write contract section with strict
