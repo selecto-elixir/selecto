@@ -129,14 +129,23 @@ available in `schemas` unless it explicitly targets `:source`.
 
 ## Filter References
 
-The first contract also validates filter references. Registered filters with a
-`field` and expressions in `required_filters` must refer to known fields from:
+The first contract also validates filter registry metadata and filter
+references. `filters` must be a map. Each filter id must be a non-empty atom or
+string, and each filter config must be a map. Virtual filters may omit `field`.
+When present, `field` must be a non-empty atom or dotted string path and `type`
+must be a non-empty atom or string.
+
+Registered filters with a `field` and expressions in `required_filters` must
+refer to known fields from:
 
 - the root `source`
 - entries in `schemas`, addressed as `"schema.field"`
 - `custom_columns`
 
 Unknown filter fields produce `:filter_field_not_found` diagnostics.
+Invalid filter registry metadata produces `:invalid_filter_id`,
+`:invalid_filter_config`, `:invalid_filter_field`, or `:invalid_filter_type`
+diagnostics.
 
 ## Write Transitions
 

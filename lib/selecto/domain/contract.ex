@@ -506,13 +506,9 @@ defmodule Selecto.Domain.Contract do
 
   defp validate_filter_registry(errors, filters, field_index) when is_map(filters) do
     Enum.reduce(filters, errors, fn {filter_id, filter_config}, acc ->
-      case map_value(filter_config, :field) do
-        nil ->
-          acc
-
-        field ->
-          validate_field_reference(acc, field, [:filters, filter_id, :field], field_index)
-      end
+      acc
+      |> validate_filter_id(filter_id)
+      |> validate_filter_config(filter_id, filter_config, field_index)
     end)
   end
 
@@ -527,6 +523,95 @@ defmodule Selecto.Domain.Contract do
       )
       | errors
     ]
+  end
+
+  defp validate_filter_id(errors, filter_id) do
+    if valid_filter_metadata_ref?(filter_id) do
+      errors
+    else
+      [
+        error(
+          :invalid_filter_id,
+          [:filters, filter_id],
+          "filter id #{inspect(filter_id)} must be a non-empty atom or string",
+          expected: "non-empty atom or string",
+          actual: value_type(filter_id),
+          filter: filter_id
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_filter_config(errors, filter_id, filter_config, field_index)
+       when is_map(filter_config) do
+    errors
+    |> validate_filter_config_field(filter_id, filter_config, field_index)
+    |> validate_filter_config_type(filter_id, filter_config)
+  end
+
+  defp validate_filter_config(errors, filter_id, filter_config, _field_index) do
+    [
+      error(
+        :invalid_filter_config,
+        [:filters, filter_id],
+        "filter #{inspect(filter_id)} config must be a map",
+        expected: :map,
+        actual: value_type(filter_config),
+        filter: filter_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_filter_config_field(errors, filter_id, filter_config, field_index) do
+    if has_key?(filter_config, :field) do
+      field = map_value(filter_config, :field)
+
+      if valid_static_source_path?(field) do
+        validate_field_reference(errors, field, [:filters, filter_id, :field], field_index)
+      else
+        [
+          error(
+            :invalid_filter_field,
+            [:filters, filter_id, :field],
+            "filter #{inspect(filter_id)} field must be a non-empty atom or dotted string path",
+            expected: "non-empty atom or dotted string path",
+            actual: value_type(field),
+            filter: filter_id,
+            field: field
+          )
+          | errors
+        ]
+      end
+    else
+      errors
+    end
+  end
+
+  defp validate_filter_config_type(errors, filter_id, filter_config) do
+    if has_key?(filter_config, :type) do
+      type = map_value(filter_config, :type)
+
+      if valid_filter_metadata_ref?(type) do
+        errors
+      else
+        [
+          error(
+            :invalid_filter_type,
+            [:filters, filter_id, :type],
+            "filter #{inspect(filter_id)} type must be a non-empty atom or string",
+            expected: "non-empty atom or string",
+            actual: value_type(type),
+            filter: filter_id,
+            type: type
+          )
+          | errors
+        ]
+      end
+    else
+      errors
+    end
   end
 
   defp validate_required_filters(errors, required_filters, field_index)
@@ -2863,6 +2948,12 @@ defmodule Selecto.Domain.Contract do
   end
 
   defp enum_value?(_value, _allowed), do: false
+
+  defp valid_filter_metadata_ref?(value) when is_atom(value), do: not is_nil(value)
+
+  defp valid_filter_metadata_ref?(value) when is_binary(value), do: String.trim(value) != ""
+
+  defp valid_filter_metadata_ref?(_value), do: false
 
   defp map_value(map, key) when is_map(map) and is_atom(key) do
     case Map.fetch(map, key) do

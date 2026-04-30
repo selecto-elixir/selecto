@@ -142,6 +142,80 @@ defmodule Selecto.DomainContractTest do
       refute Enum.any?(errors, &match?(%{field: "virtual_search"}, &1))
     end
 
+    test "validates filter registry metadata shape" do
+      domain =
+        valid_domain()
+        |> Map.merge(%{
+          filters: %{
+            123 => %{field: :status, type: :string},
+            "" => %{field: :status, type: :string},
+            "bad_config" => [:not, :a, :map],
+            "bad_field" => %{field: 123, type: :integer},
+            "bad_type" => %{field: :status, type: {:array, :string}},
+            "blank_field" => %{field: " ", type: :string},
+            "blank_type" => %{field: :status, type: ""}
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_filter_id, filter: 123, path: [:filters, 123]} =
+               Enum.find(errors_for(diagnostics, :invalid_filter_id), &(&1.filter == 123))
+
+      assert %{code: :invalid_filter_id, filter: "", path: [:filters, ""]} =
+               Enum.find(errors_for(diagnostics, :invalid_filter_id), &(&1.filter == ""))
+
+      assert %{
+               code: :invalid_filter_config,
+               filter: "bad_config",
+               path: [:filters, "bad_config"]
+             } = error_for(diagnostics, :invalid_filter_config)
+
+      assert %{
+               code: :invalid_filter_field,
+               filter: "bad_field",
+               field: 123,
+               path: [:filters, "bad_field", :field]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_filter_field),
+                 &(&1.filter == "bad_field")
+               )
+
+      assert %{
+               code: :invalid_filter_field,
+               filter: "blank_field",
+               field: " ",
+               path: [:filters, "blank_field", :field]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_filter_field),
+                 &(&1.filter == "blank_field")
+               )
+
+      assert %{
+               code: :invalid_filter_type,
+               filter: "bad_type",
+               type: {:array, :string},
+               path: [:filters, "bad_type", :type]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_filter_type),
+                 &(&1.filter == "bad_type")
+               )
+
+      assert %{
+               code: :invalid_filter_type,
+               filter: "blank_type",
+               type: "",
+               path: [:filters, "blank_type", :type]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_filter_type),
+                 &(&1.filter == "blank_type")
+               )
+    end
+
     test "accepts write transition graphs for known fields" do
       domain =
         valid_domain()
