@@ -691,6 +691,126 @@ defmodule Selecto.DomainContractTest do
              )
     end
 
+    test "accepts valid detail action metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:detail_actions, %{
+          profile: %{
+            name: "Profile",
+            type: :modal,
+            required_fields: [:id, "customers.name"],
+            payload: %{title: "Order"}
+          },
+          docs: %{
+            name: "Docs",
+            type: "iframe_modal",
+            required_fields: [:id],
+            payload: %{"url_template" => "/orders/{{id}}/docs"}
+          },
+          external: %{
+            name: "External",
+            type: :external_link,
+            required_fields: [:id],
+            payload: %{url_template: "https://example.test/orders/{{id}}"}
+          },
+          live: %{
+            name: "Live",
+            type: :live_component,
+            required_fields: [:id],
+            payload: %{module: ExampleLiveComponent}
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates detail action metadata shape" do
+      section_domain = valid_domain() |> Map.put(:detail_actions, [:not, :a, :map])
+
+      assert {:error, section_diagnostics} = Domain.validate(section_domain)
+
+      assert %{
+               code: :invalid_section_shape,
+               path: [:detail_actions],
+               expected: :map,
+               actual: :list
+             } = error_for(section_diagnostics, :invalid_section_shape)
+
+      domain =
+        valid_domain()
+        |> Map.put(:detail_actions, %{
+          123 => %{name: "Numeric ID", type: :modal},
+          "" => %{name: "Blank ID", type: :modal},
+          "bad_spec" => :not_a_map,
+          "bad_name" => %{name: "", type: :modal},
+          "bad_type" => %{name: "Bad Type", type: :made_up},
+          "bad_payload" => %{name: "Bad Payload", type: :modal, payload: :oops},
+          "bad_link" => %{name: "Bad Link", type: :external_link, payload: %{}},
+          "bad_iframe" => %{name: "Bad Iframe", type: :iframe_modal, payload: %{}},
+          "bad_live" => %{name: "Bad Live", type: :live_component, payload: %{}},
+          "bad_required_fields_shape" => %{
+            name: "Bad Required Fields Shape",
+            type: :modal,
+            required_fields: :id
+          },
+          "bad_required_field" => %{
+            name: "Bad Required Field",
+            type: :modal,
+            required_fields: [123]
+          },
+          "missing_required_field" => %{
+            name: "Missing Required Field",
+            type: :modal,
+            required_fields: [:missing_status]
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_detail_action_id, action: 123, path: [:detail_actions, 123]} =
+               Enum.find(errors_for(diagnostics, :invalid_detail_action_id), &(&1.action == 123))
+
+      assert %{code: :invalid_detail_action_id, action: "", path: [:detail_actions, ""]} =
+               Enum.find(errors_for(diagnostics, :invalid_detail_action_id), &(&1.action == ""))
+
+      assert %{code: :invalid_detail_action_spec, action: "bad_spec"} =
+               error_for(diagnostics, :invalid_detail_action_spec)
+
+      assert %{code: :invalid_detail_action_name, action: "bad_name"} =
+               error_for(diagnostics, :invalid_detail_action_name)
+
+      assert %{code: :invalid_detail_action_type, action: "bad_type", type: :made_up} =
+               error_for(diagnostics, :invalid_detail_action_type)
+
+      assert %{code: :invalid_detail_action_payload, action: "bad_payload"} =
+               error_for(diagnostics, :invalid_detail_action_payload)
+
+      url_template_errors = errors_for(diagnostics, :missing_detail_action_url_template)
+
+      assert Enum.any?(url_template_errors, &match?(%{action: "bad_link"}, &1))
+      assert Enum.any?(url_template_errors, &match?(%{action: "bad_iframe"}, &1))
+
+      assert %{code: :missing_detail_action_module, action: "bad_live"} =
+               error_for(diagnostics, :missing_detail_action_module)
+
+      assert %{
+               code: :invalid_detail_action_required_fields,
+               action: "bad_required_fields_shape"
+             } = error_for(diagnostics, :invalid_detail_action_required_fields)
+
+      assert %{
+               code: :invalid_detail_action_required_field,
+               action: "bad_required_field",
+               field: 123
+             } = error_for(diagnostics, :invalid_detail_action_required_field)
+
+      assert %{
+               code: :detail_action_field_not_found,
+               action: "missing_required_field",
+               field: :missing_status
+             } = error_for(diagnostics, :detail_action_field_not_found)
+    end
+
     test "accepts write transition graphs for known fields" do
       domain =
         valid_domain()

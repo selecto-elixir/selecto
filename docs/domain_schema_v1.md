@@ -239,6 +239,37 @@ Invalid published-view metadata produces diagnostics such as
 `:invalid_published_view_query`, `:invalid_published_view_columns`,
 `:invalid_published_view_index_columns`, or `:invalid_published_view_refresh`.
 
+## Detail Actions
+
+`detail_actions` must be a map when present. The normalized contract validates
+detail-row action metadata only; it does not render modals, resolve LiveView
+components, or execute links.
+
+Each detail action id must be a non-empty atom or string, and each action spec
+must be a map with:
+
+- `name` as a non-empty string
+- `type` as `:modal`, `:iframe_modal`, `:external_link`, or `:live_component`
+
+Optional metadata:
+
+- `payload` must be a map when provided.
+- `required_fields` must be a list when provided. Each entry must be a
+  non-empty atom or string and must refer to a known source, schema, or custom
+  column field.
+
+Type-specific payload checks:
+
+- `:external_link` and `:iframe_modal` require `payload.url_template` as a
+  non-empty string.
+- `:live_component` requires `payload.module` as an atom.
+
+Invalid detail-action metadata produces diagnostics such as
+`:invalid_detail_action_id`, `:invalid_detail_action_spec`,
+`:invalid_detail_action_name`, `:invalid_detail_action_type`,
+`:invalid_detail_action_payload`, `:missing_detail_action_url_template`,
+`:missing_detail_action_module`, or `:detail_action_field_not_found`.
+
 ## Write Transitions
 
 `writes.transitions` is the first proposed write contract section with strict

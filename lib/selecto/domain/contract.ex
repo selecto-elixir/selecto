@@ -43,6 +43,7 @@ defmodule Selecto.Domain.Contract do
   @order_directions [:asc, :desc]
   @query_member_groups [:ctes, :values, :subqueries, :laterals, :unnests]
   @query_member_join_types [:left, :inner, :right, :full]
+  @detail_action_types [:modal, :iframe_modal, :external_link, :live_component]
 
   @type error :: %{
           required(:code) => atom(),
@@ -76,6 +77,7 @@ defmodule Selecto.Domain.Contract do
     actions = Map.get(normalized_domain, :actions, %{})
     source_relationships = Map.get(normalized_domain, :source_relationships, %{})
     choice_sources = Map.get(normalized_domain, :choice_sources, %{})
+    detail_actions = Map.get(normalized_domain, :detail_actions, %{})
     field_index = field_index(source, schemas, projection)
 
     []
@@ -87,6 +89,7 @@ defmodule Selecto.Domain.Contract do
     |> validate_functions(query)
     |> validate_query_members(query)
     |> validate_published_views(query)
+    |> validate_detail_actions(detail_actions, field_index)
     |> validate_writes(writes, field_index)
     |> validate_capabilities(capabilities)
     |> validate_actions(actions, capabilities, writes, field_index)
@@ -1980,6 +1983,269 @@ defmodule Selecto.Domain.Contract do
         ]
     end
   end
+
+  defp validate_detail_actions(errors, detail_actions, field_index) when is_map(detail_actions) do
+    Enum.reduce(detail_actions, errors, fn {action_id, action_spec}, acc ->
+      acc
+      |> validate_detail_action_id(action_id)
+      |> validate_detail_action_spec(action_id, action_spec, field_index)
+    end)
+  end
+
+  defp validate_detail_actions(errors, detail_actions, _field_index) do
+    [
+      error(
+        :invalid_section_shape,
+        [:detail_actions],
+        "domain section :detail_actions must be a map",
+        expected: :map,
+        actual: value_type(detail_actions)
+      )
+      | errors
+    ]
+  end
+
+  defp validate_detail_action_id(errors, action_id) do
+    if non_empty_atom_or_string?(action_id) do
+      errors
+    else
+      [
+        error(
+          :invalid_detail_action_id,
+          [:detail_actions, action_id],
+          "detail action id #{inspect(action_id)} must be a non-empty atom or string",
+          expected: "non-empty atom or string",
+          actual: value_type(action_id),
+          action: action_id
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_detail_action_spec(errors, action_id, action_spec, field_index)
+       when is_map(action_spec) do
+    errors
+    |> validate_detail_action_name(action_id, action_spec)
+    |> validate_detail_action_type(action_id, action_spec)
+    |> validate_detail_action_payload(action_id, action_spec)
+    |> validate_detail_action_required_fields(action_id, action_spec, field_index)
+  end
+
+  defp validate_detail_action_spec(errors, action_id, action_spec, _field_index) do
+    [
+      error(
+        :invalid_detail_action_spec,
+        [:detail_actions, action_id],
+        "detail action #{inspect(action_id)} spec must be a map",
+        expected: :map,
+        actual: value_type(action_spec),
+        action: action_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_detail_action_name(errors, action_id, action_spec) do
+    name = map_value(action_spec, :name)
+
+    if non_empty_string?(name) do
+      errors
+    else
+      [
+        error(
+          :invalid_detail_action_name,
+          [:detail_actions, action_id, :name],
+          "detail action #{inspect(action_id)} name must be a non-empty string",
+          expected: "non-empty string",
+          actual: value_type(name),
+          action: action_id,
+          name: name
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_detail_action_type(errors, action_id, action_spec) do
+    type = map_value(action_spec, :type)
+
+    if enum_value?(type, @detail_action_types) do
+      errors
+    else
+      [
+        error(
+          :invalid_detail_action_type,
+          [:detail_actions, action_id, :type],
+          "detail action #{inspect(action_id)} type must be one of #{inspect(@detail_action_types)}",
+          expected: @detail_action_types,
+          actual: value_type(type),
+          action: action_id,
+          type: type
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_detail_action_payload(errors, action_id, action_spec) do
+    raw_payload = fetch_map_value(action_spec, :payload)
+    payload = detail_action_payload(action_spec)
+    type = normalized_detail_action_type(map_value(action_spec, :type))
+
+    errors
+    |> validate_detail_action_payload_shape(action_id, raw_payload)
+    |> validate_detail_action_url_template(action_id, type, payload)
+    |> validate_detail_action_live_component_module(action_id, type, payload)
+  end
+
+  defp validate_detail_action_payload_shape(errors, _action_id, :__missing__), do: errors
+
+  defp validate_detail_action_payload_shape(errors, _action_id, payload) when is_map(payload) do
+    errors
+  end
+
+  defp validate_detail_action_payload_shape(errors, action_id, payload) do
+    [
+      error(
+        :invalid_detail_action_payload,
+        [:detail_actions, action_id, :payload],
+        "detail action #{inspect(action_id)} payload must be a map when provided",
+        expected: :map,
+        actual: value_type(payload),
+        action: action_id
+      )
+      | errors
+    ]
+  end
+
+  defp validate_detail_action_url_template(errors, action_id, type, payload)
+       when type in [:external_link, :iframe_modal] do
+    url_template = map_value(payload, :url_template)
+
+    if non_empty_string?(url_template) do
+      errors
+    else
+      [
+        error(
+          :missing_detail_action_url_template,
+          [:detail_actions, action_id, :payload, :url_template],
+          "#{type} detail action #{inspect(action_id)} requires payload.url_template",
+          expected: "non-empty string",
+          actual: value_type(url_template),
+          action: action_id,
+          type: type
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_detail_action_url_template(errors, _action_id, _type, _payload), do: errors
+
+  defp validate_detail_action_live_component_module(errors, action_id, :live_component, payload) do
+    module = map_value(payload, :module)
+
+    if is_atom(module) and not is_nil(module) do
+      errors
+    else
+      [
+        error(
+          :missing_detail_action_module,
+          [:detail_actions, action_id, :payload, :module],
+          "live_component detail action #{inspect(action_id)} requires payload.module",
+          expected: :atom,
+          actual: value_type(module),
+          action: action_id,
+          type: :live_component
+        )
+        | errors
+      ]
+    end
+  end
+
+  defp validate_detail_action_live_component_module(errors, _action_id, _type, _payload),
+    do: errors
+
+  defp validate_detail_action_required_fields(errors, action_id, action_spec, field_index) do
+    case fetch_map_value(action_spec, :required_fields) do
+      :__missing__ ->
+        errors
+
+      nil ->
+        errors
+
+      required_fields when is_list(required_fields) ->
+        required_fields
+        |> Enum.with_index()
+        |> Enum.reduce(errors, fn {field, index}, acc ->
+          validate_detail_action_required_field(acc, action_id, field, index, field_index)
+        end)
+
+      required_fields ->
+        [
+          error(
+            :invalid_detail_action_required_fields,
+            [:detail_actions, action_id, :required_fields],
+            "detail action #{inspect(action_id)} required_fields must be a list when provided",
+            expected: :list,
+            actual: value_type(required_fields),
+            action: action_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_detail_action_required_field(errors, action_id, field, index, field_index) do
+    cond do
+      not non_empty_atom_or_string?(field) ->
+        [
+          error(
+            :invalid_detail_action_required_field,
+            [:detail_actions, action_id, :required_fields, index],
+            "detail action #{inspect(action_id)} required field must be a non-empty atom or string",
+            expected: "non-empty atom or string",
+            actual: value_type(field),
+            action: action_id,
+            field: field
+          )
+          | errors
+        ]
+
+      known_field?(field_index, field) ->
+        errors
+
+      true ->
+        [
+          error(
+            :detail_action_field_not_found,
+            [:detail_actions, action_id, :required_fields, index],
+            "detail action #{inspect(action_id)} required field #{inspect(field)} is not defined in source, schemas, or custom columns",
+            action: action_id,
+            field: field
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp detail_action_payload(action_spec) do
+    case map_value(action_spec, :payload) do
+      payload when is_map(payload) -> payload
+      _payload -> %{}
+    end
+  end
+
+  defp normalized_detail_action_type(type) do
+    if enum_value?(type, @detail_action_types) do
+      detail_action_type_id(type)
+    end
+  end
+
+  defp detail_action_type_id(type) when is_atom(type), do: type
+
+  defp detail_action_type_id(type) when is_binary(type), do: String.to_existing_atom(type)
 
   defp validate_field_reference(errors, field, path, field_index) do
     if known_field?(field_index, field) do
@@ -4258,6 +4524,10 @@ defmodule Selecto.Domain.Contract do
   defp non_empty_atom_or_string?(value) when is_binary(value), do: String.trim(value) != ""
 
   defp non_empty_atom_or_string?(_value), do: false
+
+  defp non_empty_string?(value) when is_binary(value), do: String.trim(value) != ""
+
+  defp non_empty_string?(_value), do: false
 
   defp valid_arity?(fun, arities) when is_function(fun) do
     Enum.any?(arities, &is_function(fun, &1))
