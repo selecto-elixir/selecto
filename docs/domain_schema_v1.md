@@ -390,6 +390,43 @@ Field binding validation checks:
 - optional `reference.caption_field` must be an atom or string and must refer to
   a known working-domain field.
 
+### Authoring Shorthand
+
+For authoring ergonomics, a field may declare `choice_source: %{...}` directly.
+`Selecto.Domain.normalize/1` expands that supported shorthand into the canonical
+registries without changing `Selecto.configure/3` behavior:
+
+```elixir
+customer_id: %{
+  type: :integer,
+  choice_source: %{
+    id: :customer_choices,
+    domain: :customers,
+    source_relationship: %{
+      id: :customer,
+      virtual_join: [
+        %{working_field: :customer_id, source_field: "customers.id", required: true}
+      ]
+    },
+    value_source: "customers.id",
+    caption_source: "customers.name",
+    filters: [{:eq, "customers.active", true}],
+    presentation: :select
+  }
+}
+```
+
+The normalized form contains:
+
+- `source_relationships.customer`
+- `choice_sources.customer_choices`
+- `reference: %{choice_source: :customer_choices, ...}` on the field
+- compact `choice_source: :customer_choices` on the field
+
+If `id` values are omitted, the normalizer generates deterministic string ids
+from the field path. This is canonical shorthand only; pre-0.5 legacy sections
+are still not preserved or expanded.
+
 The current slice validates static choice-source metadata and filter expression
 syntax plus static source-relationship metadata. It does not resolve external
 source-domain schemas, apply filters, fetch options, or execute membership

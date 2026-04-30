@@ -108,6 +108,70 @@ defmodule Selecto.DomainTest do
       assert :unknown_sections in warning_codes(diagnostics)
     end
 
+    test "normalizes field-level choice source shorthand into canonical registries" do
+      domain = choice_source_shorthand_domain()
+
+      assert {:ok, normalized, diagnostics} = Domain.normalize(domain)
+
+      assert normalized.authored_domain == domain
+      assert normalized.source.columns.customer_id.choice_source == :customer_choices
+
+      assert normalized.source.columns.customer_id.reference == %{
+               choice_source: :customer_choices,
+               value_source: "customers.id",
+               caption_source: "customers.name"
+             }
+
+      assert normalized.source_relationships.customer == %{
+               target_domain: :customers,
+               source_field: :customer_id,
+               target_field: "id",
+               source_path: "customers",
+               virtual_join: [
+                 %{working_field: :customer_id, source_field: "customers.id", required: true}
+               ],
+               filters: [{:eq, "customers.tenant_id", {:context, :tenant_id}}]
+             }
+
+      assert normalized.choice_sources.customer_choices == %{
+               domain: :customers,
+               source_relationship: :customer,
+               value_source: "customers.id",
+               caption_source: "customers.name",
+               value_field: "id",
+               label_field: "name",
+               source_path: "customers",
+               filters: [{:eq, "customers.active", true}],
+               order_by: ["customers.name"],
+               presentation: %{control: :select}
+             }
+
+      assert diagnostics.proposed_sections == []
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "generates deterministic string ids for choice source shorthand" do
+      domain =
+        choice_source_shorthand_domain()
+        |> update_in([:source, :columns, :customer_id, :choice_source], fn shorthand ->
+          shorthand
+          |> Map.delete(:id)
+          |> update_in([:source_relationship], &Map.delete(&1, :id))
+        end)
+
+      assert {:ok, normalized, _diagnostics} = Domain.normalize(domain)
+
+      assert normalized.source.columns.customer_id.choice_source == "customer_id_choice_source"
+
+      assert Map.has_key?(normalized.choice_sources, "customer_id_choice_source")
+      assert Map.has_key?(normalized.source_relationships, "customer_id_source_relationship")
+
+      assert normalized.choice_sources["customer_id_choice_source"].source_relationship ==
+               "customer_id_source_relationship"
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
     test "returns diagnostics for non-map input" do
       assert {:error, diagnostics} = Domain.normalize(:not_a_domain)
 
@@ -447,6 +511,30 @@ defmodule Selecto.DomainTest do
   defp future_section_domain do
     minimal_query_domain()
     |> Map.merge(future_sections())
+  end
+
+  defp choice_source_shorthand_domain do
+    minimal_query_domain()
+    |> put_in([:source, :fields], [:id, :status, :total, :customer_id])
+    |> put_in([:source, :columns, :customer_id], %{
+      type: :integer,
+      choice_source: %{
+        id: :customer_choices,
+        domain: :customers,
+        source_relationship: %{
+          id: :customer,
+          virtual_join: [
+            %{working_field: :customer_id, source_field: "customers.id", required: true}
+          ],
+          filters: [{:eq, "customers.tenant_id", {:context, :tenant_id}}]
+        },
+        value_source: "customers.id",
+        caption_source: "customers.name",
+        filters: [{:eq, "customers.active", true}],
+        order_by: ["customers.name"],
+        presentation: :select
+      }
+    })
   end
 
   defp future_sections do

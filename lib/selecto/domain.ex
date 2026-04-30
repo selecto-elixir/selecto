@@ -84,6 +84,8 @@ defmodule Selecto.Domain do
   The normalizer currently:
 
   - infers `schema_version` as `1` when it is missing
+  - expands supported field-level choice-source shorthand into canonical
+    `source_relationships`, `choice_sources`, and field reference bindings
   - classifies authored top-level sections as canonical, projection, proposed,
     or unknown
   - exposes current query, write, action, capability, relationship, and choice
@@ -105,7 +107,10 @@ defmodule Selecto.Domain do
         schema_version_inferred: schema_version_inferred
       )
 
-    {:ok, normalized_domain(domain, schema_version, sections), diagnostics}
+    canonical_domain =
+      normalize_authoring_shorthand(Map.put(domain, :schema_version, schema_version))
+
+    {:ok, normalized_domain(domain, canonical_domain, schema_version, sections), diagnostics}
   end
 
   def normalize(_domain) do
@@ -216,27 +221,375 @@ defmodule Selecto.Domain do
           "expected a normalized Selecto domain from Selecto.Domain.normalize/1 before projecting #{inspect(projection)}"
   end
 
-  defp normalized_domain(domain, schema_version, sections) do
+  defp normalized_domain(authored_domain, canonical_domain, schema_version, sections) do
     %{
       schema_version: schema_version,
-      authored_domain: domain,
-      domain: Map.put(domain, :schema_version, schema_version),
+      authored_domain: authored_domain,
+      domain: canonical_domain,
       sections: sections,
-      source: section(domain, :source),
-      schemas: section(domain, :schemas, %{}),
-      joins: section(domain, :joins, %{}),
-      query: query_sections(domain),
-      projection: projection_sections(domain),
-      writes: section(domain, :writes, %{}),
-      actions: section(domain, :actions, %{}),
-      capabilities: section(domain, :capabilities, %{}),
-      source_relationships: section(domain, :source_relationships, %{}),
-      choice_sources: section(domain, :choice_sources, %{}),
-      detail_actions: section(domain, :detail_actions, %{}),
-      domain_data: section(domain, :domain_data, %{}),
-      extensions: section(domain, :extensions, [])
+      source: section(canonical_domain, :source),
+      schemas: section(canonical_domain, :schemas, %{}),
+      joins: section(canonical_domain, :joins, %{}),
+      query: query_sections(canonical_domain),
+      projection: projection_sections(canonical_domain),
+      writes: section(canonical_domain, :writes, %{}),
+      actions: section(canonical_domain, :actions, %{}),
+      capabilities: section(canonical_domain, :capabilities, %{}),
+      source_relationships: section(canonical_domain, :source_relationships, %{}),
+      choice_sources: section(canonical_domain, :choice_sources, %{}),
+      detail_actions: section(canonical_domain, :detail_actions, %{}),
+      domain_data: section(canonical_domain, :domain_data, %{}),
+      extensions: section(canonical_domain, :extensions, [])
     }
   end
+
+  defp normalize_authoring_shorthand(domain) do
+    choice_sources = section(domain, :choice_sources, %{})
+    source_relationships = section(domain, :source_relationships, %{})
+
+    if is_map(choice_sources) and is_map(source_relationships) do
+      acc = %{
+        choice_sources: choice_sources,
+        source_relationships: source_relationships,
+        changed?: false
+      }
+
+      {domain, acc} =
+        domain
+        |> normalize_source_choice_shorthand(acc)
+        |> normalize_schema_choice_shorthand()
+        |> normalize_projection_choice_shorthand()
+
+      if acc.changed? do
+        domain
+        |> put_section(:choice_sources, acc.choice_sources)
+        |> put_section(:source_relationships, acc.source_relationships)
+      else
+        domain
+      end
+    else
+      domain
+    end
+  end
+
+  defp normalize_source_choice_shorthand(domain, acc) do
+    case section(domain, :source) do
+      source when is_map(source) ->
+        {source, acc} = normalize_relation_choice_shorthand(source, :source, acc)
+        {put_section(domain, :source, source), acc}
+
+      _source ->
+        {domain, acc}
+    end
+  end
+
+  defp normalize_schema_choice_shorthand({domain, acc}) do
+    case section(domain, :schemas, %{}) do
+      schemas when is_map(schemas) ->
+        {schemas, acc} =
+          Enum.reduce(schemas, {%{}, acc}, fn {schema_id, schema}, {schemas_acc, acc} ->
+            {schema, acc} = normalize_relation_choice_shorthand(schema, {:schema, schema_id}, acc)
+            {Map.put(schemas_acc, schema_id, schema), acc}
+          end)
+
+        {put_section(domain, :schemas, schemas), acc}
+
+      _schemas ->
+        {domain, acc}
+    end
+  end
+
+  defp normalize_projection_choice_shorthand({domain, acc}) do
+    case section(domain, :columns, %{}) do
+      columns when is_map(columns) ->
+        {columns, acc} = normalize_columns_choice_shorthand(columns, :projection, acc)
+        {put_section(domain, :columns, columns), acc}
+
+      _columns ->
+        {domain, acc}
+    end
+  end
+
+  defp normalize_relation_choice_shorthand(relation, scope, acc) when is_map(relation) do
+    case map_value(relation, :columns) do
+      columns when is_map(columns) ->
+        {columns, acc} = normalize_columns_choice_shorthand(columns, scope, acc)
+        {put_map_value(relation, :columns, columns), acc}
+
+      _columns ->
+        {relation, acc}
+    end
+  end
+
+  defp normalize_relation_choice_shorthand(relation, _scope, acc), do: {relation, acc}
+
+  defp normalize_columns_choice_shorthand(columns, scope, acc) do
+    Enum.reduce(columns, {%{}, acc}, fn {field, column}, {columns_acc, acc} ->
+      {column, acc} = normalize_column_choice_shorthand(column, scope, field, acc)
+      {Map.put(columns_acc, field, column), acc}
+    end)
+  end
+
+  defp normalize_column_choice_shorthand(column, scope, field, acc) when is_map(column) do
+    case map_value(column, :choice_source) do
+      shorthand when is_map(shorthand) ->
+        choice_source_id = shorthand_choice_source_id(shorthand, scope, field)
+
+        {choice_source, acc} =
+          shorthand_choice_source(shorthand, choice_source_id, scope, field, acc)
+
+        acc =
+          acc
+          |> put_registry_entry(:choice_sources, choice_source_id, choice_source)
+          |> Map.put(:changed?, true)
+
+        column =
+          column
+          |> delete_key_variants(:choice_source)
+          |> put_map_value(:choice_source, choice_source_id)
+          |> put_map_value(
+            :reference,
+            shorthand_field_reference(column, shorthand, choice_source_id)
+          )
+
+        {column, acc}
+
+      _choice_source ->
+        {column, acc}
+    end
+  end
+
+  defp normalize_column_choice_shorthand(column, _scope, _field, acc), do: {column, acc}
+
+  defp shorthand_choice_source(shorthand, _choice_source_id, scope, field, acc) do
+    source_relationship = map_value(shorthand, :source_relationship)
+
+    source_relationship_id =
+      shorthand_source_relationship_id(shorthand, source_relationship, scope, field)
+
+    {relationship_ref, acc} =
+      case source_relationship do
+        relationship when is_map(relationship) ->
+          relationship =
+            shorthand_source_relationship(
+              relationship,
+              shorthand,
+              source_relationship_id,
+              scope,
+              field
+            )
+
+          acc =
+            acc
+            |> put_registry_entry(:source_relationships, source_relationship_id, relationship)
+            |> Map.put(:changed?, true)
+
+          {source_relationship_id, acc}
+
+        relationship
+        when (is_atom(relationship) and not is_nil(relationship)) or is_binary(relationship) ->
+          {relationship, acc}
+
+        _relationship ->
+          {nil, acc}
+      end
+
+    choice_source =
+      shorthand
+      |> delete_key_variants(:id)
+      |> delete_key_variants(:source_relationship_id)
+      |> maybe_put_default(:domain, map_value(shorthand, :domain))
+      |> maybe_put_default(:value_field, path_leaf(map_value(shorthand, :value_source)))
+      |> maybe_put_default(:label_field, path_leaf(map_value(shorthand, :caption_source)))
+      |> maybe_put_default(:source_path, path_parent(map_value(shorthand, :value_source)))
+      |> normalize_choice_source_presentation()
+
+    choice_source =
+      if is_nil(relationship_ref) do
+        delete_key_variants(choice_source, :source_relationship)
+      else
+        put_map_value(choice_source, :source_relationship, relationship_ref)
+      end
+
+    {choice_source, acc}
+  end
+
+  defp shorthand_source_relationship(relationship, choice_source, _relationship_id, scope, field) do
+    virtual_join = map_value(relationship, :virtual_join)
+    first_virtual_join = first_virtual_join_entry(virtual_join)
+    virtual_join_source_field = map_value(first_virtual_join, :source_field)
+
+    relationship
+    |> delete_key_variants(:id)
+    |> delete_key_variants(:domain)
+    |> maybe_put_default(
+      :target_domain,
+      map_value(relationship, :target_domain) || map_value(relationship, :domain) ||
+        map_value(choice_source, :domain)
+    )
+    |> maybe_put_default(
+      :source_field,
+      map_value(relationship, :source_field) || map_value(first_virtual_join, :working_field) ||
+        scoped_field_ref(scope, field)
+    )
+    |> maybe_put_default(
+      :target_field,
+      map_value(relationship, :target_field) || path_leaf(virtual_join_source_field) ||
+        map_value(choice_source, :value_field) ||
+        path_leaf(map_value(choice_source, :value_source))
+    )
+    |> maybe_put_default(
+      :source_path,
+      map_value(relationship, :source_path) || path_parent(virtual_join_source_field) ||
+        map_value(choice_source, :source_path)
+    )
+  end
+
+  defp shorthand_field_reference(column, shorthand, choice_source_id) do
+    base_reference =
+      case map_value(column, :reference) do
+        reference when is_map(reference) -> reference
+        _reference -> %{}
+      end
+
+    base_reference
+    |> put_map_value(:choice_source, choice_source_id)
+    |> maybe_put_default(:value_source, map_value(shorthand, :value_source))
+    |> maybe_put_default(:caption_source, map_value(shorthand, :caption_source))
+  end
+
+  defp shorthand_choice_source_id(shorthand, scope, field) do
+    case map_value(shorthand, :id) do
+      id when (is_atom(id) and not is_nil(id)) or is_binary(id) -> id
+      _id -> "#{shorthand_field_prefix(scope, field)}_choice_source"
+    end
+  end
+
+  defp shorthand_source_relationship_id(shorthand, source_relationship, scope, field) do
+    id =
+      cond do
+        is_map(source_relationship) -> map_value(source_relationship, :id)
+        true -> nil
+      end
+
+    cond do
+      (is_atom(id) and not is_nil(id)) or is_binary(id) ->
+        id
+
+      source_relationship_id = map_value(shorthand, :source_relationship_id) ->
+        if (is_atom(source_relationship_id) and not is_nil(source_relationship_id)) or
+             is_binary(source_relationship_id) do
+          source_relationship_id
+        else
+          "#{shorthand_field_prefix(scope, field)}_source_relationship"
+        end
+
+      true ->
+        "#{shorthand_field_prefix(scope, field)}_source_relationship"
+    end
+  end
+
+  defp shorthand_field_prefix(:source, field), do: field_id(field)
+  defp shorthand_field_prefix(:projection, field), do: "projection_#{field_id(field)}"
+
+  defp shorthand_field_prefix({:schema, schema_id}, field),
+    do: "#{field_id(schema_id)}_#{field_id(field)}"
+
+  defp scoped_field_ref(:source, field), do: field
+  defp scoped_field_ref(:projection, field), do: field
+
+  defp scoped_field_ref({:schema, schema_id}, field),
+    do: "#{field_id(schema_id)}.#{field_id(field)}"
+
+  defp normalize_choice_source_presentation(choice_source) do
+    case map_value(choice_source, :presentation) do
+      presentation
+      when (is_atom(presentation) and not is_nil(presentation)) or is_binary(presentation) ->
+        put_map_value(choice_source, :presentation, %{control: presentation})
+
+      _presentation ->
+        choice_source
+    end
+  end
+
+  defp first_virtual_join_entry([entry | _entries]) when is_map(entry), do: entry
+  defp first_virtual_join_entry(_virtual_join), do: %{}
+
+  defp path_leaf(path) when is_atom(path), do: path
+
+  defp path_leaf(path) when is_binary(path) do
+    path
+    |> String.split(".", trim: true)
+    |> List.last()
+  end
+
+  defp path_leaf(_path), do: nil
+
+  defp path_parent(path) when is_binary(path) do
+    parts = String.split(path, ".", trim: true)
+
+    case parts do
+      [_only] -> nil
+      [_ | _] -> parts |> Enum.drop(-1) |> Enum.join(".")
+      [] -> nil
+    end
+  end
+
+  defp path_parent(_path), do: nil
+
+  defp put_registry_entry(acc, registry_key, id, entry) do
+    registry = Map.fetch!(acc, registry_key)
+
+    if registry_has_key?(registry, id) do
+      acc
+    else
+      Map.put(acc, registry_key, Map.put(registry, id, entry))
+    end
+  end
+
+  defp registry_has_key?(registry, id) when is_map(registry) do
+    Map.has_key?(registry, id) or
+      (is_atom(id) and Map.has_key?(registry, Atom.to_string(id))) or
+      (is_binary(id) and registry_has_atom_key?(registry, id))
+  end
+
+  defp registry_has_key?(_registry, _id), do: false
+
+  defp registry_has_atom_key?(registry, id) do
+    Enum.any?(Map.keys(registry), &(is_atom(&1) and Atom.to_string(&1) == id))
+  end
+
+  defp maybe_put_default(map, _key, nil), do: map
+
+  defp maybe_put_default(map, key, value) do
+    if has_key_variant?(map, key) do
+      map
+    else
+      put_map_value(map, key, value)
+    end
+  end
+
+  defp put_section(domain, key, value), do: put_map_value(domain, key, value)
+
+  defp put_map_value(map, key, value) when is_map(map) and is_atom(key) do
+    cond do
+      Map.has_key?(map, key) -> Map.put(map, key, value)
+      Map.has_key?(map, Atom.to_string(key)) -> Map.put(map, Atom.to_string(key), value)
+      true -> Map.put(map, key, value)
+    end
+  end
+
+  defp delete_key_variants(map, key) when is_map(map) and is_atom(key) do
+    map
+    |> Map.delete(key)
+    |> Map.delete(Atom.to_string(key))
+  end
+
+  defp has_key_variant?(map, key) when is_map(map) and is_atom(key) do
+    Map.has_key?(map, key) or Map.has_key?(map, Atom.to_string(key))
+  end
+
+  defp has_key_variant?(_map, _key), do: false
 
   defp base_projection(normalized) do
     authored_domain = Map.fetch!(normalized, :domain)
@@ -390,6 +743,19 @@ defmodule Selecto.Domain do
   defp value_type(value) when is_tuple(value), do: :tuple
   defp value_type(value) when is_function(value), do: :function
   defp value_type(_value), do: :term
+
+  defp field_id(field) when is_atom(field), do: Atom.to_string(field)
+  defp field_id(field) when is_binary(field), do: field
+  defp field_id(field), do: inspect(field)
+
+  defp map_value(map, key) when is_map(map) and is_atom(key) do
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, Atom.to_string(key))
+    end
+  end
+
+  defp map_value(_map, _key), do: nil
 
   defp section(domain, key, default \\ nil) do
     case fetch_section(domain, key) do
