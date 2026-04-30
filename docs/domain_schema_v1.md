@@ -169,6 +169,49 @@ Invalid function metadata produces diagnostics such as `:invalid_function_id`,
 `:invalid_function_sql_name`, `:invalid_function_call_site`,
 `:invalid_function_arg_source`, or `:invalid_function_returns`.
 
+## Query Members
+
+`query_members` must be a map when present. The normalized contract recognizes
+the current named member groups:
+
+- `ctes`
+- `values`
+- `subqueries`
+- `laterals`
+- `unnests`
+
+Each group must be a map of non-empty atom or string ids to member specs. Specs
+must be maps. The first query-member contract validates metadata shape only; it
+does not execute member functions or compile SQL.
+
+Current member checks:
+
+- CTE members require `query` or `query_builder` as a function with arity `0` or
+  `1`; recursive CTE members require `base_query` arity `0` or `1` and
+  `recursive_query` arity `1` or `2`.
+- VALUES members require `rows` or `data` as a list; optional `columns` must be
+  a list.
+- Subquery members require `query` or `query_builder` as a function with arity
+  `0` or `1`; optional `kind` must be `:join`, optional `on` must be a list,
+  optional `type` must be `:left`, `:inner`, `:right`, or `:full`, and optional
+  `join_id` must be a non-empty atom or string.
+- LATERAL members require `query`, `source`, or `lateral_source` as a tuple or
+  function with arity `0`, `1`, or `2`; optional `join_type` or `type` must be
+  `:left`, `:inner`, `:right`, or `:full`.
+- UNNEST members require `array_field` or `field` as a non-empty atom, string,
+  or tuple expression; optional `ordinality` must be a non-empty atom or string.
+- CTE and VALUES optional `join` metadata must be `true`, `false`, `nil`, a
+  list, or a map.
+- VALUES, LATERAL, and UNNEST aliases via `as`, `alias`, or `alias_name` must be
+  non-empty atoms or strings when provided.
+- LATERAL and UNNEST optional `options` must be a list or map.
+
+Invalid query-member metadata produces diagnostics such as
+`:invalid_query_member_group`, `:invalid_query_member_id`,
+`:invalid_query_member_spec`, `:invalid_query_member_query`,
+`:invalid_query_member_rows`, `:invalid_query_member_join_type`,
+`:invalid_query_member_source`, or `:invalid_query_member_field`.
+
 ## Write Transitions
 
 `writes.transitions` is the first proposed write contract section with strict

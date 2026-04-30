@@ -373,6 +373,183 @@ defmodule Selecto.DomainContractTest do
              )
     end
 
+    test "accepts valid query member registry metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:query_members, %{
+          "ctes" => %{
+            "delivered_orders" => %{
+              "query" => fn selecto -> selecto end,
+              "columns" => ["id", "status"],
+              "join" => [owner_key: :id, related_key: :id]
+            }
+          },
+          values: %{
+            status_lookup: %{
+              rows: [["delivered", "Delivered"]],
+              columns: ["status", "label"],
+              as: "status_lookup"
+            }
+          },
+          subqueries: %{
+            high_value_orders: %{
+              query: fn -> :ok end,
+              type: :inner,
+              on: [%{left: "id", right: "order_id"}]
+            }
+          },
+          laterals: %{
+            expand_tags: %{
+              source: {:unnest, "\"selecto_root\".\"tags\""},
+              join_type: :left,
+              as: "tag_rows",
+              options: [prefix: "public"]
+            }
+          },
+          unnests: %{
+            tags: %{
+              array_field: "tags",
+              as: "tag",
+              ordinality: "tag_position",
+              options: %{prefix: "public"}
+            }
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates query member section and group shapes" do
+      section_domain = valid_domain() |> Map.put(:query_members, [:not, :a, :map])
+
+      assert {:error, section_diagnostics} = Domain.validate(section_domain)
+
+      assert %{
+               code: :invalid_section_shape,
+               path: [:query_members],
+               expected: :map,
+               actual: :list
+             } = error_for(section_diagnostics, :invalid_section_shape)
+
+      group_domain = valid_domain() |> Map.put(:query_members, %{ctes: [:not, :a, :map]})
+
+      assert {:error, group_diagnostics} = Domain.validate(group_domain)
+
+      assert %{
+               code: :invalid_query_member_group,
+               group: :ctes,
+               path: [:query_members, :ctes]
+             } = error_for(group_diagnostics, :invalid_query_member_group)
+    end
+
+    test "validates query member specs by group" do
+      domain =
+        valid_domain()
+        |> Map.put(:query_members, %{
+          ctes: %{
+            123 => %{query: fn -> :ok end},
+            "bad_spec" => :not_a_map,
+            "bad_query" => %{columns: ["id"]},
+            "bad_join" => %{query: fn -> :ok end, join: :bogus}
+          },
+          values: %{
+            "bad_rows" => %{rows: :oops},
+            "bad_columns" => %{rows: [], columns: :oops},
+            "bad_alias" => %{rows: [], as: ""},
+            "bad_join" => %{rows: [], join: :bogus}
+          },
+          subqueries: %{
+            "bad_kind" => %{kind: :other, query: fn -> :ok end},
+            "bad_query" => %{query: :oops},
+            "bad_on" => %{query: fn -> :ok end, on: :oops},
+            "bad_type" => %{query: fn -> :ok end, type: :cross},
+            "bad_join_id" => %{query: fn -> :ok end, join_id: ""}
+          },
+          laterals: %{
+            "bad_source" => %{source: 123},
+            "bad_type" => %{source: {:unnest, "\"selecto_root\".\"tags\""}, join_type: :cross},
+            "bad_alias" => %{source: {:unnest, "\"selecto_root\".\"tags\""}, as: ""},
+            "bad_options" => %{source: {:unnest, "\"selecto_root\".\"tags\""}, options: :oops}
+          },
+          unnests: %{
+            "bad_field" => %{array_field: ""},
+            "bad_ordinality" => %{array_field: "tags", ordinality: 123},
+            "bad_alias" => %{array_field: "tags", as: []},
+            "bad_options" => %{array_field: "tags", options: :oops}
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_query_member_id, group: :ctes, member: 123} =
+               error_for(diagnostics, :invalid_query_member_id)
+
+      assert %{code: :invalid_query_member_spec, group: :ctes, member: "bad_spec"} =
+               error_for(diagnostics, :invalid_query_member_spec)
+
+      assert %{
+               code: :invalid_query_member_query,
+               group: :ctes,
+               member: "bad_query",
+               path: [:query_members, :ctes, "bad_query", :query]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_query),
+                 &(&1.group == :ctes)
+               )
+
+      assert %{code: :invalid_query_member_join, group: :ctes, member: "bad_join"} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_join),
+                 &(&1.group == :ctes)
+               )
+
+      assert %{code: :invalid_query_member_rows, group: :values, member: "bad_rows"} =
+               error_for(diagnostics, :invalid_query_member_rows)
+
+      assert %{code: :invalid_query_member_columns, group: :values, member: "bad_columns"} =
+               error_for(diagnostics, :invalid_query_member_columns)
+
+      assert %{code: :invalid_query_member_alias, group: :values, member: "bad_alias"} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_alias),
+                 &(&1.group == :values)
+               )
+
+      assert %{code: :invalid_query_member_kind, group: :subqueries, member: "bad_kind"} =
+               error_for(diagnostics, :invalid_query_member_kind)
+
+      assert %{code: :invalid_query_member_on, group: :subqueries, member: "bad_on"} =
+               error_for(diagnostics, :invalid_query_member_on)
+
+      assert %{code: :invalid_query_member_join_type, group: :subqueries, member: "bad_type"} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_join_type),
+                 &(&1.group == :subqueries)
+               )
+
+      assert %{code: :invalid_query_member_join_id, group: :subqueries, member: "bad_join_id"} =
+               error_for(diagnostics, :invalid_query_member_join_id)
+
+      assert %{code: :invalid_query_member_source, group: :laterals, member: "bad_source"} =
+               error_for(diagnostics, :invalid_query_member_source)
+
+      assert %{code: :invalid_query_member_options, group: :laterals, member: "bad_options"} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_options),
+                 &(&1.group == :laterals)
+               )
+
+      assert %{code: :invalid_query_member_field, group: :unnests, member: "bad_field"} =
+               error_for(diagnostics, :invalid_query_member_field)
+
+      assert %{
+               code: :invalid_query_member_ordinality,
+               group: :unnests,
+               member: "bad_ordinality"
+             } = error_for(diagnostics, :invalid_query_member_ordinality)
+    end
+
     test "accepts write transition graphs for known fields" do
       domain =
         valid_domain()
