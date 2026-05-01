@@ -562,6 +562,8 @@ defmodule Selecto.DomainTest do
       assert projection.source == %{source_table: "orders", primary_key: :id}
       assert projection.defaults.default_selected == [:id, "customers.name"]
 
+      customer_id_field = Enum.find(projection.fields, &(&1.id == "customer_id"))
+
       assert %{
                id: "customer_id",
                source: :source,
@@ -569,22 +571,57 @@ defmodule Selecto.DomainTest do
                field: "customer_id",
                type: :integer,
                label: "Customer",
-               choice_source: :customer_choices
-             } = Enum.find(projection.fields, &(&1.id == "customer_id"))
+               choice_source: :customer_choices,
+               detail_selectable: true,
+               filterable: true,
+               sortable: true,
+               groupable: true,
+               aggregatable: true,
+               aggregate_functions: [:count, :count_distinct, :sum, :avg, :min, :max]
+             } = customer_id_field
+
+      assert :between in customer_id_field.comparators
 
       assert %{
                id: "customers.name",
                source: :schema,
                relation: :customers,
                field: "name",
-               type: :string
-             } = Enum.find(projection.fields, &(&1.id == "customers.name"))
+               type: :string,
+               detail_selectable: true,
+               filterable: true,
+               sortable: true,
+               groupable: true,
+               aggregatable: false,
+               aggregate_functions: []
+             } = customers_name_field = Enum.find(projection.fields, &(&1.id == "customers.name"))
+
+      assert :contains in customers_name_field.comparators
+
+      assert %{
+               id: "inserted_at",
+               type: :utc_datetime,
+               filterable: true,
+               sortable: true,
+               groupable: true,
+               aggregatable: false,
+               aggregate_functions: []
+             } = inserted_at_field = Enum.find(projection.fields, &(&1.id == "inserted_at"))
+
+      assert :between in inserted_at_field.comparators
 
       assert %{
                id: "status_label",
                source: :custom_column,
                relation: nil,
-               type: :string
+               type: :string,
+               detail_selectable: true,
+               filterable: false,
+               sortable: true,
+               groupable: true,
+               aggregatable: false,
+               comparators: [],
+               aggregate_functions: []
              } = Enum.find(projection.fields, &(&1.id == "status_label"))
 
       assert [
@@ -599,15 +636,23 @@ defmodule Selecto.DomainTest do
                }
              ] = projection.joins
 
-      assert [
-               %{
-                 id: "status_filter",
-                 field: "status",
-                 type: :string,
-                 capability: "order.filter",
-                 virtual?: false
-               }
-             ] = projection.filters
+      assert %{
+               id: "recent",
+               field: nil,
+               type: :boolean,
+               virtual?: true,
+               comparators: []
+             } = Enum.find(projection.filters, &(&1.id == "recent"))
+
+      assert %{
+               id: "status_filter",
+               field: "status",
+               type: :string,
+               capability: "order.filter",
+               virtual?: false
+             } = status_filter = Enum.find(projection.filters, &(&1.id == "status_filter"))
+
+      assert :contains in status_filter.comparators
 
       assert [
                %{
@@ -899,12 +944,13 @@ defmodule Selecto.DomainTest do
 
   defp query_contract_domain do
     minimal_query_domain()
-    |> put_in([:source, :fields], [:id, :status, :total, :customer_id])
+    |> put_in([:source, :fields], [:id, :status, :total, :customer_id, :inserted_at])
     |> put_in([:source, :columns, :customer_id], %{
       type: :integer,
       label: "Customer",
       choice_source: :customer_choices
     })
+    |> put_in([:source, :columns, :inserted_at], %{type: :utc_datetime, label: "Inserted At"})
     |> put_in([:source, :associations, :customer], %{
       queryable: :customers,
       owner_key: :customer_id,
@@ -926,6 +972,10 @@ defmodule Selecto.DomainTest do
       joins: %{customer: %{type: :left}},
       default_selected: [:id, "customers.name"],
       filters: %{
+        "recent" => %{
+          type: :boolean,
+          label: "Recent"
+        },
         "status_filter" => %{
           field: :status,
           type: :string,

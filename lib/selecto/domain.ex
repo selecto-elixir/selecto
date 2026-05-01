@@ -14,6 +14,18 @@ defmodule Selecto.Domain do
   @current_schema_version 1
   @projections [:query, :write, :ui, :api, :query_contract]
   @query_member_groups [:ctes, :values, :subqueries, :laterals, :unnests]
+  @query_contract_numeric_types ~w(integer float decimal)
+  @query_contract_temporal_types ~w(date time datetime naive_datetime utc_datetime)
+  @query_contract_text_types ~w(string text)
+  @query_contract_exact_types ~w(boolean uuid enum)
+  @query_contract_sortable_types @query_contract_numeric_types ++
+                                   @query_contract_temporal_types ++
+                                   @query_contract_text_types ++
+                                   @query_contract_exact_types
+  @query_contract_groupable_types @query_contract_numeric_types ++
+                                    @query_contract_temporal_types ++
+                                    ["string"] ++
+                                    @query_contract_exact_types
   @query_projection_sections [
     :custom_columns,
     :jsonb_schemas,
@@ -587,36 +599,53 @@ defmodule Selecto.Domain do
   defp query_contract_fields(normalized, field_choice_bindings) do
     choice_index = query_contract_choice_index(field_choice_bindings)
 
+    filterable_fields =
+      normalized
+      |> Map.get(:query, %{})
+      |> map_value(:filters)
+      |> query_contract_filterable_fields()
+
     []
     |> Kernel.++(
       query_contract_relation_fields(
         :source,
         Map.get(normalized, :source),
         :source,
-        choice_index
+        choice_index,
+        filterable_fields
       )
     )
-    |> Kernel.++(query_contract_schema_fields(Map.get(normalized, :schemas), choice_index))
+    |> Kernel.++(
+      query_contract_schema_fields(Map.get(normalized, :schemas), choice_index, filterable_fields)
+    )
     |> Kernel.++(
       query_contract_custom_fields(
         map_value(Map.get(normalized, :projection, %{}), :custom_columns),
-        choice_index
+        choice_index,
+        filterable_fields
       )
     )
     |> Enum.sort_by(& &1.id)
   end
 
-  defp query_contract_schema_fields(schemas, choice_index) when is_map(schemas) do
+  defp query_contract_schema_fields(schemas, choice_index, filterable_fields)
+       when is_map(schemas) do
     schemas
     |> sorted_entries()
     |> Enum.flat_map(fn {schema_id, schema} ->
-      query_contract_relation_fields(schema_id, schema, :schema, choice_index)
+      query_contract_relation_fields(schema_id, schema, :schema, choice_index, filterable_fields)
     end)
   end
 
-  defp query_contract_schema_fields(_schemas, _choice_index), do: []
+  defp query_contract_schema_fields(_schemas, _choice_index, _filterable_fields), do: []
 
-  defp query_contract_relation_fields(relation_id, relation, source_kind, choice_index)
+  defp query_contract_relation_fields(
+         relation_id,
+         relation,
+         source_kind,
+         choice_index,
+         filterable_fields
+       )
        when is_map(relation) do
     relation
     |> relation_field_entries()
@@ -624,42 +653,56 @@ defmodule Selecto.Domain do
       field_ref = relation_field_ref(relation_id, field)
       id = field_id(field_ref)
 
+      type = map_value(column, :type)
+
       %{
         id: id,
         source: source_kind,
         relation: relation_id,
         field: field_id(field),
-        type: map_value(column, :type),
+        type: type,
         label: field_label(column),
         capability: map_value(column, :capability),
         choice_source: query_contract_choice_source(choice_index, id)
       }
+      |> Map.merge(query_contract_field_surface(column, id, source_kind, type, filterable_fields))
     end)
   end
 
-  defp query_contract_relation_fields(_relation_id, _relation, _source_kind, _choice_index),
-    do: []
+  defp query_contract_relation_fields(
+         _relation_id,
+         _relation,
+         _source_kind,
+         _choice_index,
+         _filterable_fields
+       ),
+       do: []
 
-  defp query_contract_custom_fields(custom_columns, choice_index) when is_map(custom_columns) do
+  defp query_contract_custom_fields(custom_columns, choice_index, filterable_fields)
+       when is_map(custom_columns) do
     custom_columns
     |> sorted_entries()
     |> Enum.map(fn {field, column} ->
       id = field_id(field)
+      type = map_value(column, :type)
 
       %{
         id: id,
         source: :custom_column,
         relation: nil,
         field: id,
-        type: map_value(column, :type),
+        type: type,
         label: field_label(column),
         capability: map_value(column, :capability),
         choice_source: query_contract_choice_source(choice_index, id)
       }
+      |> Map.merge(
+        query_contract_field_surface(column, id, :custom_column, type, filterable_fields)
+      )
     end)
   end
 
-  defp query_contract_custom_fields(_custom_columns, _choice_index), do: []
+  defp query_contract_custom_fields(_custom_columns, _choice_index, _filterable_fields), do: []
 
   defp query_contract_joins(normalized) do
     query_contract_join_tree(
@@ -726,18 +769,177 @@ defmodule Selecto.Domain do
     filters
     |> sorted_entries()
     |> Enum.map(fn {id, filter} ->
+      type = map_value(filter, :type)
+      virtual? = is_nil(map_value(filter, :field))
+
       %{
         id: id,
         field: field_ref_or_nil(map_value(filter, :field)),
-        type: map_value(filter, :type),
+        type: type,
         label: field_label(filter),
         capability: map_value(filter, :capability),
-        virtual?: is_nil(map_value(filter, :field))
+        virtual?: virtual?,
+        comparators: query_contract_filter_comparators(filter, type, virtual?)
       }
     end)
   end
 
   defp query_contract_filters(_filters), do: []
+
+  defp query_contract_filterable_fields(filters) when is_map(filters) do
+    filters
+    |> Map.values()
+    |> Enum.reduce(MapSet.new(), fn
+      filter, acc when is_map(filter) ->
+        case field_ref_or_nil(map_value(filter, :field)) do
+          nil -> acc
+          field -> MapSet.put(acc, field)
+        end
+
+      _filter, acc ->
+        acc
+    end)
+  end
+
+  defp query_contract_filterable_fields(_filters), do: MapSet.new()
+
+  defp query_contract_field_surface(column, id, source_kind, type, filterable_fields) do
+    type_id = query_contract_type_id(type)
+    detail_selectable? = query_contract_detail_selectable?(column)
+    filterable? = query_contract_filterable?(column, id, source_kind, filterable_fields)
+    aggregatable? = query_contract_aggregatable?(column, type_id, detail_selectable?)
+
+    %{
+      detail_selectable: detail_selectable?,
+      filterable: filterable?,
+      sortable: query_contract_sortable?(column, type_id, detail_selectable?),
+      groupable: query_contract_groupable?(column, type_id, detail_selectable?),
+      aggregatable: aggregatable?,
+      comparators: query_contract_comparators(column, type_id, filterable?),
+      aggregate_functions: query_contract_aggregate_functions(column, type_id, aggregatable?)
+    }
+  end
+
+  defp query_contract_detail_selectable?(column) do
+    query_contract_bool(
+      column,
+      [:detail_selectable, :detail_selectable?, :selectable, :selectable?],
+      true
+    )
+  end
+
+  defp query_contract_filterable?(column, id, source_kind, filterable_fields) do
+    default = source_kind in [:source, :schema] or MapSet.member?(filterable_fields, id)
+
+    query_contract_bool(
+      column,
+      [:filterable, :filterable?, :query_filterable, :query_filterable?],
+      default
+    )
+  end
+
+  defp query_contract_sortable?(column, type_id, detail_selectable?) do
+    query_contract_bool(
+      column,
+      [:sortable, :sortable?],
+      detail_selectable? and type_id in @query_contract_sortable_types
+    )
+  end
+
+  defp query_contract_groupable?(column, type_id, detail_selectable?) do
+    query_contract_bool(
+      column,
+      [:groupable, :groupable?],
+      detail_selectable? and type_id in @query_contract_groupable_types
+    )
+  end
+
+  defp query_contract_aggregatable?(column, type_id, detail_selectable?) do
+    query_contract_bool(
+      column,
+      [:aggregatable, :aggregatable?],
+      detail_selectable? and type_id in @query_contract_numeric_types
+    )
+  end
+
+  defp query_contract_comparators(column, type_id, filterable?) do
+    case query_contract_list_override(column, [:comparators, :operators]) do
+      {:ok, comparators} -> comparators
+      :error -> if filterable?, do: query_contract_type_comparators(type_id), else: []
+    end
+  end
+
+  defp query_contract_filter_comparators(filter, type, virtual?) do
+    type_id = query_contract_type_id(type)
+
+    case query_contract_list_override(filter, [:comparators, :operators]) do
+      {:ok, comparators} -> comparators
+      :error -> if virtual?, do: [], else: query_contract_type_comparators(type_id)
+    end
+  end
+
+  defp query_contract_aggregate_functions(column, _type_id, aggregatable?) do
+    case query_contract_list_override(column, [:aggregate_functions, :aggregates]) do
+      {:ok, aggregate_functions} -> aggregate_functions
+      :error -> if aggregatable?, do: [:count, :count_distinct, :sum, :avg, :min, :max], else: []
+    end
+  end
+
+  defp query_contract_type_comparators(type_id) when type_id in @query_contract_numeric_types,
+    do: [:eq, :neq, :gt, :gte, :lt, :lte, :between, :in, :not_in, :is_null, :not_null]
+
+  defp query_contract_type_comparators(type_id) when type_id in @query_contract_temporal_types,
+    do: [:eq, :neq, :gt, :gte, :lt, :lte, :between, :in, :not_in, :is_null, :not_null]
+
+  defp query_contract_type_comparators(type_id) when type_id in @query_contract_text_types,
+    do: [:eq, :neq, :contains, :starts_with, :ends_with, :in, :not_in, :is_null, :not_null]
+
+  defp query_contract_type_comparators("boolean"), do: [:eq, :neq, :is_null, :not_null]
+
+  defp query_contract_type_comparators(type_id) when type_id in @query_contract_exact_types,
+    do: [:eq, :neq, :in, :not_in, :is_null, :not_null]
+
+  defp query_contract_type_comparators(_type_id),
+    do: [:eq, :neq, :in, :not_in, :is_null, :not_null]
+
+  defp query_contract_bool(map, keys, default) do
+    case query_contract_bool_override(map, keys) do
+      {:ok, value} -> value
+      :error -> default
+    end
+  end
+
+  defp query_contract_bool_override(map, keys) when is_map(map) do
+    Enum.reduce_while(keys, :error, fn key, _acc ->
+      case map_value(map, key) do
+        value when is_boolean(value) -> {:halt, {:ok, value}}
+        _value -> {:cont, :error}
+      end
+    end)
+  end
+
+  defp query_contract_bool_override(_map, _keys), do: :error
+
+  defp query_contract_list_override(map, keys) when is_map(map) do
+    Enum.reduce_while(keys, :error, fn key, _acc ->
+      case map_value(map, key) do
+        values when is_list(values) -> {:halt, {:ok, values}}
+        _value -> {:cont, :error}
+      end
+    end)
+  end
+
+  defp query_contract_list_override(_map, _keys), do: :error
+
+  defp query_contract_type_id(type) when is_atom(type), do: Atom.to_string(type)
+
+  defp query_contract_type_id(type) when is_binary(type) do
+    type
+    |> String.downcase()
+    |> String.replace("-", "_")
+  end
+
+  defp query_contract_type_id(_type), do: ""
 
   defp query_contract_functions(functions) when is_map(functions) do
     functions
