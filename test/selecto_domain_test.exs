@@ -398,6 +398,7 @@ defmodule Selecto.DomainTest do
       assert inspection.counts.writes.fields == 1
       assert inspection.counts.actions == 1
       assert inspection.counts.capabilities == 1
+      assert inspection.counts.capability_usages == 1
 
       assert inspection.registries.source_fields == ["customer_id", "id", "status", "total"]
       assert inspection.registries.choice_sources == [:customer_choices]
@@ -444,10 +445,106 @@ defmodule Selecto.DomainTest do
              ] = inspection.capabilities
 
       assert [
+               %{
+                 capability: "customer.choose",
+                 section: :actions,
+                 role: :action,
+                 id: :choose_customer,
+                 path: [:actions, :choose_customer, :capability]
+               }
+             ] = inspection.capability_usage
+
+      assert [
                %{id: :choose_customer, type: :choice_source, capability: "customer.choose"}
              ] = inspection.actions
 
       assert diagnostics.schema_version == 1
+    end
+
+    test "lists capability usage across query and operation surfaces" do
+      domain =
+        query_contract_domain()
+        |> put_in([:source, :columns, :total, :capability], "order.total")
+        |> put_in([:capabilities, "order.total"], %{operations: [:select]})
+        |> Map.put(:detail_actions, %{
+          order_detail: %{
+            type: :external_link,
+            capability: "order.view",
+            payload: %{url_template: "/orders/{{id}}"}
+          }
+        })
+        |> Map.put(:actions, %{
+          choose_customer: %{type: :choice_source, capability: "customer.choose"}
+        })
+
+      assert {:ok, inspection, _diagnostics} = Domain.describe(domain)
+
+      assert inspection.counts.capability_usages == 8
+
+      assert %{
+               capability: "order.total",
+               section: :source,
+               role: :field,
+               field: :total,
+               path: [:source, :columns, :total, :capability]
+             } in inspection.capability_usage
+
+      assert %{
+               capability: "order.filter",
+               section: :filters,
+               role: :query_filter,
+               id: "status_filter",
+               path: [:filters, "status_filter", :capability]
+             } in inspection.capability_usage
+
+      assert %{
+               capability: "order.rank",
+               section: :functions,
+               role: :query_function,
+               id: "similarity",
+               path: [:functions, "similarity", :capability]
+             } in inspection.capability_usage
+
+      assert %{
+               capability: "order.member",
+               section: :query_members,
+               role: :query_member,
+               group: :values,
+               id: :status_lookup,
+               path: [:query_members, :values, :status_lookup, :capability]
+             } in inspection.capability_usage
+
+      assert %{
+               capability: "order.view",
+               section: :published_views,
+               role: :published_view,
+               id: "order_rollup",
+               path: [:published_views, "order_rollup", :capability]
+             } in inspection.capability_usage
+
+      assert %{
+               capability: "order.view",
+               section: :detail_actions,
+               role: :detail_action,
+               id: :order_detail,
+               path: [:detail_actions, :order_detail, :capability]
+             } in inspection.capability_usage
+
+      assert %{
+               capability: "customer.choose",
+               section: :actions,
+               role: :action,
+               id: :choose_customer,
+               path: [:actions, :choose_customer, :capability]
+             } in inspection.capability_usage
+
+      assert %{
+               capability: "customer.choose",
+               section: :choice_sources,
+               role: :choice_source,
+               id: :customer_choices,
+               path: [:choice_sources, :customer_choices, :capability]
+             } in inspection.capability_usage
     end
 
     test "accepts authored domains and includes normalization diagnostics" do

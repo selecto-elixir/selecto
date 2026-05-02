@@ -398,6 +398,7 @@ defmodule Selecto.Domain do
 
   defp inspection_output(normalized, diagnostics) do
     field_choice_bindings = field_choice_bindings(normalized)
+    capability_usage = inspect_capability_usage(normalized)
 
     %{
       schema_version: Map.fetch!(normalized, :schema_version),
@@ -405,11 +406,12 @@ defmodule Selecto.Domain do
       sections: inspection_sections(diagnostics),
       diagnostics: inspection_diagnostics(diagnostics),
       projections: @projections,
-      counts: inspection_counts(normalized, field_choice_bindings, diagnostics),
+      counts: inspection_counts(normalized, field_choice_bindings, capability_usage, diagnostics),
       registries: inspection_registries(normalized),
       writes: inspect_writes(Map.get(normalized, :writes, %{})),
       actions: inspect_actions(Map.get(normalized, :actions, %{})),
       capabilities: inspect_capabilities(Map.get(normalized, :capabilities, %{})),
+      capability_usage: capability_usage,
       source_relationships:
         inspect_source_relationships(Map.get(normalized, :source_relationships, %{})),
       choice_sources: inspect_choice_sources(Map.get(normalized, :choice_sources, %{})),
@@ -440,7 +442,7 @@ defmodule Selecto.Domain do
     Enum.map(diagnostics, &Map.get(&1, :code))
   end
 
-  defp inspection_counts(normalized, field_choice_bindings, diagnostics) do
+  defp inspection_counts(normalized, field_choice_bindings, capability_usage, diagnostics) do
     query = Map.get(normalized, :query, %{})
     projection = Map.get(normalized, :projection, %{})
     writes = Map.get(normalized, :writes, %{})
@@ -462,6 +464,7 @@ defmodule Selecto.Domain do
       },
       actions: map_count(Map.get(normalized, :actions)),
       capabilities: map_count(Map.get(normalized, :capabilities)),
+      capability_usages: length(capability_usage),
       source_relationships: map_count(Map.get(normalized, :source_relationships)),
       choice_sources: map_count(Map.get(normalized, :choice_sources)),
       field_choice_bindings: length(field_choice_bindings),
@@ -538,6 +541,151 @@ defmodule Selecto.Domain do
   end
 
   defp inspect_capabilities(_capabilities), do: []
+
+  defp inspect_capability_usage(normalized) do
+    query = Map.get(normalized, :query, %{})
+    projection = Map.get(normalized, :projection, %{})
+
+    []
+    |> Kernel.++(
+      inspect_relation_capability_usage(:source, Map.get(normalized, :source), [:source])
+    )
+    |> Kernel.++(inspect_schema_capability_usage(Map.get(normalized, :schemas)))
+    |> Kernel.++(
+      inspect_capability_section_usage(
+        :custom_columns,
+        map_value(projection, :custom_columns),
+        :custom_column,
+        [:custom_columns]
+      )
+    )
+    |> Kernel.++(
+      inspect_capability_section_usage(:filters, map_value(query, :filters), :query_filter, [
+        :filters
+      ])
+    )
+    |> Kernel.++(
+      inspect_capability_section_usage(
+        :functions,
+        map_value(query, :functions),
+        :query_function,
+        [:functions]
+      )
+    )
+    |> Kernel.++(inspect_query_member_capability_usage(map_value(query, :query_members)))
+    |> Kernel.++(
+      inspect_capability_section_usage(
+        :published_views,
+        map_value(query, :published_views),
+        :published_view,
+        [:published_views]
+      )
+    )
+    |> Kernel.++(
+      inspect_capability_section_usage(
+        :detail_actions,
+        Map.get(normalized, :detail_actions),
+        :detail_action,
+        [:detail_actions]
+      )
+    )
+    |> Kernel.++(
+      inspect_capability_section_usage(:actions, Map.get(normalized, :actions), :action, [
+        :actions
+      ])
+    )
+    |> Kernel.++(
+      inspect_capability_section_usage(
+        :choice_sources,
+        Map.get(normalized, :choice_sources),
+        :choice_source,
+        [:choice_sources]
+      )
+    )
+    |> Enum.sort_by(&capability_usage_sort_key/1)
+  end
+
+  defp inspect_schema_capability_usage(schemas) when is_map(schemas) do
+    schemas
+    |> sorted_entries()
+    |> Enum.flat_map(fn {schema_id, schema} ->
+      inspect_relation_capability_usage(:schemas, schema, [:schemas, schema_id])
+    end)
+  end
+
+  defp inspect_schema_capability_usage(_schemas), do: []
+
+  defp inspect_relation_capability_usage(section, relation, path_prefix) when is_map(relation) do
+    relation
+    |> relation_field_entries()
+    |> Enum.flat_map(fn {field, column} ->
+      capability_usage_entries(map_value(column, :capability), %{
+        section: section,
+        role: :field,
+        field: field,
+        path: path_prefix ++ [:columns, field, :capability]
+      })
+    end)
+  end
+
+  defp inspect_relation_capability_usage(_section, _relation, _path_prefix), do: []
+
+  defp inspect_capability_section_usage(section, registry, role, path_prefix)
+       when is_map(registry) do
+    registry
+    |> sorted_entries()
+    |> Enum.flat_map(fn {id, spec} ->
+      capability_usage_entries(map_value(spec, :capability), %{
+        section: section,
+        role: role,
+        id: id,
+        path: path_prefix ++ [id, :capability]
+      })
+    end)
+  end
+
+  defp inspect_capability_section_usage(_section, _registry, _role, _path_prefix), do: []
+
+  defp inspect_query_member_capability_usage(query_members) when is_map(query_members) do
+    Enum.flat_map(@query_member_groups, fn group ->
+      case map_value(query_members, group) do
+        members when is_map(members) ->
+          members
+          |> sorted_entries()
+          |> Enum.flat_map(fn {id, member} ->
+            capability_usage_entries(map_value(member, :capability), %{
+              section: :query_members,
+              role: :query_member,
+              group: group,
+              id: id,
+              path: [:query_members, group, id, :capability]
+            })
+          end)
+
+        _members ->
+          []
+      end
+    end)
+  end
+
+  defp inspect_query_member_capability_usage(_query_members), do: []
+
+  defp capability_usage_entries(capability, attrs)
+       when not is_nil(capability) and (is_atom(capability) or is_binary(capability)) do
+    [Map.put(attrs, :capability, capability)]
+  end
+
+  defp capability_usage_entries(_capability, _attrs), do: []
+
+  defp capability_usage_sort_key(usage) do
+    path =
+      usage
+      |> Map.fetch!(:path)
+      |> Enum.map(&field_id/1)
+      |> Enum.join(".")
+
+    {field_id(Map.fetch!(usage, :capability)), path}
+  end
 
   defp inspect_source_relationships(source_relationships) when is_map(source_relationships) do
     source_relationships
