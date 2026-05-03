@@ -337,6 +337,60 @@ defmodule Selecto.Config.OverlayTest do
       assert result.source.associations.bundle_parent_load.owner_key == :bundle_parent_id
     end
 
+    test "merges source relationships and choice sources deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        source_relationships: %{
+          customer: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: []
+          }
+        },
+        choice_sources: %{
+          customer_choices: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: %{control: :select}
+          }
+        }
+      }
+
+      overlay = %{
+        source_relationships: %{
+          customer: %{filters: [%{field: :active, op: :eq, value: true}]},
+          assignee: %{
+            target_domain: :employees,
+            source_field: :assignee_id,
+            target_field: :id
+          }
+        },
+        choice_sources: %{
+          customer_choices: %{presentation: %{mode: :searchable}},
+          assignee_choices: %{
+            domain: :employees,
+            value_field: :id,
+            label_field: :full_name
+          }
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.source_relationships.customer.target_domain == :customers
+
+      assert result.source_relationships.customer.filters == [
+               %{field: :active, op: :eq, value: true}
+             ]
+
+      assert result.source_relationships.assignee.source_field == :assignee_id
+      assert result.choice_sources.customer_choices.presentation.control == :select
+      assert result.choice_sources.customer_choices.presentation.mode == :searchable
+      assert result.choice_sources.assignee_choices.label_field == :full_name
+    end
+
     test "merges redact_fields as union" do
       base = %{
         source: %{

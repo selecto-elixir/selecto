@@ -92,6 +92,48 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert overlay.filters["price_range"].description == "Filter by price range"
       assert overlay.filters["in_stock"].default == true
     end
+
+    test "builds source relationship and choice source registries" do
+      defmodule TestChoiceSourceOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defcolumn :assignee_id do
+          label("Assignee")
+          choice_source(:work_item_assignees)
+
+          reference(%{
+            choice_source: :work_item_assignees,
+            value_source: "assignee.id",
+            caption_source: "assignee.full_name",
+            caption_field: "assignee.full_name"
+          })
+        end
+
+        defsource_relationship(:work_item_assignee, %{
+          target_domain: :employee,
+          source_field: :assignee_id,
+          target_field: :id,
+          source_path: "assignee"
+        })
+
+        defchoice_source(:work_item_assignees, %{
+          domain: :employee,
+          value_field: :id,
+          label_field: :full_name,
+          source_relationship: :work_item_assignee,
+          presentation: %{control: :autocomplete, mode: :async, cardinality: :one}
+        })
+      end
+
+      overlay = TestChoiceSourceOverlay.overlay()
+
+      assert overlay.columns.assignee_id.choice_source == :work_item_assignees
+      assert overlay.columns.assignee_id.reference.choice_source == :work_item_assignees
+      assert overlay.source_relationships.work_item_assignee.source_field == :assignee_id
+      assert overlay.choice_sources.work_item_assignees.domain == :employee
+      assert overlay.choice_sources.work_item_assignees.label_field == :full_name
+      assert overlay.choice_sources.work_item_assignees.presentation.control == :autocomplete
+    end
   end
 
   describe "column directives" do

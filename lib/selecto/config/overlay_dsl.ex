@@ -5,8 +5,8 @@ defmodule Selecto.Config.OverlayDSL do
   This module provides a clean, declarative syntax for customizing Selecto domains
   through overlay files. Instead of manually constructing maps, you can use
   macros like `defcolumn`, `deffilter`, `deffunction`, `defdetail_action`, `defcte`,
-  `defvalues`, `defsubquery`, `defjoin`, `defschema`, `defschema_assoc`, and
-  `defsource_assoc`
+  `defvalues`, `defsubquery`, `defjoin`, `defschema`, `defschema_assoc`,
+  `defsource_assoc`, `defsource_relationship`, and `defchoice_source`
   along with module attributes.
 
   ## Usage
@@ -131,6 +131,8 @@ defmodule Selecto.Config.OverlayDSL do
   - `defschema id, config` - Define a top-level schema entry under `schemas`
   - `defschema_assoc schema_id, assoc_id, config` - Define a schema `associations` entry
   - `defsource_assoc id, config` - Define a root `source.associations` entry
+  - `defsource_relationship id, config` - Define a top-level `source_relationships` entry
+  - `defchoice_source id, config` - Define a top-level `choice_sources` entry
 
   ### Query Member Directives
 
@@ -221,6 +223,8 @@ defmodule Selecto.Config.OverlayDSL do
       Module.register_attribute(__MODULE__, :overlay_schemas, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_schema_associations, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_source_associations, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_source_relationships, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_choice_sources, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_jsonb_schemas, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_extension_specs, accumulate: false)
       Module.register_attribute(__MODULE__, :redactions, accumulate: false)
@@ -261,6 +265,11 @@ defmodule Selecto.Config.OverlayDSL do
 
     source_associations =
       Module.get_attribute(env.module, :overlay_source_associations) |> Enum.reverse()
+
+    source_relationships =
+      Module.get_attribute(env.module, :overlay_source_relationships) |> Enum.reverse()
+
+    choice_sources = Module.get_attribute(env.module, :overlay_choice_sources) |> Enum.reverse()
 
     jsonb_schemas = Module.get_attribute(env.module, :overlay_jsonb_schemas) |> Enum.reverse()
     redactions = Module.get_attribute(env.module, :redactions) || []
@@ -327,6 +336,16 @@ defmodule Selecto.Config.OverlayDSL do
       |> Enum.map(fn {name, props} -> {name, normalize_overlay_value(props)} end)
       |> Map.new()
 
+    source_relationships_map =
+      source_relationships
+      |> Enum.map(fn {name, props} -> {name, normalize_overlay_value(props)} end)
+      |> Map.new()
+
+    choice_sources_map =
+      choice_sources
+      |> Enum.map(fn {name, props} -> {name, normalize_overlay_value(props)} end)
+      |> Map.new()
+
     jsonb_schemas_map =
       jsonb_schemas
       |> Enum.map(fn {name, fields} -> {name, fields} end)
@@ -350,6 +369,8 @@ defmodule Selecto.Config.OverlayDSL do
         joins: joins_map,
         schemas: schemas_map,
         source: %{associations: source_associations_map},
+        source_relationships: source_relationships_map,
+        choice_sources: choice_sources_map,
         jsonb_schemas: jsonb_schemas_map,
         redact_fields: redactions
       }
@@ -617,6 +638,42 @@ defmodule Selecto.Config.OverlayDSL do
   end
 
   @doc """
+  Defines a source relationship under the top-level `source_relationships` registry.
+
+  ## Example
+
+      defsource_relationship(:assignee, %{
+        target_domain: :employee,
+        source_field: :assignee_id,
+        target_field: :id,
+        source_path: "assignee"
+      })
+  """
+  defmacro defsource_relationship(relationship_id, relationship_config) do
+    quote do
+      @overlay_source_relationships {unquote(relationship_id), unquote(relationship_config)}
+    end
+  end
+
+  @doc """
+  Defines a choice source under the top-level `choice_sources` registry.
+
+  ## Example
+
+      defchoice_source(:assignees, %{
+        domain: :employee,
+        value_field: :id,
+        label_field: :full_name,
+        source_relationship: :assignee
+      })
+  """
+  defmacro defchoice_source(choice_source_id, choice_source_config) do
+    quote do
+      @overlay_choice_sources {unquote(choice_source_id), unquote(choice_source_config)}
+    end
+  end
+
+  @doc """
   Defines a JSONB schema for a JSONB column, enabling typed field access,
   filtering, and display of structured JSON data.
 
@@ -864,6 +921,16 @@ defmodule Selecto.Config.OverlayDSL do
   Marks a column as computed (not from database).
   """
   defmacro computed(_value), do: quote(do: nil)
+
+  @doc """
+  Binds a field to a declared choice source.
+  """
+  defmacro choice_source(_value), do: quote(do: nil)
+
+  @doc """
+  Sets rich reference metadata for a field, including choice-source caption/value paths.
+  """
+  defmacro reference(_value), do: quote(do: nil)
 
   # Filter directive implementations
 
