@@ -6,8 +6,10 @@ defmodule Selecto.Config.OverlayDSL do
   through overlay files. Instead of manually constructing maps, you can use
   macros like `defcolumn`, `deffilter`, `deffunction`, `defdetail_action`, `defcte`,
   `defvalues`, `defsubquery`, `defjoin`, `defschema`, `defschema_assoc`,
-  `defsource_assoc`, `defsource_relationship`, and `defchoice_source`
-  along with module attributes.
+  `defsource_assoc`, `defsource_relationship`, `defchoice_source`,
+  `defwrite_operation`, `defwrite_field`, `defwrite_relationship`,
+  `defwrite_transition`, `defwrite_validation`, `defwrite_constraint`,
+  `defaction`, and `defcapability` along with module attributes.
 
   ## Usage
 
@@ -133,6 +135,14 @@ defmodule Selecto.Config.OverlayDSL do
   - `defsource_assoc id, config` - Define a root `source.associations` entry
   - `defsource_relationship id, config` - Define a top-level `source_relationships` entry
   - `defchoice_source id, config` - Define a top-level `choice_sources` entry
+  - `defwrite_operation id, config_or_block` - Define `writes.operations[id]`
+  - `defwrite_field id, config_or_block` - Define `writes.fields[id]`
+  - `defwrite_relationship id, config_or_block` - Define `writes.relationships[id]`
+  - `defwrite_transition field, graph` - Define `writes.transitions[field]`
+  - `defwrite_validation rule` - Append a `writes.validations` rule
+  - `defwrite_constraint rule` - Append a `writes.constraints` rule
+  - `defaction id, config_or_block` - Define a top-level domain action
+  - `defcapability id, config_or_block` - Define a top-level capability
 
   ### Query Member Directives
 
@@ -226,6 +236,14 @@ defmodule Selecto.Config.OverlayDSL do
       Module.register_attribute(__MODULE__, :overlay_source_relationships, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_choice_sources, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_jsonb_schemas, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_write_operations, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_write_fields, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_write_relationships, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_write_validations, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_write_constraints, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_write_transitions, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_actions, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_capabilities, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_extension_specs, accumulate: false)
       Module.register_attribute(__MODULE__, :redactions, accumulate: false)
       @overlay_extension_specs unquote(Macro.escape(extension_specs))
@@ -272,6 +290,27 @@ defmodule Selecto.Config.OverlayDSL do
     choice_sources = Module.get_attribute(env.module, :overlay_choice_sources) |> Enum.reverse()
 
     jsonb_schemas = Module.get_attribute(env.module, :overlay_jsonb_schemas) |> Enum.reverse()
+
+    write_operations =
+      Module.get_attribute(env.module, :overlay_write_operations) |> Enum.reverse()
+
+    write_fields = Module.get_attribute(env.module, :overlay_write_fields) |> Enum.reverse()
+
+    write_relationships =
+      Module.get_attribute(env.module, :overlay_write_relationships) |> Enum.reverse()
+
+    write_validations =
+      Module.get_attribute(env.module, :overlay_write_validations) |> Enum.reverse()
+
+    write_constraints =
+      Module.get_attribute(env.module, :overlay_write_constraints) |> Enum.reverse()
+
+    write_transitions =
+      Module.get_attribute(env.module, :overlay_write_transitions) |> Enum.reverse()
+
+    actions = Module.get_attribute(env.module, :overlay_actions) |> Enum.reverse()
+    capabilities = Module.get_attribute(env.module, :overlay_capabilities) |> Enum.reverse()
+
     redactions = Module.get_attribute(env.module, :redactions) || []
     extension_specs = Module.get_attribute(env.module, :overlay_extension_specs) || []
 
@@ -351,6 +390,20 @@ defmodule Selecto.Config.OverlayDSL do
       |> Enum.map(fn {name, fields} -> {name, fields} end)
       |> Map.new()
 
+    writes_map =
+      %{
+        operations: named_overlay_map(write_operations),
+        fields: named_overlay_map(write_fields),
+        relationships: named_overlay_map(write_relationships),
+        validations: write_validations,
+        constraints: write_constraints,
+        transitions: named_overlay_map(write_transitions)
+      }
+      |> compact_empty_sections()
+
+    actions_map = named_overlay_map(actions)
+    capabilities_map = named_overlay_map(capabilities)
+
     extension_overlay = Selecto.Extensions.overlay_fragments(env.module, extension_specs)
 
     overlay =
@@ -374,6 +427,9 @@ defmodule Selecto.Config.OverlayDSL do
         jsonb_schemas: jsonb_schemas_map,
         redact_fields: redactions
       }
+      |> maybe_put_nonempty(:writes, writes_map)
+      |> maybe_put_nonempty(:actions, actions_map)
+      |> maybe_put_nonempty(:capabilities, capabilities_map)
       |> Selecto.Extensions.deep_merge(extension_overlay)
 
     quote do
@@ -674,6 +730,127 @@ defmodule Selecto.Config.OverlayDSL do
   end
 
   @doc """
+  Defines a write operation under `writes.operations`.
+
+  ## Examples
+
+      defwrite_operation :insert do
+        enabled true
+        returning :record
+      end
+
+      defwrite_operation :delete, %{enabled: true, require_filter: true}
+  """
+  defmacro defwrite_operation(operation_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_write_operations {unquote(operation_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  defmacro defwrite_operation(operation_id, operation_config) do
+    quote do
+      @overlay_write_operations {unquote(operation_id), unquote(operation_config)}
+    end
+  end
+
+  @doc """
+  Defines a write field under `writes.fields`.
+  """
+  defmacro defwrite_field(field_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_write_fields {unquote(field_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  defmacro defwrite_field(field_id, field_config) do
+    quote do
+      @overlay_write_fields {unquote(field_id), unquote(field_config)}
+    end
+  end
+
+  @doc """
+  Defines a write relationship under `writes.relationships`.
+  """
+  defmacro defwrite_relationship(relationship_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_write_relationships {unquote(relationship_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  defmacro defwrite_relationship(relationship_id, relationship_config) do
+    quote do
+      @overlay_write_relationships {unquote(relationship_id), unquote(relationship_config)}
+    end
+  end
+
+  @doc """
+  Defines a transition graph under `writes.transitions`.
+  """
+  defmacro defwrite_transition(field_id, transition_graph) do
+    quote do
+      @overlay_write_transitions {unquote(field_id), unquote(transition_graph)}
+    end
+  end
+
+  @doc """
+  Appends a write validation rule under `writes.validations`.
+  """
+  defmacro defwrite_validation(rule) do
+    quote do
+      @overlay_write_validations unquote(rule)
+    end
+  end
+
+  @doc """
+  Appends a write constraint rule under `writes.constraints`.
+  """
+  defmacro defwrite_constraint(rule) do
+    quote do
+      @overlay_write_constraints unquote(rule)
+    end
+  end
+
+  @doc """
+  Defines a domain action under the top-level `actions` registry.
+  """
+  defmacro defaction(action_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_actions {unquote(action_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  defmacro defaction(action_id, action_config) do
+    quote do
+      @overlay_actions {unquote(action_id), unquote(action_config)}
+    end
+  end
+
+  @doc """
+  Defines a capability under the top-level `capabilities` registry.
+  """
+  defmacro defcapability(capability_id, do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_capabilities {unquote(capability_id), unquote(Macro.escape(config))}
+    end
+  end
+
+  defmacro defcapability(capability_id, capability_config) do
+    quote do
+      @overlay_capabilities {unquote(capability_id), unquote(capability_config)}
+    end
+  end
+
+  @doc """
   Defines a JSONB schema for a JSONB column, enabling typed field access,
   filtering, and display of structured JSON data.
 
@@ -801,6 +978,26 @@ defmodule Selecto.Config.OverlayDSL do
   end
 
   defp normalize_overlay_value(value), do: value
+
+  defp named_overlay_map(entries) do
+    entries
+    |> Enum.map(fn {name, props} -> {name, normalize_overlay_value(props)} end)
+    |> Map.new()
+  end
+
+  defp compact_empty_sections(map) when is_map(map) do
+    map
+    |> Enum.reject(fn
+      {_key, value} when is_map(value) -> map_size(value) == 0
+      {_key, []} -> true
+      _entry -> false
+    end)
+    |> Map.new()
+  end
+
+  defp maybe_put_nonempty(map, key, section) do
+    if section in [%{}, []], do: map, else: Map.put(map, key, section)
+  end
 
   defp merge_schema_associations(schemas_map, schema_associations) do
     Enum.reduce(schema_associations, schemas_map, fn {schema_id, association_id,
@@ -975,6 +1172,151 @@ defmodule Selecto.Config.OverlayDSL do
   Sets whether the filter is required.
   """
   defmacro required(_value), do: quote(do: nil)
+
+  @doc """
+  Sets whether a write operation, field, or relationship is enabled.
+  """
+  defmacro enabled(_value), do: quote(do: nil)
+
+  @doc """
+  Sets whether a write operation is bulk-capable.
+  """
+  defmacro bulk(_value), do: quote(do: nil)
+
+  @doc """
+  Sets whether a write operation requires a filter.
+  """
+  defmacro require_filter(_value), do: quote(do: nil)
+
+  @doc """
+  Sets write operation returning behavior.
+  """
+  defmacro returning(_value), do: quote(do: nil)
+
+  @doc """
+  Sets write operation conflict targets.
+  """
+  defmacro conflict_targets(_value), do: quote(do: nil)
+
+  @doc """
+  Sets whether a write field is insertable.
+  """
+  defmacro insertable(_value), do: quote(do: nil)
+
+  @doc """
+  Sets whether a write field is updatable.
+  """
+  defmacro updatable(_value), do: quote(do: nil)
+
+  @doc """
+  Marks a write field immutable.
+  """
+  defmacro immutable(_value), do: quote(do: nil)
+
+  @doc """
+  Marks a write field as write-once.
+  """
+  defmacro write_once(_value), do: quote(do: nil)
+
+  @doc """
+  Marks a write field as server-managed.
+  """
+  defmacro server_managed(_value), do: quote(do: nil)
+
+  @doc """
+  Sets write operations that require the field.
+  """
+  defmacro required_on(_value), do: quote(do: nil)
+
+  @doc """
+  Sets write operations that forbid the field.
+  """
+  defmacro forbidden_on(_value), do: quote(do: nil)
+
+  @doc """
+  Sets validators for a write field or relationship.
+  """
+  defmacro validators(_value), do: quote(do: nil)
+
+  @doc """
+  Sets relationship writability.
+  """
+  defmacro writable(_value), do: quote(do: nil)
+
+  @doc """
+  Sets relationship cardinality.
+  """
+  defmacro cardinality(_value), do: quote(do: nil)
+
+  @doc """
+  Sets allowed write operations for a relationship.
+  """
+  defmacro allowed_ops(_value), do: quote(do: nil)
+
+  @doc """
+  Sets ownership metadata for a relationship.
+  """
+  defmacro ownership(_value), do: quote(do: nil)
+
+  @doc """
+  Sets the foreign key for a write relationship.
+  """
+  defmacro foreign_key(_value), do: quote(do: nil)
+
+  @doc """
+  Sets minimum item count for a write relationship.
+  """
+  defmacro min_items(_value), do: quote(do: nil)
+
+  @doc """
+  Sets maximum item count for a write relationship.
+  """
+  defmacro max_items(_value), do: quote(do: nil)
+
+  @doc """
+  Sets uniqueness fields for a write relationship.
+  """
+  defmacro unique_by(_value), do: quote(do: nil)
+
+  @doc """
+  Sets orphan strategy metadata for a write relationship.
+  """
+  defmacro orphan_strategy(_value), do: quote(do: nil)
+
+  @doc """
+  Sets cascade delete behavior for a write relationship.
+  """
+  defmacro cascade_delete(_value), do: quote(do: nil)
+
+  @doc """
+  Sets cascade update behavior for a write relationship.
+  """
+  defmacro cascade_update(_value), do: quote(do: nil)
+
+  @doc """
+  Sets operations for a capability.
+  """
+  defmacro operations(_value), do: quote(do: nil)
+
+  @doc """
+  Sets an action reference for a capability.
+  """
+  defmacro action(_value), do: quote(do: nil)
+
+  @doc """
+  Sets transition metadata for a domain action.
+  """
+  defmacro transition(_value), do: quote(do: nil)
+
+  @doc """
+  Sets execution metadata for a domain action.
+  """
+  defmacro execution(_value), do: quote(do: nil)
+
+  @doc """
+  Sets a default provider for a write field.
+  """
+  defmacro default_provider(_value), do: quote(do: nil)
 
   @doc """
   Sets the default value for the filter.

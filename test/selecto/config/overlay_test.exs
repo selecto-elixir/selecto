@@ -391,6 +391,77 @@ defmodule Selecto.Config.OverlayTest do
       assert result.choice_sources.assignee_choices.label_field == :full_name
     end
 
+    test "merges writes, actions, and capabilities deeply" do
+      base = %{
+        source: %{columns: %{}, redact_fields: []},
+        writes: %{
+          operations: %{
+            update: %{enabled: false, require_filter: true}
+          },
+          fields: %{
+            title: %{insertable: true, updatable: false}
+          },
+          validations: [{:required, :title}]
+        },
+        actions: %{
+          approve: %{
+            type: :transition,
+            transition: %{field: :state, from: :open}
+          }
+        },
+        capabilities: %{
+          "work_item.approve" => %{operations: [:action]}
+        }
+      }
+
+      overlay = %{
+        writes: %{
+          operations: %{
+            update: %{enabled: true},
+            delete: %{enabled: true, require_filter: true}
+          },
+          fields: %{
+            title: %{updatable: true},
+            state: %{insertable: true, updatable: true}
+          },
+          validations: [{:required, :state}]
+        },
+        actions: %{
+          approve: %{transition: %{to: :approved}},
+          archive: %{type: :command}
+        },
+        capabilities: %{
+          "work_item.approve" => %{operations: [:action, :update], action: :approve},
+          "work_item.archive" => %{operations: [:action], action: :archive}
+        }
+      }
+
+      result = Overlay.merge(base, overlay)
+
+      assert result.writes.operations.update == %{enabled: true, require_filter: true}
+      assert result.writes.operations.delete == %{enabled: true, require_filter: true}
+      assert result.writes.fields.title == %{insertable: true, updatable: true}
+      assert result.writes.fields.state == %{insertable: true, updatable: true}
+      assert result.writes.validations == [{:required, :state}]
+
+      assert result.actions.approve == %{
+               type: :transition,
+               transition: %{field: :state, from: :open, to: :approved}
+             }
+
+      assert result.actions.archive == %{type: :command}
+
+      assert result.capabilities["work_item.approve"] == %{
+               operations: [:action, :update],
+               action: :approve
+             }
+
+      assert result.capabilities["work_item.archive"] == %{
+               operations: [:action],
+               action: :archive
+             }
+    end
+
     test "merges redact_fields as union" do
       base = %{
         source: %{

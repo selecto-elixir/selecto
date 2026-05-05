@@ -134,6 +134,99 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert overlay.choice_sources.work_item_assignees.label_field == :full_name
       assert overlay.choice_sources.work_item_assignees.presentation.control == :autocomplete
     end
+
+    test "builds write contract, actions, and capabilities" do
+      defmodule TestWriteContractOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defwrite_operation :insert do
+          enabled(true)
+          returning(:record)
+        end
+
+        defwrite_operation(:delete, %{enabled: true, require_filter: true})
+
+        defwrite_field :title do
+          insertable(true)
+          updatable(true)
+          required_on([:insert])
+        end
+
+        defwrite_field(:inserted_at, %{
+          insertable: false,
+          updatable: false,
+          server_managed: true
+        })
+
+        defwrite_relationship :comments do
+          writable(true)
+          cardinality(:many)
+          allowed_ops([:insert, :update])
+          foreign_key(:work_item_id)
+        end
+
+        defwrite_transition(:state, %{draft: [:open], open: [:closed]})
+        defwrite_validation({:required_if, :title, :state, "open"})
+        defwrite_constraint({:require_relationship, :comments})
+
+        defaction :approve do
+          type(:transition)
+          capability("work_item.approve")
+          transition(%{field: :state, from: :open, to: :approved})
+          execution(%{kind: :updato, operation: :update, set: %{state: :approved}})
+        end
+
+        defcapability "work_item.approve" do
+          operations([:action, :update])
+          action(:approve)
+        end
+      end
+
+      overlay = TestWriteContractOverlay.overlay()
+
+      assert overlay.writes.operations.insert == %{enabled: true, returning: :record}
+      assert overlay.writes.operations.delete == %{enabled: true, require_filter: true}
+
+      assert overlay.writes.fields.title == %{
+               insertable: true,
+               updatable: true,
+               required_on: [:insert]
+             }
+
+      assert overlay.writes.fields.inserted_at == %{
+               insertable: false,
+               updatable: false,
+               server_managed: true
+             }
+
+      assert overlay.writes.relationships.comments == %{
+               writable: true,
+               cardinality: :many,
+               allowed_ops: [:insert, :update],
+               foreign_key: :work_item_id
+             }
+
+      assert overlay.writes.transitions.state == %{draft: [:open], open: [:closed]}
+      assert overlay.writes.validations == [{:required_if, :title, :state, "open"}]
+      assert overlay.writes.constraints == [{:require_relationship, :comments}]
+
+      assert overlay.actions.approve.transition == %{
+               field: :state,
+               from: :open,
+               to: :approved
+             }
+
+      assert overlay.actions.approve.execution == %{
+               kind: :updato,
+               operation: :update,
+               set: %{state: :approved}
+             }
+
+      assert overlay.capabilities["work_item.approve"] == %{
+               operations: [:action, :update],
+               action: :approve
+             }
+    end
   end
 
   describe "column directives" do
