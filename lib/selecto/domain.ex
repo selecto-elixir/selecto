@@ -718,7 +718,8 @@ defmodule Selecto.Domain do
         source_path: map_value(choice_source, :source_path),
         filters_count: list_count(map_value(choice_source, :filters)),
         order_by_count: list_count(map_value(choice_source, :order_by)),
-        presentation: map_value(choice_source, :presentation)
+        presentation: map_value(choice_source, :presentation),
+        constraint_policy: map_value(choice_source, :constraint_policy)
       }
     end)
   end
@@ -1242,6 +1243,7 @@ defmodule Selecto.Domain do
         filters_count: list_count(map_value(choice_source, :filters)),
         order_by_count: list_count(map_value(choice_source, :order_by)),
         presentation: map_value(choice_source, :presentation),
+        constraint_policy: map_value(choice_source, :constraint_policy),
         capability: map_value(choice_source, :capability)
       }
     end)

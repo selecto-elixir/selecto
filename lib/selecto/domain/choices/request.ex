@@ -22,6 +22,7 @@ defmodule Selecto.Domain.Choices.Request do
             record: %{},
             filters: [],
             constraint_filters: %{},
+            constraint_policy: %{},
             context: %{},
             metadata: %{}
 
@@ -40,6 +41,7 @@ defmodule Selecto.Domain.Choices.Request do
           record: map(),
           filters: [term()],
           constraint_filters: map(),
+          constraint_policy: map(),
           context: map(),
           metadata: map()
         }
@@ -66,6 +68,7 @@ defmodule Selecto.Domain.Choices.Request do
       record: map_attr(attrs, :record),
       filters: list_attr(attrs, :filters),
       constraint_filters: map_attr(attrs, :constraint_filters),
+      constraint_policy: map_attr(attrs, :constraint_policy),
       context: map_attr(attrs, :context),
       metadata: map_attr(attrs, :metadata)
     }

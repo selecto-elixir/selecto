@@ -51,7 +51,8 @@ defmodule Selecto.Domain.Choices do
            source_relationship_config: source_relationship_config,
            field_binding: binding,
            reference: Map.get(binding, :reference, %{}),
-           constraint_filters: constraint_filters
+           constraint_filters: constraint_filters,
+           constraint_policy: constraint_policy(choice_source_config, attrs)
          })
        )}
     end
@@ -136,7 +137,8 @@ defmodule Selecto.Domain.Choices do
            choice_source_config: choice_source_config,
            source_relationship: map_value(choice_source_config, :source_relationship),
            source_relationship_config: source_relationship_config,
-           constraint_filters: constraint_filters
+           constraint_filters: constraint_filters,
+           constraint_policy: constraint_policy(choice_source_config, attrs)
          })
        )}
     end
@@ -309,7 +311,8 @@ defmodule Selecto.Domain.Choices do
            source_relationship_config: source_relationship_config,
            field_binding: binding,
            reference: Map.get(binding, :reference, %{}),
-           constraint_filters: constraint_filters
+           constraint_filters: constraint_filters,
+           constraint_policy: constraint_policy(choice_source_config, attrs)
          })
        )}
     end
@@ -504,6 +507,53 @@ defmodule Selecto.Domain.Choices do
   end
 
   defp request_filters(_attrs), do: []
+
+  defp constraint_policy(choice_source_config, attrs) do
+    choice_source_config
+    |> map_value(:constraint_policy)
+    |> normalize_constraint_policy()
+    |> Map.merge(normalize_constraint_policy(map_value(attrs, :constraint_policy)))
+  end
+
+  defp normalize_constraint_policy(policy) when is_map(policy) do
+    Enum.reduce(policy, %{}, fn {key, value}, acc ->
+      with {:ok, key} <- constraint_policy_key(key),
+           {:ok, value} <- constraint_policy_value(value) do
+        Map.put(acc, key, value)
+      else
+        _error -> acc
+      end
+    end)
+  end
+
+  defp normalize_constraint_policy(_policy), do: %{}
+
+  defp constraint_policy_key(key)
+       when key in [:source_relationship, :choice_source, :domain_of_interest],
+       do: {:ok, key}
+
+  defp constraint_policy_key(key) when is_binary(key) do
+    case key do
+      "source_relationship" -> {:ok, :source_relationship}
+      "choice_source" -> {:ok, :choice_source}
+      "domain_of_interest" -> {:ok, :domain_of_interest}
+      _key -> :error
+    end
+  end
+
+  defp constraint_policy_key(_key), do: :error
+
+  defp constraint_policy_value(value) when value in [:best_effort, :fail_closed], do: {:ok, value}
+
+  defp constraint_policy_value(value) when is_binary(value) do
+    case value do
+      "best_effort" -> {:ok, :best_effort}
+      "fail_closed" -> {:ok, :fail_closed}
+      _value -> :error
+    end
+  end
+
+  defp constraint_policy_value(_value), do: :error
 
   defp resolver_result(resolver, request), do: resolver.(request)
 

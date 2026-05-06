@@ -40,6 +40,12 @@ defmodule Selecto.Domain.Contract do
   @choice_source_presentation_controls [:select, :autocomplete, :table_picker]
   @choice_source_presentation_modes [:static, :searchable, :async, :inline]
   @choice_source_presentation_cardinalities [:one, :many]
+  @choice_source_constraint_policy_keys [
+    :source_relationship,
+    :choice_source,
+    :domain_of_interest
+  ]
+  @choice_source_constraint_policy_modes [:best_effort, :fail_closed]
   @order_directions [:asc, :desc]
   @query_order_directions [
     :asc,
@@ -4465,6 +4471,7 @@ defmodule Selecto.Domain.Contract do
     |> validate_choice_source_filters(choice_source_id, choice_source, path)
     |> validate_choice_source_order_by(choice_source_id, choice_source, path)
     |> validate_choice_source_presentation(choice_source_id, choice_source, path)
+    |> validate_choice_source_constraint_policy(choice_source_id, choice_source, path)
     |> validate_choice_source_relationship(
       choice_source_id,
       choice_source,
@@ -5031,6 +5038,74 @@ defmodule Selecto.Domain.Contract do
             actual: value_type(value),
             choice_source: choice_source_id,
             attribute: key,
+            value: value
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_source_constraint_policy(errors, choice_source_id, choice_source, path) do
+    case map_value(choice_source, :constraint_policy) do
+      nil ->
+        errors
+
+      policy when is_map(policy) ->
+        policy
+        |> Enum.reduce(errors, fn {key, value}, acc ->
+          validate_choice_source_constraint_policy_entry(
+            acc,
+            choice_source_id,
+            key,
+            value,
+            path ++ [:constraint_policy, key]
+          )
+        end)
+
+      policy ->
+        [
+          error(
+            :invalid_choice_source_constraint_policy,
+            path ++ [:constraint_policy],
+            "choice source #{inspect(choice_source_id)} constraint_policy must be a map",
+            expected: :map,
+            actual: value_type(policy),
+            choice_source: choice_source_id
+          )
+          | errors
+        ]
+    end
+  end
+
+  defp validate_choice_source_constraint_policy_entry(errors, choice_source_id, key, value, path) do
+    cond do
+      not enum_value?(key, @choice_source_constraint_policy_keys) ->
+        [
+          error(
+            :invalid_choice_source_constraint_policy_key,
+            path,
+            "choice source #{inspect(choice_source_id)} constraint_policy key is not supported",
+            expected: @choice_source_constraint_policy_keys,
+            actual: key,
+            choice_source: choice_source_id,
+            key: key
+          )
+          | errors
+        ]
+
+      enum_value?(value, @choice_source_constraint_policy_modes) ->
+        errors
+
+      true ->
+        [
+          error(
+            :invalid_choice_source_constraint_policy_mode,
+            path,
+            "choice source #{inspect(choice_source_id)} constraint_policy mode is not supported",
+            expected: @choice_source_constraint_policy_modes,
+            actual: value,
+            choice_source: choice_source_id,
+            key: key,
             value: value
           )
           | errors

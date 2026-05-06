@@ -1652,6 +1652,9 @@ defmodule Selecto.DomainContractTest do
               mode: :searchable,
               cardinality: :one
             },
+            constraint_policy: %{
+              domain_of_interest: :fail_closed
+            },
             source_relationship: :customer,
             capability: "customer.choose"
           }
@@ -1897,6 +1900,24 @@ defmodule Selecto.DomainContractTest do
             value_field: :id,
             label_field: :name,
             presentation: %{cardinality: :some}
+          },
+          bad_constraint_policy: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            constraint_policy: :fail_closed
+          },
+          bad_constraint_policy_key: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            constraint_policy: %{browser_supplied: :fail_closed}
+          },
+          bad_constraint_policy_mode: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            constraint_policy: %{domain_of_interest: :maybe}
           }
         })
         |> put_in([:source, :columns, :status, :choice_source], :missing_status_choices)
@@ -2260,6 +2281,37 @@ defmodule Selecto.DomainContractTest do
                  :cardinality
                ]
              } = error_for(diagnostics, :invalid_choice_source_presentation_cardinality)
+
+      assert %{
+               code: :invalid_choice_source_constraint_policy,
+               choice_source: :bad_constraint_policy,
+               path: [:choice_sources, :bad_constraint_policy, :constraint_policy]
+             } = error_for(diagnostics, :invalid_choice_source_constraint_policy)
+
+      assert %{
+               code: :invalid_choice_source_constraint_policy_key,
+               choice_source: :bad_constraint_policy_key,
+               key: :browser_supplied,
+               path: [
+                 :choice_sources,
+                 :bad_constraint_policy_key,
+                 :constraint_policy,
+                 :browser_supplied
+               ]
+             } = error_for(diagnostics, :invalid_choice_source_constraint_policy_key)
+
+      assert %{
+               code: :invalid_choice_source_constraint_policy_mode,
+               choice_source: :bad_constraint_policy_mode,
+               key: :domain_of_interest,
+               value: :maybe,
+               path: [
+                 :choice_sources,
+                 :bad_constraint_policy_mode,
+                 :constraint_policy,
+                 :domain_of_interest
+               ]
+             } = error_for(diagnostics, :invalid_choice_source_constraint_policy_mode)
 
       assert %{
                code: :field_choice_source_not_found,

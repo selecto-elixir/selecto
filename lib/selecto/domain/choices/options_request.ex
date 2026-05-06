@@ -25,6 +25,7 @@ defmodule Selecto.Domain.Choices.OptionsRequest do
             cursor: nil,
             filters: [],
             constraint_filters: %{},
+            constraint_policy: %{},
             order_by: [],
             metadata: %{}
 
@@ -47,6 +48,7 @@ defmodule Selecto.Domain.Choices.OptionsRequest do
           cursor: term(),
           filters: [term()],
           constraint_filters: map(),
+          constraint_policy: map(),
           order_by: [term()],
           metadata: map()
         }
@@ -77,6 +79,7 @@ defmodule Selecto.Domain.Choices.OptionsRequest do
       cursor: get_attr(attrs, :cursor),
       filters: list_attr(attrs, :filters),
       constraint_filters: map_attr(attrs, :constraint_filters),
+      constraint_policy: map_attr(attrs, :constraint_policy),
       order_by: list_attr(attrs, :order_by),
       metadata: map_attr(attrs, :metadata)
     }

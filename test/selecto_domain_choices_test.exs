@@ -29,6 +29,7 @@ defmodule Selecto.DomainChoicesTest do
       assert request.tenant == "tenant-1"
       assert request.record == %{customer_id: 42}
       assert request.filters == [{"status", "open"}]
+      assert request.constraint_policy == %{domain_of_interest: :fail_closed}
 
       assert request.constraint_filters == %{
                source_relationship: [{:eq, "customers.active", true}],
@@ -137,6 +138,7 @@ defmodule Selecto.DomainChoicesTest do
       assert request.record == %{status: "ready"}
       assert request.context == %{surface: :components}
       assert request.filters == [{"status", "ready"}]
+      assert request.constraint_policy == %{domain_of_interest: :fail_closed}
 
       assert request.constraint_filters == %{
                source_relationship: [{:eq, "customers.active", true}],
@@ -161,6 +163,7 @@ defmodule Selecto.DomainChoicesTest do
       assert request.choice_source_config.label_field == :name
       assert request.source_relationship == :customer
       assert request.search == "north"
+      assert request.constraint_policy == %{domain_of_interest: :fail_closed}
     end
 
     test "returns structured errors for unbound option-list fields" do
@@ -241,6 +244,7 @@ defmodule Selecto.DomainChoicesTest do
           label_field: :name,
           source_relationship: :customer,
           capability: "customer.choose",
+          constraint_policy: %{domain_of_interest: :fail_closed},
           filters: [["eq", "customers.available", true]]
         }
       }

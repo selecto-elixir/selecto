@@ -761,6 +761,26 @@ The request/result shape lets Components, API, GraphQL, AI, actions, and Updato
 share one membership question later. Core Selecto remains conservative: without
 a resolver, membership is `:unknown`, not assumed valid.
 
+Choice sources may declare resolver-facing constraint policy metadata:
+
+```elixir
+choice_sources: %{
+  customer_choices: %{
+    domain: :customers,
+    value_field: :id,
+    label_field: :name,
+    constraint_policy: %{
+      domain_of_interest: :fail_closed
+    }
+  }
+}
+```
+
+The policy is carried on membership and option-list requests. A resolver can
+use `:fail_closed` to reject a request when server-owned Domain-of-Interest
+filters are present but cannot be enforced. The default is best-effort when no
+policy is declared.
+
 ## Choice Option Lists
 
 `Selecto.Domain.Choices` also exposes the sibling option-list request shape for
