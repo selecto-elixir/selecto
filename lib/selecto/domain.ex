@@ -97,6 +97,14 @@ defmodule Selecto.Domain do
     :source_relationships,
     :choice_sources
   ]
+  @security_review_sections [
+    actions: "business command definitions and execution surfaces",
+    capabilities: "authorization capability catalog",
+    choice_sources: "cross-domain choices and constraint policy",
+    detail_actions: "user-visible detail actions",
+    source_relationships: "cross-domain source bindings",
+    writes: "write operations, fields, validations, constraints, and transitions"
+  ]
 
   @doc """
   Normalizes an authored domain map into a compatibility-safe contract.
@@ -412,6 +420,7 @@ defmodule Selecto.Domain do
       actions: inspect_actions(Map.get(normalized, :actions, %{})),
       capabilities: inspect_capabilities(Map.get(normalized, :capabilities, %{})),
       capability_usage: capability_usage,
+      security_review: inspect_security_review(normalized),
       source_relationships:
         inspect_source_relationships(Map.get(normalized, :source_relationships, %{})),
       choice_sources: inspect_choice_sources(Map.get(normalized, :choice_sources, %{})),
@@ -541,6 +550,57 @@ defmodule Selecto.Domain do
   end
 
   defp inspect_capabilities(_capabilities), do: []
+
+  defp inspect_security_review(normalized) do
+    @security_review_sections
+    |> Enum.flat_map(fn
+      {:writes, reason} ->
+        inspect_security_writes(Map.get(normalized, :writes), reason)
+
+      {section, reason} ->
+        inspect_security_registry(section, Map.get(normalized, section), reason)
+    end)
+  end
+
+  defp inspect_security_registry(section, registry, reason) when is_map(registry) do
+    items = sorted_keys(registry)
+
+    case items do
+      [] ->
+        []
+
+      items ->
+        [
+          %{
+            section: section,
+            count: length(items),
+            items: items,
+            reason: reason
+          }
+        ]
+    end
+  end
+
+  defp inspect_security_registry(_section, _registry, _reason), do: []
+
+  defp inspect_security_writes(writes, reason) when is_map(writes) do
+    items = inspect_writes(writes)
+
+    count =
+      length(Map.fetch!(items, :operations)) +
+        length(Map.fetch!(items, :fields)) +
+        length(Map.fetch!(items, :transitions)) +
+        Map.fetch!(items, :validations_count) +
+        Map.fetch!(items, :constraints_count)
+
+    if count > 0 do
+      [%{section: :writes, count: count, items: items, reason: reason}]
+    else
+      []
+    end
+  end
+
+  defp inspect_security_writes(_writes, _reason), do: []
 
   defp inspect_capability_usage(normalized) do
     query = Map.get(normalized, :query, %{})

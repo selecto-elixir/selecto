@@ -446,6 +446,45 @@ defmodule Selecto.DomainTest do
 
       assert [
                %{
+                 section: :actions,
+                 count: 1,
+                 items: [:choose_customer],
+                 reason: "business command definitions and execution surfaces"
+               },
+               %{
+                 section: :capabilities,
+                 count: 1,
+                 items: ["customer.choose"],
+                 reason: "authorization capability catalog"
+               },
+               %{
+                 section: :choice_sources,
+                 count: 1,
+                 items: [:customer_choices],
+                 reason: "cross-domain choices and constraint policy"
+               },
+               %{
+                 section: :source_relationships,
+                 count: 1,
+                 items: [:customer],
+                 reason: "cross-domain source bindings"
+               },
+               %{
+                 section: :writes,
+                 count: 2,
+                 items: %{
+                   operations: [],
+                   fields: [:customer_id],
+                   transitions: [:status],
+                   validations_count: 0,
+                   constraints_count: 0
+                 },
+                 reason: "write operations, fields, validations, constraints, and transitions"
+               }
+             ] = inspection.security_review
+
+      assert [
+               %{
                  capability: "customer.choose",
                  section: :actions,
                  role: :action,
