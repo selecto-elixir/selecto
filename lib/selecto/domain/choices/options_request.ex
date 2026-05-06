@@ -3,8 +3,8 @@ defmodule Selecto.Domain.Choices.OptionsRequest do
   Stable choice-source option-list question shape.
 
   An options request describes which choice source should provide selectable
-  options plus the actor, tenant, working record, search term, paging, and
-  context data a future resolver may need.
+  options plus the actor, tenant, working record, search term, paging, context,
+  and server-owned Domain-of-Interest filter data a future resolver may need.
   """
 
   defstruct domain: nil,
@@ -24,6 +24,7 @@ defmodule Selecto.Domain.Choices.OptionsRequest do
             offset: 0,
             cursor: nil,
             filters: [],
+            constraint_filters: %{},
             order_by: [],
             metadata: %{}
 
@@ -45,6 +46,7 @@ defmodule Selecto.Domain.Choices.OptionsRequest do
           offset: non_neg_integer(),
           cursor: term(),
           filters: [term()],
+          constraint_filters: map(),
           order_by: [term()],
           metadata: map()
         }
@@ -74,6 +76,7 @@ defmodule Selecto.Domain.Choices.OptionsRequest do
       offset: offset_attr(attrs),
       cursor: get_attr(attrs, :cursor),
       filters: list_attr(attrs, :filters),
+      constraint_filters: map_attr(attrs, :constraint_filters),
       order_by: list_attr(attrs, :order_by),
       metadata: map_attr(attrs, :metadata)
     }

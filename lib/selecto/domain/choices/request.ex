@@ -3,8 +3,9 @@ defmodule Selecto.Domain.Choices.Request do
   Stable choice-source membership question shape.
 
   A request describes the working-domain field/value being checked, the choice
-  source it is bound to, and any actor, tenant, record, or context data a future
-  resolver needs to prove membership.
+  source it is bound to, any actor, tenant, record, or context data a future
+  resolver needs to prove membership, and the server-owned Domain-of-Interest
+  filter bundle that constrains the choice.
   """
 
   defstruct domain: nil,
@@ -19,6 +20,8 @@ defmodule Selecto.Domain.Choices.Request do
             actor: nil,
             tenant: nil,
             record: %{},
+            filters: [],
+            constraint_filters: %{},
             context: %{},
             metadata: %{}
 
@@ -35,6 +38,8 @@ defmodule Selecto.Domain.Choices.Request do
           actor: term(),
           tenant: term(),
           record: map(),
+          filters: [term()],
+          constraint_filters: map(),
           context: map(),
           metadata: map()
         }
@@ -59,6 +64,8 @@ defmodule Selecto.Domain.Choices.Request do
       actor: get_attr(attrs, :actor),
       tenant: get_attr(attrs, :tenant),
       record: map_attr(attrs, :record),
+      filters: list_attr(attrs, :filters),
+      constraint_filters: map_attr(attrs, :constraint_filters),
       context: map_attr(attrs, :context),
       metadata: map_attr(attrs, :metadata)
     }
@@ -114,6 +121,20 @@ defmodule Selecto.Domain.Choices.Request do
 
       value ->
         raise ArgumentError, "choice request #{inspect(key)} must be a map, got #{inspect(value)}"
+    end
+  end
+
+  defp list_attr(attrs, key) do
+    case get_attr(attrs, key, []) do
+      value when is_list(value) ->
+        value
+
+      nil ->
+        []
+
+      value ->
+        raise ArgumentError,
+              "choice request #{inspect(key)} must be a list, got #{inspect(value)}"
     end
   end
 

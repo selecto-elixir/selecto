@@ -36,6 +36,9 @@ defmodule Selecto.Domain.Choices do
            fetch_choice_source(normalized, Map.fetch!(binding, :choice_source)),
          {:ok, source_relationship_config} <-
            source_relationship_config(normalized, choice_source_config) do
+      constraint_filters =
+        constraint_filters(choice_source_config, source_relationship_config, attrs)
+
       {:ok,
        Request.new(
          Map.merge(attrs, %{
@@ -47,7 +50,8 @@ defmodule Selecto.Domain.Choices do
            source_relationship: map_value(choice_source_config, :source_relationship),
            source_relationship_config: source_relationship_config,
            field_binding: binding,
-           reference: Map.get(binding, :reference, %{})
+           reference: Map.get(binding, :reference, %{}),
+           constraint_filters: constraint_filters
          })
        )}
     end
@@ -121,6 +125,9 @@ defmodule Selecto.Domain.Choices do
          {:ok, choice_source_config} <- fetch_choice_source(normalized, choice_source_id),
          {:ok, source_relationship_config} <-
            source_relationship_config(normalized, choice_source_config) do
+      constraint_filters =
+        constraint_filters(choice_source_config, source_relationship_config, attrs)
+
       {:ok,
        OptionsRequest.new(
          Map.merge(attrs, %{
@@ -128,7 +135,8 @@ defmodule Selecto.Domain.Choices do
            choice_source: choice_source_id,
            choice_source_config: choice_source_config,
            source_relationship: map_value(choice_source_config, :source_relationship),
-           source_relationship_config: source_relationship_config
+           source_relationship_config: source_relationship_config,
+           constraint_filters: constraint_filters
          })
        )}
     end
@@ -287,6 +295,9 @@ defmodule Selecto.Domain.Choices do
            fetch_choice_source(normalized, Map.fetch!(binding, :choice_source)),
          {:ok, source_relationship_config} <-
            source_relationship_config(normalized, choice_source_config) do
+      constraint_filters =
+        constraint_filters(choice_source_config, source_relationship_config, attrs)
+
       {:ok,
        OptionsRequest.new(
          Map.merge(attrs, %{
@@ -297,7 +308,8 @@ defmodule Selecto.Domain.Choices do
            source_relationship: map_value(choice_source_config, :source_relationship),
            source_relationship_config: source_relationship_config,
            field_binding: binding,
-           reference: Map.get(binding, :reference, %{})
+           reference: Map.get(binding, :reference, %{}),
+           constraint_filters: constraint_filters
          })
        )}
     end
@@ -466,6 +478,32 @@ defmodule Selecto.Domain.Choices do
          )}
     end
   end
+
+  defp constraint_filters(choice_source_config, source_relationship_config, attrs) do
+    %{
+      source_relationship: config_filters(source_relationship_config),
+      choice_source: config_filters(choice_source_config),
+      domain_of_interest: request_filters(attrs)
+    }
+  end
+
+  defp config_filters(config) when is_map(config) do
+    case map_value(config, :filters) do
+      filters when is_list(filters) -> filters
+      _filters -> []
+    end
+  end
+
+  defp config_filters(_config), do: []
+
+  defp request_filters(attrs) when is_map(attrs) do
+    case map_value(attrs, :filters) do
+      filters when is_list(filters) -> filters
+      _filters -> []
+    end
+  end
+
+  defp request_filters(_attrs), do: []
 
   defp resolver_result(resolver, request), do: resolver.(request)
 

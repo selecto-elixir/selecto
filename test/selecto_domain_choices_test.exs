@@ -12,6 +12,7 @@ defmodule Selecto.DomainChoicesTest do
                  actor: :current_user,
                  tenant: "tenant-1",
                  record: %{customer_id: 42},
+                 filters: [{"status", "open"}],
                  context: %{surface: :test}
                )
 
@@ -27,6 +28,14 @@ defmodule Selecto.DomainChoicesTest do
       assert request.actor == :current_user
       assert request.tenant == "tenant-1"
       assert request.record == %{customer_id: 42}
+      assert request.filters == [{"status", "open"}]
+
+      assert request.constraint_filters == %{
+               source_relationship: [{:eq, "customers.active", true}],
+               choice_source: [["eq", "customers.available", true]],
+               domain_of_interest: [{"status", "open"}]
+             }
+
       assert request.context == %{surface: :test}
     end
 
@@ -112,7 +121,8 @@ defmodule Selecto.DomainChoicesTest do
                  context: %{surface: :components},
                  search: "acme",
                  limit: 20,
-                 offset: 10
+                 offset: 10,
+                 filters: [{"status", "ready"}]
                )
 
       assert request.domain == :orders
@@ -126,6 +136,14 @@ defmodule Selecto.DomainChoicesTest do
       assert request.tenant == "tenant-1"
       assert request.record == %{status: "ready"}
       assert request.context == %{surface: :components}
+      assert request.filters == [{"status", "ready"}]
+
+      assert request.constraint_filters == %{
+               source_relationship: [{:eq, "customers.active", true}],
+               choice_source: [["eq", "customers.available", true]],
+               domain_of_interest: [{"status", "ready"}]
+             }
+
       assert request.search == "acme"
       assert request.limit == 20
       assert request.offset == 10
@@ -212,7 +230,8 @@ defmodule Selecto.DomainChoicesTest do
         customer: %{
           target_domain: :customers,
           source_field: :customer_id,
-          target_field: :id
+          target_field: :id,
+          filters: [{:eq, "customers.active", true}]
         }
       },
       choice_sources: %{
@@ -221,7 +240,8 @@ defmodule Selecto.DomainChoicesTest do
           value_field: :id,
           label_field: :name,
           source_relationship: :customer,
-          capability: "customer.choose"
+          capability: "customer.choose",
+          filters: [["eq", "customers.available", true]]
         }
       }
     }
