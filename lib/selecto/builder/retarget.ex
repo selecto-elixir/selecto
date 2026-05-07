@@ -262,16 +262,16 @@ defmodule Selecto.Builder.Retarget do
         []
       end
 
-    {post_pivot_conditions, post_pivot_params} =
+    {post_retarget_conditions, post_retarget_params} =
       build_post_retarget_conditions(selecto, retarget_config, target_alias)
 
     # Combine IN condition with post-retarget filters
-    where_conditions = combine_where_conditions(in_condition, post_pivot_conditions)
+    where_conditions = combine_where_conditions(in_condition, post_retarget_conditions)
 
     # Return FROM clause, WHERE conditions, and params
     from_iodata = [target_table, " ", target_alias]
 
-    {from_iodata, where_conditions, subquery_params ++ post_pivot_params, []}
+    {from_iodata, where_conditions, subquery_params ++ post_retarget_params, []}
   end
 
   defp get_target_table_from_schema(selecto, target_schema) do
@@ -312,16 +312,16 @@ defmodule Selecto.Builder.Retarget do
     # Build the EXISTS condition
     exists_condition = ["EXISTS (", subquery_iodata, ")"]
 
-    {post_pivot_conditions, post_pivot_params} =
+    {post_retarget_conditions, post_retarget_params} =
       build_post_retarget_conditions(selecto, retarget_config, target_alias)
 
     # Combine EXISTS condition with post-retarget filters
-    where_conditions = combine_where_conditions(exists_condition, post_pivot_conditions)
+    where_conditions = combine_where_conditions(exists_condition, post_retarget_conditions)
 
     # Return FROM clause, WHERE conditions, and params
     from_iodata = [target_table, " ", target_alias]
 
-    {from_iodata, where_conditions, subquery_params ++ post_pivot_params, []}
+    {from_iodata, where_conditions, subquery_params ++ post_retarget_params, []}
   end
 
   defp build_join_strategy(selecto, retarget_config, _opts) do
@@ -334,14 +334,14 @@ defmodule Selecto.Builder.Retarget do
     {filter_conditions, filter_params} =
       extract_retarget_conditions(selecto, retarget_config, get_source_alias())
 
-    {post_pivot_conditions, post_pivot_params} =
+    {post_retarget_conditions, post_retarget_params} =
       build_post_retarget_conditions(selecto, retarget_config, target_alias)
 
     from_iodata = [target_table, " ", target_alias, join_clauses]
-    where_conditions = combine_where_conditions(filter_conditions, post_pivot_conditions)
+    where_conditions = combine_where_conditions(filter_conditions, post_retarget_conditions)
 
     # Return FROM clause, WHERE conditions, and params
-    {from_iodata, where_conditions, join_params ++ filter_params ++ post_pivot_params, []}
+    {from_iodata, where_conditions, join_params ++ filter_params ++ post_retarget_params, []}
   end
 
   defp build_cte_strategy(selecto, retarget_config, _opts) do
@@ -356,7 +356,7 @@ defmodule Selecto.Builder.Retarget do
 
     # Mark this as needing CTE construction
     cte_spec = %{
-      name: "pivot_source",
+      name: "retarget_source",
       query: cte_query,
       params: cte_params,
       columns: [
@@ -371,23 +371,24 @@ defmodule Selecto.Builder.Retarget do
       target_table,
       " ",
       target_alias,
-      " INNER JOIN pivot_source ps ON ",
+      " INNER JOIN retarget_source rs ON ",
       target_alias,
       ".",
       maybe_quote_identifier(
         to_string(get_target_primary_key(selecto, retarget_config.target_schema))
       ),
-      " = ps.",
+      " = rs.",
       maybe_quote_identifier(
         to_string(get_target_primary_key(selecto, retarget_config.target_schema))
       )
     ]
 
-    {post_pivot_conditions, post_pivot_params} =
+    {post_retarget_conditions, post_retarget_params} =
       build_post_retarget_conditions(selecto, retarget_config, target_alias)
 
     # Return FROM clause, outer WHERE for post-retarget filters, params, and CTE spec
-    {from_iodata, post_pivot_conditions, cte_params ++ post_pivot_params, [{:cte, cte_spec}]}
+    {from_iodata, post_retarget_conditions, cte_params ++ post_retarget_params,
+     [{:cte, cte_spec}]}
   end
 
   defp build_cte_filter_query(selecto, retarget_config) do
@@ -729,21 +730,19 @@ defmodule Selecto.Builder.Retarget do
   defp sql_join_type(_), do: "LEFT"
 
   defp build_post_retarget_conditions(selecto, retarget_config, target_alias) do
-    filters =
-      Map.get(selecto.set, :post_retarget_filters) ||
-        Map.get(selecto.set, :post_pivot_filters, []) || []
+    filters = Map.get(selecto.set, :post_retarget_filters, [])
 
-    build_pivot_filter_group(selecto, retarget_config.target_schema, target_alias, filters)
+    build_retarget_filter_group(selecto, retarget_config.target_schema, target_alias, filters)
   end
 
-  defp build_pivot_filter_group(_selecto, _target_schema, _target_alias, []), do: {[], []}
+  defp build_retarget_filter_group(_selecto, _target_schema, _target_alias, []), do: {[], []}
 
-  defp build_pivot_filter_group(selecto, target_schema, target_alias, filters)
+  defp build_retarget_filter_group(selecto, target_schema, target_alias, filters)
        when is_list(filters) do
     {clauses, params} =
       Enum.reduce(filters, {[], []}, fn filter, {clauses, params} ->
         {clause, clause_params} =
-          build_pivot_filter(selecto, target_schema, target_alias, filter)
+          build_retarget_filter(selecto, target_schema, target_alias, filter)
 
         {clauses ++ [clause], params ++ clause_params}
       end)
@@ -762,17 +761,17 @@ defmodule Selecto.Builder.Retarget do
     {where_clause, params}
   end
 
-  defp build_pivot_filter(selecto, target_schema, target_alias, {:not, filter}) do
-    {clause, params} = build_pivot_filter(selecto, target_schema, target_alias, filter)
+  defp build_retarget_filter(selecto, target_schema, target_alias, {:not, filter}) do
+    {clause, params} = build_retarget_filter(selecto, target_schema, target_alias, filter)
     {["NOT (", clause, ")"], params}
   end
 
-  defp build_pivot_filter(selecto, target_schema, target_alias, {conj, filters})
+  defp build_retarget_filter(selecto, target_schema, target_alias, {conj, filters})
        when conj in [:and, :or] do
     {clauses, params} =
       Enum.reduce(filters, {[], []}, fn filter, {clauses, params} ->
         {clause, clause_params} =
-          build_pivot_filter(selecto, target_schema, target_alias, filter)
+          build_retarget_filter(selecto, target_schema, target_alias, filter)
 
         {clauses ++ [clause], params ++ clause_params}
       end)
@@ -791,70 +790,75 @@ defmodule Selecto.Builder.Retarget do
     {joined_clause, params}
   end
 
-  defp build_pivot_filter(selecto, target_schema, target_alias, {field, {:between, [min, max]}}) do
-    build_pivot_filter(selecto, target_schema, target_alias, {field, {:between, min, max}})
+  defp build_retarget_filter(
+         selecto,
+         target_schema,
+         target_alias,
+         {field, {:between, [min, max]}}
+       ) do
+    build_retarget_filter(selecto, target_schema, target_alias, {field, {:between, min, max}})
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {:between, min, max}}) do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, {:between, min, max}}) do
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {[selector, " BETWEEN ", {:param, min}, " AND ", {:param, max}], [min, max]}
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {comp, value}})
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, {comp, value}})
        when comp in [:like, :ilike] do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {[selector, " ", to_string(comp), " ", {:param, value}], [value]}
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {:not_like, value}}) do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, {:not_like, value}}) do
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {[selector, " NOT LIKE ", {:param, value}], [value]}
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {comp, value}})
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, {comp, value}})
        when comp in @comparison_operators do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {[selector, " ", sql_operator(comp), " ", {:param, value}], [value]}
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {:in, values}})
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, {:in, values}})
        when is_list(values) do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {[selector, " = ANY(", {:param, values}, ")"], [values]}
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, {:not_in, values}})
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, {:not_in, values}})
        when is_list(values) do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {["NOT (", selector, " = ANY(", {:param, values}, "))"], [values]}
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, :not_null}) do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, :not_null}) do
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {[selector, " IS NOT NULL"], []}
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, nil}) do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, nil}) do
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {[selector, " IS NULL"], []}
   end
 
-  defp build_pivot_filter(selecto, target_schema, target_alias, {field, values})
+  defp build_retarget_filter(selecto, target_schema, target_alias, {field, values})
        when is_list(values) do
-    build_pivot_filter(selecto, target_schema, target_alias, {field, {:in, values}})
+    build_retarget_filter(selecto, target_schema, target_alias, {field, {:in, values}})
   end
 
-  defp build_pivot_filter(_selecto, target_schema, target_alias, {field, value}) do
-    selector = pivot_target_selector(target_schema, target_alias, field)
+  defp build_retarget_filter(_selecto, target_schema, target_alias, {field, value}) do
+    selector = retarget_target_selector(target_schema, target_alias, field)
     {[selector, " = ", {:param, value}], [value]}
   end
 
-  defp pivot_target_selector(target_schema, target_alias, field) do
-    field_name = normalize_pivot_field(target_schema, field)
+  defp retarget_target_selector(target_schema, target_alias, field) do
+    field_name = normalize_retarget_field(target_schema, field)
     [target_alias, ".", escape_identifier(field_name)]
   end
 
-  defp normalize_pivot_field(target_schema, field) do
+  defp normalize_retarget_field(target_schema, field) do
     field_str = to_string(field)
     target_prefix = "#{target_schema}."
 

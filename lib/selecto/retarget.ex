@@ -54,7 +54,7 @@ defmodule Selecto.Retarget do
   def retarget(selecto, target_schema, opts \\ []) do
     with {:ok, join_path} <- calculate_join_path(selecto, target_schema),
          :ok <- validate_retarget_path(selecto, join_path) do
-      pivot_config = %{
+      retarget_config = %{
         target_schema: target_schema,
         join_path: join_path,
         preserve_filters: Keyword.get(opts, :preserve_filters, true),
@@ -63,7 +63,7 @@ defmodule Selecto.Retarget do
         strategy: Keyword.get(opts, :strategy, :subquery)
       }
 
-      put_in(selecto.set[:retarget_state], pivot_config)
+      put_in(selecto.set[:retarget_state], retarget_config)
     else
       {:error, reason} ->
         raise ArgumentError, "Invalid retarget configuration: #{reason}"
@@ -102,7 +102,7 @@ defmodule Selecto.Retarget do
   """
   @spec has_retarget?(Types.t()) :: boolean()
   def has_retarget?(selecto) do
-    not is_nil(selecto.set[:retarget_state] || selecto.set[:pivot_state])
+    not is_nil(selecto.set[:retarget_state])
   end
 
   @doc """
@@ -110,7 +110,7 @@ defmodule Selecto.Retarget do
   """
   @spec get_retarget_config(Types.t()) :: Types.retarget_config() | nil
   def get_retarget_config(selecto) do
-    selecto.set[:retarget_state] || selecto.set[:pivot_state]
+    selecto.set[:retarget_state]
   end
 
   @doc """
@@ -118,7 +118,7 @@ defmodule Selecto.Retarget do
   """
   @spec reset_retarget(Types.t()) :: Types.t()
   def reset_retarget(selecto) do
-    updated_set = selecto.set |> Map.delete(:retarget_state) |> Map.delete(:pivot_state)
+    updated_set = Map.delete(selecto.set, :retarget_state)
     %{selecto | set: updated_set}
   end
 

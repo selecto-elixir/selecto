@@ -2369,7 +2369,7 @@ defmodule Selecto.DomainContractTest do
              } = error_for(diagnostics, :field_reference_caption_field_not_found)
     end
 
-    test "DomainValidator normalized mode returns contract errors before legacy tuples" do
+    test "DomainValidator normalized mode returns contract errors before authored-domain tuples" do
       domain =
         valid_domain()
         |> put_in([:source, :fields], [:id, :status])

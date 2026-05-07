@@ -11,7 +11,7 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
   - Large IN clauses (>100 items: +20 points)
   - LIKE patterns with leading wildcard (+5 points)
   - Missing WHERE clauses on non-aggregated queries (+30 points)
-  - Post-pivot filters (additional complexity: +10 points)
+  - Post-retarget filters (additional complexity: +10 points)
 
   ## Usage
 
@@ -284,9 +284,7 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
 
   # Check post-retarget filter complexity
   defp check_post_retarget_complexity(analysis, selecto) do
-    post_retarget_filters =
-      Map.get(selecto.set, :post_retarget_filters) ||
-        Map.get(selecto.set, :post_pivot_filters, []) || []
+    post_retarget_filters = Map.get(selecto.set, :post_retarget_filters, [])
 
     if length(post_retarget_filters) > 0 do
       %{

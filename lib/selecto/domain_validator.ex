@@ -10,10 +10,10 @@ defmodule Selecto.DomainValidator do
 
       # Validate during configure (enabled by default)
       domain = %{source: ..., schemas: ..., joins: ...}
-      selecto = Selecto.configure(domain, postgrex_opts)
+      selecto = Selecto.configure(domain, connection_input)
       
       # Disable validation for performance-critical scenarios
-      selecto = Selecto.configure(domain, postgrex_opts, validate: false)
+      selecto = Selecto.configure(domain, connection_input, validate: false)
       
       # Or validate explicitly
       Selecto.DomainValidator.validate_domain!(domain)

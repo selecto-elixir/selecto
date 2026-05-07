@@ -50,7 +50,7 @@ defmodule Selecto.Query do
   def filter(selecto, filters) when is_list(filters) do
     normalized_filters = Selecto.Expr.normalize(filters)
 
-    # Track whether this filter is applied before or after pivot
+    # Track whether this filter is applied before or after retargeting.
     has_retarget = Selecto.Retarget.has_retarget?(selecto)
     retarget_config = Selecto.Retarget.get_retarget_config(selecto)
     validate_filters_for_active_root!(selecto, normalized_filters, has_retarget)
@@ -115,14 +115,11 @@ defmodule Selecto.Query do
     normalized_filters = Selecto.Expr.normalize(filters)
     validate_post_retarget_filters!(selecto, normalized_filters)
 
-    current =
-      Map.get(selecto.set, :post_retarget_filters) ||
-        Map.get(selecto.set, :post_pivot_filters, []) || []
+    current = Map.get(selecto.set, :post_retarget_filters, [])
 
     updated_set =
       selecto.set
       |> Map.put(:post_retarget_filters, current ++ normalized_filters)
-      |> Map.delete(:post_pivot_filters)
 
     %{selecto | set: updated_set}
   end
@@ -147,8 +144,7 @@ defmodule Selecto.Query do
   """
   @spec post_retarget_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
   def post_retarget_filters(selecto) do
-    Map.get(selecto.set, :post_retarget_filters) || Map.get(selecto.set, :post_pivot_filters, []) ||
-      []
+    Map.get(selecto.set, :post_retarget_filters, [])
   end
 
   @doc """
@@ -184,8 +180,7 @@ defmodule Selecto.Query do
   """
   @spec query_filters(Selecto.Types.t(), keyword()) :: [Selecto.Types.filter()]
   def query_filters(selecto, opts \\ []) do
-    include_post_retarget =
-      Keyword.get(opts, :include_post_retarget, Keyword.get(opts, :include_post_pivot, true))
+    include_post_retarget = Keyword.get(opts, :include_post_retarget, true)
 
     validate_tenant = Keyword.get(opts, :validate_tenant, true)
 
@@ -203,7 +198,7 @@ defmodule Selecto.Query do
       if include_post_retarget do
         case Map.get(selecto, :set) do
           %{} = set ->
-            Map.get(set, :post_retarget_filters) || Map.get(set, :post_pivot_filters) || []
+            Map.get(set, :post_retarget_filters, [])
 
           _ ->
             []
@@ -219,38 +214,6 @@ defmodule Selecto.Query do
     end)
     |> uniq_filters()
   end
-
-  @doc false
-  @deprecated "Use pre_retarget_filter/2 instead."
-  @spec pre_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
-  def pre_pivot_filter(selecto, filters) when is_list(filters),
-    do: pre_retarget_filter(selecto, filters)
-
-  @doc false
-  @deprecated "Use pre_retarget_filter/2 instead."
-  @spec pre_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
-  def pre_pivot_filter(selecto, filter), do: pre_retarget_filter(selecto, filter)
-
-  @doc false
-  @deprecated "Use post_retarget_filter/2 instead."
-  @spec post_pivot_filter(Selecto.Types.t(), [Selecto.Types.filter()]) :: Selecto.Types.t()
-  def post_pivot_filter(selecto, filters) when is_list(filters),
-    do: post_retarget_filter(selecto, filters)
-
-  @doc false
-  @deprecated "Use post_retarget_filter/2 instead."
-  @spec post_pivot_filter(Selecto.Types.t(), Selecto.Types.filter()) :: Selecto.Types.t()
-  def post_pivot_filter(selecto, filter), do: post_retarget_filter(selecto, filter)
-
-  @doc false
-  @deprecated "Use pre_retarget_filters/1 instead."
-  @spec pre_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
-  def pre_pivot_filters(selecto), do: pre_retarget_filters(selecto)
-
-  @doc false
-  @deprecated "Use post_retarget_filters/1 instead."
-  @spec post_pivot_filters(Selecto.Types.t()) :: [Selecto.Types.filter()]
-  def post_pivot_filters(selecto), do: post_retarget_filters(selecto)
 
   defp validate_filters_for_active_root!(selecto, filters, true),
     do: validate_post_retarget_filters!(selecto, filters)

@@ -15,7 +15,7 @@ defmodule Selecto.AutoRetarget do
   @doc """
   Check if a selecto query should be automatically retargeted based on selected columns.
 
-  Returns the retargeted selecto if pivot is needed, otherwise returns the original.
+  Returns the retargeted selecto if retargeting is useful, otherwise returns the original.
 
   ## Options
 
@@ -23,7 +23,7 @@ defmodule Selecto.AutoRetarget do
 
   ## Examples
 
-      # Will pivot if only category fields are selected
+      # Will retarget if only category fields are selected
       selecto = Selecto.configure(domain, conn)
       retargeted = Selecto.AutoRetarget.maybe_apply(selecto, selected: ["category.name"], view_mode: "detail")
   """
@@ -75,7 +75,7 @@ defmodule Selecto.AutoRetarget do
     # Categorize columns into source vs joined tables
     {source_cols, qualified_cols_by_table} = categorize_columns(selected_columns, source_columns)
 
-    # Only pivot if there are joined table columns and no source columns
+    # Only retarget if there are joined table columns and no source columns
     case Map.keys(qualified_cols_by_table) do
       [] ->
         false
@@ -103,7 +103,7 @@ defmodule Selecto.AutoRetarget do
         String.to_atom(single_table)
 
       [first_table | _rest] ->
-        # For multiple tables, pivot to the first one
+        # For multiple tables, retarget to the first one
         # TODO: Could be smarter about choosing the "root" table
         String.to_atom(first_table)
     end

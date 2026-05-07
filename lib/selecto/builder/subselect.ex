@@ -728,13 +728,13 @@ defmodule Selecto.Builder.Subselect do
     {current_schema_config, association} =
       if Selecto.Retarget.has_retarget?(selecto) do
         # In retarget context - the source is the retarget target table
-        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
-        pivot_target = pivot_config.target_schema
-        pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+        retarget_config = Selecto.Retarget.get_retarget_config(selecto)
+        retarget_target = retarget_config.target_schema
+        retarget_schema_config = Map.get(selecto.domain.schemas, retarget_target)
 
         # Find the association from retarget target to the subselect target
-        assoc = Map.get(pivot_schema_config.associations, target_schema)
-        {pivot_schema_config, assoc}
+        assoc = Map.get(retarget_schema_config.associations, target_schema)
+        {retarget_schema_config, assoc}
       else
         # Normal context - use source
         assoc = Map.get(selecto.domain.source.associations, target_schema)
@@ -774,13 +774,13 @@ defmodule Selecto.Builder.Subselect do
     {current_schema_config, association} =
       if Selecto.Retarget.has_retarget?(selecto) do
         # In retarget context - the source is the retarget target table
-        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
-        pivot_target = pivot_config.target_schema
-        pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+        retarget_config = Selecto.Retarget.get_retarget_config(selecto)
+        retarget_target = retarget_config.target_schema
+        retarget_schema_config = Map.get(selecto.domain.schemas, retarget_target)
 
         # Get the association by name
-        assoc = Map.get(pivot_schema_config.associations, assoc_name)
-        {pivot_schema_config, assoc}
+        assoc = Map.get(retarget_schema_config.associations, assoc_name)
+        {retarget_schema_config, assoc}
       else
         # Normal context - use source
         assoc = Map.get(selecto.domain.source.associations, assoc_name)
@@ -843,14 +843,16 @@ defmodule Selecto.Builder.Subselect do
     {_source_schema_config, source_to_junction_assoc} =
       if Selecto.Retarget.has_retarget?(selecto) do
         # In retarget context - the source is the retarget target table
-        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
-        pivot_target = pivot_config.target_schema
-        pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+        retarget_config = Selecto.Retarget.get_retarget_config(selecto)
+        retarget_target = retarget_config.target_schema
+        retarget_schema_config = Map.get(selecto.domain.schemas, retarget_target)
 
         # Find the association from retarget target to junction
         # For film → film_actors, we need to reverse lookup
-        assoc = find_association_to_junction(pivot_schema_config, selecto.domain, junction_schema)
-        {pivot_schema_config, assoc}
+        assoc =
+          find_association_to_junction(retarget_schema_config, selecto.domain, junction_schema)
+
+        {retarget_schema_config, assoc}
       else
         # Normal context - use source
         source_assoc = Map.get(selecto.domain.source.associations, junction_schema)
@@ -952,13 +954,13 @@ defmodule Selecto.Builder.Subselect do
     # Get the starting point (either source or retarget target)
     {source_schema_config, _source_key_field} =
       if Selecto.Retarget.has_retarget?(selecto) do
-        pivot_config = Selecto.Retarget.get_retarget_config(selecto)
-        pivot_target = pivot_config.target_schema
-        pivot_schema_config = Map.get(selecto.domain.schemas, pivot_target)
+        retarget_config = Selecto.Retarget.get_retarget_config(selecto)
+        retarget_target = retarget_config.target_schema
+        retarget_schema_config = Map.get(selecto.domain.schemas, retarget_target)
 
         # Get the primary key of the retarget target to use as correlation point
-        pk = pivot_schema_config.primary_key || :id
-        {pivot_schema_config, to_string(pk)}
+        pk = retarget_schema_config.primary_key || :id
+        {retarget_schema_config, to_string(pk)}
       else
         # Use source
         pk = selecto.domain.source.primary_key || :id

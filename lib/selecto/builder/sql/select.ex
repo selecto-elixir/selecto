@@ -274,49 +274,49 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # Phase 4: iodata-based prep_selector/3 functions
-  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}, _pivot_aliases)
+  def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}, _retarget_aliases)
       when is_binary(sql_template) do
     prep_selector(selecto, {:custom_sql, sql_template, field_mappings})
   end
 
-  def prep_selector(_selecto, val, _pivot_aliases) when is_integer(val) do
+  def prep_selector(_selecto, val, _retarget_aliases) when is_integer(val) do
     {{:param, val}, :selecto_root, [val]}
   end
 
-  def prep_selector(_selecto, val, _pivot_aliases) when is_float(val) do
+  def prep_selector(_selecto, val, _retarget_aliases) when is_float(val) do
     {{:param, val}, :selecto_root, [val]}
   end
 
-  def prep_selector(_selecto, val, _pivot_aliases) when is_boolean(val) do
+  def prep_selector(_selecto, val, _retarget_aliases) when is_boolean(val) do
     {{:param, val}, :selecto_root, [val]}
   end
 
-  def prep_selector(selecto, {:ref, field_ref}, _pivot_aliases) when is_binary(field_ref) do
+  def prep_selector(selecto, {:ref, field_ref}, _retarget_aliases) when is_binary(field_ref) do
     {[normalize_ref_field(selecto, field_ref)], :selecto_root, []}
   end
 
-  def prep_selector(_selecto, {:count}, _pivot_aliases) do
+  def prep_selector(_selecto, {:count}, _retarget_aliases) do
     {["count(*)"], :selecto_root, []}
   end
 
-  def prep_selector(_selecto, {:count, "*"}, _pivot_aliases) do
+  def prep_selector(_selecto, {:count, "*"}, _retarget_aliases) do
     {["count(*)"], :selecto_root, []}
   end
 
-  def prep_selector(selecto, {:count, "*", filter}, pivot_aliases) do
-    prep_selector(selecto, {:count, {:literal, "*"}, filter}, pivot_aliases)
+  def prep_selector(selecto, {:count, "*", filter}, retarget_aliases) do
+    prep_selector(selecto, {:count, {:literal, "*"}, filter}, retarget_aliases)
   end
 
-  def prep_selector(_selecto, {:subquery, dynamic, params}, _pivot_aliases) do
+  def prep_selector(_selecto, {:subquery, dynamic, params}, _retarget_aliases) do
     # Dynamic subquery is already in the right format
     {[dynamic], [], params}
   end
 
-  def prep_selector(selecto, {:case, pairs}, pivot_aliases) when is_list(pairs) do
-    prep_selector(selecto, {:case, pairs, nil}, pivot_aliases)
+  def prep_selector(selecto, {:case, pairs}, retarget_aliases) when is_list(pairs) do
+    prep_selector(selecto, {:case, pairs, nil}, retarget_aliases)
   end
 
-  def prep_selector(selecto, {:case, pairs, else_clause}, pivot_aliases) when is_list(pairs) do
+  def prep_selector(selecto, {:case, pairs, else_clause}, retarget_aliases) when is_list(pairs) do
     {sel_parts, join, par} =
       Enum.reduce(
         pairs,
@@ -325,7 +325,7 @@ defmodule Selecto.Builder.Sql.Select do
           {join_w, filters_iodata, param_w} =
             Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
 
-          {sel_iodata, join_s, param_s} = prep_selector(selecto, selector, pivot_aliases)
+          {sel_iodata, join_s, param_s} = prep_selector(selecto, selector, retarget_aliases)
 
           when_clause = ["when ", filters_iodata, " then ", sel_iodata]
 
@@ -340,7 +340,7 @@ defmodule Selecto.Builder.Sql.Select do
         {case_iodata, join, par}
 
       _ ->
-        {sel_else_iodata, join_s, param_s} = prep_selector(selecto, else_clause, pivot_aliases)
+        {sel_else_iodata, join_s, param_s} = prep_selector(selecto, else_clause, retarget_aliases)
 
         case_iodata = [
           "case ",
@@ -354,25 +354,25 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  def prep_selector(selecto, {:case, case_spec}, _pivot_aliases) do
+  def prep_selector(selecto, {:case, case_spec}, _retarget_aliases) do
     # Use the CaseExpression builder for the new specification format
     {case_sql, params} = Selecto.Builder.CaseExpression.build_case_for_select(case_spec, selecto)
     {case_sql, [], params}
   end
 
-  def prep_selector(selecto, {:case_when, case_spec}, _pivot_aliases) do
+  def prep_selector(selecto, {:case_when, case_spec}, _retarget_aliases) do
     # Use the CaseExpression builder for the new specification format
     {case_sql, params} = Selecto.Builder.CaseExpression.build_case_for_select(case_spec, selecto)
     {case_sql, [], params}
   end
 
-  def prep_selector(selecto, {func, fields}, pivot_aliases)
+  def prep_selector(selecto, {func, fields}, retarget_aliases)
       when func in [:concat, :coalesce, :greatest, :least, :nullif] do
     processed_fields = List.wrap(fields)
 
     {sel_parts, join, param} =
       Enum.reduce(processed_fields, {[], [], []}, fn f, {select, join, param} ->
-        {s_iodata, j, p} = prep_selector(selecto, f, pivot_aliases)
+        {s_iodata, j, p} = prep_selector(selecto, f, retarget_aliases)
         {select ++ [s_iodata], join ++ List.wrap(j), param ++ p}
       end)
 
@@ -381,14 +381,14 @@ defmodule Selecto.Builder.Sql.Select do
     {func_iodata, join, param}
   end
 
-  def prep_selector(selecto, {:extract, field, format}, pivot_aliases) do
-    {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def prep_selector(selecto, {:extract, field, format}, retarget_aliases) do
+    {sel_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
     check_string(format)
     extract_iodata = ["extract( ", format, " from  ", sel_iodata, ")"]
     {extract_iodata, join, param}
   end
 
-  def prep_selector(selecto, {:array_length, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_length, _} = selector, _retarget_aliases) do
     # Delegate to Functions module
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_length function not properly implemented"
@@ -396,35 +396,35 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  def prep_selector(selecto, {:cardinality, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:cardinality, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "cardinality function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_ndims, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_ndims, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_ndims function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_dims, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_dims, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_dims function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:unnest, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:unnest, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "unnest function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array, values}, _pivot_aliases) when is_list(values) do
+  def prep_selector(selecto, {:array, values}, _retarget_aliases) when is_list(values) do
     # Build ARRAY[val1, val2, ...] expression
     {values_iodata, values_params} =
       values
@@ -460,7 +460,7 @@ defmodule Selecto.Builder.Sql.Select do
     {iodata, [], values_params}
   end
 
-  def prep_selector(selecto, {:array_cat, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_cat, _, _} = selector, _retarget_aliases) do
     # Delegate to Functions module
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_cat function not properly implemented"
@@ -468,7 +468,7 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  def prep_selector(selecto, {:array_to_string, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_to_string, _, _} = selector, _retarget_aliases) do
     # Delegate to Functions module
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_to_string function not properly implemented"
@@ -476,7 +476,7 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  def prep_selector(selecto, {:string_to_array, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:string_to_array, _, _} = selector, _retarget_aliases) do
     # Delegate to Functions module
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "string_to_array function not properly implemented"
@@ -484,56 +484,56 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  def prep_selector(selecto, {:array_append, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_append, _, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_append function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_prepend, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_prepend, _, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_prepend function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_fill, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_fill, _, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_fill function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_remove, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_remove, _, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_remove function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_position, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_position, _, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_position function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_positions, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_positions, _, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_positions function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_replace, _, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_replace, _, _, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_replace function not properly implemented"
       result -> result
     end
   end
 
-  def prep_selector(selecto, {:array_position, _, _, _} = selector, _pivot_aliases) do
+  def prep_selector(selecto, {:array_position, _, _, _} = selector, _retarget_aliases) do
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil -> raise "array_position with start function not properly implemented"
       result -> result
@@ -542,8 +542,8 @@ defmodule Selecto.Builder.Sql.Select do
 
   # Handle count_age_bucket_other BEFORE the generic 3-element tuple handler
   # The third element is bucket_ranges configuration, not a filter
-  def prep_selector(selecto, {:count_age_bucket_other, field, bucket_ranges}, pivot_aliases) do
-    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def prep_selector(selecto, {:count_age_bucket_other, field, bucket_ranges}, retarget_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
 
     # Parse ranges to build the "Other" condition
     ranges = parse_bucket_ranges_simple(bucket_ranges)
@@ -595,8 +595,8 @@ defmodule Selecto.Builder.Sql.Select do
 
   # Handle count_bucket_other BEFORE the generic 3-element tuple handler
   # The third element is bucket_ranges configuration, not a filter
-  def prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}, pivot_aliases) do
-    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}, retarget_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
 
     # Parse ranges to build the "Other" condition
     ranges = parse_bucket_ranges_simple(bucket_ranges)
@@ -641,15 +641,15 @@ defmodule Selecto.Builder.Sql.Select do
     {case_sql, join, param}
   end
 
-  def prep_selector(selecto, {:udf, function_id, args}, pivot_aliases) when is_list(args) do
-    build_udf(selecto, function_id, args, :select, pivot_aliases)
+  def prep_selector(selecto, {:udf, function_id, args}, retarget_aliases) when is_list(args) do
+    build_udf(selecto, function_id, args, :select, retarget_aliases)
   end
 
-  def prep_selector(selecto, {:func, func_name}, pivot_aliases) do
-    prep_selector(selecto, {:func, func_name, []}, pivot_aliases)
+  def prep_selector(selecto, {:func, func_name}, retarget_aliases) do
+    prep_selector(selecto, {:func, func_name, []}, retarget_aliases)
   end
 
-  def prep_selector(selecto, {:func, func_name, args}, pivot_aliases) do
+  def prep_selector(selecto, {:func, func_name, args}, retarget_aliases) do
     {distinct, normalized_args} = normalize_function_args(args, false)
 
     build_function_selector(
@@ -658,11 +658,12 @@ defmodule Selecto.Builder.Sql.Select do
       normalized_args,
       distinct,
       nil,
-      pivot_aliases
+      retarget_aliases
     )
   end
 
-  def prep_selector(selecto, {:func, func_name, args, opts}, pivot_aliases) when is_list(opts) do
+  def prep_selector(selecto, {:func, func_name, args, opts}, retarget_aliases)
+      when is_list(opts) do
     distinct_opt = Keyword.get(opts, :distinct, false)
     filter = Keyword.get(opts, :filter)
 
@@ -674,12 +675,12 @@ defmodule Selecto.Builder.Sql.Select do
       normalized_args,
       distinct,
       filter,
-      pivot_aliases
+      retarget_aliases
     )
   end
 
-  def prep_selector(selecto, {func, field, filter}, pivot_aliases) when is_atom(func) do
-    {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def prep_selector(selecto, {func, field, filter}, retarget_aliases) when is_atom(func) do
+    {sel_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
 
     {join_w, filters_iodata, param_w} =
       Selecto.Builder.Sql.Where.build(selecto, {:and, List.wrap(filter)})
@@ -694,69 +695,69 @@ defmodule Selecto.Builder.Sql.Select do
 
   # {:literal, value} should NOT be parameterized - render as SQL literal
   # Special case for "*" used in COUNT(*) and similar functions
-  def prep_selector(_selecto, {:literal, "*"}, _pivot_aliases) do
+  def prep_selector(_selecto, {:literal, "*"}, _retarget_aliases) do
     {["*"], :selecto_root, []}
   end
 
   # Integer literals - render as raw numbers in SQL
-  def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_integer(value) do
+  def prep_selector(_selecto, {:literal, value}, _retarget_aliases) when is_integer(value) do
     {[Integer.to_string(value)], :selecto_root, []}
   end
 
   # String literals - render as SQL-escaped string literals with quotes
-  def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_bitstring(value) do
+  def prep_selector(_selecto, {:literal, value}, _retarget_aliases) when is_bitstring(value) do
     {["'", String.replace(value, "'", "''"), "'"], :selecto_root, []}
   end
 
   # Float literals - render as raw floats in SQL
-  def prep_selector(_selecto, {:literal, value}, _pivot_aliases) when is_float(value) do
+  def prep_selector(_selecto, {:literal, value}, _retarget_aliases) when is_float(value) do
     {[Float.to_string(value)], :selecto_root, []}
   end
 
   # Boolean literals - render as SQL boolean literals
-  def prep_selector(_selecto, {:literal, true}, _pivot_aliases) do
+  def prep_selector(_selecto, {:literal, true}, _retarget_aliases) do
     {["TRUE"], :selecto_root, []}
   end
 
-  def prep_selector(_selecto, {:literal, false}, _pivot_aliases) do
+  def prep_selector(_selecto, {:literal, false}, _retarget_aliases) do
     {["FALSE"], :selecto_root, []}
   end
 
   # NULL literal
-  def prep_selector(_selecto, {:literal, nil}, _pivot_aliases) do
+  def prep_selector(_selecto, {:literal, nil}, _retarget_aliases) do
     {["NULL"], :selecto_root, []}
   end
 
   # {:literal_position, value} is for positional numbers (e.g., ORDER BY 1)
-  def prep_selector(_selecto, {:literal_position, value}, _pivot_aliases)
+  def prep_selector(_selecto, {:literal_position, value}, _retarget_aliases)
       when is_integer(value) do
     {[Integer.to_string(value)], :selecto_root, []}
   end
 
-  def prep_selector(selecto, {:to_char, {field, format}}, pivot_aliases) do
-    {sel_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def prep_selector(selecto, {:to_char, {field, format}}, retarget_aliases) do
+    {sel_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
 
     {AdapterSQL.format_datetime(selecto, sel_iodata, format), join, param}
   end
 
-  def prep_selector(selecto, {:field, selector}, pivot_aliases) do
-    prep_selector(selecto, selector, pivot_aliases)
+  def prep_selector(selecto, {:field, selector}, retarget_aliases) do
+    prep_selector(selecto, selector, retarget_aliases)
   end
 
-  def prep_selector(selecto, {func}, _pivot_aliases) when is_atom(func) do
+  def prep_selector(selecto, {func}, _retarget_aliases) when is_atom(func) do
     func_name = sql_function_name(selecto, func)
     {[func_name, "()"], :selecto_root, []}
   end
 
-  def prep_selector(_selecto, {:raw_sql, sql}, _pivot_aliases) when is_binary(sql) do
+  def prep_selector(_selecto, {:raw_sql, sql}, _retarget_aliases) when is_binary(sql) do
     # For raw SQL, just return it as-is
     # This is used for bucket CASE expressions
     {[sql], :selecto_root, []}
   end
 
   # Handle count_age_bucket for age-based buckets
-  def prep_selector(selecto, {:count_age_bucket, field, min, max}, pivot_aliases) do
-    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def prep_selector(selecto, {:count_age_bucket, field, min, max}, retarget_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
 
     case_sql =
       cond do
@@ -808,8 +809,8 @@ defmodule Selecto.Builder.Sql.Select do
   # to ensure it matches before the generic handler tries to treat bucket_ranges as a filter
 
   # Handle count_bucket for numeric buckets
-  def prep_selector(selecto, {:count_bucket, field, min, max}, pivot_aliases) do
-    {field_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def prep_selector(selecto, {:count_bucket, field, min, max}, retarget_aliases) do
+    {field_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
 
     case_sql =
       cond do
@@ -843,37 +844,37 @@ defmodule Selecto.Builder.Sql.Select do
   # to ensure it matches before the generic handler tries to treat bucket_ranges as a filter
 
   # Special handling for count_distinct - generates COUNT(DISTINCT column) not count_distinct(column)
-  def prep_selector(selecto, {:count_distinct, selector}, pivot_aliases) do
-    {sel_iodata, join, param} = prep_selector(selecto, selector, pivot_aliases)
+  def prep_selector(selecto, {:count_distinct, selector}, retarget_aliases) do
+    {sel_iodata, join, param} = prep_selector(selecto, selector, retarget_aliases)
     func_call_iodata = ["COUNT(DISTINCT ", sel_iodata, ")"]
     {func_call_iodata, join, param}
   end
 
-  def prep_selector(selecto, {func, selector}, pivot_aliases) when is_atom(func) do
-    {sel_iodata, join, param} = prep_selector(selecto, selector, pivot_aliases)
+  def prep_selector(selecto, {func, selector}, retarget_aliases) when is_atom(func) do
+    {sel_iodata, join, param} = prep_selector(selecto, selector, retarget_aliases)
     func_name = sql_function_name(selecto, func)
     func_call_iodata = [func_name, "(", sel_iodata, ")"]
     {func_call_iodata, join, param}
   end
 
-  def prep_selector(selecto, selector, pivot_aliases)
+  def prep_selector(selecto, selector, retarget_aliases)
       when is_binary(selector) or is_atom(selector) do
     selector = if is_atom(selector), do: Atom.to_string(selector), else: selector
 
     if regular_selector?(selector, selecto.config) do
-      prep_regular_selector(selecto, selector, pivot_aliases)
+      prep_regular_selector(selecto, selector, retarget_aliases)
     else
       case Jsonb.parse_field_reference(selector, selecto.config) do
         {:jsonb, column, path} ->
-          prep_jsonb_selector(selecto, column, path, pivot_aliases)
+          prep_jsonb_selector(selecto, column, path, retarget_aliases)
 
         {:regular, _} ->
-          prep_regular_selector(selecto, selector, pivot_aliases)
+          prep_regular_selector(selecto, selector, retarget_aliases)
       end
     end
   end
 
-  def prep_selector(selecto, selector, _pivot_aliases) do
+  def prep_selector(selecto, selector, _retarget_aliases) do
     # Try advanced SQL functions first
     case Selecto.SQL.Functions.prep_advanced_selector(selecto, selector) do
       nil ->
@@ -885,9 +886,9 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  def build_udf(selecto, function_id, args, call_site, pivot_aliases \\ %{})
+  def build_udf(selecto, function_id, args, call_site, retarget_aliases \\ %{})
 
-  def build_udf(selecto, function_id, args, call_site, pivot_aliases) when is_list(args) do
+  def build_udf(selecto, function_id, args, call_site, retarget_aliases) when is_list(args) do
     spec = fetch_udf_spec!(selecto, function_id)
     kind = Map.get(spec, :kind) || Map.get(spec, "kind")
     allowed_in = Map.get(spec, :allowed_in) || Map.get(spec, "allowed_in") || []
@@ -918,7 +919,7 @@ defmodule Selecto.Builder.Sql.Select do
     {arg_iodata_parts, join, param} =
       Enum.zip(args, spec_args)
       |> Enum.reduce({[], [], []}, fn {arg, arg_spec}, {select_acc, join_acc, param_acc} ->
-        {s_iodata, j, p} = prep_udf_arg(selecto, arg, arg_spec, pivot_aliases)
+        {s_iodata, j, p} = prep_udf_arg(selecto, arg, arg_spec, retarget_aliases)
 
         {
           [s_iodata | select_acc],
@@ -941,7 +942,7 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # Handle JSONB path selectors - extract value from JSONB column
-  defp prep_jsonb_selector(selecto, column, path, pivot_aliases) do
+  defp prep_jsonb_selector(selecto, column, path, retarget_aliases) do
     domain = selecto.config
 
     # Get schema info for type casting
@@ -954,7 +955,7 @@ defmodule Selecto.Builder.Sql.Select do
 
     join_alias =
       if conf do
-        Map.get(pivot_aliases, conf.requires_join, conf.requires_join)
+        Map.get(retarget_aliases, conf.requires_join, conf.requires_join)
       else
         :selecto_root
       end
@@ -975,7 +976,7 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # Standard field resolution (non-JSONB)
-  defp prep_regular_selector(selecto, selector, pivot_aliases) do
+  defp prep_regular_selector(selecto, selector, retarget_aliases) do
     # First check if it's a dynamic column (from UNNEST, CTE, etc.)
     set = Map.get(selecto, :set) || %{}
     dynamic_columns = if is_map(set), do: Map.get(set, :dynamic_columns, %{}), else: %{}
@@ -997,8 +998,8 @@ defmodule Selecto.Builder.Sql.Select do
           # Dynamic columns from UNNEST don't need table qualification
           {[field_name], :selecto_root, []}
         else
-          # Check if we have a pivot alias for this join
-          join_alias = Map.get(pivot_aliases, conf.requires_join, conf.requires_join)
+          # Check if retargeting remaps this join alias.
+          join_alias = Map.get(retarget_aliases, conf.requires_join, conf.requires_join)
           field_iodata = [build_selector_string(selecto, join_alias, field_name)]
           {field_iodata, conf.requires_join, []}
         end
@@ -1010,7 +1011,7 @@ defmodule Selecto.Builder.Sql.Select do
 
       sub ->
         # For other selector types, process recursively
-        prep_selector(selecto, sub, pivot_aliases)
+        prep_selector(selecto, sub, retarget_aliases)
     end
   end
 
@@ -1179,10 +1180,10 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   # build/3 functions
-  def build(selecto, {:row, fields, as}, pivot_aliases) do
+  def build(selecto, {:row, fields, as}, retarget_aliases) do
     {select_parts, join, param} =
       Enum.reduce(List.wrap(fields), {[], [], []}, fn f, {select, join, param} ->
-        {s_iodata, j, p} = prep_selector(selecto, f, pivot_aliases)
+        {s_iodata, j, p} = prep_selector(selecto, f, retarget_aliases)
         {[s_iodata | select], Enum.reverse(List.wrap(j), join), Enum.reverse(p, param)}
       end)
 
@@ -1194,33 +1195,33 @@ defmodule Selecto.Builder.Sql.Select do
     {row_iodata, join, param, as}
   end
 
-  def build(selecto, {:field, field, as}, pivot_aliases) do
-    {select_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def build(selecto, {:field, field, as}, retarget_aliases) do
+    {select_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
     {select_iodata, join, param, as}
   end
 
-  def build(selecto, {:func, func_name, args, opts}, pivot_aliases) when is_list(opts) do
+  def build(selecto, {:func, func_name, args, opts}, retarget_aliases) when is_list(opts) do
     as = Keyword.get(opts, :as, generated_alias())
 
     {select_iodata, join, param} =
-      prep_selector(selecto, {:func, func_name, args, opts}, pivot_aliases)
+      prep_selector(selecto, {:func, func_name, args, opts}, retarget_aliases)
 
     {select_iodata, join, param, as}
   end
 
-  def build(selecto, field, pivot_aliases) when is_binary(field) or is_atom(field) do
-    {select_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def build(selecto, field, retarget_aliases) when is_binary(field) or is_atom(field) do
+    {select_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
     {select_iodata, join, param, alias_from_selector(field)}
   end
 
-  def build(selecto, field, pivot_aliases) do
-    {select_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def build(selecto, field, retarget_aliases) do
+    {select_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
     {select_iodata, join, param, generated_alias()}
   end
 
   # build/4 functions
-  def build(selecto, field, as, pivot_aliases) do
-    {select_iodata, join, param} = prep_selector(selecto, field, pivot_aliases)
+  def build(selecto, field, as, retarget_aliases) do
+    {select_iodata, join, param} = prep_selector(selecto, field, retarget_aliases)
     {select_iodata, join, param, as}
   end
 
@@ -1261,10 +1262,10 @@ defmodule Selecto.Builder.Sql.Select do
     {distinct, normalized_args}
   end
 
-  defp build_function_selector(selecto, func_name, args, distinct, filter, pivot_aliases) do
+  defp build_function_selector(selecto, func_name, args, distinct, filter, retarget_aliases) do
     {arg_iodata_parts, join, param} =
       Enum.reduce(args, {[], [], []}, fn arg, {select_acc, join_acc, param_acc} ->
-        {s_iodata, j, p} = prep_selector(selecto, arg, pivot_aliases)
+        {s_iodata, j, p} = prep_selector(selecto, arg, retarget_aliases)
 
         {
           [s_iodata | select_acc],
@@ -1321,51 +1322,51 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  defp prep_udf_arg(selecto, arg, arg_spec, pivot_aliases) do
+  defp prep_udf_arg(selecto, arg, arg_spec, retarget_aliases) do
     case Map.get(arg_spec, :source) || Map.get(arg_spec, "source") do
       :selector ->
-        prep_selector(selecto, arg, pivot_aliases)
+        prep_selector(selecto, arg, retarget_aliases)
 
       :value ->
-        prep_udf_value_arg(selecto, arg, pivot_aliases)
+        prep_udf_value_arg(selecto, arg, retarget_aliases)
 
       :literal ->
-        prep_udf_literal_arg(selecto, arg, pivot_aliases)
+        prep_udf_literal_arg(selecto, arg, retarget_aliases)
 
       other ->
         raise ArgumentError, "Unsupported UDF arg source: #{inspect(other)}"
     end
   end
 
-  defp prep_udf_value_arg(_selecto, {:param, value}, _pivot_aliases) do
+  defp prep_udf_value_arg(_selecto, {:param, value}, _retarget_aliases) do
     {{:param, value}, :selecto_root, [value]}
   end
 
-  defp prep_udf_value_arg(selecto, {:literal, value}, pivot_aliases) do
-    prep_selector(selecto, {:literal, value}, pivot_aliases)
+  defp prep_udf_value_arg(selecto, {:literal, value}, retarget_aliases) do
+    prep_selector(selecto, {:literal, value}, retarget_aliases)
   end
 
-  defp prep_udf_value_arg(_selecto, arg, _pivot_aliases)
+  defp prep_udf_value_arg(_selecto, arg, _retarget_aliases)
        when is_binary(arg) or is_atom(arg) or is_number(arg) or is_boolean(arg) or is_nil(arg) or
               is_list(arg) or is_map(arg) do
     {{:param, arg}, :selecto_root, [arg]}
   end
 
-  defp prep_udf_value_arg(_selecto, arg, _pivot_aliases) do
+  defp prep_udf_value_arg(_selecto, arg, _retarget_aliases) do
     raise ArgumentError,
           "UDF value args must be raw values, {:param, value}, or {:literal, value}. Got: #{inspect(arg)}"
   end
 
-  defp prep_udf_literal_arg(selecto, {:literal, value}, pivot_aliases) do
-    prep_selector(selecto, {:literal, value}, pivot_aliases)
+  defp prep_udf_literal_arg(selecto, {:literal, value}, retarget_aliases) do
+    prep_selector(selecto, {:literal, value}, retarget_aliases)
   end
 
-  defp prep_udf_literal_arg(selecto, arg, pivot_aliases)
+  defp prep_udf_literal_arg(selecto, arg, retarget_aliases)
        when is_binary(arg) or is_atom(arg) or is_number(arg) or is_boolean(arg) or is_nil(arg) do
-    prep_selector(selecto, {:literal, arg}, pivot_aliases)
+    prep_selector(selecto, {:literal, arg}, retarget_aliases)
   end
 
-  defp prep_udf_literal_arg(_selecto, arg, _pivot_aliases) do
+  defp prep_udf_literal_arg(_selecto, arg, _retarget_aliases) do
     raise ArgumentError,
           "UDF literal args must be literal values or {:literal, value}. Got: #{inspect(arg)}"
   end
