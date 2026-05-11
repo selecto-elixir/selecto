@@ -103,7 +103,8 @@ defmodule Selecto.Domain do
     choice_sources: "cross-domain choices and constraint policy",
     detail_actions: "user-visible detail actions",
     source_relationships: "cross-domain source bindings",
-    writes: "write operations, fields, validations, constraints, and transitions"
+    writes:
+      "write operations, fields, relationships, scope, hooks, validations, constraints, and transitions"
   ]
 
   @doc """
@@ -467,9 +468,12 @@ defmodule Selecto.Domain do
       writes: %{
         operations: map_count(map_value(writes, :operations)),
         fields: map_count(map_value(writes, :fields)),
+        relationships: map_count(map_value(writes, :relationships)),
         transitions: map_count(map_value(writes, :transitions)),
         validations: list_count(map_value(writes, :validations)),
-        constraints: list_count(map_value(writes, :constraints))
+        constraints: list_count(map_value(writes, :constraints)),
+        scope: map_count(map_value(writes, :scope)),
+        hooks: map_count(map_value(writes, :hooks))
       },
       actions: map_count(Map.get(normalized, :actions)),
       capabilities: map_count(Map.get(normalized, :capabilities)),
@@ -506,9 +510,12 @@ defmodule Selecto.Domain do
     %{
       operations: sorted_keys(map_value(writes, :operations)),
       fields: sorted_keys(map_value(writes, :fields)),
+      relationships: sorted_keys(map_value(writes, :relationships)),
       transitions: sorted_keys(map_value(writes, :transitions)),
       validations_count: list_count(map_value(writes, :validations)),
-      constraints_count: list_count(map_value(writes, :constraints))
+      constraints_count: list_count(map_value(writes, :constraints)),
+      scope: inspect_write_scope(map_value(writes, :scope)),
+      hooks: inspect_write_hooks(map_value(writes, :hooks))
     }
   end
 
@@ -516,9 +523,100 @@ defmodule Selecto.Domain do
     %{
       operations: [],
       fields: [],
+      relationships: [],
       transitions: [],
       validations_count: 0,
-      constraints_count: 0
+      constraints_count: 0,
+      scope: %{},
+      hooks: []
+    }
+  end
+
+  defp inspect_write_scope(scope) when is_map(scope) do
+    scope
+    |> sorted_entries()
+    |> Enum.map(fn {scope_id, spec} ->
+      {scope_id, inspect_write_scope_entry(scope_id, spec)}
+    end)
+    |> Map.new()
+  end
+
+  defp inspect_write_scope(_scope), do: %{}
+
+  defp inspect_write_scope_entry(:tenant, spec) when is_map(spec) do
+    sources = List.wrap(map_value(spec, :satisfied_by) || map_value(spec, :sources))
+
+    scope =
+      %{
+        required: map_value(spec, :required),
+        field: map_value(spec, :field) || map_value(spec, :tenant_field)
+      }
+      |> compact_nil()
+
+    if sources == [], do: scope, else: Map.put(scope, :satisfied_by, sources)
+  end
+
+  defp inspect_write_scope_entry("tenant", spec) when is_map(spec) do
+    inspect_write_scope_entry(:tenant, spec)
+  end
+
+  defp inspect_write_scope_entry(_scope_id, spec) when is_map(spec) do
+    spec
+    |> Enum.map(fn {key, value} -> {key, value} end)
+    |> Map.new()
+  end
+
+  defp inspect_write_scope_entry(_scope_id, spec), do: spec
+
+  defp inspect_write_hooks(hooks) when is_map(hooks) do
+    hooks
+    |> sorted_entries()
+    |> Enum.map(fn {hook_type, refs} ->
+      hook_refs = List.wrap(refs)
+
+      %{
+        id: field_id(hook_type),
+        runtime: :host_code,
+        portable: false,
+        count: length(hook_refs),
+        refs: Enum.map(hook_refs, &inspect_write_hook_ref/1)
+      }
+    end)
+  end
+
+  defp inspect_write_hooks(_hooks), do: []
+
+  defp inspect_write_hook_ref(hook) when is_function(hook) do
+    %{
+      kind: :function,
+      arity: function_arity(hook)
+    }
+    |> compact_nil()
+  end
+
+  defp inspect_write_hook_ref({module, function}) when is_atom(module) and is_atom(function) do
+    %{
+      kind: :module_function,
+      module: inspect(module),
+      function: field_id(function),
+      extra_args: 0
+    }
+  end
+
+  defp inspect_write_hook_ref({module, function, args})
+       when is_atom(module) and is_atom(function) and is_list(args) do
+    %{
+      kind: :module_function,
+      module: inspect(module),
+      function: field_id(function),
+      extra_args: length(args)
+    }
+  end
+
+  defp inspect_write_hook_ref(hook) do
+    %{
+      kind: :term,
+      inspect: inspect(hook)
     }
   end
 
@@ -589,9 +687,12 @@ defmodule Selecto.Domain do
     count =
       length(Map.fetch!(items, :operations)) +
         length(Map.fetch!(items, :fields)) +
+        length(Map.fetch!(items, :relationships)) +
         length(Map.fetch!(items, :transitions)) +
         Map.fetch!(items, :validations_count) +
-        Map.fetch!(items, :constraints_count)
+        Map.fetch!(items, :constraints_count) +
+        map_count(Map.fetch!(items, :scope)) +
+        length(Map.fetch!(items, :hooks))
 
     if count > 0 do
       [%{section: :writes, count: count, items: items, reason: reason}]
@@ -1612,6 +1713,19 @@ defmodule Selecto.Domain do
 
   defp list_count(list) when is_list(list), do: length(list)
   defp list_count(_list), do: 0
+
+  defp compact_nil(map) when is_map(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp function_arity(hook) when is_function(hook) do
+    case Function.info(hook, :arity) do
+      {:arity, arity} -> arity
+      _other -> nil
+    end
+  end
 
   defp domain_overlays(nil), do: {:ok, []}
   defp domain_overlays([]), do: {:ok, []}

@@ -9,7 +9,8 @@ defmodule Selecto.Config.OverlayDSL do
   `defsource_assoc`, `defsource_relationship`, `defchoice_source`,
   `defwrite_operation`, `defwrite_field`, `defwrite_relationship`,
   `defwrite_transition`, `defwrite_validation`, `defwrite_constraint`,
-  `defaction`, and `defcapability` along with module attributes.
+  `defwrite_tenant_scope`, `defwrite_hook`, `defaction`, and
+  `defcapability` along with module attributes.
 
   ## Usage
 
@@ -141,6 +142,8 @@ defmodule Selecto.Config.OverlayDSL do
   - `defwrite_transition field, graph` - Define `writes.transitions[field]`
   - `defwrite_validation rule` - Append a `writes.validations` rule
   - `defwrite_constraint rule` - Append a `writes.constraints` rule
+  - `defwrite_tenant_scope config_or_block` - Define `writes.scope.tenant`
+  - `defwrite_hook id, refs` - Define `writes.hooks[id]`
   - `defaction id, config_or_block` - Define a top-level domain action
   - `defcapability id, config_or_block` - Define a top-level capability
 
@@ -242,6 +245,8 @@ defmodule Selecto.Config.OverlayDSL do
       Module.register_attribute(__MODULE__, :overlay_write_validations, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_write_constraints, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_write_transitions, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_write_scope, accumulate: true)
+      Module.register_attribute(__MODULE__, :overlay_write_hooks, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_actions, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_capabilities, accumulate: true)
       Module.register_attribute(__MODULE__, :overlay_extension_specs, accumulate: false)
@@ -307,6 +312,9 @@ defmodule Selecto.Config.OverlayDSL do
 
     write_transitions =
       Module.get_attribute(env.module, :overlay_write_transitions) |> Enum.reverse()
+
+    write_scope = Module.get_attribute(env.module, :overlay_write_scope) |> Enum.reverse()
+    write_hooks = Module.get_attribute(env.module, :overlay_write_hooks) |> Enum.reverse()
 
     actions = Module.get_attribute(env.module, :overlay_actions) |> Enum.reverse()
     capabilities = Module.get_attribute(env.module, :overlay_capabilities) |> Enum.reverse()
@@ -397,7 +405,9 @@ defmodule Selecto.Config.OverlayDSL do
         relationships: named_overlay_map(write_relationships),
         validations: write_validations,
         constraints: write_constraints,
-        transitions: named_overlay_map(write_transitions)
+        transitions: named_overlay_map(write_transitions),
+        scope: named_overlay_map(write_scope),
+        hooks: named_raw_overlay_map(write_hooks)
       }
       |> compact_empty_sections()
 
@@ -817,6 +827,45 @@ defmodule Selecto.Config.OverlayDSL do
   end
 
   @doc """
+  Defines canonical tenant scope metadata under `writes.scope.tenant`.
+
+  ## Examples
+
+      defwrite_tenant_scope do
+        required(true)
+        field(:tenant_id)
+        satisfied_by([:trusted_context, :prefix])
+      end
+
+      defwrite_tenant_scope %{required: true, field: :tenant_id}
+  """
+  defmacro defwrite_tenant_scope(do: block) do
+    config = extract_config(block, __CALLER__)
+
+    quote do
+      @overlay_write_scope {:tenant, unquote(Macro.escape(config))}
+    end
+  end
+
+  defmacro defwrite_tenant_scope(scope_config) do
+    quote do
+      @overlay_write_scope {:tenant, unquote(scope_config)}
+    end
+  end
+
+  @doc """
+  Defines declared host-runtime hook references under `writes.hooks`.
+
+  Hook references remain host-owned code. Domain inspection and exported
+  contracts expose only safe metadata for these references.
+  """
+  defmacro defwrite_hook(hook_id, hook_refs) do
+    quote do
+      @overlay_write_hooks {unquote(hook_id), unquote(hook_refs)}
+    end
+  end
+
+  @doc """
   Defines a domain action under the top-level `actions` registry.
   """
   defmacro defaction(action_id, do: block) do
@@ -984,6 +1033,8 @@ defmodule Selecto.Config.OverlayDSL do
     |> Enum.map(fn {name, props} -> {name, normalize_overlay_value(props)} end)
     |> Map.new()
   end
+
+  defp named_raw_overlay_map(entries), do: Map.new(entries)
 
   defp compact_empty_sections(map) when is_map(map) do
     map

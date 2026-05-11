@@ -168,6 +168,8 @@ defmodule Selecto.Config.OverlayDSLTest do
         defwrite_transition(:state, %{draft: [:open], open: [:closed]})
         defwrite_validation({:required_if, :title, :state, "open"})
         defwrite_constraint({:require_relationship, :comments})
+        defwrite_tenant_scope(%{required: true, field: :tenant_id})
+        defwrite_hook(:before_validate, [{Selecto.Config.OverlayDSLTest, :example_hook}])
 
         defaction :approve do
           type(:transition)
@@ -209,6 +211,11 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert overlay.writes.transitions.state == %{draft: [:open], open: [:closed]}
       assert overlay.writes.validations == [{:required_if, :title, :state, "open"}]
       assert overlay.writes.constraints == [{:require_relationship, :comments}]
+      assert overlay.writes.scope.tenant == %{required: true, field: :tenant_id}
+
+      assert overlay.writes.hooks.before_validate == [
+               {Selecto.Config.OverlayDSLTest, :example_hook}
+             ]
 
       assert overlay.actions.approve.transition == %{
                field: :state,

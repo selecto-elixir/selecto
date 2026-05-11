@@ -380,7 +380,11 @@ defmodule Selecto.DomainTest do
           choose_customer: %{type: :choice_source, capability: "customer.choose"}
         })
         |> Map.put(:writes, %{
+          operations: %{update: %{require_filter: true}},
           fields: %{customer_id: %{updatable: true}},
+          relationships: %{line_items: %{writable: true, cardinality: :many}},
+          scope: %{tenant: %{required: true, field: :customer_id}},
+          hooks: %{before_validate: [{__MODULE__, :inspect_test_hook}]},
           transitions: %{status: %{"open" => ["closed"]}}
         })
 
@@ -395,7 +399,11 @@ defmodule Selecto.DomainTest do
       assert inspection.counts.choice_sources == 1
       assert inspection.counts.source_relationships == 1
       assert inspection.counts.field_choice_bindings == 1
+      assert inspection.counts.writes.operations == 1
       assert inspection.counts.writes.fields == 1
+      assert inspection.counts.writes.relationships == 1
+      assert inspection.counts.writes.scope == 1
+      assert inspection.counts.writes.hooks == 1
       assert inspection.counts.actions == 1
       assert inspection.counts.capabilities == 1
       assert inspection.counts.capability_usages == 1
@@ -403,6 +411,25 @@ defmodule Selecto.DomainTest do
       assert inspection.registries.source_fields == ["customer_id", "id", "status", "total"]
       assert inspection.registries.choice_sources == [:customer_choices]
       assert inspection.writes.transitions == [:status]
+      assert inspection.writes.relationships == [:line_items]
+      assert inspection.writes.scope == %{tenant: %{required: true, field: :customer_id}}
+
+      assert [
+               %{
+                 id: "before_validate",
+                 runtime: :host_code,
+                 portable: false,
+                 count: 1,
+                 refs: [
+                   %{
+                     kind: :module_function,
+                     module: "Selecto.DomainTest",
+                     function: "inspect_test_hook",
+                     extra_args: 0
+                   }
+                 ]
+               }
+             ] = inspection.writes.hooks
 
       assert [
                %{
@@ -471,15 +498,34 @@ defmodule Selecto.DomainTest do
                },
                %{
                  section: :writes,
-                 count: 2,
+                 count: 6,
                  items: %{
-                   operations: [],
+                   operations: [:update],
                    fields: [:customer_id],
+                   relationships: [:line_items],
                    transitions: [:status],
                    validations_count: 0,
-                   constraints_count: 0
+                   constraints_count: 0,
+                   scope: %{tenant: %{required: true, field: :customer_id}},
+                   hooks: [
+                     %{
+                       id: "before_validate",
+                       runtime: :host_code,
+                       portable: false,
+                       count: 1,
+                       refs: [
+                         %{
+                           kind: :module_function,
+                           module: "Selecto.DomainTest",
+                           function: "inspect_test_hook",
+                           extra_args: 0
+                         }
+                       ]
+                     }
+                   ]
                  },
-                 reason: "write operations, fields, validations, constraints, and transitions"
+                 reason:
+                   "write operations, fields, relationships, scope, hooks, validations, constraints, and transitions"
                }
              ] = inspection.security_review
 
