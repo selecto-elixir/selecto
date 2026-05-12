@@ -40,6 +40,74 @@ defmodule Selecto.DomainTest do
       assert :schema_version_inferred in warning_codes(diagnostics)
     end
 
+    test "preserves optional domain_version metadata as canonical authored-domain version" do
+      domain = Map.put(minimal_query_domain(), :domain_version, "0.5.0")
+
+      {:ok, normalized, diagnostics} = Domain.normalize(domain)
+      {:ok, inspection, _diagnostics} = Domain.describe(normalized)
+
+      assert normalized.domain_version == "0.5.0"
+      assert normalized.domain.domain_version == "0.5.0"
+      assert :domain_version in diagnostics.canonical_sections
+      assert diagnostics.unknown_sections == []
+      assert inspection.domain_version == "0.5.0"
+
+      assert %{domain_version: "0.5.0"} = Domain.project(normalized, :query)
+      assert %{domain_version: "0.5.0"} = Domain.project(normalized, :query_contract)
+    end
+
+    test "preserves optional domain_fingerprint metadata as canonical authored-domain identity" do
+      domain = Map.put(minimal_query_domain(), :domain_fingerprint, "sha256:abc123")
+
+      {:ok, normalized, diagnostics} = Domain.normalize(domain)
+      {:ok, inspection, _diagnostics} = Domain.describe(normalized)
+
+      assert normalized.domain_fingerprint == "sha256:abc123"
+      assert normalized.domain.domain_fingerprint == "sha256:abc123"
+      assert :domain_fingerprint in diagnostics.canonical_sections
+      assert diagnostics.unknown_sections == []
+      assert inspection.domain_fingerprint == "sha256:abc123"
+
+      assert %{domain_fingerprint: "sha256:abc123"} = Domain.project(normalized, :query)
+
+      assert %{domain_fingerprint: "sha256:abc123"} =
+               Domain.project(normalized, :query_contract)
+    end
+
+    test "warns on invalid domain_version shape without changing schema_version" do
+      domain = Map.put(minimal_query_domain(), :domain_version, %{release: "0.5.0"})
+
+      {:ok, normalized, diagnostics} = Domain.normalize(domain)
+
+      assert normalized.schema_version == 1
+      assert normalized.domain_version == nil
+      assert :domain_version in diagnostics.canonical_sections
+
+      assert %{
+               code: :invalid_section_shape,
+               section: :domain_version,
+               expected: "non-empty atom, string, or integer",
+               actual: :map
+             } = Enum.find(diagnostics.warnings, &(&1.code == :invalid_section_shape))
+    end
+
+    test "warns on invalid domain_fingerprint shape without changing schema_version" do
+      domain = Map.put(minimal_query_domain(), :domain_fingerprint, [:sha256, "abc123"])
+
+      {:ok, normalized, diagnostics} = Domain.normalize(domain)
+
+      assert normalized.schema_version == 1
+      assert normalized.domain_fingerprint == nil
+      assert :domain_fingerprint in diagnostics.canonical_sections
+
+      assert %{
+               code: :invalid_section_shape,
+               section: :domain_fingerprint,
+               expected: "non-empty string",
+               actual: :list
+             } = Enum.find(diagnostics.warnings, &(&1.section == :domain_fingerprint))
+    end
+
     test "classifies generated-style query sections without making them unknown" do
       {:ok, normalized, diagnostics} = Domain.normalize(generated_style_domain())
 

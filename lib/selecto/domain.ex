@@ -90,7 +90,12 @@ defmodule Selecto.Domain do
     :redact_fields,
     :extensions
   ]
-  @known_sections [:schema_version, :name | @map_sections ++ @list_sections]
+  @known_sections [
+    :schema_version,
+    :domain_version,
+    :domain_fingerprint,
+    :name | @map_sections ++ @list_sections
+  ]
   @collision_warning_sections [
     :actions,
     :capabilities,
@@ -113,6 +118,10 @@ defmodule Selecto.Domain do
   The normalizer currently:
 
   - infers `schema_version` as `1` when it is missing
+  - preserves optional `domain_version` metadata as an opaque authored-domain
+    version label
+  - preserves optional `domain_fingerprint` metadata as an opaque authored-domain
+    content identity label
   - expands supported field-level choice-source shorthand into canonical
     `source_relationships`, `choice_sources`, and field reference bindings
   - classifies authored top-level sections as canonical, projection, proposed,
@@ -126,6 +135,8 @@ defmodule Selecto.Domain do
   @spec normalize(term()) :: {:ok, map(), Diagnostics.t()} | {:error, Diagnostics.t()}
   def normalize(domain) when is_map(domain) do
     {schema_version, schema_version_inferred, schema_version_warnings} = schema_version(domain)
+    domain_version = domain_version(domain)
+    domain_fingerprint = domain_fingerprint(domain)
     sections = Sections.classify_top_level_keys(domain)
 
     diagnostics =
@@ -137,9 +148,21 @@ defmodule Selecto.Domain do
       )
 
     canonical_domain =
-      normalize_authoring_shorthand(Map.put(domain, :schema_version, schema_version))
+      domain
+      |> Map.put(:schema_version, schema_version)
+      |> maybe_put_domain_version(domain_version)
+      |> maybe_put_domain_fingerprint(domain_fingerprint)
+      |> normalize_authoring_shorthand()
 
-    {:ok, normalized_domain(domain, canonical_domain, schema_version, sections), diagnostics}
+    {:ok,
+     normalized_domain(
+       domain,
+       canonical_domain,
+       schema_version,
+       domain_version,
+       domain_fingerprint,
+       sections
+     ), diagnostics}
   end
 
   def normalize(_domain) do
@@ -329,6 +352,8 @@ defmodule Selecto.Domain do
       field_choice_bindings: query_contract_choice_bindings(field_choice_bindings),
       capability_ids: sorted_keys(Map.get(normalized, :capabilities, %{}))
     }
+    |> maybe_put(:domain_version, Map.get(normalized, :domain_version))
+    |> maybe_put(:domain_fingerprint, Map.get(normalized, :domain_fingerprint))
   end
 
   def project(%{schema_version: _schema_version, domain: _domain} = normalized, :write) do
@@ -383,9 +408,18 @@ defmodule Selecto.Domain do
           "expected a normalized Selecto domain from Selecto.Domain.normalize/1 before projecting #{inspect(projection)}"
   end
 
-  defp normalized_domain(authored_domain, canonical_domain, schema_version, sections) do
+  defp normalized_domain(
+         authored_domain,
+         canonical_domain,
+         schema_version,
+         domain_version,
+         domain_fingerprint,
+         sections
+       ) do
     %{
       schema_version: schema_version,
+      domain_version: domain_version,
+      domain_fingerprint: domain_fingerprint,
       authored_domain: authored_domain,
       domain: canonical_domain,
       sections: sections,
@@ -427,6 +461,8 @@ defmodule Selecto.Domain do
       choice_sources: inspect_choice_sources(Map.get(normalized, :choice_sources, %{})),
       field_choice_bindings: field_choice_bindings
     }
+    |> maybe_put(:domain_version, Map.get(normalized, :domain_version))
+    |> maybe_put(:domain_fingerprint, Map.get(normalized, :domain_fingerprint))
   end
 
   defp inspection_sections(diagnostics) do
@@ -2260,7 +2296,12 @@ defmodule Selecto.Domain do
       domain_data: Map.get(normalized, :domain_data, %{}),
       extensions: Map.get(normalized, :extensions, [])
     }
+    |> maybe_put(:domain_version, Map.get(normalized, :domain_version))
+    |> maybe_put(:domain_fingerprint, Map.get(normalized, :domain_fingerprint))
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp take_query_sections(normalized, keys) do
     normalized
@@ -2306,6 +2347,51 @@ defmodule Selecto.Domain do
       redact_fields: section(domain, :redact_fields, [])
     }
   end
+
+  defp domain_version(domain) do
+    case fetch_section(domain, :domain_version) do
+      {:ok, version} when is_binary(version) ->
+        case String.trim(version) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      {:ok, version} when is_atom(version) or is_integer(version) ->
+        version
+
+      {:ok, _version} ->
+        nil
+
+      :error ->
+        nil
+    end
+  end
+
+  defp maybe_put_domain_version(domain, nil), do: domain
+
+  defp maybe_put_domain_version(domain, domain_version),
+    do: put_section(domain, :domain_version, domain_version)
+
+  defp domain_fingerprint(domain) do
+    case fetch_section(domain, :domain_fingerprint) do
+      {:ok, fingerprint} when is_binary(fingerprint) ->
+        case String.trim(fingerprint) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      {:ok, _fingerprint} ->
+        nil
+
+      :error ->
+        nil
+    end
+  end
+
+  defp maybe_put_domain_fingerprint(domain, nil), do: domain
+
+  defp maybe_put_domain_fingerprint(domain, domain_fingerprint),
+    do: put_section(domain, :domain_fingerprint, domain_fingerprint)
 
   defp schema_version(domain) do
     case fetch_section(domain, :schema_version) do
@@ -2359,6 +2445,17 @@ defmodule Selecto.Domain do
   defp section_shape_warnings(domain) do
     []
     |> Kernel.++(shape_warnings(domain, [:name], "atom or string", &name?/1))
+    |> Kernel.++(
+      shape_warnings(
+        domain,
+        [:domain_version],
+        "non-empty atom, string, or integer",
+        &domain_version?/1
+      )
+    )
+    |> Kernel.++(
+      shape_warnings(domain, [:domain_fingerprint], "non-empty string", &domain_fingerprint?/1)
+    )
     |> Kernel.++(shape_warnings(domain, @map_sections, "map", &is_map/1))
     |> Kernel.++(shape_warnings(domain, @list_sections, "list", &is_list/1))
   end
@@ -2390,6 +2487,12 @@ defmodule Selecto.Domain do
   end
 
   defp name?(value), do: is_atom(value) or is_binary(value)
+
+  defp domain_version?(value) when is_binary(value), do: String.trim(value) != ""
+  defp domain_version?(value), do: is_atom(value) or is_integer(value)
+
+  defp domain_fingerprint?(value) when is_binary(value), do: String.trim(value) != ""
+  defp domain_fingerprint?(_value), do: false
 
   defp value_type(value) when is_map(value), do: :map
   defp value_type(value) when is_list(value), do: :list

@@ -11,6 +11,8 @@ defmodule Selecto.Domain.Sections do
 
   @canonical_sections MapSet.new([
                         "schema_version",
+                        "domain_version",
+                        "domain_fingerprint",
                         "name",
                         "source",
                         "schemas",

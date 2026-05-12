@@ -12,6 +12,8 @@ Generated domains should declare the current schema version:
 ```elixir
 %{
   schema_version: 1,
+  domain_version: "0.1.0",
+  domain_fingerprint: "sha256:9f5d...",
   name: "Orders",
   source: %{
     source_table: "orders",
@@ -30,6 +32,29 @@ to the current version with an `:invalid_schema_version` warning. Newer positive
 integer versions are preserved and receive an `:unsupported_schema_version`
 warning.
 
+`schema_version` is the machine compatibility version for the canonical Selecto
+domain schema, and should remain a positive integer.
+
+`domain_version` is optional authored-domain metadata. It is an opaque
+non-empty atom, string, or integer that a host can use for semantic versions,
+date-based releases, or generated build ids:
+
+```elixir
+domain_version: "0.5.0"
+domain_version: "2026-05-12"
+```
+
+`domain_fingerprint` is optional authored-domain identity metadata. It is an
+opaque non-empty string, usually a content hash or stable generated-artifact
+fingerprint:
+
+```elixir
+domain_fingerprint: "sha256:9f5d..."
+```
+
+Selecto core preserves a supplied fingerprint but does not compute one during
+normalization.
+
 ## Top-Level Sections
 
 The normalizer classifies authored top-level keys into four categories.
@@ -39,6 +64,8 @@ The normalizer classifies authored top-level keys into four categories.
 Canonical sections are part of the current domain contract:
 
 - `schema_version`
+- `domain_version`
+- `domain_fingerprint`
 - `name`
 - `source`
 - `schemas`
@@ -843,6 +870,8 @@ GraphQL, AI, operations, and Updato integrations. It does not change
 ```elixir
 domain = %{
   schema_version: 1,
+  domain_version: "0.5.0",
+  domain_fingerprint: "sha256:9f5d...",
   name: "Orders",
   source: %{
     source_table: "orders",
@@ -948,6 +977,8 @@ JSON domains use string keys and string field identifiers:
 ```json
 {
   "schema_version": 1,
+  "domain_version": "0.5.0",
+  "domain_fingerprint": "sha256:9f5d...",
   "name": "Orders",
   "source": {
     "source_table": "orders",
