@@ -3,7 +3,7 @@ defmodule Selecto.AdapterSupport do
 
   @default_adapter Selecto.DB.PostgreSQL
   @external_postgresql_adapter SelectoDBPostgreSQL.Adapter
-  @legacy_postgresql_adapter Selecto.DB.PostgreSQL
+  @in_core_postgresql_adapter Selecto.DB.PostgreSQL
   @feature_aliases %{
     text_search_boolean: [:text_search_boolean, :text_search_boolean_mode],
     text_search_query_expansion: [
@@ -26,7 +26,7 @@ defmodule Selecto.AdapterSupport do
   end
 
   def postgresql_adapter?(adapter) do
-    adapter in [default_adapter(), @external_postgresql_adapter, @legacy_postgresql_adapter]
+    adapter in [default_adapter(), @external_postgresql_adapter, @in_core_postgresql_adapter]
   end
 
   def adapter_name(nil), do: adapter_name(@default_adapter)

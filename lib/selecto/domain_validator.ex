@@ -10,10 +10,10 @@ defmodule Selecto.DomainValidator do
 
       # Validate during configure (enabled by default)
       domain = %{source: ..., schemas: ..., joins: ...}
-      selecto = Selecto.configure(domain, postgrex_opts)
+      selecto = Selecto.configure(domain, connection_input)
       
       # Disable validation for performance-critical scenarios
-      selecto = Selecto.configure(domain, postgrex_opts, validate: false)
+      selecto = Selecto.configure(domain, connection_input, validate: false)
       
       # Or validate explicitly
       Selecto.DomainValidator.validate_domain!(domain)
@@ -32,6 +32,7 @@ defmodule Selecto.DomainValidator do
   """
 
   @detail_action_types [:modal, :iframe_modal, :external_link, :live_component]
+  @domain_projections [:query, :write, :ui, :api]
 
   # import Selecto.Types - removed to avoid circular dependency
 
@@ -57,9 +58,9 @@ defmodule Selecto.DomainValidator do
       iex> Selecto.DomainValidator.validate_domain!(domain)
       ** (Selecto.DomainValidator.ValidationError) Join dependency cycle detected: a -> b -> c -> a
   """
-  @spec validate_domain!(Selecto.Types.domain()) :: :ok
-  def validate_domain!(domain) do
-    case validate_domain(domain) do
+  @spec validate_domain!(Selecto.Types.domain(), keyword()) :: :ok
+  def validate_domain!(domain, opts \\ []) do
+    case validate_domain(domain, opts) do
       :ok ->
         :ok
 
@@ -69,11 +70,72 @@ defmodule Selecto.DomainValidator do
   end
 
   @doc """
-  Validates a domain configuration, returning {:ok, domain} or {:error, errors}.
+  Validates a domain configuration, returning `:ok` or `{:error, errors}`.
 
   Non-raising version of validate_domain!/1.
+
+  Options:
+
+  - `:normalize` - when `true`, validate a normalized domain projection instead
+    of the authored map. Defaults to `false` to preserve existing runtime
+    behavior.
+  - `:projection` - normalized projection to validate when `:normalize` is
+    enabled. Defaults to `:api`, because it includes query metadata and current
+    detail action metadata.
   """
-  def validate_domain(domain) do
+  def validate_domain(domain, opts \\ [])
+
+  def validate_domain(domain, opts) when is_list(opts) do
+    if Keyword.get(opts, :normalize, false) do
+      validate_normalized_domain(domain, opts)
+    else
+      validate_authored_domain(domain)
+    end
+  end
+
+  defp validate_normalized_domain(domain, opts) do
+    projection = Keyword.get(opts, :projection, :api)
+
+    with :ok <- validate_projection_name(projection),
+         {:ok, normalized, diagnostics} <- Selecto.Domain.normalize(domain),
+         :ok <- validate_normalization_diagnostics(diagnostics),
+         :ok <- Selecto.Domain.Contract.validate(normalized) do
+      normalized
+      |> Selecto.Domain.project(projection)
+      |> validate_authored_domain()
+    else
+      {:error, %Selecto.Domain.Diagnostics{} = diagnostics} ->
+        {:error, [{:domain_normalization_invalid, diagnostics.errors}]}
+
+      {:error, errors} when is_list(errors) ->
+        {:error, errors}
+    end
+  end
+
+  defp validate_projection_name(projection) when projection in @domain_projections, do: :ok
+
+  defp validate_projection_name(projection) do
+    {:error, [{:domain_projection_invalid, projection}]}
+  end
+
+  defp validate_normalization_diagnostics(diagnostics) do
+    errors =
+      diagnostics.warnings
+      |> Enum.flat_map(fn
+        %{code: :invalid_section_shape, section: section, expected: expected, actual: actual} ->
+          [{:domain_section_invalid_shape, {section, expected, actual}}]
+
+        _warning ->
+          []
+      end)
+
+    case errors do
+      [] -> :ok
+      _ -> {:error, errors}
+    end
+  end
+
+  defp validate_authored_domain(domain) do
     errors = []
 
     # Validate top-level structure
@@ -1583,6 +1645,22 @@ defmodule Selecto.DomainValidator do
 
   defp format_error({:detail_actions_invalid, {action_id, message}}) do
     "Invalid detail action '#{action_id}': #{message}"
+  end
+
+  defp format_error({:domain_projection_invalid, projection}) do
+    "Invalid normalized domain projection '#{inspect(projection)}'"
+  end
+
+  defp format_error({:domain_normalization_invalid, errors}) do
+    "Domain normalization failed: #{inspect(errors)}"
+  end
+
+  defp format_error({:domain_section_invalid_shape, {section, expected, actual}}) do
+    "Domain section '#{section}' has invalid shape '#{actual}'; expected #{expected}"
+  end
+
+  defp format_error(%{message: message}) when is_binary(message) do
+    message
   end
 
   defp format_error(error) do

@@ -24,6 +24,16 @@ defmodule Selecto.Config.Overlay do
     without replacing the full joins map
   - **Source associations** (`source.associations`): Deep merge - overlay can add
     or override root associations without replacing the full source map
+  - **Source relationships** (`source_relationships`): Deep merge - overlay can add
+    or override relationship entries
+  - **Choice sources** (`choice_sources`): Deep merge - overlay can add or override
+    choice-source entries
+  - **Writes** (`writes`): Deep merge - overlay can add or override write
+    operations, fields, relationships, validations, constraints, and transitions
+  - **Actions** (`actions`): Deep merge - overlay can add or override domain
+    actions without replacing sibling actions
+  - **Capabilities** (`capabilities`): Deep merge - overlay can add or override
+    capability entries without replacing sibling capabilities
   - **Redact fields**: Union - unique list of all redacted fields
   - **Other fields**: Shallow merge - overlay takes precedence
 
@@ -134,6 +144,11 @@ defmodule Selecto.Config.Overlay do
     |> merge_schemas(overlay)
     |> merge_joins(overlay)
     |> merge_source_associations(overlay)
+    |> merge_source_relationships(overlay)
+    |> merge_choice_sources(overlay)
+    |> merge_writes(overlay)
+    |> merge_actions(overlay)
+    |> merge_capabilities(overlay)
     |> merge_redact_fields(overlay)
     |> merge_other_fields(overlay)
   end
@@ -327,6 +342,98 @@ defmodule Selecto.Config.Overlay do
     end
   end
 
+  # Merges source relationship definitions from overlay into base.
+  #
+  # Source relationships are deep-merged so overlays can add or override one
+  # relationship without replacing sibling relationships defined by the base domain.
+  defp merge_source_relationships(base, overlay) do
+    overlay_source_relationships = get_in(overlay, [:source_relationships])
+
+    cond do
+      is_map(overlay_source_relationships) and map_size(overlay_source_relationships) > 0 ->
+        update_in(base, [:source_relationships], fn base_source_relationships ->
+          base_source_relationships =
+            if is_map(base_source_relationships), do: base_source_relationships, else: %{}
+
+          deep_merge(base_source_relationships, overlay_source_relationships)
+        end)
+
+      true ->
+        base
+    end
+  end
+
+  # Merges choice source definitions from overlay into base.
+  #
+  # Choice sources are deep-merged so overlays can add or override one picker
+  # source without replacing sibling choice sources defined by the base domain.
+  defp merge_choice_sources(base, overlay) do
+    overlay_choice_sources = get_in(overlay, [:choice_sources])
+
+    cond do
+      is_map(overlay_choice_sources) and map_size(overlay_choice_sources) > 0 ->
+        update_in(base, [:choice_sources], fn base_choice_sources ->
+          base_choice_sources = if is_map(base_choice_sources), do: base_choice_sources, else: %{}
+          deep_merge(base_choice_sources, overlay_choice_sources)
+        end)
+
+      true ->
+        base
+    end
+  end
+
+  # Merges write contract sections from overlay into the base domain.
+  #
+  # Write contract sections are deep-merged so overlays can add or override
+  # individual operations, fields, relationships, and transition graphs without
+  # replacing the full write contract.
+  defp merge_writes(base, overlay) do
+    overlay_writes = get_in(overlay, [:writes])
+
+    cond do
+      is_map(overlay_writes) and map_size(overlay_writes) > 0 ->
+        update_in(base, [:writes], fn base_writes ->
+          base_writes = if is_map(base_writes), do: base_writes, else: %{}
+          deep_merge(base_writes, overlay_writes)
+        end)
+
+      true ->
+        base
+    end
+  end
+
+  # Merges domain action definitions from overlay into the base domain.
+  defp merge_actions(base, overlay) do
+    overlay_actions = get_in(overlay, [:actions])
+
+    cond do
+      is_map(overlay_actions) and map_size(overlay_actions) > 0 ->
+        update_in(base, [:actions], fn base_actions ->
+          base_actions = if is_map(base_actions), do: base_actions, else: %{}
+          deep_merge(base_actions, overlay_actions)
+        end)
+
+      true ->
+        base
+    end
+  end
+
+  # Merges capability definitions from overlay into the base domain.
+  defp merge_capabilities(base, overlay) do
+    overlay_capabilities = get_in(overlay, [:capabilities])
+
+    cond do
+      is_map(overlay_capabilities) and map_size(overlay_capabilities) > 0 ->
+        update_in(base, [:capabilities], fn base_capabilities ->
+          base_capabilities = if is_map(base_capabilities), do: base_capabilities, else: %{}
+          deep_merge(base_capabilities, overlay_capabilities)
+        end)
+
+      true ->
+        base
+    end
+  end
+
   # Merges other overlay fields that aren't handled specially.
   #
   # These fields use shallow merge - overlay replaces base value entirely.
@@ -342,7 +449,12 @@ defmodule Selecto.Config.Overlay do
       :query_members,
       :schemas,
       :joins,
-      :source
+      :source,
+      :source_relationships,
+      :choice_sources,
+      :writes,
+      :actions,
+      :capabilities
     ]
 
     overlay

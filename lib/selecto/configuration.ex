@@ -9,14 +9,13 @@ defmodule Selecto.Configuration do
   require Logger
 
   @doc """
-  Generate a selecto structure from a domain configuration and connection input.
+  Generate a Selecto structure from a domain configuration and connection input.
 
   ## Parameters
 
   - `domain` - Domain configuration map (see domain configuration docs)
-  - `postgrex_opts` - Connection input retained for backward compatibility.
-    This may be adapter-specific connection options, an Ecto repo, a live
-    connection pid/name, or a pooled connection reference.
+  - `connection_input` - Adapter-specific connection options, an Ecto repo,
+    a live connection pid/name, or a pooled connection reference.
   - `opts` - Configuration options
 
   ## Options
@@ -41,7 +40,7 @@ defmodule Selecto.Configuration do
       selecto = Selecto.Configuration.configure(domain, connection_input, validate: false)
   """
   @spec configure(Selecto.Types.domain(), term(), keyword()) :: Selecto.Types.t()
-  def configure(domain, postgrex_opts, opts \\ []) do
+  def configure(domain, connection_input, opts \\ []) do
     Selecto.OptionsValidator.validate_configure_opts!(opts)
 
     validate? = Keyword.get(opts, :validate, true)
@@ -57,9 +56,9 @@ defmodule Selecto.Configuration do
     end
 
     # Handle connection pooling
-    final_postgrex_opts =
-      if use_pool? and not match?({:pool, _}, postgrex_opts) do
-        case Selecto.ConnectionPool.start_pool(postgrex_opts, pool_options) do
+    final_connection_input =
+      if use_pool? and not match?({:pool, _}, connection_input) do
+        case Selecto.ConnectionPool.start_pool(connection_input, pool_options) do
           {:ok, pool_ref} ->
             {:pool, pool_ref}
 
@@ -68,26 +67,25 @@ defmodule Selecto.Configuration do
               "Failed to start connection pool: #{inspect(reason)}. Falling back to direct connection."
             )
 
-            postgrex_opts
+            connection_input
         end
       else
-        postgrex_opts
+        connection_input
       end
 
     # Initialize connection based on adapter
     connection =
       if Selecto.AdapterSupport.postgresql_adapter?(adapter) do
-        # Backward compatibility: reuse the original connection input for the default PostgreSQL adapter.
-        final_postgrex_opts
+        final_connection_input
       else
         # For non-PostgreSQL adapters, reuse pooled adapter reference when available.
-        case final_postgrex_opts do
+        case final_connection_input do
           {:pool, %{adapter: ^adapter} = pool_ref} ->
             pool_ref
 
           _ ->
             # Otherwise let the adapter establish its own connection.
-            case adapter.connect(postgrex_opts) do
+            case adapter.connect(connection_input) do
               {:ok, conn} ->
                 conn
 
@@ -100,8 +98,8 @@ defmodule Selecto.Configuration do
     rollup_sort_fix = resolve_rollup_sort_fix(adapter, connection, opts)
 
     %Selecto{
-      # Keep for backward compatibility
-      postgrex_opts: final_postgrex_opts,
+      # Historical struct field; adapter-neutral rename is tracked as a separate cleanup.
+      postgrex_opts: final_connection_input,
       adapter: adapter,
       connection: connection,
       domain: domain,

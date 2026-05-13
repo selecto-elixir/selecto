@@ -49,6 +49,70 @@ defmodule Selecto.DomainValidatorTest do
       assert DomainValidator.validate_domain(valid_domain) == :ok
     end
 
+    test "can validate a normalized API projection when requested" do
+      domain = %{
+        "source" => %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id, :status],
+          redact_fields: [],
+          columns: %{
+            id: %{type: :integer},
+            status: %{type: :string}
+          },
+          associations: %{}
+        },
+        "schemas" => %{},
+        "joins" => %{},
+        "name" => "Orders",
+        "detail_actions" => %{
+          open_order: %{
+            name: "Open Order",
+            type: :external_link,
+            required_fields: [:id],
+            payload: %{url_template: "/orders/{{id}}"}
+          }
+        }
+      }
+
+      assert {:error, [{:missing_required_keys, [:source, :schemas]}]} =
+               DomainValidator.validate_domain(domain)
+
+      assert DomainValidator.validate_domain(domain, normalize: true) == :ok
+    end
+
+    test "normalized validation reports shallow section shape diagnostics as errors" do
+      domain = %{
+        source: :orders,
+        schemas: %{},
+        joins: %{},
+        name: "Orders"
+      }
+
+      assert {:error, errors} = DomainValidator.validate_domain(domain, normalize: true)
+
+      assert {:domain_section_invalid_shape, {:source, "map", :atom}} in errors
+    end
+
+    test "normalized validation rejects unknown projection names" do
+      domain = %{
+        source: %{
+          source_table: "orders",
+          primary_key: :id,
+          fields: [:id],
+          redact_fields: [],
+          columns: %{id: %{type: :integer}},
+          associations: %{}
+        },
+        schemas: %{},
+        joins: %{},
+        name: "Orders"
+      }
+
+      assert {:error, [{:domain_projection_invalid, :export}]} =
+               DomainValidator.validate_domain(domain, normalize: true, projection: :export)
+    end
+
     test "accepts valid query_members configuration" do
       domain_with_query_members = %{
         source: %{

@@ -92,6 +92,148 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert overlay.filters["price_range"].description == "Filter by price range"
       assert overlay.filters["in_stock"].default == true
     end
+
+    test "builds source relationship and choice source registries" do
+      defmodule TestChoiceSourceOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defcolumn :assignee_id do
+          label("Assignee")
+          choice_source(:work_item_assignees)
+
+          reference(%{
+            choice_source: :work_item_assignees,
+            value_source: "assignee.id",
+            caption_source: "assignee.full_name",
+            caption_field: "assignee.full_name"
+          })
+        end
+
+        defsource_relationship(:work_item_assignee, %{
+          target_domain: :employee,
+          source_field: :assignee_id,
+          target_field: :id,
+          source_path: "assignee"
+        })
+
+        defchoice_source(:work_item_assignees, %{
+          domain: :employee,
+          value_field: :id,
+          label_field: :full_name,
+          source_relationship: :work_item_assignee,
+          presentation: %{control: :autocomplete, mode: :async, cardinality: :one}
+        })
+      end
+
+      overlay = TestChoiceSourceOverlay.overlay()
+
+      assert overlay.columns.assignee_id.choice_source == :work_item_assignees
+      assert overlay.columns.assignee_id.reference.choice_source == :work_item_assignees
+      assert overlay.source_relationships.work_item_assignee.source_field == :assignee_id
+      assert overlay.choice_sources.work_item_assignees.domain == :employee
+      assert overlay.choice_sources.work_item_assignees.label_field == :full_name
+      assert overlay.choice_sources.work_item_assignees.presentation.control == :autocomplete
+    end
+
+    test "builds write contract, actions, and capabilities" do
+      defmodule TestWriteContractOverlay do
+        use Selecto.Config.OverlayDSL
+
+        defwrite_operation :insert do
+          enabled(true)
+          returning(:record)
+        end
+
+        defwrite_operation(:delete, %{enabled: true, require_filter: true})
+
+        defwrite_field :title do
+          insertable(true)
+          updatable(true)
+          required_on([:insert])
+        end
+
+        defwrite_field(:inserted_at, %{
+          insertable: false,
+          updatable: false,
+          server_managed: true
+        })
+
+        defwrite_relationship :comments do
+          writable(true)
+          cardinality(:many)
+          allowed_ops([:insert, :update])
+          foreign_key(:work_item_id)
+        end
+
+        defwrite_transition(:state, %{draft: [:open], open: [:closed]})
+        defwrite_validation({:required_if, :title, :state, "open"})
+        defwrite_constraint({:require_relationship, :comments})
+        defwrite_tenant_scope(%{required: true, field: :tenant_id})
+        defwrite_hook(:before_validate, [{Selecto.Config.OverlayDSLTest, :example_hook}])
+
+        defaction :approve do
+          type(:transition)
+          capability("work_item.approve")
+          transition(%{field: :state, from: :open, to: :approved})
+          execution(%{kind: :updato, operation: :update, set: %{state: :approved}})
+        end
+
+        defcapability "work_item.approve" do
+          operations([:action, :update])
+          action(:approve)
+        end
+      end
+
+      overlay = TestWriteContractOverlay.overlay()
+
+      assert overlay.writes.operations.insert == %{enabled: true, returning: :record}
+      assert overlay.writes.operations.delete == %{enabled: true, require_filter: true}
+
+      assert overlay.writes.fields.title == %{
+               insertable: true,
+               updatable: true,
+               required_on: [:insert]
+             }
+
+      assert overlay.writes.fields.inserted_at == %{
+               insertable: false,
+               updatable: false,
+               server_managed: true
+             }
+
+      assert overlay.writes.relationships.comments == %{
+               writable: true,
+               cardinality: :many,
+               allowed_ops: [:insert, :update],
+               foreign_key: :work_item_id
+             }
+
+      assert overlay.writes.transitions.state == %{draft: [:open], open: [:closed]}
+      assert overlay.writes.validations == [{:required_if, :title, :state, "open"}]
+      assert overlay.writes.constraints == [{:require_relationship, :comments}]
+      assert overlay.writes.scope.tenant == %{required: true, field: :tenant_id}
+
+      assert overlay.writes.hooks.before_validate == [
+               {Selecto.Config.OverlayDSLTest, :example_hook}
+             ]
+
+      assert overlay.actions.approve.transition == %{
+               field: :state,
+               from: :open,
+               to: :approved
+             }
+
+      assert overlay.actions.approve.execution == %{
+               kind: :updato,
+               operation: :update,
+               set: %{state: :approved}
+             }
+
+      assert overlay.capabilities["work_item.approve"] == %{
+               operations: [:action, :update],
+               action: :approve
+             }
+    end
   end
 
   describe "column directives" do

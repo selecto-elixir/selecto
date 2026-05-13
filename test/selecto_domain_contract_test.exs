@@ -1,0 +1,2436 @@
+defmodule Selecto.DomainContractTest do
+  use ExUnit.Case, async: true
+
+  alias Selecto.Domain
+  alias Selecto.Domain.Contract
+  alias Selecto.DomainValidator
+
+  describe "validate/1" do
+    test "accepts a minimal normalized domain" do
+      {:ok, normalized, diagnostics} = Domain.normalize(valid_domain())
+
+      assert diagnostics.errors == []
+      assert Contract.validate(normalized) == :ok
+      assert {:ok, ^normalized, _diagnostics} = Domain.validate(valid_domain())
+    end
+
+    test "accepts atom and string keys in first-wave contract sections" do
+      domain = %{
+        "source" => %{
+          "source_table" => "orders",
+          "primary_key" => "id",
+          "fields" => ["id", "status"],
+          "columns" => %{
+            "id" => %{"type" => "integer"},
+            "status" => %{"type" => "string"}
+          },
+          "associations" => %{}
+        },
+        "schemas" => %{},
+        "joins" => %{},
+        "filters" => %{
+          "status_filter" => %{"field" => "status", "type" => "string"}
+        },
+        "required_filters" => [{"status", "open"}]
+      }
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "reports missing required sections as structured diagnostics" do
+      assert {:error, diagnostics} = Domain.validate(%{source: valid_source()})
+
+      assert %{
+               code: :missing_required_section,
+               section: :schemas,
+               path: [:schemas]
+             } = error_for(diagnostics, :missing_required_section)
+    end
+
+    test "validates source field and primary key references" do
+      domain =
+        valid_domain()
+        |> put_in([:source, :fields], [:id, :status])
+        |> put_in([:source, :primary_key], :missing_id)
+        |> put_in([:source, :columns], %{id: %{type: :integer}})
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :source_field_missing_column,
+               relation: :source,
+               field: :status,
+               path: [:source, :columns, :status]
+             } = error_for(diagnostics, :source_field_missing_column)
+
+      assert %{
+               code: :primary_key_not_found,
+               relation: :source,
+               field: :missing_id,
+               path: [:source, :primary_key]
+             } = error_for(diagnostics, :primary_key_not_found)
+    end
+
+    test "validates schema field column references" do
+      domain =
+        valid_domain()
+        |> put_in([:schemas, :customers, :fields], [:id, :name, :email])
+        |> put_in([:schemas, :customers, :columns], %{
+          id: %{type: :integer},
+          name: %{type: :string}
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :schema_field_missing_column,
+               relation: :customers,
+               field: :email,
+               path: [:schemas, :customers, :columns, :email]
+             } = error_for(diagnostics, :schema_field_missing_column)
+    end
+
+    test "validates join association and target schema references" do
+      missing_association =
+        valid_domain()
+        |> put_in([:joins], %{bad_join: %{type: :left}})
+
+      assert {:error, diagnostics} = Domain.validate(missing_association)
+
+      assert %{
+               code: :join_missing_association,
+               parent: :source,
+               join: :bad_join,
+               path: [:joins, :bad_join]
+             } = error_for(diagnostics, :join_missing_association)
+
+      missing_target =
+        valid_domain()
+        |> put_in([:source, :associations, :customer, :queryable], :missing_customers)
+
+      assert {:error, diagnostics} = Domain.validate(missing_target)
+
+      assert %{
+               code: :join_target_schema_not_found,
+               join: :customer,
+               schema: :missing_customers,
+               path: [:joins, :customer]
+             } = error_for(diagnostics, :join_target_schema_not_found)
+    end
+
+    test "validates filter field references without requiring filter ids to be fields" do
+      domain =
+        valid_domain()
+        |> Map.merge(%{
+          filters: %{
+            "status_picker" => %{field: :missing_status, type: :string},
+            "virtual_search" => %{type: :string}
+          },
+          required_filters: [
+            {"missing_required", true},
+            {:and, [{"status", "open"}]}
+          ]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      errors = errors_for(diagnostics, :filter_field_not_found)
+
+      assert Enum.any?(errors, &match?(%{field: :missing_status}, &1))
+      assert Enum.any?(errors, &match?(%{field: "missing_required"}, &1))
+      refute Enum.any?(errors, &match?(%{field: "status_picker"}, &1))
+      refute Enum.any?(errors, &match?(%{field: "virtual_search"}, &1))
+    end
+
+    test "validates filter registry metadata shape" do
+      domain =
+        valid_domain()
+        |> Map.merge(%{
+          filters: %{
+            123 => %{field: :status, type: :string},
+            "" => %{field: :status, type: :string},
+            "bad_config" => [:not, :a, :map],
+            "bad_field" => %{field: 123, type: :integer},
+            "bad_type" => %{field: :status, type: {:array, :string}},
+            "blank_field" => %{field: " ", type: :string},
+            "blank_type" => %{field: :status, type: ""}
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_filter_id, filter: 123, path: [:filters, 123]} =
+               Enum.find(errors_for(diagnostics, :invalid_filter_id), &(&1.filter == 123))
+
+      assert %{code: :invalid_filter_id, filter: "", path: [:filters, ""]} =
+               Enum.find(errors_for(diagnostics, :invalid_filter_id), &(&1.filter == ""))
+
+      assert %{
+               code: :invalid_filter_config,
+               filter: "bad_config",
+               path: [:filters, "bad_config"]
+             } = error_for(diagnostics, :invalid_filter_config)
+
+      assert %{
+               code: :invalid_filter_field,
+               filter: "bad_field",
+               field: 123,
+               path: [:filters, "bad_field", :field]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_filter_field),
+                 &(&1.filter == "bad_field")
+               )
+
+      assert %{
+               code: :invalid_filter_field,
+               filter: "blank_field",
+               field: " ",
+               path: [:filters, "blank_field", :field]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_filter_field),
+                 &(&1.filter == "blank_field")
+               )
+
+      assert %{
+               code: :invalid_filter_type,
+               filter: "bad_type",
+               type: {:array, :string},
+               path: [:filters, "bad_type", :type]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_filter_type),
+                 &(&1.filter == "bad_type")
+               )
+
+      assert %{
+               code: :invalid_filter_type,
+               filter: "blank_type",
+               type: "",
+               path: [:filters, "blank_type", :type]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_filter_type),
+                 &(&1.filter == "blank_type")
+               )
+    end
+
+    test "validates query field list references" do
+      domain =
+        valid_domain()
+        |> Map.put(:custom_columns, %{
+          "status_label" => %{select: {:field, "status"}, type: :string}
+        })
+        |> Map.merge(%{
+          default_selected: [:id, "status", "customers.name", {:field, "status_label", "label"}],
+          required_selected: ["status_label"],
+          required_order_by: [:status, {"customers.name", :desc}, {:asc_nulls_last, :id}],
+          required_group_by: [:status, {:rollup, ["customers.name"]}]
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates query field list shapes and direct references" do
+      bad_shapes =
+        valid_domain()
+        |> Map.merge(%{
+          default_selected: :id,
+          required_selected: :status,
+          required_order_by: :status,
+          required_group_by: :status
+        })
+
+      assert {:error, shape_diagnostics} = Domain.validate(bad_shapes)
+
+      invalid_shapes = errors_for(shape_diagnostics, :invalid_section_shape)
+
+      assert Enum.any?(invalid_shapes, &match?(%{path: [:default_selected]}, &1))
+      assert Enum.any?(invalid_shapes, &match?(%{path: [:required_selected]}, &1))
+      assert Enum.any?(invalid_shapes, &match?(%{path: [:required_order_by]}, &1))
+      assert Enum.any?(invalid_shapes, &match?(%{path: [:required_group_by]}, &1))
+
+      bad_references =
+        valid_domain()
+        |> Map.merge(%{
+          default_selected: [:missing_select, 123],
+          required_selected: [""],
+          required_order_by: [{"missing_sort", :asc}, {"status", :sideways}],
+          required_group_by: [{:rollup, ["missing_group"]}, {:grouping_set, :status}, 456]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(bad_references)
+
+      assert %{code: :query_field_not_found, section: :default_selected, field: :missing_select} =
+               Enum.find(
+                 errors_for(diagnostics, :query_field_not_found),
+                 &(&1.section == :default_selected)
+               )
+
+      assert %{code: :invalid_query_field_reference, section: :default_selected, field: 123} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_field_reference),
+                 &(&1.section == :default_selected)
+               )
+
+      assert %{code: :invalid_query_field_reference, section: :required_selected, field: ""} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_field_reference),
+                 &(&1.section == :required_selected)
+               )
+
+      assert %{code: :query_field_not_found, section: :required_order_by, field: "missing_sort"} =
+               Enum.find(
+                 errors_for(diagnostics, :query_field_not_found),
+                 &(&1.section == :required_order_by)
+               )
+
+      assert %{code: :invalid_query_order_direction, direction: :sideways} =
+               error_for(diagnostics, :invalid_query_order_direction)
+
+      assert %{code: :query_field_not_found, section: :required_group_by, field: "missing_group"} =
+               Enum.find(
+                 errors_for(diagnostics, :query_field_not_found),
+                 &(&1.section == :required_group_by)
+               )
+
+      assert %{code: :invalid_query_group_wrapper, wrapper: :grouping_set} =
+               error_for(diagnostics, :invalid_query_group_wrapper)
+
+      assert %{code: :invalid_query_field_reference, section: :required_group_by, field: 456} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_field_reference),
+                 &(&1.section == :required_group_by)
+               )
+    end
+
+    test "accepts query field list UDF references" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          "similarity" => %{
+            kind: :scalar,
+            sql_name: "public.similarity",
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ],
+            returns: :float,
+            allowed_in: [:select, :order_by, :group_by]
+          },
+          name_key: %{
+            kind: :scalar,
+            sql_name: "lower",
+            args: [%{name: :value, type: :string, source: :selector}],
+            allowed_in: [:select]
+          }
+        })
+        |> Map.merge(%{
+          default_selected: [
+            {:udf, "similarity", ["status", "open"]},
+            {:field, {:udf, "similarity", ["customers.name", "Acme"]}, "score"},
+            {:udf, "similarity", [{:udf, "name_key", ["status"]}, "open"]}
+          ],
+          required_selected: [{:udf, "name_key", ["status"]}],
+          required_order_by: [{{:udf, "similarity", ["status", "open"]}, :desc}],
+          required_group_by: [{:rollup, [{:udf, "similarity", ["status", "open"]}]}]
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates query field list UDF references" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          "select_only" => %{kind: :scalar, sql_name: "lower", allowed_in: [:select]},
+          "order_only" => %{kind: :scalar, sql_name: "lower", allowed_in: [:order_by]}
+        })
+        |> Map.merge(%{
+          default_selected: [{:udf, 123, []}, {:udf, "missing_select", []}],
+          required_selected: [{:field, {:udf, "missing_alias", []}, "bad"}],
+          required_order_by: [{{:udf, "select_only", []}, :asc}, {:udf, "missing_order", []}],
+          required_group_by: [{:udf, "order_only", []}, {:rollup, [{:udf, "missing_group", []}]}]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :invalid_query_function_id,
+               section: :default_selected,
+               function: 123,
+               call_site: :select,
+               path: [:default_selected, 0, :function]
+             } = error_for(diagnostics, :invalid_query_function_id)
+
+      assert %{
+               code: :query_function_not_found,
+               section: :default_selected,
+               function: "missing_select",
+               call_site: :select,
+               path: [:default_selected, 1, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_not_found),
+                 &(&1.function == "missing_select")
+               )
+
+      assert %{
+               code: :query_function_not_found,
+               section: :required_selected,
+               function: "missing_alias",
+               call_site: :select,
+               path: [:required_selected, 0, :field, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_not_found),
+                 &(&1.function == "missing_alias")
+               )
+
+      assert %{
+               code: :query_function_call_site_not_allowed,
+               section: :required_order_by,
+               function: "select_only",
+               call_site: :order_by,
+               allowed_in: [:select],
+               path: [:required_order_by, 0, :field, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_call_site_not_allowed),
+                 &(&1.function == "select_only")
+               )
+
+      assert %{
+               code: :query_function_not_found,
+               section: :required_order_by,
+               function: "missing_order",
+               call_site: :order_by,
+               path: [:required_order_by, 1, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_not_found),
+                 &(&1.function == "missing_order")
+               )
+
+      assert %{
+               code: :query_function_call_site_not_allowed,
+               section: :required_group_by,
+               function: "order_only",
+               call_site: :group_by,
+               allowed_in: [:order_by],
+               path: [:required_group_by, 0, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_call_site_not_allowed),
+                 &(&1.function == "order_only")
+               )
+
+      assert %{
+               code: :query_function_not_found,
+               section: :required_group_by,
+               function: "missing_group",
+               call_site: :group_by,
+               path: [:required_group_by, 1, :rollup, 0, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_not_found),
+                 &(&1.function == "missing_group")
+               )
+    end
+
+    test "validates query field list UDF argument metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          "needs_selector" => %{
+            kind: :scalar,
+            sql_name: "lower",
+            args: [%{name: :input, type: :string, source: :selector}],
+            allowed_in: [:select]
+          },
+          "two_args" => %{
+            kind: :scalar,
+            sql_name: "concat",
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ],
+            allowed_in: [:select]
+          },
+          "nested_order_only" => %{
+            kind: :scalar,
+            sql_name: "lower",
+            args: [%{name: :input, type: :string, source: :selector}],
+            allowed_in: [:order_by]
+          }
+        })
+        |> Map.merge(%{
+          default_selected: [
+            {:udf, "needs_selector", ["missing_status"]},
+            {:udf, "needs_selector", []},
+            {:udf, "two_args", ["status"]},
+            {:udf, "needs_selector", [{:udf, "nested_order_only", ["status"]}]}
+          ]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :query_field_not_found,
+               section: :default_selected,
+               field: "missing_status",
+               path: [:default_selected, 0, :args, 0]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_field_not_found),
+                 &(&1.field == "missing_status")
+               )
+
+      assert %{
+               code: :query_function_arg_count_mismatch,
+               section: :default_selected,
+               function: "needs_selector",
+               call_site: :select,
+               expected: 1,
+               actual: 0,
+               path: [:default_selected, 1, :args]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_arg_count_mismatch),
+                 &(&1.function == "needs_selector")
+               )
+
+      assert %{
+               code: :query_function_arg_count_mismatch,
+               section: :default_selected,
+               function: "two_args",
+               call_site: :select,
+               expected: 2,
+               actual: 1,
+               path: [:default_selected, 2, :args]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_arg_count_mismatch),
+                 &(&1.function == "two_args")
+               )
+
+      assert %{
+               code: :query_function_call_site_not_allowed,
+               section: :default_selected,
+               function: "nested_order_only",
+               call_site: :select,
+               allowed_in: [:order_by],
+               path: [:default_selected, 3, :args, 0, :function]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :query_function_call_site_not_allowed),
+                 &(&1.function == "nested_order_only")
+               )
+    end
+
+    test "accepts valid function registry metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          "similarity" => %{
+            kind: :scalar,
+            sql_name: "public.similarity",
+            args: [
+              %{name: :left, type: :string, source: :selector},
+              %{name: :right, type: :string, source: :value}
+            ],
+            returns: :float,
+            allowed_in: [:select, :order_by]
+          },
+          "matches_status" => %{
+            kind: :predicate,
+            sql_name: "public.matches_status",
+            args: [
+              %{name: :status, type: :string, source: :selector},
+              %{name: :pattern, type: :string, source: :value}
+            ],
+            returns: :boolean,
+            allowed_in: [:filter]
+          },
+          "nearby_orders" => %{
+            kind: :table,
+            sql_name: "gis.nearby_orders",
+            args: [%{name: :origin, type: :string, source: :value}],
+            returns: %{columns: %{id: %{type: :integer}, distance_m: %{type: :float}}},
+            allowed_in: [:lateral, :query_member]
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates function registry metadata shape" do
+      domain =
+        valid_domain()
+        |> Map.put(:functions, %{
+          123 => %{kind: :scalar, sql_name: "lower"},
+          "" => %{kind: :scalar, sql_name: "lower"},
+          "bad_spec" => [:not, :a, :map],
+          "bad_kind" => %{kind: :window, sql_name: "lower"},
+          "bad_sql" => %{kind: :scalar, sql_name: "public.drop;table"},
+          "bad_allowed_in" => %{kind: :scalar, sql_name: "lower", allowed_in: :select},
+          "bad_call_site" => %{kind: :scalar, sql_name: "lower", allowed_in: [:select, :bogus]},
+          "bad_args" => %{kind: :scalar, sql_name: "lower", args: :not_a_list},
+          "bad_arg_spec" => %{kind: :scalar, sql_name: "lower", args: [:not_a_map]},
+          "bad_arg_metadata" => %{
+            kind: :scalar,
+            sql_name: "lower",
+            args: [%{name: "", source: :unknown}]
+          },
+          "bad_predicate" => %{kind: :predicate, sql_name: "matches_status", returns: :string},
+          "bad_table" => %{kind: :table, sql_name: "nearby_orders", returns: %{columns: %{}}},
+          "bad_scalar" => %{kind: :scalar, sql_name: "lower", returns: ["string"]}
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_function_id, function: 123, path: [:functions, 123]} =
+               Enum.find(errors_for(diagnostics, :invalid_function_id), &(&1.function == 123))
+
+      assert %{code: :invalid_function_id, function: "", path: [:functions, ""]} =
+               Enum.find(errors_for(diagnostics, :invalid_function_id), &(&1.function == ""))
+
+      assert %{
+               code: :invalid_function_spec,
+               function: "bad_spec",
+               path: [:functions, "bad_spec"]
+             } = error_for(diagnostics, :invalid_function_spec)
+
+      assert %{
+               code: :invalid_function_kind,
+               function: "bad_kind",
+               kind: :window,
+               path: [:functions, "bad_kind", :kind]
+             } = error_for(diagnostics, :invalid_function_kind)
+
+      assert %{
+               code: :invalid_function_sql_name,
+               function: "bad_sql",
+               path: [:functions, "bad_sql", :sql_name]
+             } = error_for(diagnostics, :invalid_function_sql_name)
+
+      assert %{
+               code: :invalid_function_allowed_in,
+               function: "bad_allowed_in",
+               path: [:functions, "bad_allowed_in", :allowed_in]
+             } = error_for(diagnostics, :invalid_function_allowed_in)
+
+      assert %{
+               code: :invalid_function_call_site,
+               function: "bad_call_site",
+               call_site: :bogus,
+               path: [:functions, "bad_call_site", :allowed_in, 1]
+             } = error_for(diagnostics, :invalid_function_call_site)
+
+      assert %{
+               code: :invalid_function_args,
+               function: "bad_args",
+               path: [:functions, "bad_args", :args]
+             } = error_for(diagnostics, :invalid_function_args)
+
+      assert %{
+               code: :invalid_function_arg_spec,
+               function: "bad_arg_spec",
+               path: [:functions, "bad_arg_spec", :args, 0]
+             } = error_for(diagnostics, :invalid_function_arg_spec)
+
+      assert %{
+               code: :invalid_function_arg_name,
+               function: "bad_arg_metadata",
+               path: [:functions, "bad_arg_metadata", :args, 0, :name]
+             } = error_for(diagnostics, :invalid_function_arg_name)
+
+      assert %{
+               code: :missing_function_arg_type,
+               function: "bad_arg_metadata",
+               path: [:functions, "bad_arg_metadata", :args, 0, :type]
+             } = error_for(diagnostics, :missing_function_arg_type)
+
+      assert %{
+               code: :invalid_function_arg_source,
+               function: "bad_arg_metadata",
+               source: :unknown,
+               path: [:functions, "bad_arg_metadata", :args, 0, :source]
+             } = error_for(diagnostics, :invalid_function_arg_source)
+
+      returns_errors = errors_for(diagnostics, :invalid_function_returns)
+
+      assert Enum.any?(
+               returns_errors,
+               &match?(
+                 %{function: "bad_predicate", path: [:functions, "bad_predicate", :returns]},
+                 &1
+               )
+             )
+
+      assert Enum.any?(
+               returns_errors,
+               &match?(
+                 %{function: "bad_table", path: [:functions, "bad_table", :returns]},
+                 &1
+               )
+             )
+
+      assert Enum.any?(
+               returns_errors,
+               &match?(
+                 %{function: "bad_scalar", path: [:functions, "bad_scalar", :returns]},
+                 &1
+               )
+             )
+    end
+
+    test "accepts valid query member registry metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:query_members, %{
+          "ctes" => %{
+            "delivered_orders" => %{
+              "query" => fn selecto -> selecto end,
+              "columns" => ["id", "status"],
+              "join" => [owner_key: :id, related_key: :id]
+            }
+          },
+          values: %{
+            status_lookup: %{
+              rows: [["delivered", "Delivered"]],
+              columns: ["status", "label"],
+              as: "status_lookup"
+            }
+          },
+          subqueries: %{
+            high_value_orders: %{
+              query: fn -> :ok end,
+              type: :inner,
+              on: [%{left: "id", right: "order_id"}]
+            }
+          },
+          laterals: %{
+            expand_tags: %{
+              source: {:unnest, "\"selecto_root\".\"tags\""},
+              join_type: :left,
+              as: "tag_rows",
+              options: [prefix: "public"]
+            }
+          },
+          unnests: %{
+            tags: %{
+              array_field: "tags",
+              as: "tag",
+              ordinality: "tag_position",
+              options: %{prefix: "public"}
+            }
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates query member section and group shapes" do
+      section_domain = valid_domain() |> Map.put(:query_members, [:not, :a, :map])
+
+      assert {:error, section_diagnostics} = Domain.validate(section_domain)
+
+      assert %{
+               code: :invalid_section_shape,
+               path: [:query_members],
+               expected: :map,
+               actual: :list
+             } = error_for(section_diagnostics, :invalid_section_shape)
+
+      group_domain = valid_domain() |> Map.put(:query_members, %{ctes: [:not, :a, :map]})
+
+      assert {:error, group_diagnostics} = Domain.validate(group_domain)
+
+      assert %{
+               code: :invalid_query_member_group,
+               group: :ctes,
+               path: [:query_members, :ctes]
+             } = error_for(group_diagnostics, :invalid_query_member_group)
+    end
+
+    test "validates query member specs by group" do
+      domain =
+        valid_domain()
+        |> Map.put(:query_members, %{
+          ctes: %{
+            123 => %{query: fn -> :ok end},
+            "bad_spec" => :not_a_map,
+            "bad_query" => %{columns: ["id"]},
+            "bad_join" => %{query: fn -> :ok end, join: :bogus}
+          },
+          values: %{
+            "bad_rows" => %{rows: :oops},
+            "bad_columns" => %{rows: [], columns: :oops},
+            "bad_alias" => %{rows: [], as: ""},
+            "bad_join" => %{rows: [], join: :bogus}
+          },
+          subqueries: %{
+            "bad_kind" => %{kind: :other, query: fn -> :ok end},
+            "bad_query" => %{query: :oops},
+            "bad_on" => %{query: fn -> :ok end, on: :oops},
+            "bad_type" => %{query: fn -> :ok end, type: :cross},
+            "bad_join_id" => %{query: fn -> :ok end, join_id: ""}
+          },
+          laterals: %{
+            "bad_source" => %{source: 123},
+            "bad_type" => %{source: {:unnest, "\"selecto_root\".\"tags\""}, join_type: :cross},
+            "bad_alias" => %{source: {:unnest, "\"selecto_root\".\"tags\""}, as: ""},
+            "bad_options" => %{source: {:unnest, "\"selecto_root\".\"tags\""}, options: :oops}
+          },
+          unnests: %{
+            "bad_field" => %{array_field: ""},
+            "bad_ordinality" => %{array_field: "tags", ordinality: 123},
+            "bad_alias" => %{array_field: "tags", as: []},
+            "bad_options" => %{array_field: "tags", options: :oops}
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_query_member_id, group: :ctes, member: 123} =
+               error_for(diagnostics, :invalid_query_member_id)
+
+      assert %{code: :invalid_query_member_spec, group: :ctes, member: "bad_spec"} =
+               error_for(diagnostics, :invalid_query_member_spec)
+
+      assert %{
+               code: :invalid_query_member_query,
+               group: :ctes,
+               member: "bad_query",
+               path: [:query_members, :ctes, "bad_query", :query]
+             } =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_query),
+                 &(&1.group == :ctes)
+               )
+
+      assert %{code: :invalid_query_member_join, group: :ctes, member: "bad_join"} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_join),
+                 &(&1.group == :ctes)
+               )
+
+      assert %{code: :invalid_query_member_rows, group: :values, member: "bad_rows"} =
+               error_for(diagnostics, :invalid_query_member_rows)
+
+      assert %{code: :invalid_query_member_columns, group: :values, member: "bad_columns"} =
+               error_for(diagnostics, :invalid_query_member_columns)
+
+      assert %{code: :invalid_query_member_alias, group: :values, member: "bad_alias"} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_alias),
+                 &(&1.group == :values)
+               )
+
+      assert %{code: :invalid_query_member_kind, group: :subqueries, member: "bad_kind"} =
+               error_for(diagnostics, :invalid_query_member_kind)
+
+      assert %{code: :invalid_query_member_on, group: :subqueries, member: "bad_on"} =
+               error_for(diagnostics, :invalid_query_member_on)
+
+      assert %{code: :invalid_query_member_join_type, group: :subqueries, member: "bad_type"} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_join_type),
+                 &(&1.group == :subqueries)
+               )
+
+      assert %{code: :invalid_query_member_join_id, group: :subqueries, member: "bad_join_id"} =
+               error_for(diagnostics, :invalid_query_member_join_id)
+
+      assert %{code: :invalid_query_member_source, group: :laterals, member: "bad_source"} =
+               error_for(diagnostics, :invalid_query_member_source)
+
+      assert %{code: :invalid_query_member_options, group: :laterals, member: "bad_options"} =
+               Enum.find(
+                 errors_for(diagnostics, :invalid_query_member_options),
+                 &(&1.group == :laterals)
+               )
+
+      assert %{code: :invalid_query_member_field, group: :unnests, member: "bad_field"} =
+               error_for(diagnostics, :invalid_query_member_field)
+
+      assert %{
+               code: :invalid_query_member_ordinality,
+               group: :unnests,
+               member: "bad_ordinality"
+             } = error_for(diagnostics, :invalid_query_member_ordinality)
+    end
+
+    test "accepts valid published view registry metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:published_views, %{
+          "order_rollup" => %{
+            database_name: "reporting.order_rollup",
+            kind: :materialized_view,
+            query: fn selecto -> selecto end,
+            columns: %{
+              order_id: %{type: :integer},
+              status: %{type: :string}
+            },
+            indexes: [
+              %{columns: [:order_id], unique: true},
+              %{columns: ["status"], concurrently: false}
+            ],
+            refresh: %{concurrently: true}
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates published view section and spec shapes" do
+      section_domain = valid_domain() |> Map.put(:published_views, [:not, :a, :map])
+
+      assert {:error, section_diagnostics} = Domain.validate(section_domain)
+
+      assert %{
+               code: :invalid_section_shape,
+               path: [:published_views],
+               expected: :map,
+               actual: :list
+             } = error_for(section_diagnostics, :invalid_section_shape)
+
+      domain =
+        valid_domain()
+        |> Map.put(:published_views, %{
+          123 => %{
+            database_name: "reporting.order_rollup",
+            kind: :view,
+            query: fn selecto -> selecto end,
+            columns: %{order_id: %{type: :integer}}
+          },
+          "" => %{
+            database_name: "reporting.empty_id",
+            kind: :view,
+            query: fn selecto -> selecto end,
+            columns: %{order_id: %{type: :integer}}
+          },
+          "bad_spec" => :not_a_map,
+          "bad_metadata" => %{
+            database_name: "",
+            kind: :report,
+            query: fn -> :not_arity_one end,
+            columns: %{},
+            indexes: :not_a_list,
+            refresh: :manual
+          },
+          "bad_columns" => %{
+            database_name: "reporting.bad_columns",
+            kind: :view,
+            query: fn selecto -> selecto end,
+            columns: %{"" => %{type: :integer}, status: :not_a_map}
+          },
+          "bad_indexes" => %{
+            database_name: "reporting.bad_indexes",
+            kind: :view,
+            query: fn selecto -> selecto end,
+            columns: %{order_id: %{type: :integer}},
+            indexes: [
+              :not_a_map,
+              %{columns: [], unique: :yes, concurrently: :no},
+              %{columns: ["status", 123]}
+            ]
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_published_view_id, view: 123, path: [:published_views, 123]} =
+               Enum.find(errors_for(diagnostics, :invalid_published_view_id), &(&1.view == 123))
+
+      assert %{code: :invalid_published_view_id, view: "", path: [:published_views, ""]} =
+               Enum.find(errors_for(diagnostics, :invalid_published_view_id), &(&1.view == ""))
+
+      assert %{code: :invalid_published_view_spec, view: "bad_spec"} =
+               error_for(diagnostics, :invalid_published_view_spec)
+
+      assert %{code: :invalid_published_view_database_name, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_database_name)
+
+      assert %{code: :invalid_published_view_kind, view: "bad_metadata", kind: :report} =
+               error_for(diagnostics, :invalid_published_view_kind)
+
+      assert %{code: :invalid_published_view_query, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_query)
+
+      assert %{code: :invalid_published_view_columns, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_columns)
+
+      assert %{code: :invalid_published_view_indexes, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_indexes)
+
+      assert %{code: :invalid_published_view_refresh, view: "bad_metadata"} =
+               error_for(diagnostics, :invalid_published_view_refresh)
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_column),
+               &match?(%{view: "bad_columns", column: ""}, &1)
+             )
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_column),
+               &match?(%{view: "bad_columns", column: :status}, &1)
+             )
+
+      assert %{code: :invalid_published_view_index, view: "bad_indexes"} =
+               error_for(diagnostics, :invalid_published_view_index)
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_index_columns),
+               &match?(%{view: "bad_indexes", columns: []}, &1)
+             )
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_index_columns),
+               &match?(%{view: "bad_indexes", columns: ["status", 123]}, &1)
+             )
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_index_option),
+               &match?(%{view: "bad_indexes", option: :unique}, &1)
+             )
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_published_view_index_option),
+               &match?(%{view: "bad_indexes", option: :concurrently}, &1)
+             )
+    end
+
+    test "accepts valid detail action metadata" do
+      domain =
+        valid_domain()
+        |> Map.put(:detail_actions, %{
+          profile: %{
+            name: "Profile",
+            type: :modal,
+            required_fields: [:id, "customers.name"],
+            payload: %{title: "Order"}
+          },
+          docs: %{
+            name: "Docs",
+            type: "iframe_modal",
+            required_fields: [:id],
+            payload: %{"url_template" => "/orders/{{id}}/docs"}
+          },
+          external: %{
+            name: "External",
+            type: :external_link,
+            required_fields: [:id],
+            payload: %{url_template: "https://example.test/orders/{{id}}"}
+          },
+          live: %{
+            name: "Live",
+            type: :live_component,
+            required_fields: [:id],
+            payload: %{module: ExampleLiveComponent}
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates detail action metadata shape" do
+      section_domain = valid_domain() |> Map.put(:detail_actions, [:not, :a, :map])
+
+      assert {:error, section_diagnostics} = Domain.validate(section_domain)
+
+      assert %{
+               code: :invalid_section_shape,
+               path: [:detail_actions],
+               expected: :map,
+               actual: :list
+             } = error_for(section_diagnostics, :invalid_section_shape)
+
+      domain =
+        valid_domain()
+        |> Map.put(:detail_actions, %{
+          123 => %{name: "Numeric ID", type: :modal},
+          "" => %{name: "Blank ID", type: :modal},
+          "bad_spec" => :not_a_map,
+          "bad_name" => %{name: "", type: :modal},
+          "bad_type" => %{name: "Bad Type", type: :made_up},
+          "bad_payload" => %{name: "Bad Payload", type: :modal, payload: :oops},
+          "bad_link" => %{name: "Bad Link", type: :external_link, payload: %{}},
+          "bad_iframe" => %{name: "Bad Iframe", type: :iframe_modal, payload: %{}},
+          "bad_live" => %{name: "Bad Live", type: :live_component, payload: %{}},
+          "bad_required_fields_shape" => %{
+            name: "Bad Required Fields Shape",
+            type: :modal,
+            required_fields: :id
+          },
+          "bad_required_field" => %{
+            name: "Bad Required Field",
+            type: :modal,
+            required_fields: [123]
+          },
+          "missing_required_field" => %{
+            name: "Missing Required Field",
+            type: :modal,
+            required_fields: [:missing_status]
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{code: :invalid_detail_action_id, action: 123, path: [:detail_actions, 123]} =
+               Enum.find(errors_for(diagnostics, :invalid_detail_action_id), &(&1.action == 123))
+
+      assert %{code: :invalid_detail_action_id, action: "", path: [:detail_actions, ""]} =
+               Enum.find(errors_for(diagnostics, :invalid_detail_action_id), &(&1.action == ""))
+
+      assert %{code: :invalid_detail_action_spec, action: "bad_spec"} =
+               error_for(diagnostics, :invalid_detail_action_spec)
+
+      assert %{code: :invalid_detail_action_name, action: "bad_name"} =
+               error_for(diagnostics, :invalid_detail_action_name)
+
+      assert %{code: :invalid_detail_action_type, action: "bad_type", type: :made_up} =
+               error_for(diagnostics, :invalid_detail_action_type)
+
+      assert %{code: :invalid_detail_action_payload, action: "bad_payload"} =
+               error_for(diagnostics, :invalid_detail_action_payload)
+
+      url_template_errors = errors_for(diagnostics, :missing_detail_action_url_template)
+
+      assert Enum.any?(url_template_errors, &match?(%{action: "bad_link"}, &1))
+      assert Enum.any?(url_template_errors, &match?(%{action: "bad_iframe"}, &1))
+
+      assert %{code: :missing_detail_action_module, action: "bad_live"} =
+               error_for(diagnostics, :missing_detail_action_module)
+
+      assert %{
+               code: :invalid_detail_action_required_fields,
+               action: "bad_required_fields_shape"
+             } = error_for(diagnostics, :invalid_detail_action_required_fields)
+
+      assert %{
+               code: :invalid_detail_action_required_field,
+               action: "bad_required_field",
+               field: 123
+             } = error_for(diagnostics, :invalid_detail_action_required_field)
+
+      assert %{
+               code: :detail_action_field_not_found,
+               action: "missing_required_field",
+               field: :missing_status
+             } = error_for(diagnostics, :detail_action_field_not_found)
+    end
+
+    test "accepts write transition graphs for known fields" do
+      domain =
+        valid_domain()
+        |> Map.put(:writes, %{
+          transitions: %{
+            status: %{
+              "pending" => ["ready", "cancelled"],
+              "ready" => [:complete, "cancelled"],
+              complete: []
+            }
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates write transition fields and state graph shape" do
+      domain =
+        valid_domain()
+        |> Map.put(:writes, %{
+          transitions: %{
+            :missing_status => %{"pending" => ["ready"]},
+            123 => %{"pending" => ["ready"]},
+            status: %{
+              "pending" => "ready",
+              456 => ["ready"],
+              "ready" => ["complete", 789]
+            },
+            customer_id: [:not, :a, :graph]
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :transition_field_not_found,
+               field: :missing_status,
+               path: [:writes, :transitions, :missing_status]
+             } = error_for(diagnostics, :transition_field_not_found)
+
+      assert %{
+               code: :invalid_transition_field,
+               field: 123,
+               path: [:writes, :transitions, 123]
+             } = error_for(diagnostics, :invalid_transition_field)
+
+      invalid_shapes = errors_for(diagnostics, :invalid_section_shape)
+
+      assert Enum.any?(
+               invalid_shapes,
+               &match?(%{field: :customer_id, path: [:writes, :transitions, :customer_id]}, &1)
+             )
+
+      assert %{
+               code: :invalid_transition_targets,
+               path: [:writes, :transitions, :status, "pending"]
+             } = error_for(diagnostics, :invalid_transition_targets)
+
+      invalid_states = errors_for(diagnostics, :invalid_transition_state)
+
+      assert Enum.any?(
+               invalid_states,
+               &match?(%{state: 456, path: [:writes, :transitions, :status, 456]}, &1)
+             )
+
+      assert Enum.any?(
+               invalid_states,
+               &match?(%{state: 789, path: [:writes, :transitions, :status, "ready", 1]}, &1)
+             )
+    end
+
+    test "accepts capability catalog entries with atom and string operations" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "order.view" => %{
+            label: "View orders",
+            operations: [:select, "detail"],
+            target: :order
+          },
+          order_export: %{
+            operations: [:export],
+            sensitivity: :high
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates capability catalog shape" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          123 => %{operations: [:select]},
+          "missing.operations" => %{label: "Missing operations"},
+          "empty.operations" => %{operations: []},
+          "bad.operations" => %{operations: :select},
+          "bad.operation.member" => %{operations: [:select, 456]},
+          "bad.config" => [:not, :a, :map]
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :invalid_capability_id,
+               capability: 123,
+               path: [:capabilities, 123]
+             } = error_for(diagnostics, :invalid_capability_id)
+
+      assert %{
+               code: :capability_missing_operations,
+               capability: "missing.operations",
+               path: [:capabilities, "missing.operations", :operations]
+             } = error_for(diagnostics, :capability_missing_operations)
+
+      assert %{
+               code: :capability_empty_operations,
+               capability: "empty.operations",
+               path: [:capabilities, "empty.operations", :operations]
+             } = error_for(diagnostics, :capability_empty_operations)
+
+      assert %{
+               code: :invalid_capability_operations,
+               capability: "bad.operations",
+               path: [:capabilities, "bad.operations", :operations]
+             } = error_for(diagnostics, :invalid_capability_operations)
+
+      assert %{
+               code: :invalid_capability_operation,
+               capability: "bad.operation.member",
+               operation: 456,
+               path: [:capabilities, "bad.operation.member", :operations, 1]
+             } = error_for(diagnostics, :invalid_capability_operation)
+
+      invalid_shapes = errors_for(diagnostics, :invalid_section_shape)
+
+      assert Enum.any?(
+               invalid_shapes,
+               &match?(%{capability: "bad.config", path: [:capabilities, "bad.config"]}, &1)
+             )
+    end
+
+    test "accepts query-facing capability references" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "order.filter" => %{operations: [:filter]},
+          "order.function" => %{operations: [:select]},
+          "order.member" => %{operations: [:query_member]},
+          "order.view" => %{operations: [:select]},
+          "order.detail" => %{operations: [:detail]}
+        })
+        |> Map.merge(%{
+          filters: %{
+            "status_picker" => %{field: :status, type: :string, capability: "order.filter"}
+          },
+          functions: %{
+            "lower_status" => %{
+              kind: :scalar,
+              sql_name: "lower",
+              capability: "order.function"
+            }
+          },
+          query_members: %{
+            values: %{
+              "status_lookup" => %{
+                rows: [["open", "Open"]],
+                capability: "order.member"
+              }
+            }
+          },
+          published_views: %{
+            "order_rollup" => %{
+              database_name: "reporting.order_rollup",
+              kind: :view,
+              query: fn selecto -> selecto end,
+              columns: %{order_id: %{type: :integer}},
+              capability: "order.view"
+            }
+          },
+          detail_actions: %{
+            profile: %{name: "Profile", type: :modal, capability: "order.detail"}
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates query-facing capability references" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{"known" => %{operations: [:select]}})
+        |> Map.merge(%{
+          filters: %{
+            "missing_filter" => %{type: :string, capability: "missing.filter"},
+            "bad_filter" => %{type: :string, capability: 123}
+          },
+          functions: %{
+            "missing_function" => %{
+              kind: :scalar,
+              sql_name: "lower",
+              capability: "missing.function"
+            },
+            "bad_function" => %{kind: :scalar, sql_name: "lower", capability: []}
+          },
+          query_members: %{
+            values: %{
+              "missing_member" => %{rows: [], capability: "missing.member"},
+              "bad_member" => %{rows: [], capability: %{}}
+            }
+          },
+          published_views: %{
+            "missing_view" => %{
+              database_name: "reporting.missing_view",
+              kind: :view,
+              query: fn selecto -> selecto end,
+              columns: %{order_id: %{type: :integer}},
+              capability: "missing.view"
+            },
+            "bad_view" => %{
+              database_name: "reporting.bad_view",
+              kind: :view,
+              query: fn selecto -> selecto end,
+              columns: %{order_id: %{type: :integer}},
+              capability: 456
+            }
+          },
+          detail_actions: %{
+            "missing_detail" => %{
+              name: "Missing Detail",
+              type: :modal,
+              capability: "missing.detail"
+            },
+            "bad_detail" => %{name: "Bad Detail", type: :modal, capability: [:bad]}
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :filter_capability_not_found,
+               filter: "missing_filter",
+               capability: "missing.filter",
+               path: [:filters, "missing_filter", :capability]
+             } = error_for(diagnostics, :filter_capability_not_found)
+
+      assert %{
+               code: :invalid_filter_capability,
+               filter: "bad_filter",
+               capability: 123,
+               path: [:filters, "bad_filter", :capability]
+             } = error_for(diagnostics, :invalid_filter_capability)
+
+      assert %{
+               code: :function_capability_not_found,
+               function: "missing_function",
+               capability: "missing.function",
+               path: [:functions, "missing_function", :capability]
+             } = error_for(diagnostics, :function_capability_not_found)
+
+      assert %{
+               code: :invalid_function_capability,
+               function: "bad_function",
+               capability: [],
+               path: [:functions, "bad_function", :capability]
+             } = error_for(diagnostics, :invalid_function_capability)
+
+      assert %{
+               code: :query_member_capability_not_found,
+               group: :values,
+               member: "missing_member",
+               capability: "missing.member",
+               path: [:query_members, :values, "missing_member", :capability]
+             } = error_for(diagnostics, :query_member_capability_not_found)
+
+      assert %{
+               code: :invalid_query_member_capability,
+               group: :values,
+               member: "bad_member",
+               capability: %{},
+               path: [:query_members, :values, "bad_member", :capability]
+             } = error_for(diagnostics, :invalid_query_member_capability)
+
+      assert %{
+               code: :published_view_capability_not_found,
+               view: "missing_view",
+               capability: "missing.view",
+               path: [:published_views, "missing_view", :capability]
+             } = error_for(diagnostics, :published_view_capability_not_found)
+
+      assert %{
+               code: :invalid_published_view_capability,
+               view: "bad_view",
+               capability: 456,
+               path: [:published_views, "bad_view", :capability]
+             } = error_for(diagnostics, :invalid_published_view_capability)
+
+      assert %{
+               code: :detail_action_capability_not_found,
+               action: "missing_detail",
+               capability: "missing.detail",
+               path: [:detail_actions, "missing_detail", :capability]
+             } = error_for(diagnostics, :detail_action_capability_not_found)
+
+      assert %{
+               code: :invalid_detail_action_capability,
+               action: "bad_detail",
+               capability: [:bad],
+               path: [:detail_actions, "bad_detail", :capability]
+             } = error_for(diagnostics, :invalid_detail_action_capability)
+    end
+
+    test "accepts direct transition-backed row actions" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "order.complete" => %{operations: [:action], action: :complete_order}
+        })
+        |> Map.put(:writes, %{
+          transitions: %{
+            status: %{
+              "pending" => ["ready", "cancelled"],
+              "ready" => ["complete", "cancelled"],
+              complete: []
+            }
+          }
+        })
+        |> Map.put(:actions, %{
+          complete_order: %{
+            target: :order,
+            scope: :row,
+            capability: "order.complete",
+            transition: %{
+              field: :status,
+              from: "ready",
+              to: :complete
+            },
+            execution: %{
+              kind: :updato,
+              operation: :update,
+              set: %{status: :complete}
+            }
+          }
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates direct transition-backed action references" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "order.complete" => %{operations: [:action], action: :complete_order}
+        })
+        |> Map.put(:writes, %{
+          transitions: %{
+            status: %{
+              "pending" => ["ready"],
+              "ready" => ["complete"]
+            }
+          }
+        })
+        |> Map.put(:actions, %{
+          123 => %{
+            transition: %{field: :status, from: "ready", to: "complete"}
+          },
+          bad_config: [:not, :a, :map],
+          missing_capability: %{
+            capability: "order.missing",
+            transition: %{field: :status, from: "ready", to: "complete"}
+          },
+          bad_capability: %{
+            capability: 456,
+            transition: %{field: :status, from: "ready", to: "complete"}
+          },
+          missing_transition: %{
+            type: :transition
+          },
+          bad_transition: %{
+            transition: :approve
+          },
+          missing_field: %{
+            transition: %{field: :missing_status, from: "ready", to: "complete"}
+          },
+          missing_edge: %{
+            transition: %{field: :status, from: "pending", to: "complete"}
+          },
+          invalid_state: %{
+            transition: %{field: :status, from: 789, to: "complete"}
+          },
+          bad_execution: %{
+            transition: %{field: :status, from: "ready", to: "complete"},
+            execution: %{kind: :other, operation: :delete, set: %{status: "cancelled"}}
+          }
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :invalid_action_id,
+               action: 123,
+               path: [:actions, 123]
+             } = error_for(diagnostics, :invalid_action_id)
+
+      invalid_shapes = errors_for(diagnostics, :invalid_section_shape)
+
+      assert Enum.any?(
+               invalid_shapes,
+               &match?(%{action: :bad_config, path: [:actions, :bad_config]}, &1)
+             )
+
+      assert %{
+               code: :action_capability_not_found,
+               action: :missing_capability,
+               capability: "order.missing",
+               path: [:actions, :missing_capability, :capability]
+             } = error_for(diagnostics, :action_capability_not_found)
+
+      assert %{
+               code: :invalid_action_capability,
+               action: :bad_capability,
+               capability: 456,
+               path: [:actions, :bad_capability, :capability]
+             } = error_for(diagnostics, :invalid_action_capability)
+
+      assert %{
+               code: :action_missing_transition,
+               action: :missing_transition,
+               path: [:actions, :missing_transition, :transition]
+             } = error_for(diagnostics, :action_missing_transition)
+
+      assert %{
+               code: :invalid_action_transition,
+               action: :bad_transition,
+               path: [:actions, :bad_transition, :transition]
+             } = error_for(diagnostics, :invalid_action_transition)
+
+      assert %{
+               code: :action_transition_field_not_found,
+               action: :missing_field,
+               field: :missing_status,
+               path: [:actions, :missing_field, :transition, :field]
+             } = error_for(diagnostics, :action_transition_field_not_found)
+
+      assert %{
+               code: :action_transition_edge_not_found,
+               action: :missing_edge,
+               field: :status,
+               from: "pending",
+               to: "complete",
+               path: [:actions, :missing_edge, :transition]
+             } = error_for(diagnostics, :action_transition_edge_not_found)
+
+      assert %{
+               code: :invalid_action_transition_state,
+               action: :invalid_state,
+               state: 789,
+               state_key: :from,
+               path: [:actions, :invalid_state, :transition, :from]
+             } = error_for(diagnostics, :invalid_action_transition_state)
+
+      assert %{
+               code: :invalid_action_execution_kind,
+               action: :bad_execution,
+               path: [:actions, :bad_execution, :execution, :kind]
+             } = error_for(diagnostics, :invalid_action_execution_kind)
+
+      assert %{
+               code: :invalid_action_execution_operation,
+               action: :bad_execution,
+               path: [:actions, :bad_execution, :execution, :operation]
+             } = error_for(diagnostics, :invalid_action_execution_operation)
+
+      assert %{
+               code: :action_execution_set_mismatch,
+               action: :bad_execution,
+               field: :status,
+               to: "complete",
+               path: [:actions, :bad_execution, :execution, :set]
+             } = error_for(diagnostics, :action_execution_set_mismatch)
+    end
+
+    test "accepts source relationships and choice sources" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "customer.choose" => %{operations: [:choice_source]}
+        })
+        |> Map.put(:source_relationships, %{
+          customer: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            source_path: "customers",
+            virtual_join: [
+              %{working_field: :customer_id, source_field: "customers.id", required: true}
+            ],
+            filters: [
+              {:eq, "customers.active", true},
+              ["not", ["eq", "customers.archived", true]]
+            ]
+          }
+        })
+        |> Map.put(:choice_sources, %{
+          customer_choices: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            source_path: "customers",
+            value_source: "customers.id",
+            caption_source: "customers.name",
+            description_source: "customers.description",
+            filters: [
+              {:eq, "customers.active", true},
+              [
+                "and",
+                [
+                  ["eq", "customers.tenant_id", {:context, :tenant_id}],
+                  {:not, ["eq", "customers.archived", true]}
+                ]
+              ]
+            ],
+            order_by: ["customers.name", {"customers.id", :desc}],
+            presentation: %{
+              control: :autocomplete,
+              mode: :searchable,
+              cardinality: :one
+            },
+            constraint_policy: %{
+              domain_of_interest: :fail_closed
+            },
+            source_relationship: :customer,
+            capability: "customer.choose"
+          }
+        })
+        |> put_in([:source, :columns, :customer_id, :reference], %{
+          choice_source: :customer_choices,
+          value_source: "customers.id",
+          caption_source: "customers.name"
+        })
+        |> Map.put(:columns, %{
+          customer_id: %{choice_source: :customer_choices}
+        })
+
+      assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
+    end
+
+    test "validates source relationship and choice source shapes" do
+      domain =
+        valid_domain()
+        |> Map.put(:capabilities, %{
+          "customer.choose" => %{operations: [:choice_source]}
+        })
+        |> Map.put(:source_relationships, %{
+          123 => %{target_domain: :customers, source_field: :customer_id, target_field: :id},
+          bad_config: [:not, :a, :map],
+          missing_keys: %{target_domain: :customers},
+          bad_target_domain: %{target_domain: 456, source_field: :customer_id, target_field: :id},
+          missing_source_field: %{
+            target_domain: :customers,
+            source_field: :missing_customer_id,
+            target_field: :id
+          },
+          bad_source_field: %{target_domain: :customers, source_field: 789, target_field: :id},
+          bad_target_field: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: 987
+          },
+          bad_relationship_source_path: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            source_path: ".customers"
+          },
+          bad_relationship_filters: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: %{active: true}
+          },
+          bad_relationship_filter_operator: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: [{:unknown, "customers.active", true}]
+          },
+          bad_relationship_filter_path: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: [{:eq, ".active", true}]
+          },
+          bad_relationship_filter_expression: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: [123]
+          },
+          bad_relationship_filter_operands: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            filters: [{:and, {:eq, "customers.active", true}}]
+          },
+          bad_virtual_join: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: :customer
+          },
+          bad_virtual_join_entry: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [123]
+          },
+          missing_virtual_join_keys: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [%{working_field: :customer_id}]
+          },
+          bad_virtual_join_working_field: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [%{working_field: 789, source_field: "customers.id"}]
+          },
+          missing_virtual_join_working_field: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [%{working_field: :missing_customer_id, source_field: "customers.id"}]
+          },
+          bad_virtual_join_source_field: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [%{working_field: :customer_id, source_field: ".id"}]
+          },
+          bad_virtual_join_required: %{
+            target_domain: :customers,
+            source_field: :customer_id,
+            target_field: :id,
+            virtual_join: [
+              %{working_field: :customer_id, source_field: "customers.id", required: :yes}
+            ]
+          }
+        })
+        |> Map.put(:choice_sources, %{
+          456 => %{domain: :customers, value_field: :id, label_field: :name},
+          bad_config: [:not, :a, :map],
+          missing_keys: %{domain: :customers},
+          bad_domain: %{domain: 111, value_field: :id, label_field: :name},
+          bad_value_field: %{domain: :customers, value_field: 222, label_field: :name},
+          bad_label_field: %{domain: :customers, value_field: :id, label_field: 333},
+          missing_relationship: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            source_relationship: :missing_customer
+          },
+          bad_relationship: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            source_relationship: 444
+          },
+          missing_capability: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            capability: "customer.missing"
+          },
+          bad_capability: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            capability: 555
+          },
+          bad_source_path: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            source_path: ""
+          },
+          bad_value_source: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            value_source: 666
+          },
+          bad_caption_source: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            caption_source: ".name"
+          },
+          bad_description_source: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            description_source: ["customers.description"]
+          },
+          bad_filters: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: %{active: true}
+          },
+          bad_filter_operator: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: [{:unknown, "customers.active", true}]
+          },
+          bad_filter_path: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: [{:eq, ".active", true}]
+          },
+          bad_filter_expression: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: [123]
+          },
+          bad_filter_operands: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            filters: [{:and, {:eq, "customers.active", true}}]
+          },
+          bad_order_by: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            order_by: :name
+          },
+          bad_order_by_entry: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            order_by: [123]
+          },
+          bad_order_by_direction: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            order_by: [{"customers.name", :sideways}]
+          },
+          bad_presentation: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: :select
+          },
+          bad_presentation_control: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: %{control: :wizard}
+          },
+          bad_presentation_mode: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: %{mode: :sparkly}
+          },
+          bad_presentation_cardinality: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            presentation: %{cardinality: :some}
+          },
+          bad_constraint_policy: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            constraint_policy: :fail_closed
+          },
+          bad_constraint_policy_key: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            constraint_policy: %{browser_supplied: :fail_closed}
+          },
+          bad_constraint_policy_mode: %{
+            domain: :customers,
+            value_field: :id,
+            label_field: :name,
+            constraint_policy: %{domain_of_interest: :maybe}
+          }
+        })
+        |> put_in([:source, :columns, :status, :choice_source], :missing_status_choices)
+        |> put_in([:source, :columns, :id, :reference], %{choice_source: 777})
+        |> put_in([:source, :columns, :customer_id, :reference], %{
+          choice_source: :missing_ref_choices,
+          value_source: 888,
+          caption_source: 999,
+          caption_field: :missing_customer_name
+        })
+        |> Map.put(:columns, %{
+          status: %{choice_source: 555},
+          customer_id: %{reference: :customer_choices}
+        })
+
+      assert {:error, diagnostics} = Domain.validate(domain)
+
+      assert %{
+               code: :invalid_source_relationship_id,
+               source_relationship: 123,
+               path: [:source_relationships, 123]
+             } = error_for(diagnostics, :invalid_source_relationship_id)
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_section_shape),
+               &match?(
+                 %{source_relationship: :bad_config, path: [:source_relationships, :bad_config]},
+                 &1
+               )
+             )
+
+      assert %{
+               code: :source_relationship_missing_required_keys,
+               source_relationship: :missing_keys,
+               path: [:source_relationships, :missing_keys]
+             } = error_for(diagnostics, :source_relationship_missing_required_keys)
+
+      assert %{
+               code: :invalid_source_relationship_target_domain,
+               source_relationship: :bad_target_domain,
+               target_domain: 456,
+               path: [:source_relationships, :bad_target_domain, :target_domain]
+             } = error_for(diagnostics, :invalid_source_relationship_target_domain)
+
+      assert %{
+               code: :source_relationship_source_field_not_found,
+               source_relationship: :missing_source_field,
+               source_field: :missing_customer_id,
+               path: [:source_relationships, :missing_source_field, :source_field]
+             } = error_for(diagnostics, :source_relationship_source_field_not_found)
+
+      assert %{
+               code: :invalid_source_relationship_source_field,
+               source_relationship: :bad_source_field,
+               source_field: 789,
+               path: [:source_relationships, :bad_source_field, :source_field]
+             } = error_for(diagnostics, :invalid_source_relationship_source_field)
+
+      assert %{
+               code: :invalid_source_relationship_target_field,
+               source_relationship: :bad_target_field,
+               target_field: 987,
+               path: [:source_relationships, :bad_target_field, :target_field]
+             } = error_for(diagnostics, :invalid_source_relationship_target_field)
+
+      assert %{
+               code: :invalid_source_relationship_source_path,
+               source_relationship: :bad_relationship_source_path,
+               source_path: ".customers",
+               path: [:source_relationships, :bad_relationship_source_path, :source_path]
+             } = error_for(diagnostics, :invalid_source_relationship_source_path)
+
+      assert %{
+               code: :invalid_source_relationship_filters,
+               source_relationship: :bad_relationship_filters,
+               path: [:source_relationships, :bad_relationship_filters, :filters]
+             } = error_for(diagnostics, :invalid_source_relationship_filters)
+
+      assert %{
+               code: :invalid_source_relationship_filter_operator,
+               source_relationship: :bad_relationship_filter_operator,
+               operator: :unknown,
+               path: [:source_relationships, :bad_relationship_filter_operator, :filters, 0]
+             } = error_for(diagnostics, :invalid_source_relationship_filter_operator)
+
+      assert %{
+               code: :invalid_source_relationship_filter_path,
+               source_relationship: :bad_relationship_filter_path,
+               field: ".active",
+               path: [:source_relationships, :bad_relationship_filter_path, :filters, 0, :field]
+             } = error_for(diagnostics, :invalid_source_relationship_filter_path)
+
+      assert %{
+               code: :invalid_source_relationship_filter_expression,
+               source_relationship: :bad_relationship_filter_expression,
+               filter: 123,
+               path: [:source_relationships, :bad_relationship_filter_expression, :filters, 0]
+             } = error_for(diagnostics, :invalid_source_relationship_filter_expression)
+
+      assert %{
+               code: :invalid_source_relationship_filter_operands,
+               source_relationship: :bad_relationship_filter_operands,
+               operator: :and,
+               path: [:source_relationships, :bad_relationship_filter_operands, :filters, 0]
+             } = error_for(diagnostics, :invalid_source_relationship_filter_operands)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join,
+               source_relationship: :bad_virtual_join,
+               path: [:source_relationships, :bad_virtual_join, :virtual_join]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join_entry,
+               source_relationship: :bad_virtual_join_entry,
+               path: [:source_relationships, :bad_virtual_join_entry, :virtual_join, 0]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join_entry)
+
+      assert %{
+               code: :source_relationship_virtual_join_missing_required_keys,
+               source_relationship: :missing_virtual_join_keys,
+               keys: [:source_field],
+               path: [:source_relationships, :missing_virtual_join_keys, :virtual_join, 0]
+             } = error_for(diagnostics, :source_relationship_virtual_join_missing_required_keys)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join_working_field,
+               source_relationship: :bad_virtual_join_working_field,
+               working_field: 789,
+               path: [
+                 :source_relationships,
+                 :bad_virtual_join_working_field,
+                 :virtual_join,
+                 0,
+                 :working_field
+               ]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join_working_field)
+
+      assert %{
+               code: :source_relationship_virtual_join_working_field_not_found,
+               source_relationship: :missing_virtual_join_working_field,
+               working_field: :missing_customer_id,
+               path: [
+                 :source_relationships,
+                 :missing_virtual_join_working_field,
+                 :virtual_join,
+                 0,
+                 :working_field
+               ]
+             } =
+               error_for(diagnostics, :source_relationship_virtual_join_working_field_not_found)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join_source_field,
+               source_relationship: :bad_virtual_join_source_field,
+               source_field: ".id",
+               path: [
+                 :source_relationships,
+                 :bad_virtual_join_source_field,
+                 :virtual_join,
+                 0,
+                 :source_field
+               ]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join_source_field)
+
+      assert %{
+               code: :invalid_source_relationship_virtual_join_required,
+               source_relationship: :bad_virtual_join_required,
+               required: :yes,
+               path: [
+                 :source_relationships,
+                 :bad_virtual_join_required,
+                 :virtual_join,
+                 0,
+                 :required
+               ]
+             } = error_for(diagnostics, :invalid_source_relationship_virtual_join_required)
+
+      assert %{
+               code: :invalid_choice_source_id,
+               choice_source: 456,
+               path: [:choice_sources, 456]
+             } = error_for(diagnostics, :invalid_choice_source_id)
+
+      assert Enum.any?(
+               errors_for(diagnostics, :invalid_section_shape),
+               &match?(%{choice_source: :bad_config, path: [:choice_sources, :bad_config]}, &1)
+             )
+
+      assert %{
+               code: :choice_source_missing_required_keys,
+               choice_source: :missing_keys,
+               path: [:choice_sources, :missing_keys]
+             } = error_for(diagnostics, :choice_source_missing_required_keys)
+
+      assert %{
+               code: :invalid_choice_source_domain,
+               choice_source: :bad_domain,
+               domain: 111,
+               path: [:choice_sources, :bad_domain, :domain]
+             } = error_for(diagnostics, :invalid_choice_source_domain)
+
+      assert %{
+               code: :invalid_choice_source_value_field,
+               choice_source: :bad_value_field,
+               value_field: 222,
+               path: [:choice_sources, :bad_value_field, :value_field]
+             } = error_for(diagnostics, :invalid_choice_source_value_field)
+
+      assert %{
+               code: :invalid_choice_source_label_field,
+               choice_source: :bad_label_field,
+               label_field: 333,
+               path: [:choice_sources, :bad_label_field, :label_field]
+             } = error_for(diagnostics, :invalid_choice_source_label_field)
+
+      assert %{
+               code: :choice_source_relationship_not_found,
+               choice_source: :missing_relationship,
+               source_relationship: :missing_customer,
+               path: [:choice_sources, :missing_relationship, :source_relationship]
+             } = error_for(diagnostics, :choice_source_relationship_not_found)
+
+      assert %{
+               code: :invalid_choice_source_relationship,
+               choice_source: :bad_relationship,
+               source_relationship: 444,
+               path: [:choice_sources, :bad_relationship, :source_relationship]
+             } = error_for(diagnostics, :invalid_choice_source_relationship)
+
+      assert %{
+               code: :choice_source_capability_not_found,
+               choice_source: :missing_capability,
+               capability: "customer.missing",
+               path: [:choice_sources, :missing_capability, :capability]
+             } = error_for(diagnostics, :choice_source_capability_not_found)
+
+      assert %{
+               code: :invalid_choice_source_capability,
+               choice_source: :bad_capability,
+               capability: 555,
+               path: [:choice_sources, :bad_capability, :capability]
+             } = error_for(diagnostics, :invalid_choice_source_capability)
+
+      assert %{
+               code: :invalid_choice_source_source_path,
+               choice_source: :bad_source_path,
+               attribute: :source_path,
+               value: "",
+               path: [:choice_sources, :bad_source_path, :source_path]
+             } = error_for(diagnostics, :invalid_choice_source_source_path)
+
+      assert %{
+               code: :invalid_choice_source_value_source,
+               choice_source: :bad_value_source,
+               attribute: :value_source,
+               value: 666,
+               path: [:choice_sources, :bad_value_source, :value_source]
+             } = error_for(diagnostics, :invalid_choice_source_value_source)
+
+      assert %{
+               code: :invalid_choice_source_caption_source,
+               choice_source: :bad_caption_source,
+               attribute: :caption_source,
+               value: ".name",
+               path: [:choice_sources, :bad_caption_source, :caption_source]
+             } = error_for(diagnostics, :invalid_choice_source_caption_source)
+
+      assert %{
+               code: :invalid_choice_source_description_source,
+               choice_source: :bad_description_source,
+               attribute: :description_source,
+               value: ["customers.description"],
+               path: [:choice_sources, :bad_description_source, :description_source]
+             } = error_for(diagnostics, :invalid_choice_source_description_source)
+
+      assert %{
+               code: :invalid_choice_source_filters,
+               choice_source: :bad_filters,
+               path: [:choice_sources, :bad_filters, :filters]
+             } = error_for(diagnostics, :invalid_choice_source_filters)
+
+      assert %{
+               code: :invalid_choice_source_filter_operator,
+               choice_source: :bad_filter_operator,
+               operator: :unknown,
+               path: [:choice_sources, :bad_filter_operator, :filters, 0]
+             } = error_for(diagnostics, :invalid_choice_source_filter_operator)
+
+      assert %{
+               code: :invalid_choice_source_filter_path,
+               choice_source: :bad_filter_path,
+               field: ".active",
+               path: [:choice_sources, :bad_filter_path, :filters, 0, :field]
+             } = error_for(diagnostics, :invalid_choice_source_filter_path)
+
+      assert %{
+               code: :invalid_choice_source_filter_expression,
+               choice_source: :bad_filter_expression,
+               filter: 123,
+               path: [:choice_sources, :bad_filter_expression, :filters, 0]
+             } = error_for(diagnostics, :invalid_choice_source_filter_expression)
+
+      assert %{
+               code: :invalid_choice_source_filter_operands,
+               choice_source: :bad_filter_operands,
+               operator: :and,
+               path: [:choice_sources, :bad_filter_operands, :filters, 0]
+             } = error_for(diagnostics, :invalid_choice_source_filter_operands)
+
+      assert %{
+               code: :invalid_choice_source_order_by,
+               choice_source: :bad_order_by,
+               path: [:choice_sources, :bad_order_by, :order_by]
+             } = error_for(diagnostics, :invalid_choice_source_order_by)
+
+      assert %{
+               code: :invalid_choice_source_order_by_entry,
+               choice_source: :bad_order_by_entry,
+               path: [:choice_sources, :bad_order_by_entry, :order_by, 0]
+             } = error_for(diagnostics, :invalid_choice_source_order_by_entry)
+
+      assert %{
+               code: :invalid_choice_source_order_by_direction,
+               choice_source: :bad_order_by_direction,
+               direction: :sideways,
+               path: [:choice_sources, :bad_order_by_direction, :order_by, 0]
+             } = error_for(diagnostics, :invalid_choice_source_order_by_direction)
+
+      assert %{
+               code: :invalid_choice_source_presentation,
+               choice_source: :bad_presentation,
+               path: [:choice_sources, :bad_presentation, :presentation]
+             } = error_for(diagnostics, :invalid_choice_source_presentation)
+
+      assert %{
+               code: :invalid_choice_source_presentation_control,
+               choice_source: :bad_presentation_control,
+               attribute: :control,
+               value: :wizard,
+               path: [:choice_sources, :bad_presentation_control, :presentation, :control]
+             } = error_for(diagnostics, :invalid_choice_source_presentation_control)
+
+      assert %{
+               code: :invalid_choice_source_presentation_mode,
+               choice_source: :bad_presentation_mode,
+               attribute: :mode,
+               value: :sparkly,
+               path: [:choice_sources, :bad_presentation_mode, :presentation, :mode]
+             } = error_for(diagnostics, :invalid_choice_source_presentation_mode)
+
+      assert %{
+               code: :invalid_choice_source_presentation_cardinality,
+               choice_source: :bad_presentation_cardinality,
+               attribute: :cardinality,
+               value: :some,
+               path: [
+                 :choice_sources,
+                 :bad_presentation_cardinality,
+                 :presentation,
+                 :cardinality
+               ]
+             } = error_for(diagnostics, :invalid_choice_source_presentation_cardinality)
+
+      assert %{
+               code: :invalid_choice_source_constraint_policy,
+               choice_source: :bad_constraint_policy,
+               path: [:choice_sources, :bad_constraint_policy, :constraint_policy]
+             } = error_for(diagnostics, :invalid_choice_source_constraint_policy)
+
+      assert %{
+               code: :invalid_choice_source_constraint_policy_key,
+               choice_source: :bad_constraint_policy_key,
+               key: :browser_supplied,
+               path: [
+                 :choice_sources,
+                 :bad_constraint_policy_key,
+                 :constraint_policy,
+                 :browser_supplied
+               ]
+             } = error_for(diagnostics, :invalid_choice_source_constraint_policy_key)
+
+      assert %{
+               code: :invalid_choice_source_constraint_policy_mode,
+               choice_source: :bad_constraint_policy_mode,
+               key: :domain_of_interest,
+               value: :maybe,
+               path: [
+                 :choice_sources,
+                 :bad_constraint_policy_mode,
+                 :constraint_policy,
+                 :domain_of_interest
+               ]
+             } = error_for(diagnostics, :invalid_choice_source_constraint_policy_mode)
+
+      assert %{
+               code: :field_choice_source_not_found,
+               field: :status,
+               choice_source: :missing_status_choices,
+               path: [:source, :columns, :status, :choice_source]
+             } = error_for(diagnostics, :field_choice_source_not_found)
+
+      assert %{
+               code: :invalid_field_choice_source,
+               field: :status,
+               choice_source: 555,
+               path: [:columns, :status, :choice_source]
+             } = error_for(diagnostics, :invalid_field_choice_source)
+
+      assert %{
+               code: :invalid_field_reference,
+               field: :customer_id,
+               path: [:columns, :customer_id, :reference]
+             } = error_for(diagnostics, :invalid_field_reference)
+
+      assert %{
+               code: :invalid_field_reference_choice_source,
+               field: :id,
+               choice_source: 777,
+               path: [:source, :columns, :id, :reference, :choice_source]
+             } = error_for(diagnostics, :invalid_field_reference_choice_source)
+
+      assert %{
+               code: :field_reference_choice_source_not_found,
+               field: :customer_id,
+               choice_source: :missing_ref_choices,
+               path: [:source, :columns, :customer_id, :reference, :choice_source]
+             } = error_for(diagnostics, :field_reference_choice_source_not_found)
+
+      assert %{
+               code: :invalid_field_reference_value_source,
+               field: :customer_id,
+               value_source: 888,
+               path: [:source, :columns, :customer_id, :reference, :value_source]
+             } = error_for(diagnostics, :invalid_field_reference_value_source)
+
+      assert %{
+               code: :invalid_field_reference_caption_source,
+               field: :customer_id,
+               caption_source: 999,
+               path: [:source, :columns, :customer_id, :reference, :caption_source]
+             } = error_for(diagnostics, :invalid_field_reference_caption_source)
+
+      assert %{
+               code: :field_reference_caption_field_not_found,
+               field: :customer_id,
+               caption_field: :missing_customer_name,
+               path: [:source, :columns, :customer_id, :reference, :caption_field]
+             } = error_for(diagnostics, :field_reference_caption_field_not_found)
+    end
+
+    test "DomainValidator normalized mode returns contract errors before authored-domain tuples" do
+      domain =
+        valid_domain()
+        |> put_in([:source, :fields], [:id, :status])
+        |> put_in([:source, :columns], %{id: %{type: :integer}})
+
+      assert {:error, [%{code: :source_field_missing_column, field: :status} | _]} =
+               DomainValidator.validate_domain(domain, normalize: true)
+    end
+  end
+
+  defp error_for(diagnostics, code) do
+    Enum.find(diagnostics.errors, &(&1.code == code))
+  end
+
+  defp errors_for(diagnostics, code) do
+    Enum.filter(diagnostics.errors, &(&1.code == code))
+  end
+
+  defp valid_domain do
+    %{
+      source: valid_source(),
+      schemas: %{
+        customers: %{
+          source_table: "customers",
+          primary_key: :id,
+          fields: [:id, :name],
+          columns: %{
+            id: %{type: :integer},
+            name: %{type: :string}
+          },
+          associations: %{}
+        }
+      },
+      joins: %{
+        customer: %{type: :left}
+      },
+      filters: %{
+        "status_picker" => %{field: :status, type: :string}
+      },
+      required_filters: [{"status", "open"}]
+    }
+  end
+
+  defp valid_source do
+    %{
+      source_table: "orders",
+      primary_key: :id,
+      fields: [:id, :status, :customer_id],
+      columns: %{
+        id: %{type: :integer},
+        status: %{type: :string},
+        customer_id: %{type: :integer}
+      },
+      associations: %{
+        customer: %{
+          queryable: :customers,
+          field: :customer,
+          owner_key: :customer_id,
+          related_key: :id
+        }
+      }
+    }
+  end
+end

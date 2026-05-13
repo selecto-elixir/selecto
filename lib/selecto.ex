@@ -182,14 +182,13 @@ defmodule Selecto do
   """
 
   @doc """
-    Generate a selecto structure from a domain configuration and connection input.
+    Generate a Selecto structure from a domain configuration and connection input.
 
     ## Parameters
 
     - `domain` - Domain configuration map (see domain configuration docs)
-    - `postgrex_opts` - Connection input retained for backward compatibility.
-      This may be adapter-specific connection options, an Ecto repo, a live
-      connection pid/name, or a pooled connection reference.
+    - `connection_input` - Adapter-specific connection options, an Ecto repo,
+      a live connection pid/name, or a pooled connection reference.
     - `opts` - Configuration options
 
     ## Options
@@ -241,9 +240,9 @@ defmodule Selecto do
         selecto = Selecto.configure(domain, connection_input)
   """
   @spec configure(Selecto.Types.domain(), term(), keyword()) :: t()
-  def configure(domain, postgrex_opts, opts \\ []) do
+  def configure(domain, connection_input, opts \\ []) do
     Selecto.OptionsValidator.validate_configure_opts!(opts)
-    Selecto.Configuration.configure(domain, postgrex_opts, opts)
+    Selecto.Configuration.configure(domain, connection_input, opts)
   end
 
   @doc """
@@ -708,30 +707,6 @@ defmodule Selecto do
   @spec post_retarget_filters(t()) :: [Selecto.Types.filter()]
   defdelegate post_retarget_filters(selecto), to: Selecto.Query
 
-  @doc false
-  @deprecated "Use pre_retarget_filter/2 instead."
-  @spec pre_pivot_filter(t(), [Selecto.Types.filter()]) :: t()
-  @spec pre_pivot_filter(t(), Selecto.Types.filter()) :: t()
-  def pre_pivot_filter(selecto, filters_or_filter),
-    do: Selecto.Query.pre_retarget_filter(selecto, filters_or_filter)
-
-  @doc false
-  @deprecated "Use post_retarget_filter/2 instead."
-  @spec post_pivot_filter(t(), [Selecto.Types.filter()]) :: t()
-  @spec post_pivot_filter(t(), Selecto.Types.filter()) :: t()
-  def post_pivot_filter(selecto, filters_or_filter),
-    do: Selecto.Query.post_retarget_filter(selecto, filters_or_filter)
-
-  @doc false
-  @deprecated "Use pre_retarget_filters/1 instead."
-  @spec pre_pivot_filters(t()) :: [Selecto.Types.filter()]
-  def pre_pivot_filters(selecto), do: Selecto.Query.pre_retarget_filters(selecto)
-
-  @doc false
-  @deprecated "Use post_retarget_filters/1 instead."
-  @spec post_pivot_filters(t()) :: [Selecto.Types.filter()]
-  def post_pivot_filters(selecto), do: Selecto.Query.post_retarget_filters(selecto)
-
   @doc """
   Return query filters from current filter buckets.
 
@@ -838,12 +813,6 @@ defmodule Selecto do
   See `Selecto.Retarget` module for more details.
   """
   def retarget(selecto, target_schema, opts \\ []) do
-    Selecto.Retarget.retarget(selecto, target_schema, opts)
-  end
-
-  @doc false
-  @deprecated "Use retarget/3 instead."
-  def pivot(selecto, target_schema, opts \\ []) do
     Selecto.Retarget.retarget(selecto, target_schema, opts)
   end
 

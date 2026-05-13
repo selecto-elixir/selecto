@@ -4,7 +4,7 @@ defmodule Selecto.MixProject do
   def project do
     [
       app: :selecto,
-      version: "0.4.4",
+      version: "0.4.5",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -32,6 +32,7 @@ defmodule Selecto.MixProject do
         main: "Selecto",
         extras: [
           "README.md",
+          "docs/domain_schema_v1.md",
           "guides/complex_join_patterns.md",
           "guides/olap_and_hierarchical_patterns.md",
           "guides/advanced_usage.md"
@@ -58,6 +59,9 @@ defmodule Selecto.MixProject do
             Selecto.Schema.Column
           ],
           Utilities: [
+            Selecto.Capabilities,
+            Selecto.Capabilities.Decision,
+            Selecto.Capabilities.Request,
             Selecto.SQL.Params,
             Selecto.DomainValidator,
             Selecto.Helpers
@@ -117,6 +121,7 @@ defmodule Selecto.MixProject do
         "README.md",
         "LICENSE",
         "CHANGELOG.md",
+        "docs/domain_schema_v1.md",
         "guides",
         ".formatter.exs"
       ],

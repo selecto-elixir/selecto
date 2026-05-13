@@ -177,7 +177,7 @@ defmodule Selecto.Builder.Sql do
   end
 
   defp build_standard_query(selecto, opts) do
-    # Phase 4: All SQL builders now use iodata parameterization (no legacy functions remain)
+    # Phase 4: All SQL builders now use iodata parameterization.
     {aliases, sel_joins, select_iodata, select_params} = build_select_with_subselects(selecto)
 
     {window_joins, window_iodata, window_params} =
@@ -461,13 +461,13 @@ defmodule Selecto.Builder.Sql do
 
     # Build retarget-specific SELECT with subselects if needed
     # Pass retarget alias information to SELECT builder
-    pivot_aliases = get_pivot_aliases(retarget_config)
+    retarget_aliases = get_retarget_aliases(retarget_config)
 
     {aliases, sel_joins, select_iodata, select_params} =
-      build_select_with_subselects(selecto, pivot_aliases)
+      build_select_with_subselects(selecto, retarget_aliases)
 
     # Build retarget FROM clause and WHERE conditions
-    {from_iodata, pivot_where_iodata, from_params, join_deps} =
+    {from_iodata, retarget_where_iodata, from_params, join_deps} =
       Selecto.Builder.Retarget.build_retarget_query(selecto, [])
 
     # Check if we have a CTE spec
@@ -489,9 +489,8 @@ defmodule Selecto.Builder.Sql do
           {[], []}
       end
 
-    # Build any necessary JOINs for the selected columns after pivoting
-    # These are joins from the pivot target to other tables needed for selected columns
-    {join_iodata, join_params} = build_pivot_joins(selecto, sel_joins, retarget_config)
+    # Build joins from the retarget target to other tables needed for selected columns.
+    {join_iodata, join_params} = build_retarget_joins(selecto, sel_joins, retarget_config)
 
     # Assemble final query
     base_iodata =
@@ -510,8 +509,8 @@ defmodule Selecto.Builder.Sql do
       end
 
     final_iodata =
-      if pivot_where_iodata != [] do
-        base_iodata ++ ["\n        where ", pivot_where_iodata]
+      if retarget_where_iodata != [] do
+        base_iodata ++ ["\n        where ", retarget_where_iodata]
       else
         base_iodata
       end
@@ -526,15 +525,15 @@ defmodule Selecto.Builder.Sql do
     {sql, aliases, final_params}
   end
 
-  defp build_pivot_joins(selecto, sel_joins, pivot_config) do
-    # After pivoting, we need to add joins from the pivot target to any other tables
+  defp build_retarget_joins(selecto, sel_joins, retarget_config) do
+    # After retargeting, add joins from the retarget target to any other tables
     # that are referenced in the selected columns
 
-    # Filter out joins that are part of the pivot path (already in subquery)
+    # Filter out joins that are part of the retarget path (already in subquery)
     needed_joins =
       Enum.reject(sel_joins, fn join ->
-        # Don't add joins that are part of the path to the pivot target
-        join == :selecto_root || join == pivot_config.target_schema
+        # Don't add joins that are part of the path to the retarget target
+        join == :selecto_root || join == retarget_config.target_schema
       end)
 
     if needed_joins == [] do
@@ -543,15 +542,15 @@ defmodule Selecto.Builder.Sql do
       # Build JOIN clauses for the needed tables
       join_clauses =
         Enum.map(needed_joins, fn join_name ->
-          build_pivot_join_clause(selecto, pivot_config.target_schema, join_name)
+          build_retarget_join_clause(selecto, retarget_config.target_schema, join_name)
         end)
 
       {Enum.join(join_clauses, "\n        "), []}
     end
   end
 
-  defp build_pivot_join_clause(selecto, from_schema, to_schema) do
-    # Build a JOIN clause from the pivot target to another schema
+  defp build_retarget_join_clause(selecto, from_schema, to_schema) do
+    # Build a JOIN clause from the retarget target to another schema
     # Look up the association/join configuration
 
     # For film -> language, we need: LEFT JOIN language ON t.language_id = language.language_id
@@ -724,12 +723,12 @@ defmodule Selecto.Builder.Sql do
     build_select_with_subselects(selecto, %{})
   end
 
-  defp build_select_with_subselects(selecto, pivot_aliases) do
+  defp build_select_with_subselects(selecto, retarget_aliases) do
     # Determine the source alias to use for subselect correlation
-    source_alias = get_source_alias_for_subselects(pivot_aliases)
+    source_alias = get_source_alias_for_subselects(retarget_aliases)
 
     # Build regular SELECT fields
-    {aliases, sel_joins, select_iodata, select_params} = build_select(selecto, pivot_aliases)
+    {aliases, sel_joins, select_iodata, select_params} = build_select(selecto, retarget_aliases)
 
     # Build JSON operations SELECT fields if they exist
     {json_select_clauses, json_select_params} =
@@ -811,11 +810,11 @@ defmodule Selecto.Builder.Sql do
     end
   end
 
-  defp get_pivot_aliases(pivot_config) do
-    # Extract table aliases from pivot configuration
-    # The pivot builder uses "t" for target table and "s" for source table
-    if pivot_config do
-      target_schema = Map.get(pivot_config, :target_schema)
+  defp get_retarget_aliases(retarget_config) do
+    # Extract table aliases from retarget configuration.
+    # The retarget builder uses "t" for target table and "s" for source table.
+    if retarget_config do
+      target_schema = Map.get(retarget_config, :target_schema)
 
       %{
         # Target table alias
@@ -828,18 +827,18 @@ defmodule Selecto.Builder.Sql do
     end
   end
 
-  defp get_source_alias_for_subselects(pivot_aliases) do
-    # If we have pivot aliases, use the target alias for correlation, otherwise use default
-    if pivot_aliases != %{} do
-      # In pivot context, correlate with the main query's target table
-      target_schema = Map.keys(pivot_aliases) |> Enum.find(fn k -> k != :source end)
-      Map.get(pivot_aliases, target_schema, "selecto_root")
+  defp get_source_alias_for_subselects(retarget_aliases) do
+    # If we have retarget aliases, use the target alias for correlation; otherwise use default.
+    if retarget_aliases != %{} do
+      # In retarget context, correlate with the main query's target table.
+      target_schema = Map.keys(retarget_aliases) |> Enum.find(fn k -> k != :source end)
+      Map.get(retarget_aliases, target_schema, "selecto_root")
     else
       "selecto_root"
     end
   end
 
-  # Phase 4: All legacy string-based functions removed - only iodata functions remain
+  # Phase 4: SELECT now uses iodata by default.
 
   @spec build_where(Selecto.Types.t()) ::
           {Selecto.Types.join_dependencies(), Selecto.Types.iodata_with_markers(),
@@ -957,10 +956,10 @@ defmodule Selecto.Builder.Sql do
   end
 
   # Phase 4: SELECT now uses iodata by default
-  defp build_select(selecto, pivot_aliases) do
+  defp build_select(selecto, retarget_aliases) do
     {aliases, joins, selects_iodata, params} =
       selecto.set.selected
-      |> Enum.map(fn s -> Selecto.Builder.Sql.Select.build(selecto, s, pivot_aliases) end)
+      |> Enum.map(fn s -> Selecto.Builder.Sql.Select.build(selecto, s, retarget_aliases) end)
       |> Enum.reduce(
         {[], [], [], []},
         fn {select_iodata, j, p, as}, {aliases, joins, selects, params} ->

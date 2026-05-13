@@ -122,8 +122,6 @@ defmodule Selecto.Types do
           optional(:subquery_strategy) => :exists | :in | :join
         }
 
-  @type pivot_config :: retarget_config()
-
   @type retarget_join_path :: [
           %{
             required(:from_schema) => atom(),
@@ -132,8 +130,6 @@ defmodule Selecto.Types do
             required(:join_type) => join_type()
           }
         ]
-
-  @type pivot_join_path :: retarget_join_path()
 
   # Subselect feature types
   @type subselect_format :: :json_agg | :array_agg | :string_agg | :count
@@ -346,11 +342,9 @@ defmodule Selecto.Types do
           required(:filtered) => [filter()],
           optional(:required_filters) => [filter()],
           optional(:post_retarget_filters) => [filter()],
-          optional(:post_pivot_filters) => [filter()],
           required(:order_by) => [order_spec()],
           required(:group_by) => [field_name()],
           optional(:retarget_state) => retarget_config(),
-          optional(:pivot_state) => retarget_config(),
           optional(:subselected) => [subselect_selector()]
         }
 
