@@ -171,6 +171,13 @@ Current `0.4.x` scope:
 - `selecto_northwind` for tutorial-style examples
 - `testselecto.fly.dev` for a hosted demo app
 
+## Developer Guides
+
+- `docs/developer_contracts.md` for authored domain contracts, capabilities,
+  choice sources, published views, writes, and domain actions.
+- `docs/domain_schema_v1.md` for the normalized domain schema contract.
+- `docs/expression_dsl.md` for dynamic expression helpers, macros, and sigils.
+
 ## Related Repos
 
 - `selecto_components`
