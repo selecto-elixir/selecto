@@ -442,6 +442,7 @@ defmodule Selecto.Domain do
   defp inspection_output(normalized, diagnostics) do
     field_choice_bindings = field_choice_bindings(normalized)
     capability_usage = inspect_capability_usage(normalized)
+    capabilities = inspect_capabilities(Map.get(normalized, :capabilities, %{}))
 
     %{
       schema_version: Map.fetch!(normalized, :schema_version),
@@ -453,8 +454,9 @@ defmodule Selecto.Domain do
       registries: inspection_registries(normalized),
       writes: inspect_writes(Map.get(normalized, :writes, %{})),
       actions: inspect_actions(Map.get(normalized, :actions, %{})),
-      capabilities: inspect_capabilities(Map.get(normalized, :capabilities, %{})),
+      capabilities: capabilities,
       capability_usage: capability_usage,
+      capability_visibility: inspect_capability_visibility(capabilities, capability_usage),
       security_review: inspect_security_review(normalized),
       source_relationships:
         inspect_source_relationships(Map.get(normalized, :source_relationships, %{})),
@@ -684,6 +686,108 @@ defmodule Selecto.Domain do
   end
 
   defp inspect_capabilities(_capabilities), do: []
+
+  defp inspect_capability_visibility(capabilities, capability_usage) do
+    catalog_ids =
+      capabilities
+      |> Enum.map(&normalize_capability_id(map_value(&1, :id)))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort()
+
+    referenced_ids =
+      capability_usage
+      |> Enum.map(&normalize_capability_id(map_value(&1, :capability)))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    %{
+      format_version: 1,
+      summary: %{
+        catalog_count: length(catalog_ids),
+        referenced_count: length(referenced_ids),
+        unreferenced_capabilities: catalog_ids -- referenced_ids,
+        undeclared_references: referenced_ids -- catalog_ids,
+        runtime_policy: :not_sampled
+      },
+      defaults: %{
+        undeclared_capability: :allow,
+        declared_without_resolver: :inspect_only,
+        runtime_decision_source: :none
+      },
+      catalog:
+        capabilities
+        |> Enum.map(fn capability ->
+          capability_visibility_entry(
+            capability,
+            capability_visibility_references(capability_usage, map_value(capability, :id))
+          )
+        end)
+        |> Enum.sort_by(&to_string(map_value(&1, :id) || "")),
+      references:
+        capability_usage
+        |> Enum.map(&capability_visibility_reference/1)
+        |> Enum.sort_by(
+          &{to_string(map_value(&1, :capability) || ""), to_string(map_value(&1, :path) || "")}
+        )
+    }
+  end
+
+  defp capability_visibility_entry(capability, references) do
+    %{
+      id: normalize_capability_id(map_value(capability, :id)),
+      operations:
+        capability
+        |> map_value(:operations)
+        |> List.wrap()
+        |> Enum.map(&normalize_capability_id/1),
+      referenced_by: references,
+      runtime_samples: []
+    }
+    |> maybe_put_nonempty(:actions, capability_actions(capability))
+  end
+
+  defp capability_actions(capability) do
+    []
+    |> Kernel.++(List.wrap(map_value(capability, :action)))
+    |> Kernel.++(List.wrap(map_value(capability, :actions)))
+    |> Enum.map(&normalize_capability_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp capability_visibility_references(capability_usage, capability_id) do
+    capability_id = normalize_capability_id(capability_id)
+
+    capability_usage
+    |> Enum.filter(&(normalize_capability_id(map_value(&1, :capability)) == capability_id))
+    |> Enum.map(&capability_visibility_reference/1)
+  end
+
+  defp capability_visibility_reference(usage) do
+    %{
+      capability: normalize_capability_id(map_value(usage, :capability)),
+      section: normalize_capability_id(map_value(usage, :section)),
+      role: normalize_capability_id(map_value(usage, :role)),
+      id: normalize_capability_id(map_value(usage, :id) || map_value(usage, :field)),
+      group: normalize_capability_id(map_value(usage, :group)),
+      path: usage |> map_value(:path) |> format_capability_path()
+    }
+    |> compact_nil()
+  end
+
+  defp format_capability_path(path) when is_list(path), do: Enum.map_join(path, ".", &field_id/1)
+  defp format_capability_path(path) when is_nil(path), do: nil
+  defp format_capability_path(path), do: to_string(path)
+
+  defp normalize_capability_id(nil), do: nil
+  defp normalize_capability_id(value) when is_binary(value), do: value
+  defp normalize_capability_id(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_capability_id(value), do: to_string(value)
+
+  defp maybe_put_nonempty(map, _key, []), do: map
+  defp maybe_put_nonempty(map, key, value), do: Map.put(map, key, value)
 
   defp inspect_security_review(normalized) do
     @security_review_sections

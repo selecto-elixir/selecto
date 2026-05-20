@@ -539,6 +539,47 @@ defmodule Selecto.DomainTest do
                %{id: "customer.choose", operations: [:choice_source], action: nil}
              ] = inspection.capabilities
 
+      assert %{
+               format_version: 1,
+               summary: %{
+                 catalog_count: 1,
+                 referenced_count: 1,
+                 unreferenced_capabilities: [],
+                 undeclared_references: [],
+                 runtime_policy: :not_sampled
+               },
+               defaults: %{
+                 undeclared_capability: :allow,
+                 declared_without_resolver: :inspect_only,
+                 runtime_decision_source: :none
+               },
+               catalog: [
+                 %{
+                   id: "customer.choose",
+                   operations: ["choice_source"],
+                   referenced_by: [
+                     %{
+                       capability: "customer.choose",
+                       section: "actions",
+                       role: "action",
+                       id: "choose_customer",
+                       path: "actions.choose_customer.capability"
+                     }
+                   ],
+                   runtime_samples: []
+                 }
+               ],
+               references: [
+                 %{
+                   capability: "customer.choose",
+                   section: "actions",
+                   role: "action",
+                   id: "choose_customer",
+                   path: "actions.choose_customer.capability"
+                 }
+               ]
+             } = inspection.capability_visibility
+
       assert [
                %{
                  section: :actions,
