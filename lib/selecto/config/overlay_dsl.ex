@@ -1210,6 +1210,11 @@ defmodule Selecto.Config.OverlayDSL do
   defmacro returns(_value), do: quote(do: nil)
 
   @doc """
+  Sets the capability required by a query-facing overlay entry.
+  """
+  defmacro capability(_value), do: quote(do: nil)
+
+  @doc """
   Adds an argument definition to a UDF registration.
   """
   defmacro arg(_name, _type, _opts \\ []), do: quote(do: nil)

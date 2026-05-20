@@ -371,6 +371,7 @@ defmodule Selecto.Config.OverlayDSLTest do
           query(&Selecto.Config.OverlayDSLTest.__query_member_cte__/1)
           columns(["employee_id", "pet_name"])
           join(owner_key: :id, related_key: :employee_id, fields: :infer)
+          capability("employee.pet_analytics")
         end
 
         defvalues :status_lookup do
@@ -402,6 +403,7 @@ defmodule Selecto.Config.OverlayDSLTest do
       overlay = TestQueryMembersOverlay.overlay()
 
       assert overlay.query_members.ctes.employee_pets.columns == ["employee_id", "pet_name"]
+      assert overlay.query_members.ctes.employee_pets.capability == "employee.pet_analytics"
       assert is_function(overlay.query_members.ctes.employee_pets.query, 1)
 
       assert overlay.query_members.ctes.employee_pets.join == [
@@ -442,6 +444,7 @@ defmodule Selecto.Config.OverlayDSLTest do
           sql_name("public.similarity")
           returns(:float)
           allowed_in([:select, :order_by])
+          capability("search.similarity")
           arg(:left, :string, source: :selector)
           arg(:right, :string, source: :value)
         end
@@ -453,6 +456,7 @@ defmodule Selecto.Config.OverlayDSLTest do
       assert overlay.functions["similarity"].sql_name == "public.similarity"
       assert overlay.functions["similarity"].returns == :float
       assert overlay.functions["similarity"].allowed_in == [:select, :order_by]
+      assert overlay.functions["similarity"].capability == "search.similarity"
 
       assert overlay.functions["similarity"].args == [
                %{name: :left, type: :string, source: :selector},

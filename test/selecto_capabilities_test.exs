@@ -4,6 +4,33 @@ defmodule Selecto.CapabilitiesTest do
   alias Selecto.Capabilities
   alias Selecto.Capabilities.{Decision, Request}
 
+  defmodule ModuleResolver do
+    @behaviour Selecto.Capabilities.Resolver
+
+    @impl true
+    def decide(request, context) do
+      Selecto.Capabilities.allow(:module_allowed,
+        metadata: %{capability: request.capability, context: context}
+      )
+    end
+  end
+
+  defmodule BatchResolver do
+    @behaviour Selecto.Capabilities.Resolver
+
+    @impl true
+    def decide(_request, _context), do: Selecto.Capabilities.deny(:should_not_call_single)
+
+    @impl true
+    def decide_many(requests, context) do
+      Enum.map(requests, fn request ->
+        Selecto.Capabilities.allow(:batch_allowed,
+          metadata: %{capability: request.capability, context: context}
+        )
+      end)
+    end
+  end
+
   describe "request/1" do
     test "builds stable request structs from keyword attributes" do
       request =
@@ -97,6 +124,96 @@ defmodule Selecto.CapabilitiesTest do
       assert_raise ArgumentError, ~r/unknown capability decision visibility :ghosted/, fn ->
         Decision.new(status: :deny, visibility: :ghosted)
       end
+    end
+  end
+
+  describe "resolver helpers" do
+    test "decide/3 supports function and module resolvers" do
+      request = Capabilities.request(capability: "order.view", operation: :select)
+
+      assert %Decision{status: :deny, reason_code: :blocked} =
+               Capabilities.decide(
+                 fn ^request ->
+                   Capabilities.deny(:blocked)
+                 end,
+                 request
+               )
+
+      assert %Decision{
+               status: :allow,
+               reason_code: :module_allowed,
+               metadata: %{capability: "order.view", context: %{surface: :test}}
+             } =
+               Capabilities.decide(ModuleResolver, request, resolver_context: %{surface: :test})
+    end
+
+    test "decide_many/3 uses module batch callbacks and preserves order" do
+      requests = [
+        Capabilities.request(capability: "order.view", operation: :select),
+        Capabilities.request(capability: "order.export", operation: :export)
+      ]
+
+      assert [
+               %Decision{
+                 status: :allow,
+                 reason_code: :batch_allowed,
+                 metadata: %{capability: "order.view", context: %{surface: :test}}
+               },
+               %Decision{
+                 status: :allow,
+                 reason_code: :batch_allowed,
+                 metadata: %{capability: "order.export", context: %{surface: :test}}
+               }
+             ] =
+               Capabilities.decide_many(BatchResolver, requests,
+                 resolver_context: %{surface: :test}
+               )
+    end
+
+    test "decide_many/3 falls back to single decisions for function resolvers" do
+      requests = [
+        Capabilities.request(capability: "order.view", operation: :select),
+        Capabilities.request(capability: "order.export", operation: :export)
+      ]
+
+      assert [
+               %Decision{reason_code: "order.view"},
+               %Decision{reason_code: "order.export"}
+             ] =
+               Capabilities.decide_many(
+                 fn request ->
+                   Capabilities.allow(request.capability)
+                 end,
+                 requests
+               )
+    end
+
+    test "normalizes map and error resolver results" do
+      request = Capabilities.request(capability: "order.view", operation: :select)
+
+      assert %Decision{
+               status: :deny,
+               visibility: :disabled,
+               reason_code: "manager_required",
+               user_message: "Managers only."
+             } =
+               Capabilities.decide(
+                 fn _request ->
+                   %{
+                     "status" => "disabled",
+                     "code" => "manager_required",
+                     "reason" => "Managers only."
+                   }
+                 end,
+                 request
+               )
+
+      assert %Decision{
+               status: :deny,
+               visibility: :disabled,
+               reason_code: :resolver_error,
+               user_message: ":offline"
+             } = Capabilities.decide(fn _request -> {:error, :offline} end, request)
     end
   end
 end
