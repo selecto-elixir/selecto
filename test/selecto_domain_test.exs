@@ -673,7 +673,7 @@ defmodule Selecto.DomainTest do
 
       assert {:ok, inspection, _diagnostics} = Domain.describe(domain)
 
-      assert inspection.counts.capability_usages == 8
+      assert inspection.counts.capability_usages == 9
 
       assert %{
                capability: "order.total",
@@ -738,6 +738,14 @@ defmodule Selecto.DomainTest do
                role: :choice_source,
                id: :customer_choices,
                path: [:choice_sources, :customer_choices, :capability]
+             } in inspection.capability_usage
+
+      assert %{
+               capability: "customer.view",
+               section: :schemas,
+               role: :field,
+               field: :name,
+               path: [:schemas, :customers, :columns, :name, :capability]
              } in inspection.capability_usage
     end
 
@@ -862,6 +870,7 @@ defmodule Selecto.DomainTest do
                field: "customer_id",
                type: :integer,
                label: "Customer",
+               capability_target: %{resource: :orders, action: :read},
                choice_source: :customer_choices,
                detail_selectable: true,
                filterable: true,
@@ -872,6 +881,12 @@ defmodule Selecto.DomainTest do
              } = customer_id_field
 
       assert :between in customer_id_field.comparators
+
+      assert %{
+               id: "customers.name",
+               capability: "customer.view",
+               capability_target: %{resource: :customers, action: :read}
+             } = Enum.find(projection.fields, &(&1.id == "customers.name"))
 
       assert %{
                id: "customers.name",
@@ -1014,6 +1029,7 @@ defmodule Selecto.DomainTest do
 
       assert projection.capability_ids == [
                "customer.choose",
+               "customer.view",
                "order.filter",
                "order.member",
                "order.rank",
@@ -1239,7 +1255,8 @@ defmodule Selecto.DomainTest do
     |> put_in([:source, :columns, :customer_id], %{
       type: :integer,
       label: "Customer",
-      choice_source: :customer_choices
+      choice_source: :customer_choices,
+      capability_target: %{resource: :orders, action: :read}
     })
     |> put_in([:source, :columns, :inserted_at], %{type: :utc_datetime, label: "Inserted At"})
     |> put_in([:source, :associations, :customer], %{
@@ -1254,7 +1271,11 @@ defmodule Selecto.DomainTest do
         fields: [:id, :name],
         columns: %{
           id: %{type: :integer},
-          name: %{type: :string}
+          name: %{
+            type: :string,
+            capability: "customer.view",
+            capability_target: %{resource: :customers, action: :read}
+          }
         },
         associations: %{}
       }
@@ -1334,6 +1355,7 @@ defmodule Selecto.DomainTest do
       },
       capabilities: %{
         "customer.choose" => %{operations: [:choice_source]},
+        "customer.view" => %{operations: [:query_select_field]},
         "order.filter" => %{operations: [:filter]},
         "order.member" => %{operations: [:query_member]},
         "order.rank" => %{operations: [:select]},

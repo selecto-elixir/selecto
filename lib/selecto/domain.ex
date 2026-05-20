@@ -1113,6 +1113,7 @@ defmodule Selecto.Domain do
         type: type,
         label: field_label(column),
         capability: map_value(column, :capability),
+        capability_target: map_value(column, :capability_target),
         choice_source: query_contract_choice_source(choice_index, id)
       }
       |> Map.merge(query_contract_field_surface(column, id, source_kind, type, filterable_fields))
@@ -1144,6 +1145,7 @@ defmodule Selecto.Domain do
         type: type,
         label: field_label(column),
         capability: map_value(column, :capability),
+        capability_target: map_value(column, :capability_target),
         choice_source: query_contract_choice_source(choice_index, id)
       }
       |> Map.merge(
