@@ -28,6 +28,7 @@ defmodule Selecto.DomainTest do
       assert normalized.source.source_table == "orders"
       assert normalized.schemas == %{}
       assert normalized.joins == %{}
+      refute Map.has_key?(normalized.domain, :columns)
 
       assert diagnostics.schema_version == 1
       assert diagnostics.schema_version_inferred

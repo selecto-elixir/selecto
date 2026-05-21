@@ -30,6 +30,8 @@ defmodule Selecto.EctoAdapterUuidTest do
   test "schema_to_domain maps binary_id primary and foreign keys to uuid columns" do
     domain = Selecto.EctoAdapter.schema_to_domain(Event, joins: [:account])
 
+    assert domain.schema_version == 1
+    refute Map.has_key?(domain, :custom_columns)
     assert domain.source.primary_key == :id
     assert domain.source.columns.id.type == :uuid
     assert domain.source.columns.account_id.type == :uuid

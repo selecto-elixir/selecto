@@ -2096,12 +2096,15 @@ defmodule Selecto.Domain do
   end
 
   defp normalize_projection_choice_shorthand({domain, acc}) do
-    case section(domain, :columns, %{}) do
-      columns when is_map(columns) ->
+    case fetch_section(domain, :columns) do
+      {:ok, columns} when is_map(columns) ->
         {columns, acc} = normalize_columns_choice_shorthand(columns, :projection, acc)
         {put_section(domain, :columns, columns), acc}
 
-      _columns ->
+      {:ok, _columns} ->
+        {domain, acc}
+
+      :error ->
         {domain, acc}
     end
   end

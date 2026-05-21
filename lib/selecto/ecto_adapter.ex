@@ -109,15 +109,19 @@ defmodule Selecto.EctoAdapter do
     joins_definition = build_joins_definition(schema_info.associations, joins_config)
 
     %{
+      schema_version: 1,
       source: source_config,
       schemas: schemas_config,
       name: domain_name,
-      custom_columns: custom_columns,
       filters: custom_filters,
       joins: joins_definition,
       extensions: extensions
     }
+    |> maybe_put(:custom_columns, custom_columns)
   end
+
+  defp maybe_put(map, _key, value) when value in [nil, %{}, []], do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   @doc """
   Get available associations from an Ecto schema.
