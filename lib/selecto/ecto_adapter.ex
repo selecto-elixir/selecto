@@ -181,6 +181,12 @@ defmodule Selecto.EctoAdapter do
       type == :id ->
         :integer
 
+      type in [:binary_id, :uuid] ->
+        :uuid
+
+      type == Ecto.UUID ->
+        :uuid
+
       type == :integer ->
         :integer
 
