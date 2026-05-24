@@ -50,6 +50,26 @@ defmodule Selecto.SubselectIntegrationTest do
               }
             }
           },
+          associations: %{
+            order_items: %{
+              queryable: :order_items,
+              field: :order_items,
+              owner_key: :order_id,
+              related_key: :order_id
+            }
+          }
+        },
+        order_items: %{
+          source_table: "order_items",
+          primary_key: :order_item_id,
+          fields: [:order_item_id, :order_id, :sku, :quantity],
+          redact_fields: [],
+          columns: %{
+            order_item_id: %{type: :integer},
+            order_id: %{type: :integer},
+            sku: %{type: :string},
+            quantity: %{type: :integer}
+          },
           associations: %{}
         }
       },
@@ -139,6 +159,40 @@ defmodule Selecto.SubselectIntegrationTest do
       assert clause_sql =~
                "JSON_VALUE(sub_orders.metadata, '$.warehouse.zone') AS [zone]"
 
+      assert params == finalized_params
+    end
+
+    test "builds nested JSON aggregation subselects" do
+      selecto =
+        create_test_selecto()
+        |> Selecto.subselect([
+          %{
+            fields: ["product_name"],
+            target_schema: :orders,
+            format: :json_agg,
+            alias: "orders",
+            join_path: [:orders],
+            nested: [
+              %{
+                key: "items",
+                fields: ["sku", "quantity"],
+                target_schema: :order_items,
+                format: :json_agg,
+                join_path: [:orders, :order_items]
+              }
+            ]
+          }
+        ])
+
+      {clauses, params} = Subselect.build_subselect_clauses(selecto)
+      {clause_sql, finalized_params} = Params.finalize(clauses)
+
+      assert clause_sql =~ ~r/json_agg\(json_build_object/i
+      assert clause_sql =~ "'product_name', sub_orders.\"product_name\""
+      assert clause_sql =~ "'items', COALESCE((SELECT json_agg(json_build_object("
+      assert clause_sql =~ ~r/from\s+order_items\s+sub_orders_items/i
+      assert clause_sql =~ ~r/sub_orders_items\."order_id"\s*=\s*sub_orders\."order_id"/i
+      assert clause_sql =~ ~r/as\s+"orders"/i
       assert params == finalized_params
     end
 

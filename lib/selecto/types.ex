@@ -140,6 +140,7 @@ defmodule Selecto.Types do
           required(:format) => subselect_format(),
           optional(:alias) => String.t(),
           optional(:join_path) => [atom() | String.t()],
+          optional(:nested) => [map()],
           optional(:separator) => String.t(),
           optional(:order_by) => [order_spec()],
           optional(:filters) => [filter()]

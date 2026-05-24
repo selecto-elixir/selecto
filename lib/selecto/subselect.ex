@@ -346,6 +346,7 @@ defmodule Selecto.Subselect do
       format: Map.get(config, :format, default_format),
       alias: Map.get(config, :alias, generate_alias(config.target_schema, alias_prefix)),
       join_path: Map.get(config, :join_path),
+      nested: Map.get(config, :nested, []),
       separator: Map.get(config, :separator, ","),
       order_by: Map.get(config, :order_by, default_order_by),
       filters: Map.get(config, :filters, [])

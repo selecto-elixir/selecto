@@ -149,57 +149,52 @@ defmodule Selecto.Builder.Subselect do
     # Build SELECT fields for the subquery based on aggregation type
     {select_clause, select_params} =
       case subselect_config.format do
-        :json_agg when length(subselect_config.fields) == 1 ->
-          [field] = subselect_config.fields
-          field_name = adapter_quote_identifier(selecto, to_string(field))
-
-          case adapter_name do
-            :sqlite ->
-              {["json_group_array(", target_alias, ".", field_name, ")"], []}
-
-            name when name in [:mysql, :mariadb] ->
-              {["JSON_ARRAYAGG(", target_alias, ".", field_name, ")"], []}
-
-            _ ->
-              {["json_agg(", target_alias, ".", field_name, ")"], []}
-          end
-
         :json_agg ->
-          # Multiple fields - build JSON objects
-          json_pairs =
-            Enum.map(subselect_config.fields, fn field ->
-              field_name = adapter_quote_identifier(selecto, to_string(field))
-              # Use literal string for field key, not parameter
-              field_key = escape_string(to_string(field))
-              [field_key, ", ", target_alias, ".", field_name]
-            end)
+          if length(subselect_config.fields) == 1 and nested_subselects(subselect_config) == [] do
+            [field] = subselect_config.fields
+            field_name = adapter_quote_identifier(selecto, to_string(field))
 
-          json_build =
             case adapter_name do
               :sqlite ->
-                [
-                  "json_group_array(json_object(",
-                  Enum.intersperse(json_pairs, [", "]),
-                  "))"
-                ]
+                {["json_group_array(", target_alias, ".", field_name, ")"], []}
 
               name when name in [:mysql, :mariadb] ->
-                [
-                  "JSON_ARRAYAGG(JSON_OBJECT(",
-                  Enum.intersperse(json_pairs, [", "]),
-                  "))"
-                ]
+                {["JSON_ARRAYAGG(", target_alias, ".", field_name, ")"], []}
 
               _ ->
-                [
-                  "json_agg(json_build_object(",
-                  Enum.intersperse(json_pairs, [", "]),
-                  "))"
-                ]
+                {["json_agg(", target_alias, ".", field_name, ")"], []}
             end
+          else
+            # Multiple fields - build JSON objects
+            {json_pairs, nested_params} =
+              build_json_object_pairs(selecto, subselect_config, target_alias)
 
-          # No parameters needed for field names - they're literal strings
-          {json_build, []}
+            json_build =
+              case adapter_name do
+                :sqlite ->
+                  [
+                    "json_group_array(json_object(",
+                    Enum.intersperse(json_pairs, [", "]),
+                    "))"
+                  ]
+
+                name when name in [:mysql, :mariadb] ->
+                  [
+                    "JSON_ARRAYAGG(JSON_OBJECT(",
+                    Enum.intersperse(json_pairs, [", "]),
+                    "))"
+                  ]
+
+                _ ->
+                  [
+                    "json_agg(json_build_object(",
+                    Enum.intersperse(json_pairs, [", "]),
+                    "))"
+                  ]
+              end
+
+            {json_build, nested_params}
+          end
 
         :array_agg ->
           # Simplify for now
@@ -273,6 +268,186 @@ defmodule Selecto.Builder.Subselect do
 
     all_params = select_params ++ correlation_params ++ additional_params
     {subselect_iodata, all_params}
+  end
+
+  defp build_json_object_pairs(selecto, subselect_config, target_alias) do
+    field_pairs =
+      Enum.map(subselect_config.fields, fn field ->
+        field_name = adapter_quote_identifier(selecto, to_string(field))
+        field_key = escape_string(json_field_key(field))
+        [field_key, ", ", target_alias, ".", field_name]
+      end)
+
+    {nested_pairs, nested_params} =
+      subselect_config
+      |> nested_subselects()
+      |> Enum.map(&build_nested_json_pair(selecto, subselect_config, &1, target_alias))
+      |> Enum.unzip()
+
+    {field_pairs ++ nested_pairs, List.flatten(nested_params)}
+  end
+
+  defp build_nested_json_pair(selecto, parent_config, child_config, parent_alias) do
+    child_key = nested_key(child_config)
+    child_alias = nested_alias(parent_alias, child_key)
+    {child_select, child_params} = build_nested_json_agg(selecto, child_config, child_alias)
+    child_table = get_target_table(selecto, child_config.target_schema)
+
+    {correlation_where, correlation_params} =
+      build_nested_correlation_condition(
+        selecto,
+        parent_config,
+        child_config,
+        parent_alias,
+        child_alias
+      )
+
+    adapter_name = AdapterSupport.adapter_name(Map.get(selecto, :adapter))
+
+    empty_json =
+      case adapter_name do
+        :sqlite -> "'[]'"
+        name when name in [:mysql, :mariadb] -> "JSON_ARRAY()"
+        _ -> "'[]'::json"
+      end
+
+    subquery = [
+      "COALESCE((SELECT ",
+      child_select,
+      " FROM ",
+      child_table,
+      " ",
+      child_alias,
+      " WHERE ",
+      correlation_where,
+      "), ",
+      empty_json,
+      ")"
+    ]
+
+    {[escape_string(child_key), ", ", subquery], child_params ++ correlation_params}
+  end
+
+  defp build_nested_json_agg(selecto, subselect_config, target_alias) do
+    adapter_name = AdapterSupport.adapter_name(Map.get(selecto, :adapter))
+
+    cond do
+      subselect_config.format == :json_agg and
+        length(subselect_config.fields) == 1 and nested_subselects(subselect_config) == [] ->
+        [field] = subselect_config.fields
+        field_name = adapter_quote_identifier(selecto, to_string(field))
+
+        case adapter_name do
+          :sqlite ->
+            {["json_group_array(", target_alias, ".", field_name, ")"], []}
+
+          name when name in [:mysql, :mariadb] ->
+            {["JSON_ARRAYAGG(", target_alias, ".", field_name, ")"], []}
+
+          _ ->
+            {["json_agg(", target_alias, ".", field_name, ")"], []}
+        end
+
+      subselect_config.format == :json_agg ->
+        {json_pairs, nested_params} =
+          build_json_object_pairs(selecto, subselect_config, target_alias)
+
+        json_build =
+          case adapter_name do
+            :sqlite ->
+              ["json_group_array(json_object(", Enum.intersperse(json_pairs, [", "]), "))"]
+
+            name when name in [:mysql, :mariadb] ->
+              ["JSON_ARRAYAGG(JSON_OBJECT(", Enum.intersperse(json_pairs, [", "]), "))"]
+
+            _ ->
+              ["json_agg(json_build_object(", Enum.intersperse(json_pairs, [", "]), "))"]
+          end
+
+        {json_build, nested_params}
+
+      true ->
+        raise ArgumentError,
+              "Nested subselects currently require json_agg format, got #{inspect(subselect_config.format)}"
+    end
+  end
+
+  defp build_nested_correlation_condition(
+         selecto,
+         parent_config,
+         child_config,
+         parent_alias,
+         child_alias
+       ) do
+    parent_schema_config = get_target_schema_config(selecto, parent_config.target_schema)
+    child_assoc_name = child_assoc_name(parent_config, child_config)
+    association = Map.get(parent_schema_config.associations || %{}, child_assoc_name)
+
+    if association do
+      condition = [
+        child_alias,
+        ".",
+        adapter_quote_identifier(selecto, to_string(association.related_key)),
+        " = ",
+        parent_alias,
+        ".",
+        adapter_quote_identifier(selecto, to_string(association.owner_key))
+      ]
+
+      {condition, []}
+    else
+      raise ArgumentError,
+            "Cannot build nested subselect correlation from #{inspect(parent_config.target_schema)} through #{inspect(child_assoc_name)}"
+    end
+  end
+
+  defp child_assoc_name(parent_config, child_config) do
+    parent_path = normalize_join_path(Map.get(parent_config, :join_path, []))
+    child_path = normalize_join_path(Map.get(child_config, :join_path, []))
+
+    child_path
+    |> Enum.drop(length(parent_path))
+    |> List.first()
+    |> Kernel.||(List.last(child_path))
+  end
+
+  defp nested_subselects(config), do: Map.get(config, :nested, Map.get(config, "nested", []))
+
+  defp nested_key(config) do
+    Map.get(config, :key) ||
+      Map.get(config, "key") ||
+      Map.get(config, :alias) ||
+      Map.get(config, "alias") ||
+      Map.get(config, :join_path, []) |> List.last() |> to_string()
+  end
+
+  defp nested_alias(parent_alias, child_key) do
+    safe_child =
+      child_key
+      |> to_string()
+      |> String.replace(~r/[^A-Za-z0-9_]+/, "_")
+
+    "#{parent_alias}_#{safe_child}"
+  end
+
+  defp normalize_join_path(path) when is_list(path), do: Enum.map(path, &normalize_join_segment/1)
+  defp normalize_join_path(_path), do: []
+
+  defp normalize_join_segment(segment) when is_atom(segment), do: segment
+
+  defp normalize_join_segment(segment) do
+    try do
+      segment |> to_string() |> String.to_existing_atom()
+    rescue
+      ArgumentError -> to_string(segment)
+    end
+  end
+
+  defp json_field_key(field) do
+    field
+    |> to_string()
+    |> String.split(".")
+    |> List.last()
   end
 
   defp build_mssql_json_agg_subselect(
