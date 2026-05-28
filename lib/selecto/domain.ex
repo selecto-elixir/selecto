@@ -8,12 +8,13 @@ defmodule Selecto.Domain do
   unchanged.
   """
 
+  use Selecto.Domain.Constants
+
   alias Selecto.Domain.Diagnostics
   alias Selecto.Domain.Sections
 
   @current_schema_version 1
   @projections [:query, :write, :ui, :api, :query_contract]
-  @query_member_groups [:ctes, :values, :subqueries, :laterals, :unnests]
   @query_contract_numeric_types ~w(integer float decimal)
   @query_contract_temporal_types ~w(date time datetime naive_datetime utc_datetime)
   @query_contract_text_types ~w(string text)

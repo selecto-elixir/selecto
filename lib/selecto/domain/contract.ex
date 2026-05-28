@@ -9,33 +9,12 @@ defmodule Selecto.Domain.Contract do
   into normalized validation.
   """
 
+  use Selecto.Domain.Constants
+
   @required_sections [:source, :schemas]
   @relation_required_keys [:source_table, :primary_key, :fields, :columns]
   @logical_filter_ops [:and, :or]
   @unary_filter_ops [:not]
-  @field_filter_ops [
-    :eq,
-    :neq,
-    :not_eq,
-    :gt,
-    :gte,
-    :lt,
-    :lte,
-    :like,
-    :ilike,
-    :contains,
-    :starts_with,
-    :ends_with,
-    :between,
-    :in,
-    :not_in,
-    :text_search,
-    :match_against,
-    :array_contains,
-    :array_contained,
-    :array_overlap,
-    :array_eq
-  ]
   @choice_source_path_keys [:source_path, :value_source, :caption_source, :description_source]
   @choice_source_presentation_controls [:select, :autocomplete, :table_picker]
   @choice_source_presentation_modes [:static, :searchable, :async, :inline]
@@ -56,9 +35,6 @@ defmodule Selecto.Domain.Contract do
     :desc_nulls_last
   ]
   @query_group_wrappers [:rollup, :grouping_set]
-  @query_member_groups [:ctes, :values, :subqueries, :laterals, :unnests]
-  @query_member_join_types [:left, :inner, :right, :full]
-  @detail_action_types [:modal, :iframe_modal, :external_link, :live_component]
 
   @type error :: %{
           required(:code) => atom(),
