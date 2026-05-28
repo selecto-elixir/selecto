@@ -2243,44 +2243,8 @@ defmodule Selecto do
       selecto
       |> Selecto.json_select({:json_extract, "data", "$.status", as: "status"})
   """
-  def json_select(selecto, json_operations, opts \\ [])
-
-  def json_select(selecto, json_operations, _opts) when is_list(json_operations) do
-    # Create JSON operation specifications
-    json_specs =
-      json_operations
-      |> Enum.map(fn
-        {operation, column, path_or_opts} when is_binary(path_or_opts) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
-            path: path_or_opts
-          )
-
-        {operation, column, path, opts} when is_binary(path) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(
-            operation,
-            column,
-            [path: path] ++ opts
-          )
-
-        {operation, column, opts} when is_list(opts) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, opts)
-
-        {operation, column} ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
-      end)
-
-    # Add to selecto set
-    Selecto.QueryValidator.validate_json_specs!(selecto, json_specs)
-
-    current_json_selects = Map.get(selecto.set, :json_selects, [])
-    updated_json_selects = current_json_selects ++ json_specs
-
-    put_in(selecto.set[:json_selects], updated_json_selects)
-  end
-
-  def json_select(selecto, json_operation, opts) do
-    json_select(selecto, [json_operation], opts)
-  end
+  def json_select(selecto, json_operations, opts \\ []),
+    do: Selecto.JsonQuery.select(selecto, json_operations, opts)
 
   @doc """
   Add JSON operations to WHERE clauses for filtering with PostgreSQL JSON/JSONB functionality.
@@ -2313,43 +2277,8 @@ defmodule Selecto do
       selecto
       |> Selecto.json_filter({:json_exists, "tags", "electronics"})
   """
-  def json_filter(selecto, json_filters, opts \\ [])
-
-  def json_filter(selecto, json_filters, _opts) when is_list(json_filters) do
-    # Create JSON filter specifications
-    json_specs =
-      json_filters
-      |> Enum.map(fn
-        {operation, column, path_or_value, comparison} when is_binary(path_or_value) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
-            path: path_or_value,
-            comparison: comparison
-          )
-
-        {operation, column, path}
-        when operation in [:json_extract, :json_extract_text, :json_exists, :json_path_exists] and
-               is_binary(path) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
-
-        {operation, column, value} ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, value: value)
-
-        {operation, column} ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
-      end)
-
-    # Add to selecto set
-    Selecto.QueryValidator.validate_json_specs!(selecto, json_specs)
-
-    current_json_filters = Map.get(selecto.set, :json_filters, [])
-    updated_json_filters = current_json_filters ++ json_specs
-
-    put_in(selecto.set[:json_filters], updated_json_filters)
-  end
-
-  def json_filter(selecto, json_filter, opts) do
-    json_filter(selecto, [json_filter], opts)
-  end
+  def json_filter(selecto, json_filters, opts \\ []),
+    do: Selecto.JsonQuery.filter(selecto, json_filters, opts)
 
   @doc """
   Add JSON operations to ORDER BY clauses for sorting with PostgreSQL JSON/JSONB functionality.
@@ -2373,49 +2302,8 @@ defmodule Selecto do
       selecto
       |> Selecto.json_order_by({:json_extract, "settings", "$.sort_order"})
   """
-  def json_order_by(selecto, json_sorts, opts \\ [])
-
-  def json_order_by(selecto, json_sorts, _opts) when is_list(json_sorts) do
-    # Create JSON sort specifications
-    json_specs =
-      json_sorts
-      |> Enum.map(fn
-        {operation, column, path, direction} when is_binary(path) ->
-          spec =
-            Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
-
-          {spec, direction || :asc}
-
-        {operation, column, direction} when direction in [:asc, :desc] ->
-          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
-          {spec, direction}
-
-        {operation, column, path} when is_binary(path) ->
-          spec =
-            Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
-
-          {spec, :asc}
-
-        {operation, column} ->
-          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
-          {spec, :asc}
-      end)
-
-    # Add to selecto set
-    Selecto.QueryValidator.validate_json_specs!(
-      selecto,
-      Enum.map(json_specs, fn {spec, _direction} -> spec end)
-    )
-
-    current_json_sorts = Map.get(selecto.set, :json_order_by, [])
-    updated_json_sorts = current_json_sorts ++ json_specs
-
-    put_in(selecto.set[:json_order_by], updated_json_sorts)
-  end
-
-  def json_order_by(selecto, json_sort, opts) do
-    json_order_by(selecto, [json_sort], opts)
-  end
+  def json_order_by(selecto, json_sorts, opts \\ []),
+    do: Selecto.JsonQuery.order_by(selecto, json_sorts, opts)
 
   @doc """
   Add a Common Table Expression (CTE) to the query using WITH clause.
@@ -3063,147 +2951,8 @@ defmodule Selecto do
       selecto
       |> Selecto.array_select({:array_length, "tags", 1, as: "tag_count"})
   """
-  def array_select(selecto, array_operations, opts \\ [])
-
-  def array_select(selecto, array_operations, _opts) when is_list(array_operations) do
-    # Create array operation specifications
-    array_specs =
-      array_operations
-      |> Enum.map(fn
-        # Aggregation operations
-        {:array_agg, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg, column, opts)
-
-        {:array_agg_distinct, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_agg_distinct,
-            column,
-            opts
-          )
-
-        {:string_agg, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:string_agg, column, opts)
-
-        # Size operations with dimension
-        {:array_length, column, dimension, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(
-            :array_length,
-            column,
-            dimension,
-            opts
-          )
-
-        # Size operations without dimension
-        {:cardinality, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(:cardinality, column, nil, opts)
-
-        {:array_ndims, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(:array_ndims, column, nil, opts)
-
-        {:array_dims, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(:array_dims, column, nil, opts)
-
-        # Array construction/manipulation with value
-        {:array_append, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_append,
-            column,
-            spec_opts
-          )
-
-        {:array_prepend, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_prepend,
-            column,
-            spec_opts
-          )
-
-        {:array_remove, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_remove,
-            column,
-            spec_opts
-          )
-
-        {:array_replace, column, old_value, new_value, opts} ->
-          spec_opts = opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_replace,
-            column,
-            spec_opts
-          )
-
-        {:array_cat, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_cat, column, spec_opts)
-
-        {:array_position, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_position,
-            column,
-            spec_opts
-          )
-
-        {:array_positions, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_positions,
-            column,
-            spec_opts
-          )
-
-        # Array transformation operations
-        {:array_to_string, column, delimiter, opts} ->
-          spec_opts = Keyword.put(opts, :value, delimiter)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_to_string,
-            column,
-            spec_opts
-          )
-
-        {:string_to_array, column, delimiter, opts} ->
-          spec_opts = Keyword.put(opts, :value, delimiter)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :string_to_array,
-            column,
-            spec_opts
-          )
-
-        # Array constructor (no column)
-        {:array, elements, opts} ->
-          spec_opts = Keyword.put(opts, :value, elements)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array, nil, spec_opts)
-
-        # Generic pattern for operations with column and options
-        {operation, column, opts} when is_atom(operation) and is_list(opts) ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
-
-        _ = spec ->
-          spec
-      end)
-
-    # Add to selecto set
-    current_array_ops = Map.get(selecto.set, :array_operations, [])
-    updated_array_ops = current_array_ops ++ array_specs
-
-    put_in(selecto.set[:array_operations], updated_array_ops)
-  end
-
-  def array_select(selecto, array_operation, opts) do
-    array_select(selecto, [array_operation], opts)
-  end
+  def array_select(selecto, array_operations, opts \\ []),
+    do: Selecto.ArrayQuery.select(selecto, array_operations, opts)
 
   @doc """
   Add array filtering operations to WHERE clauses.
@@ -3237,32 +2986,8 @@ defmodule Selecto do
           {:array_overlap, "languages", ["English", "Spanish"]}
         ])
   """
-  def array_filter(selecto, array_filters, opts \\ [])
-
-  def array_filter(selecto, array_filters, _opts) when is_list(array_filters) do
-    # Create array filter specifications
-    array_specs =
-      array_filters
-      |> Enum.map(fn
-        {operation, column, value} ->
-          Selecto.Advanced.ArrayOperations.create_array_filter(operation, column, value)
-
-        _ = spec ->
-          spec
-      end)
-
-    # Add to selecto set filters
-    Selecto.QueryValidator.validate_array_specs!(selecto, array_specs)
-
-    current_filters = Map.get(selecto.set, :array_filters, [])
-    updated_filters = current_filters ++ array_specs
-
-    put_in(selecto.set[:array_filters], updated_filters)
-  end
-
-  def array_filter(selecto, array_filter, opts) do
-    array_filter(selecto, [array_filter], opts)
-  end
+  def array_filter(selecto, array_filters, opts \\ []),
+    do: Selecto.ArrayQuery.filter(selecto, array_filters, opts)
 
   @doc """
   Add array manipulation operations to select fields.
@@ -3289,72 +3014,6 @@ defmodule Selecto do
       selecto
       |> Selecto.array_manipulate({:array_to_string, "tags", ", ", as: "tag_string"})
   """
-  def array_manipulate(selecto, array_operations, opts \\ [])
-
-  def array_manipulate(selecto, array_operations, _opts) when is_list(array_operations) do
-    # Create array operation specifications
-    array_specs =
-      array_operations
-      |> Enum.map(fn
-        {:array_append, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_append,
-            column,
-            Keyword.put(opts, :value, value)
-          )
-
-        {:array_prepend, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_prepend,
-            column,
-            Keyword.put(opts, :value, value)
-          )
-
-        {:array_remove, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_remove,
-            column,
-            Keyword.put(opts, :value, value)
-          )
-
-        {:array_replace, column, old_value, new_value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_replace,
-            column,
-            opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value)
-          )
-
-        {:array_to_string, column, delimiter, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_to_string,
-            column,
-            Keyword.put(opts, :value, delimiter)
-          )
-
-        {:string_to_array, column, delimiter, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :string_to_array,
-            column,
-            Keyword.put(opts, :value, delimiter)
-          )
-
-        {operation, column, opts} when is_atom(operation) ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
-
-        _ = spec ->
-          spec
-      end)
-
-    # Add to selecto set
-    Selecto.QueryValidator.validate_array_specs!(selecto, array_specs)
-
-    current_array_ops = Map.get(selecto.set, :array_operations, [])
-    updated_array_ops = current_array_ops ++ array_specs
-
-    put_in(selecto.set[:array_operations], updated_array_ops)
-  end
-
-  def array_manipulate(selecto, array_operation, opts) do
-    array_manipulate(selecto, [array_operation], opts)
-  end
+  def array_manipulate(selecto, array_operations, opts \\ []),
+    do: Selecto.ArrayQuery.manipulate(selecto, array_operations, opts)
 end
