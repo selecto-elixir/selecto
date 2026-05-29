@@ -16,8 +16,11 @@ defmodule Selecto.Domain.FieldBindings do
         & &1
       )
     )
-    |> Enum.sort_by(&{MapHelpers.field_id(&1.field), MapHelpers.field_id(&1.choice_source), inspect(&1.path)})
+    |> Enum.sort_by(
+      &{MapHelpers.field_id(&1.field), MapHelpers.field_id(&1.choice_source), inspect(&1.path)}
+    )
   end
+
   def schema_field_choice_bindings(schemas) when is_map(schemas) do
     schemas
     |> MapHelpers.sorted_entries()
@@ -27,6 +30,7 @@ defmodule Selecto.Domain.FieldBindings do
   end
 
   def schema_field_choice_bindings(_schemas), do: []
+
   def relation_field_choice_bindings(relation_id, relation, path) when is_map(relation) do
     relation
     |> MapHelpers.map_value(:columns)
@@ -34,6 +38,7 @@ defmodule Selecto.Domain.FieldBindings do
   end
 
   def relation_field_choice_bindings(_relation_id, _relation, _path), do: []
+
   def column_field_choice_bindings(columns, path, field_ref_fun) when is_map(columns) do
     columns
     |> MapHelpers.sorted_entries()
@@ -43,13 +48,17 @@ defmodule Selecto.Domain.FieldBindings do
   end
 
   def column_field_choice_bindings(_columns, _path, _field_ref_fun), do: []
+
   def column_field_choice_binding(field, column, path) when is_map(column) do
     compact_choice_source = MapHelpers.id_value(MapHelpers.map_value(column, :choice_source))
 
     reference_choice_source =
       case MapHelpers.map_value(column, :reference) do
-        reference when is_map(reference) -> MapHelpers.id_value(MapHelpers.map_value(reference, :choice_source))
-        _reference -> nil
+        reference when is_map(reference) ->
+          MapHelpers.id_value(MapHelpers.map_value(reference, :choice_source))
+
+        _reference ->
+          nil
       end
 
     cond do

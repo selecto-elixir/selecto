@@ -78,7 +78,8 @@ defmodule Selecto.Domain.Projector do
       filters: query_contract_filters(MapHelpers.map_value(query, :filters)),
       functions: query_contract_functions(MapHelpers.map_value(query, :functions)),
       query_members: query_contract_query_members(MapHelpers.map_value(query, :query_members)),
-      published_views: query_contract_published_views(MapHelpers.map_value(query, :published_views)),
+      published_views:
+        query_contract_published_views(MapHelpers.map_value(query, :published_views)),
       source_relationships:
         query_contract_source_relationships(Map.get(normalized, :source_relationships, %{})),
       choice_sources: query_contract_choice_sources(Map.get(normalized, :choice_sources, %{})),
@@ -149,6 +150,7 @@ defmodule Selecto.Domain.Projector do
       primary_key: MapHelpers.map_value(source, :primary_key)
     }
   end
+
   def query_contract_defaults(query) do
     %{
       default_selected: MapHelpers.map_value(query, :default_selected) || [],
@@ -158,6 +160,7 @@ defmodule Selecto.Domain.Projector do
       required_group_by: MapHelpers.map_value(query, :required_group_by) || []
     }
   end
+
   def query_contract_fields(normalized, field_choice_bindings) do
     choice_index = query_contract_choice_index(field_choice_bindings)
 
@@ -189,8 +192,9 @@ defmodule Selecto.Domain.Projector do
     )
     |> Enum.sort_by(& &1.id)
   end
+
   def query_contract_schema_fields(schemas, choice_index, filterable_fields)
-       when is_map(schemas) do
+      when is_map(schemas) do
     schemas
     |> MapHelpers.sorted_entries()
     |> Enum.flat_map(fn {schema_id, schema} ->
@@ -199,14 +203,15 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_schema_fields(_schemas, _choice_index, _filterable_fields), do: []
+
   def query_contract_relation_fields(
-         relation_id,
-         relation,
-         source_kind,
-         choice_index,
-         filterable_fields
-       )
-       when is_map(relation) do
+        relation_id,
+        relation,
+        source_kind,
+        choice_index,
+        filterable_fields
+      )
+      when is_map(relation) do
     relation
     |> MapHelpers.relation_field_entries()
     |> Enum.map(fn {field, column} ->
@@ -231,15 +236,16 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_relation_fields(
-         _relation_id,
-         _relation,
-         _source_kind,
-         _choice_index,
-         _filterable_fields
-       ),
-       do: []
+        _relation_id,
+        _relation,
+        _source_kind,
+        _choice_index,
+        _filterable_fields
+      ),
+      do: []
+
   def query_contract_custom_fields(custom_columns, choice_index, filterable_fields)
-       when is_map(custom_columns) do
+      when is_map(custom_columns) do
     custom_columns
     |> MapHelpers.sorted_entries()
     |> Enum.map(fn {field, column} ->
@@ -264,6 +270,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_custom_fields(_custom_columns, _choice_index, _filterable_fields), do: []
+
   def query_contract_joins(normalized) do
     query_contract_join_tree(
       Map.get(normalized, :joins, %{}),
@@ -273,8 +280,9 @@ defmodule Selecto.Domain.Projector do
       :source
     )
   end
+
   def query_contract_join_tree(joins, parent_relation, schemas, path, parent_id)
-       when is_map(joins) do
+      when is_map(joins) do
     joins
     |> MapHelpers.sorted_entries()
     |> Enum.flat_map(fn {join_id, join_config} ->
@@ -311,8 +319,9 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_join_tree(_joins, _parent_relation, _schemas, _path, _parent_id), do: []
+
   def query_contract_join_target_relation(target_schema, source, _schemas)
-       when target_schema in [:source, "source"] do
+      when target_schema in [:source, "source"] do
     source
   end
 
@@ -322,6 +331,7 @@ defmodule Selecto.Domain.Projector do
       :error -> nil
     end
   end
+
   def query_contract_filters(filters) when is_map(filters) do
     filters
     |> MapHelpers.sorted_entries()
@@ -342,6 +352,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_filters(_filters), do: []
+
   def query_contract_filterable_fields(filters) when is_map(filters) do
     filters
     |> Map.values()
@@ -358,6 +369,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_filterable_fields(_filters), do: MapSet.new()
+
   def query_contract_field_surface(column, id, source_kind, type, filterable_fields) do
     type_id = query_contract_type_id(type)
     detail_selectable? = query_contract_detail_selectable?(column)
@@ -374,6 +386,7 @@ defmodule Selecto.Domain.Projector do
       aggregate_functions: query_contract_aggregate_functions(column, type_id, aggregatable?)
     }
   end
+
   def query_contract_detail_selectable?(column) do
     query_contract_bool(
       column,
@@ -381,6 +394,7 @@ defmodule Selecto.Domain.Projector do
       true
     )
   end
+
   def query_contract_filterable?(column, id, source_kind, filterable_fields) do
     default = source_kind in [:source, :schema] or MapSet.member?(filterable_fields, id)
 
@@ -390,6 +404,7 @@ defmodule Selecto.Domain.Projector do
       default
     )
   end
+
   def query_contract_sortable?(column, type_id, detail_selectable?) do
     query_contract_bool(
       column,
@@ -397,6 +412,7 @@ defmodule Selecto.Domain.Projector do
       detail_selectable? and type_id in @query_contract_sortable_types
     )
   end
+
   def query_contract_groupable?(column, type_id, detail_selectable?) do
     query_contract_bool(
       column,
@@ -404,6 +420,7 @@ defmodule Selecto.Domain.Projector do
       detail_selectable? and type_id in @query_contract_groupable_types
     )
   end
+
   def query_contract_aggregatable?(column, type_id, detail_selectable?) do
     query_contract_bool(
       column,
@@ -411,12 +428,14 @@ defmodule Selecto.Domain.Projector do
       detail_selectable? and type_id in @query_contract_numeric_types
     )
   end
+
   def query_contract_comparators(column, type_id, filterable?) do
     case query_contract_list_override(column, [:comparators, :operators]) do
       {:ok, comparators} -> comparators
       :error -> if filterable?, do: query_contract_type_comparators(type_id), else: []
     end
   end
+
   def query_contract_filter_comparators(filter, type, virtual?) do
     type_id = query_contract_type_id(type)
 
@@ -425,12 +444,14 @@ defmodule Selecto.Domain.Projector do
       :error -> if virtual?, do: [], else: query_contract_type_comparators(type_id)
     end
   end
+
   def query_contract_aggregate_functions(column, _type_id, aggregatable?) do
     case query_contract_list_override(column, [:aggregate_functions, :aggregates]) do
       {:ok, aggregate_functions} -> aggregate_functions
       :error -> if aggregatable?, do: [:count, :count_distinct, :sum, :avg, :min, :max], else: []
     end
   end
+
   def query_contract_type_comparators(type_id) when type_id in @query_contract_numeric_types,
     do: [:eq, :neq, :gt, :gte, :lt, :lte, :between, :in, :not_in, :is_null, :not_null]
 
@@ -447,12 +468,14 @@ defmodule Selecto.Domain.Projector do
 
   def query_contract_type_comparators(_type_id),
     do: [:eq, :neq, :in, :not_in, :is_null, :not_null]
+
   def query_contract_bool(map, keys, default) do
     case query_contract_bool_override(map, keys) do
       {:ok, value} -> value
       :error -> default
     end
   end
+
   def query_contract_bool_override(map, keys) when is_map(map) do
     Enum.reduce_while(keys, :error, fn key, _acc ->
       case MapHelpers.map_value(map, key) do
@@ -463,6 +486,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_bool_override(_map, _keys), do: :error
+
   def query_contract_list_override(map, keys) when is_map(map) do
     Enum.reduce_while(keys, :error, fn key, _acc ->
       case MapHelpers.map_value(map, key) do
@@ -482,6 +506,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_type_id(_type), do: ""
+
   def query_contract_functions(functions) when is_map(functions) do
     functions
     |> MapHelpers.sorted_entries()
@@ -499,6 +524,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_functions(_functions), do: []
+
   def query_contract_function_args(args) when is_list(args) do
     Enum.map(args, fn
       arg when is_map(arg) ->
@@ -514,15 +540,18 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_function_args(_args), do: []
+
   def query_contract_query_members(query_members) when is_map(query_members) do
     Enum.into(@query_member_groups, %{}, fn group ->
-      {group, query_contract_query_member_group(group, MapHelpers.map_value(query_members, group))}
+      {group,
+       query_contract_query_member_group(group, MapHelpers.map_value(query_members, group))}
     end)
   end
 
   def query_contract_query_members(_query_members) do
     Enum.into(@query_member_groups, %{}, &{&1, []})
   end
+
   def query_contract_query_member_group(group, members) when is_map(members) do
     members
     |> MapHelpers.sorted_entries()
@@ -530,6 +559,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_query_member_group(_group, _members), do: []
+
   def query_contract_query_member(group, id, member) when is_map(member) do
     base = %{
       id: id,
@@ -541,7 +571,8 @@ defmodule Selecto.Domain.Projector do
         Map.merge(base, %{
           columns: List.wrap(MapHelpers.map_value(member, :columns)),
           recursive?:
-            MapHelpers.has_key_variant?(member, :base_query) or MapHelpers.has_key_variant?(member, :recursive_query),
+            MapHelpers.has_key_variant?(member, :base_query) or
+              MapHelpers.has_key_variant?(member, :recursive_query),
           join?: not is_nil(MapHelpers.map_value(member, :join))
         })
 
@@ -549,7 +580,10 @@ defmodule Selecto.Domain.Projector do
         Map.merge(base, %{
           columns: List.wrap(MapHelpers.map_value(member, :columns)),
           alias: query_contract_alias(member),
-          rows_count: MapHelpers.list_count(MapHelpers.map_value(member, :rows) || MapHelpers.map_value(member, :data))
+          rows_count:
+            MapHelpers.list_count(
+              MapHelpers.map_value(member, :rows) || MapHelpers.map_value(member, :data)
+            )
         })
 
       :subqueries ->
@@ -562,14 +596,18 @@ defmodule Selecto.Domain.Projector do
 
       :laterals ->
         Map.merge(base, %{
-          join_type: MapHelpers.map_value(member, :join_type) || MapHelpers.map_value(member, :type),
+          join_type:
+            MapHelpers.map_value(member, :join_type) || MapHelpers.map_value(member, :type),
           alias: query_contract_alias(member),
           source: query_contract_lateral_source(member)
         })
 
       :unnests ->
         Map.merge(base, %{
-          field: MapHelpers.field_ref_or_nil(MapHelpers.map_value(member, :array_field) || MapHelpers.map_value(member, :field)),
+          field:
+            MapHelpers.field_ref_or_nil(
+              MapHelpers.map_value(member, :array_field) || MapHelpers.map_value(member, :field)
+            ),
           alias: query_contract_alias(member),
           ordinality: MapHelpers.map_value(member, :ordinality)
         })
@@ -577,6 +615,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_query_member(_group, id, _member), do: %{id: id}
+
   def query_contract_published_views(published_views) when is_map(published_views) do
     published_views
     |> MapHelpers.sorted_entries()
@@ -594,24 +633,29 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_published_views(_published_views), do: []
+
   def query_contract_source_relationships(source_relationships)
-       when is_map(source_relationships) do
+      when is_map(source_relationships) do
     source_relationships
     |> MapHelpers.sorted_entries()
     |> Enum.map(fn {id, relationship} ->
       %{
         id: id,
         target_domain: MapHelpers.map_value(relationship, :target_domain),
-        source_field: MapHelpers.field_ref_or_nil(MapHelpers.map_value(relationship, :source_field)),
-        target_field: MapHelpers.field_ref_or_nil(MapHelpers.map_value(relationship, :target_field)),
+        source_field:
+          MapHelpers.field_ref_or_nil(MapHelpers.map_value(relationship, :source_field)),
+        target_field:
+          MapHelpers.field_ref_or_nil(MapHelpers.map_value(relationship, :target_field)),
         source_path: MapHelpers.map_value(relationship, :source_path),
-        virtual_join_count: MapHelpers.list_count(MapHelpers.map_value(relationship, :virtual_join)),
+        virtual_join_count:
+          MapHelpers.list_count(MapHelpers.map_value(relationship, :virtual_join)),
         filters_count: MapHelpers.list_count(MapHelpers.map_value(relationship, :filters))
       }
     end)
   end
 
   def query_contract_source_relationships(_source_relationships), do: []
+
   def query_contract_choice_sources(choice_sources) when is_map(choice_sources) do
     choice_sources
     |> MapHelpers.sorted_entries()
@@ -620,11 +664,15 @@ defmodule Selecto.Domain.Projector do
         id: id,
         domain: MapHelpers.map_value(choice_source, :domain),
         source_relationship: MapHelpers.map_value(choice_source, :source_relationship),
-        value_field: MapHelpers.field_ref_or_nil(MapHelpers.map_value(choice_source, :value_field)),
-        label_field: MapHelpers.field_ref_or_nil(MapHelpers.map_value(choice_source, :label_field)),
+        value_field:
+          MapHelpers.field_ref_or_nil(MapHelpers.map_value(choice_source, :value_field)),
+        label_field:
+          MapHelpers.field_ref_or_nil(MapHelpers.map_value(choice_source, :label_field)),
         source_path: MapHelpers.map_value(choice_source, :source_path),
-        value_source: MapHelpers.field_ref_or_nil(MapHelpers.map_value(choice_source, :value_source)),
-        caption_source: MapHelpers.field_ref_or_nil(MapHelpers.map_value(choice_source, :caption_source)),
+        value_source:
+          MapHelpers.field_ref_or_nil(MapHelpers.map_value(choice_source, :value_source)),
+        caption_source:
+          MapHelpers.field_ref_or_nil(MapHelpers.map_value(choice_source, :caption_source)),
         filters_count: MapHelpers.list_count(MapHelpers.map_value(choice_source, :filters)),
         order_by_count: MapHelpers.list_count(MapHelpers.map_value(choice_source, :order_by)),
         presentation: MapHelpers.map_value(choice_source, :presentation),
@@ -635,6 +683,7 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_choice_sources(_choice_sources), do: []
+
   def query_contract_choice_bindings(field_choice_bindings) do
     Enum.map(field_choice_bindings, fn binding ->
       %{
@@ -646,6 +695,7 @@ defmodule Selecto.Domain.Projector do
       }
     end)
   end
+
   def query_contract_columns(columns) when is_map(columns) do
     columns
     |> MapHelpers.sorted_entries()
@@ -660,9 +710,11 @@ defmodule Selecto.Domain.Projector do
   end
 
   def query_contract_columns(_columns), do: []
+
   def query_contract_alias(member) do
     MapHelpers.first_map_value(member, [:as, :alias, :alias_name])
   end
+
   def query_contract_lateral_source(member) do
     source = MapHelpers.first_map_value(member, [:query, :source, :lateral_source])
 
@@ -673,6 +725,7 @@ defmodule Selecto.Domain.Projector do
       true -> MapHelpers.value_type(source)
     end
   end
+
   def query_contract_choice_index(field_choice_bindings) do
     field_choice_bindings
     |> Enum.group_by(&MapHelpers.field_id(&1.field), & &1.choice_source)
@@ -680,6 +733,7 @@ defmodule Selecto.Domain.Projector do
       {field, choice_sources |> Enum.reject(&is_nil/1) |> Enum.uniq_by(&MapHelpers.field_id/1)}
     end)
   end
+
   def query_contract_choice_source(choice_index, field) do
     case Map.get(choice_index, field, []) do
       [] -> nil
@@ -687,6 +741,7 @@ defmodule Selecto.Domain.Projector do
       choice_sources -> choice_sources
     end
   end
+
   def base_projection(normalized) do
     authored_domain = Map.fetch!(normalized, :domain)
 
@@ -702,21 +757,25 @@ defmodule Selecto.Domain.Projector do
     |> MapHelpers.maybe_put(:domain_version, Map.get(normalized, :domain_version))
     |> MapHelpers.maybe_put(:domain_fingerprint, Map.get(normalized, :domain_fingerprint))
   end
+
   def take_query_sections(normalized, keys) do
     normalized
     |> Map.fetch!(:query)
     |> Map.take(keys)
   end
+
   def take_projection_sections(normalized, keys) do
     normalized
     |> Map.fetch!(:projection)
     |> Map.take(keys)
   end
+
   def projection_section(normalized, key, default) do
     normalized
     |> Map.fetch!(:projection)
     |> Map.get(key, default)
   end
+
   def query_sections(domain) do
     %{
       default_selected: MapHelpers.section(domain, :default_selected, []),
@@ -730,6 +789,7 @@ defmodule Selecto.Domain.Projector do
       published_views: MapHelpers.section(domain, :published_views, %{})
     }
   end
+
   def projection_sections(domain) do
     %{
       columns: MapHelpers.section(domain, :columns, %{}),

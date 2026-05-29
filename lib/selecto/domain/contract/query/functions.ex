@@ -30,6 +30,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
         ]
     end
   end
+
   def validate_function_id(errors, function_id) do
     if Core.non_empty_atom_or_string?(function_id) do
       errors
@@ -47,6 +48,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       ]
     end
   end
+
   def validate_function_spec(errors, function_id, function_spec) when is_map(function_spec) do
     errors
     |> validate_function_kind(function_id, function_spec)
@@ -69,6 +71,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       | errors
     ]
   end
+
   def validate_function_kind(errors, function_id, function_spec) do
     case Core.map_value(function_spec, :kind) do
       kind when kind in [:scalar, :predicate, :table] ->
@@ -89,6 +92,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
         ]
     end
   end
+
   def validate_function_sql_name(errors, function_id, function_spec) do
     sql_name = Core.map_value(function_spec, :sql_name)
 
@@ -109,6 +113,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       ]
     end
   end
+
   def validate_function_allowed_in(errors, function_id, function_spec) do
     case Core.map_value(function_spec, :allowed_in) do
       nil ->
@@ -140,6 +145,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
         ]
     end
   end
+
   def validate_function_call_site(errors, function_id, call_site, path) do
     if Selecto.UDF.valid_call_site?(call_site) do
       errors
@@ -158,6 +164,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       ]
     end
   end
+
   def validate_function_args(errors, function_id, function_spec) do
     case Core.map_value(function_spec, :args) do
       nil ->
@@ -189,6 +196,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
         ]
     end
   end
+
   def validate_function_arg_spec(errors, function_id, arg_spec, path) when is_map(arg_spec) do
     errors
     |> validate_function_arg_name(function_id, arg_spec, path)
@@ -209,6 +217,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       | errors
     ]
   end
+
   def validate_function_arg_name(errors, function_id, arg_spec, path) do
     name = Core.map_value(arg_spec, :name)
 
@@ -229,6 +238,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       ]
     end
   end
+
   def validate_function_arg_type(errors, function_id, arg_spec, path) do
     if Core.has_key?(arg_spec, :type) do
       errors
@@ -244,6 +254,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       ]
     end
   end
+
   def validate_function_arg_source(errors, function_id, arg_spec, path) do
     source = Core.map_value(arg_spec, :source)
 
@@ -264,6 +275,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       ]
     end
   end
+
   def validate_function_returns(errors, function_id, function_spec) do
     case Core.map_value(function_spec, :kind) do
       :predicate ->
@@ -279,6 +291,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
         errors
     end
   end
+
   def validate_predicate_function_returns(errors, function_id, function_spec) do
     case Core.map_value(function_spec, :returns) do
       :boolean ->
@@ -299,6 +312,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
         ]
     end
   end
+
   def validate_table_function_returns(errors, function_id, function_spec) do
     columns =
       case Core.map_value(function_spec, :returns) do
@@ -323,6 +337,7 @@ defmodule Selecto.Domain.Contract.Query.Functions do
       ]
     end
   end
+
   def validate_scalar_function_returns(errors, function_id, function_spec) do
     case Core.map_value(function_spec, :returns) do
       nil ->

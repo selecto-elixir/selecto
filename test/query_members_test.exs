@@ -185,6 +185,7 @@ defmodule Selecto.QueryMembersTest do
 
     assert params == ["delivered"]
     assert sql =~ "WITH order_totals (id, total) AS ("
+
     assert sql =~
              "order_totals (id, total) AS ( select cte_order_totals.id, cte_order_totals.total from orders cte_order_totals"
 

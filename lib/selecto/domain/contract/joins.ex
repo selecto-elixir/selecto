@@ -25,7 +25,7 @@ defmodule Selecto.Domain.Contract.Joins do
   end
 
   def validate_join_tree(errors, joins, parent_relation, schemas, path, parent_id)
-       when is_map(joins) do
+      when is_map(joins) do
     Enum.reduce(joins, errors, fn {join_id, join_config}, acc ->
       join_path = path ++ [join_id]
 
@@ -78,26 +78,26 @@ defmodule Selecto.Domain.Contract.Joins do
   end
 
   def validate_join_association(
-         errors,
-         _join_id,
-         join_config,
-         _parent_relation,
-         _schemas,
-         _path,
-         _parent_id
-       )
-       when not is_map(join_config),
-       do: errors
+        errors,
+        _join_id,
+        join_config,
+        _parent_relation,
+        _schemas,
+        _path,
+        _parent_id
+      )
+      when not is_map(join_config),
+      do: errors
 
   def validate_join_association(
-         errors,
-         join_id,
-         join_config,
-         parent_relation,
-         schemas,
-         path,
-         parent_id
-       ) do
+        errors,
+        join_id,
+        join_config,
+        parent_relation,
+        schemas,
+        path,
+        parent_id
+      ) do
     associations = relation_associations(parent_relation)
 
     case Core.fetch_key(associations, join_id) do
@@ -133,7 +133,8 @@ defmodule Selecto.Domain.Contract.Joins do
           | errors
         ]
 
-      Core.fetch_key(schemas, queryable) == :error and queryable != :source and queryable != "source" ->
+      Core.fetch_key(schemas, queryable) == :error and queryable != :source and
+          queryable != "source" ->
         [
           Core.error(
             :join_target_schema_not_found,
@@ -179,5 +180,4 @@ defmodule Selecto.Domain.Contract.Joins do
   end
 
   def relation_associations(_relation), do: %{}
-
 end

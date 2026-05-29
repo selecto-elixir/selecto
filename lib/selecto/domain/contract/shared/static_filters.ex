@@ -19,12 +19,12 @@ defmodule Selecto.Domain.Contract.Shared.StaticFilters do
   end
 
   def validate_static_filter_parts(
-         errors,
-         owner,
-         [op, operands],
-         _filter,
-         path
-       ) do
+        errors,
+        owner,
+        [op, operands],
+        _filter,
+        path
+      ) do
     cond do
       static_logical_filter_op?(op) ->
         validate_static_logical_filter(errors, owner, op, operands, path)
@@ -49,32 +49,32 @@ defmodule Selecto.Domain.Contract.Shared.StaticFilters do
   end
 
   def validate_static_filter_parts(
-         errors,
-         owner,
-         [op, field, _value],
-         _filter,
-         path
-       ) do
+        errors,
+        owner,
+        [op, field, _value],
+        _filter,
+        path
+      ) do
     validate_static_field_filter(errors, owner, op, field, path)
   end
 
   def validate_static_filter_parts(
-         errors,
-         owner,
-         [op, field, _left, _right],
-         _filter,
-         path
-       ) do
+        errors,
+        owner,
+        [op, field, _left, _right],
+        _filter,
+        path
+      ) do
     validate_static_field_filter(errors, owner, op, field, path)
   end
 
   def validate_static_filter_parts(
-         errors,
-         owner,
-         [op | _] = filter,
-         _raw,
-         path
-       ) do
+        errors,
+        owner,
+        [op | _] = filter,
+        _raw,
+        path
+      ) do
     cond do
       static_known_filter_op?(op) ->
         invalid_static_filter_operands(errors, owner, op, path, filter)
@@ -92,7 +92,7 @@ defmodule Selecto.Domain.Contract.Shared.StaticFilters do
   end
 
   def validate_static_logical_filter(errors, owner, _op, filters, path)
-       when is_list(filters) do
+      when is_list(filters) do
     filters
     |> Enum.with_index()
     |> Enum.reduce(errors, fn {filter, index}, acc ->

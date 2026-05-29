@@ -48,7 +48,7 @@ defmodule Selecto.Domain.Contract.DetailActions do
   end
 
   def validate_detail_action_spec(errors, action_id, action_spec, field_index)
-       when is_map(action_spec) do
+      when is_map(action_spec) do
     errors
     |> validate_detail_action_name(action_id, action_spec)
     |> validate_detail_action_type(action_id, action_spec)
@@ -144,7 +144,7 @@ defmodule Selecto.Domain.Contract.DetailActions do
   end
 
   def validate_detail_action_url_template(errors, action_id, type, payload)
-       when type in [:external_link, :iframe_modal] do
+      when type in [:external_link, :iframe_modal] do
     url_template = Core.map_value(payload, :url_template)
 
     if Core.non_empty_string?(url_template) do
@@ -270,5 +270,4 @@ defmodule Selecto.Domain.Contract.DetailActions do
   def detail_action_type_id(type) when is_atom(type), do: type
 
   def detail_action_type_id(type) when is_binary(type), do: String.to_existing_atom(type)
-
 end

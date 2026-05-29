@@ -17,6 +17,7 @@ defmodule Selecto.Domain.Contract.Query.Filters do
     |> validate_filter_registry(filters, field_index)
     |> validate_required_filters(required_filters, field_index)
   end
+
   def validate_filter_registry(errors, filters, field_index) when is_map(filters) do
     Enum.reduce(filters, errors, fn {filter_id, filter_config}, acc ->
       acc
@@ -37,6 +38,7 @@ defmodule Selecto.Domain.Contract.Query.Filters do
       | errors
     ]
   end
+
   def validate_filter_id(errors, filter_id) do
     if Core.non_empty_atom_or_string?(filter_id) do
       errors
@@ -54,8 +56,9 @@ defmodule Selecto.Domain.Contract.Query.Filters do
       ]
     end
   end
+
   def validate_filter_config(errors, filter_id, filter_config, field_index)
-       when is_map(filter_config) do
+      when is_map(filter_config) do
     errors
     |> validate_filter_config_field(filter_id, filter_config, field_index)
     |> validate_filter_config_type(filter_id, filter_config)
@@ -74,12 +77,18 @@ defmodule Selecto.Domain.Contract.Query.Filters do
       | errors
     ]
   end
+
   def validate_filter_config_field(errors, filter_id, filter_config, field_index) do
     if Core.has_key?(filter_config, :field) do
       field = Core.map_value(filter_config, :field)
 
       if Core.valid_static_source_path?(field) do
-        FieldReference.validate_field_reference(errors, field, [:filters, filter_id, :field], field_index)
+        FieldReference.validate_field_reference(
+          errors,
+          field,
+          [:filters, filter_id, :field],
+          field_index
+        )
       else
         [
           Core.error(
@@ -98,6 +107,7 @@ defmodule Selecto.Domain.Contract.Query.Filters do
       errors
     end
   end
+
   def validate_filter_config_type(errors, filter_id, filter_config) do
     if Core.has_key?(filter_config, :type) do
       type = Core.map_value(filter_config, :type)
@@ -122,8 +132,9 @@ defmodule Selecto.Domain.Contract.Query.Filters do
       errors
     end
   end
+
   def validate_required_filters(errors, required_filters, field_index)
-       when is_list(required_filters) do
+      when is_list(required_filters) do
     required_filters
     |> Enum.with_index()
     |> Enum.reduce(errors, fn {filter, index}, acc ->
@@ -143,8 +154,9 @@ defmodule Selecto.Domain.Contract.Query.Filters do
       | errors
     ]
   end
+
   def validate_filter_expression(errors, {op, filters}, path, field_index)
-       when op in @logical_filter_ops and is_list(filters) do
+      when op in @logical_filter_ops and is_list(filters) do
     filters
     |> Enum.with_index()
     |> Enum.reduce(errors, fn {filter, index}, acc ->
@@ -153,17 +165,17 @@ defmodule Selecto.Domain.Contract.Query.Filters do
   end
 
   def validate_filter_expression(errors, {op, filter}, path, field_index)
-       when op in @unary_filter_ops do
+      when op in @unary_filter_ops do
     validate_filter_expression(errors, filter, path ++ [op], field_index)
   end
 
   def validate_filter_expression(errors, {op, field, _value}, path, field_index)
-       when op in @field_filter_ops do
+      when op in @field_filter_ops do
     FieldReference.validate_field_reference(errors, field, path ++ [:field], field_index)
   end
 
   def validate_filter_expression(errors, {op, field, _left, _right}, path, field_index)
-       when op in @field_filter_ops do
+      when op in @field_filter_ops do
     FieldReference.validate_field_reference(errors, field, path ++ [:field], field_index)
   end
 
@@ -177,8 +189,11 @@ defmodule Selecto.Domain.Contract.Query.Filters do
 
   def validate_filter_expression(errors, filter, path, field_index) when is_map(filter) do
     case Core.map_value(filter, :field) do
-      nil -> errors
-      field -> FieldReference.validate_field_reference(errors, field, path ++ [:field], field_index)
+      nil ->
+        errors
+
+      field ->
+        FieldReference.validate_field_reference(errors, field, path ++ [:field], field_index)
     end
   end
 

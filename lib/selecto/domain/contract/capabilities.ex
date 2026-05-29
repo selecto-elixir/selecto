@@ -36,7 +36,7 @@ defmodule Selecto.Domain.Contract.Capabilities do
   end
 
   def validate_capability_id(errors, capability_id, _path)
-       when is_atom(capability_id) or is_binary(capability_id) do
+      when is_atom(capability_id) or is_binary(capability_id) do
     errors
   end
 
@@ -137,7 +137,10 @@ defmodule Selecto.Domain.Contract.Capabilities do
     errors
     |> validate_filter_capability_references(Core.map_value(query, :filters), capabilities)
     |> validate_function_capability_references(Core.map_value(query, :functions), capabilities)
-    |> validate_query_member_capability_references(Core.map_value(query, :query_members), capabilities)
+    |> validate_query_member_capability_references(
+      Core.map_value(query, :query_members),
+      capabilities
+    )
     |> validate_published_view_capability_references(
       Core.map_value(query, :published_views),
       capabilities
@@ -146,7 +149,7 @@ defmodule Selecto.Domain.Contract.Capabilities do
   end
 
   def validate_filter_capability_references(errors, filters, capabilities)
-       when is_map(filters) do
+      when is_map(filters) do
     Enum.reduce(filters, errors, fn
       {filter_id, filter_config}, acc when is_map(filter_config) ->
         validate_capability_reference(
@@ -168,7 +171,7 @@ defmodule Selecto.Domain.Contract.Capabilities do
   def validate_filter_capability_references(errors, _filters, _capabilities), do: errors
 
   def validate_function_capability_references(errors, functions, capabilities)
-       when is_map(functions) do
+      when is_map(functions) do
     Enum.reduce(functions, errors, fn
       {function_id, function_spec}, acc when is_map(function_spec) ->
         validate_capability_reference(
@@ -190,7 +193,7 @@ defmodule Selecto.Domain.Contract.Capabilities do
   def validate_function_capability_references(errors, _functions, _capabilities), do: errors
 
   def validate_query_member_capability_references(errors, query_members, capabilities)
-       when is_map(query_members) do
+      when is_map(query_members) do
     Enum.reduce(@query_member_groups, errors, fn group_key, acc ->
       case Core.fetch_map_value(query_members, group_key) do
         members when is_map(members) ->
@@ -222,7 +225,7 @@ defmodule Selecto.Domain.Contract.Capabilities do
     do: errors
 
   def validate_published_view_capability_references(errors, published_views, capabilities)
-       when is_map(published_views) do
+      when is_map(published_views) do
     Enum.reduce(published_views, errors, fn
       {view_id, view_spec}, acc when is_map(view_spec) ->
         validate_capability_reference(
@@ -245,7 +248,7 @@ defmodule Selecto.Domain.Contract.Capabilities do
     do: errors
 
   def validate_detail_action_capability_references(errors, detail_actions, capabilities)
-       when is_map(detail_actions) do
+      when is_map(detail_actions) do
     Enum.reduce(detail_actions, errors, fn
       {action_id, action_spec}, acc when is_map(action_spec) ->
         validate_capability_reference(
@@ -268,29 +271,29 @@ defmodule Selecto.Domain.Contract.Capabilities do
     do: errors
 
   def validate_capability_reference(
-         errors,
-         nil,
-         _path,
-         _capabilities,
-         _missing,
-         _invalid,
-         _subject,
-         _attrs
-       ) do
+        errors,
+        nil,
+        _path,
+        _capabilities,
+        _missing,
+        _invalid,
+        _subject,
+        _attrs
+      ) do
     errors
   end
 
   def validate_capability_reference(
-         errors,
-         capability,
-         path,
-         capabilities,
-         missing_code,
-         _invalid_code,
-         subject,
-         attrs
-       )
-       when is_atom(capability) or is_binary(capability) do
+        errors,
+        capability,
+        path,
+        capabilities,
+        missing_code,
+        _invalid_code,
+        subject,
+        attrs
+      )
+      when is_atom(capability) or is_binary(capability) do
     if is_map(capabilities) and Core.fetch_key(capabilities, capability) != :error do
       errors
     else
@@ -307,15 +310,15 @@ defmodule Selecto.Domain.Contract.Capabilities do
   end
 
   def validate_capability_reference(
-         errors,
-         capability,
-         path,
-         _capabilities,
-         _missing_code,
-         invalid_code,
-         subject,
-         attrs
-       ) do
+        errors,
+        capability,
+        path,
+        _capabilities,
+        _missing_code,
+        invalid_code,
+        subject,
+        attrs
+      ) do
     [
       Core.error(
         invalid_code,
@@ -330,5 +333,4 @@ defmodule Selecto.Domain.Contract.Capabilities do
       | errors
     ]
   end
-
 end

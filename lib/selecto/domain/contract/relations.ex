@@ -208,5 +208,4 @@ defmodule Selecto.Domain.Contract.Relations do
       | errors
     ]
   end
-
 end

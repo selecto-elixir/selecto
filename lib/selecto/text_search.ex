@@ -97,7 +97,11 @@ defmodule Selecto.TextSearch do
   This helper is intentionally narrow: all referenced fields must be configured
   as SQLite FTS5 fields on the same source alias.
   """
-  @spec sqlite_fts_rank(Selecto.t(), atom() | String.t() | [atom() | String.t()], keyword() | map()) :: Selecto.t()
+  @spec sqlite_fts_rank(
+          Selecto.t(),
+          atom() | String.t() | [atom() | String.t()],
+          keyword() | map()
+        ) :: Selecto.t()
   def sqlite_fts_rank(selecto, fields, opts \\ [])
 
   def sqlite_fts_rank(selecto, fields, opts) when is_map(opts) do
@@ -130,6 +134,7 @@ defmodule Selecto.TextSearch do
     selector = {:custom_sql, "bm25(#{bm25_args}) AS \"#{alias_name}\"", %{}}
     put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
   end
+
   defp sqlite_fts_rank_source_table!(selecto, fields) do
     fields
     |> Enum.map(&sqlite_fts_rank_field_conf!(selecto, &1))

@@ -5,7 +5,14 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
 
   alias Selecto.Domain.Contract.Shared.Core
 
-  @query_order_directions [:asc, :desc, :asc_nulls_first, :asc_nulls_last, :desc_nulls_first, :desc_nulls_last]
+  @query_order_directions [
+    :asc,
+    :desc,
+    :asc_nulls_first,
+    :asc_nulls_last,
+    :desc_nulls_first,
+    :desc_nulls_last
+  ]
   @query_group_wrappers [:rollup, :grouping_set]
 
   def validate_query_field_lists(errors, query, field_index) do
@@ -17,6 +24,7 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
     |> validate_query_order_list(query, :required_order_by, field_index, functions)
     |> validate_query_group_list(query, :required_group_by, field_index, functions)
   end
+
   def validate_query_selection_list(errors, query, section, field_index, functions) do
     case Core.map_value(query, section) do
       nil ->
@@ -40,6 +48,7 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
         invalid_query_list(errors, section, selections)
     end
   end
+
   def validate_query_order_list(errors, query, section, field_index, functions) do
     case Core.map_value(query, section) do
       nil ->
@@ -63,6 +72,7 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
         invalid_query_list(errors, section, order_by)
     end
   end
+
   def validate_query_group_list(errors, query, section, field_index, functions) do
     case Core.map_value(query, section) do
       nil ->
@@ -86,6 +96,7 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
         invalid_query_list(errors, section, group_by)
     end
   end
+
   def invalid_query_list(errors, section, value) do
     [
       Core.error(
@@ -98,19 +109,20 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
       | errors
     ]
   end
+
   def validate_query_selection_entry(errors, section, field, path, field_index, _functions)
-       when is_atom(field) or is_binary(field) do
+      when is_atom(field) or is_binary(field) do
     validate_query_field_reference(errors, section, field, path, field_index)
   end
 
   def validate_query_selection_entry(
-         errors,
-         section,
-         {:field, field},
-         path,
-         field_index,
-         functions
-       ) do
+        errors,
+        section,
+        {:field, field},
+        path,
+        field_index,
+        functions
+      ) do
     validate_query_selector_reference(
       errors,
       section,
@@ -123,13 +135,13 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_selection_entry(
-         errors,
-         section,
-         {:field, field, _alias},
-         path,
-         field_index,
-         functions
-       ) do
+        errors,
+        section,
+        {:field, field, _alias},
+        path,
+        field_index,
+        functions
+      ) do
     validate_query_selector_reference(
       errors,
       section,
@@ -142,14 +154,14 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_selection_entry(
-         errors,
-         section,
-         {:udf, function_id, args},
-         path,
-         field_index,
-         functions
-       )
-       when is_list(args) do
+        errors,
+        section,
+        {:udf, function_id, args},
+        path,
+        field_index,
+        functions
+      )
+      when is_list(args) do
     validate_query_function_reference(
       errors,
       section,
@@ -163,33 +175,34 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_selection_entry(errors, _section, entry, _path, _field_index, _functions)
-       when is_tuple(entry) or is_map(entry) do
+      when is_tuple(entry) or is_map(entry) do
     errors
   end
 
   def validate_query_selection_entry(errors, section, entry, path, _field_index, _functions) do
     invalid_query_field_reference(errors, section, entry, path)
   end
+
   def validate_query_order_entry(
-         errors,
-         _section,
-         {:raw_sql, _sql},
-         _path,
-         _field_index,
-         _functions
-       ) do
+        errors,
+        _section,
+        {:raw_sql, _sql},
+        _path,
+        _field_index,
+        _functions
+      ) do
     errors
   end
 
   def validate_query_order_entry(
-         errors,
-         section,
-         {:udf, function_id, args},
-         path,
-         field_index,
-         functions
-       )
-       when is_list(args) do
+        errors,
+        section,
+        {:udf, function_id, args},
+        path,
+        field_index,
+        functions
+      )
+      when is_list(args) do
     validate_query_function_reference(
       errors,
       section,
@@ -203,14 +216,14 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_order_entry(
-         errors,
-         section,
-         {direction, field},
-         path,
-         field_index,
-         functions
-       )
-       when direction in @query_order_directions do
+        errors,
+        section,
+        {direction, field},
+        path,
+        field_index,
+        functions
+      )
+      when direction in @query_order_directions do
     validate_query_selector_reference(
       errors,
       section,
@@ -223,14 +236,14 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_order_entry(
-         errors,
-         section,
-         {field, direction},
-         path,
-         field_index,
-         functions
-       )
-       when direction in @query_order_directions do
+        errors,
+        section,
+        {field, direction},
+        path,
+        field_index,
+        functions
+      )
+      when direction in @query_order_directions do
     validate_query_selector_reference(
       errors,
       section,
@@ -243,14 +256,14 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_order_entry(
-         errors,
-         section,
-         {field, direction},
-         path,
-         field_index,
-         _functions
-       )
-       when (is_atom(field) or is_binary(field)) and (is_atom(direction) or is_binary(direction)) do
+        errors,
+        section,
+        {field, direction},
+        path,
+        field_index,
+        _functions
+      )
+      when (is_atom(field) or is_binary(field)) and (is_atom(direction) or is_binary(direction)) do
     if query_order_direction?(direction) do
       validate_query_field_reference(errors, section, field, path ++ [:field], field_index)
     else
@@ -270,38 +283,39 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_order_entry(errors, section, field, path, field_index, _functions)
-       when is_atom(field) or is_binary(field) do
+      when is_atom(field) or is_binary(field) do
     validate_query_field_reference(errors, section, field, path, field_index)
   end
 
   def validate_query_order_entry(errors, _section, entry, _path, _field_index, _functions)
-       when is_tuple(entry) or is_map(entry) do
+      when is_tuple(entry) or is_map(entry) do
     errors
   end
 
   def validate_query_order_entry(errors, section, entry, path, _field_index, _functions) do
     invalid_query_field_reference(errors, section, entry, path)
   end
+
   def validate_query_group_entry(
-         errors,
-         _section,
-         {:raw_sql, _sql},
-         _path,
-         _field_index,
-         _functions
-       ) do
+        errors,
+        _section,
+        {:raw_sql, _sql},
+        _path,
+        _field_index,
+        _functions
+      ) do
     errors
   end
 
   def validate_query_group_entry(
-         errors,
-         section,
-         {:udf, function_id, args},
-         path,
-         field_index,
-         functions
-       )
-       when is_list(args) do
+        errors,
+        section,
+        {:udf, function_id, args},
+        path,
+        field_index,
+        functions
+      )
+      when is_list(args) do
     validate_query_function_reference(
       errors,
       section,
@@ -315,14 +329,14 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_group_entry(
-         errors,
-         section,
-         {wrapper, groups},
-         path,
-         field_index,
-         functions
-       )
-       when wrapper in @query_group_wrappers do
+        errors,
+        section,
+        {wrapper, groups},
+        path,
+        field_index,
+        functions
+      )
+      when wrapper in @query_group_wrappers do
     if is_list(groups) do
       groups
       |> Enum.with_index()
@@ -353,28 +367,29 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_group_entry(errors, section, field, path, field_index, _functions)
-       when is_atom(field) or is_binary(field) do
+      when is_atom(field) or is_binary(field) do
     validate_query_field_reference(errors, section, field, path, field_index)
   end
 
   def validate_query_group_entry(errors, _section, entry, _path, _field_index, _functions)
-       when is_tuple(entry) or is_map(entry) do
+      when is_tuple(entry) or is_map(entry) do
     errors
   end
 
   def validate_query_group_entry(errors, section, entry, path, _field_index, _functions) do
     invalid_query_field_reference(errors, section, entry, path)
   end
+
   def validate_query_selector_reference(
-         errors,
-         section,
-         call_site,
-         {:udf, function_id, args},
-         path,
-         field_index,
-         functions
-       )
-       when is_list(args) do
+        errors,
+        section,
+        call_site,
+        {:udf, function_id, args},
+        path,
+        field_index,
+        functions
+      )
+      when is_list(args) do
     validate_query_function_reference(
       errors,
       section,
@@ -388,52 +403,53 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_selector_reference(
-         errors,
-         section,
-         _call_site,
-         field,
-         path,
-         field_index,
-         _functions
-       )
-       when is_atom(field) or is_binary(field) do
+        errors,
+        section,
+        _call_site,
+        field,
+        path,
+        field_index,
+        _functions
+      )
+      when is_atom(field) or is_binary(field) do
     validate_query_field_reference(errors, section, field, path, field_index)
   end
 
   def validate_query_selector_reference(
-         errors,
-         _section,
-         _call_site,
-         expression,
-         _path,
-         _field_index,
-         _functions
-       )
-       when is_tuple(expression) or is_map(expression) do
+        errors,
+        _section,
+        _call_site,
+        expression,
+        _path,
+        _field_index,
+        _functions
+      )
+      when is_tuple(expression) or is_map(expression) do
     errors
   end
 
   def validate_query_selector_reference(
-         errors,
-         section,
-         _call_site,
-         field,
-         path,
-         _field_index,
-         _functions
-       ) do
+        errors,
+        section,
+        _call_site,
+        field,
+        path,
+        _field_index,
+        _functions
+      ) do
     invalid_query_field_reference(errors, section, field, path)
   end
+
   def validate_query_function_reference(
-         errors,
-         section,
-         call_site,
-         function_id,
-         args,
-         path,
-         field_index,
-         functions
-       ) do
+        errors,
+        section,
+        call_site,
+        function_id,
+        args,
+        path,
+        field_index,
+        functions
+      ) do
     function_path = path ++ [:function]
 
     cond do
@@ -482,6 +498,7 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
         end
     end
   end
+
   def query_function_not_found_error(errors, section, call_site, function_id, path) do
     [
       Core.error(
@@ -495,26 +512,27 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
       | errors
     ]
   end
+
   def validate_query_function_call_site(
-         errors,
-         _section,
-         _call_site,
-         _function_id,
-         function_spec,
-         _path
-       )
-       when not is_map(function_spec) do
+        errors,
+        _section,
+        _call_site,
+        _function_id,
+        function_spec,
+        _path
+      )
+      when not is_map(function_spec) do
     errors
   end
 
   def validate_query_function_call_site(
-         errors,
-         section,
-         call_site,
-         function_id,
-         function_spec,
-         path
-       ) do
+        errors,
+        section,
+        call_site,
+        function_id,
+        function_spec,
+        path
+      ) do
     case Core.map_value(function_spec, :allowed_in) do
       nil ->
         errors
@@ -541,32 +559,33 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
         errors
     end
   end
+
   def validate_query_function_args(
-         errors,
-         _section,
-         _call_site,
-         _function_id,
-         _args,
-         function_spec,
-         _path,
-         _field_index,
-         _functions
-       )
-       when not is_map(function_spec) do
+        errors,
+        _section,
+        _call_site,
+        _function_id,
+        _args,
+        function_spec,
+        _path,
+        _field_index,
+        _functions
+      )
+      when not is_map(function_spec) do
     errors
   end
 
   def validate_query_function_args(
-         errors,
-         section,
-         call_site,
-         function_id,
-         args,
-         function_spec,
-         path,
-         field_index,
-         functions
-       ) do
+        errors,
+        section,
+        call_site,
+        function_id,
+        args,
+        function_spec,
+        path,
+        field_index,
+        functions
+      ) do
     case query_function_spec_args(function_spec) do
       :invalid ->
         errors
@@ -592,6 +611,7 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
         )
     end
   end
+
   def query_function_spec_args(function_spec) do
     case Core.map_value(function_spec, :args) do
       nil -> []
@@ -599,15 +619,16 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
       _args -> :invalid
     end
   end
+
   def validate_query_function_arg_count(
-         errors,
-         section,
-         call_site,
-         function_id,
-         args,
-         spec_args,
-         path
-       ) do
+        errors,
+        section,
+        call_site,
+        function_id,
+        args,
+        spec_args,
+        path
+      ) do
     expected = length(spec_args)
     actual = length(args)
 
@@ -629,16 +650,17 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
       ]
     end
   end
+
   def validate_query_function_selector_args(
-         errors,
-         section,
-         function_id,
-         args,
-         spec_args,
-         path,
-         field_index,
-         functions
-       ) do
+        errors,
+        section,
+        function_id,
+        args,
+        spec_args,
+        path,
+        field_index,
+        functions
+      ) do
     args
     |> Enum.zip(spec_args)
     |> Enum.with_index()
@@ -655,17 +677,18 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
       )
     end)
   end
+
   def validate_query_function_arg(
-         errors,
-         section,
-         _function_id,
-         arg,
-         arg_spec,
-         path,
-         field_index,
-         functions
-       )
-       when is_map(arg_spec) do
+        errors,
+        section,
+        _function_id,
+        arg,
+        arg_spec,
+        path,
+        field_index,
+        functions
+      )
+      when is_map(arg_spec) do
     case Core.map_value(arg_spec, :source) do
       :selector ->
         validate_query_function_selector_arg(errors, section, arg, path, field_index, functions)
@@ -676,25 +699,26 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_function_arg(
-         errors,
-         _section,
-         _function_id,
-         _arg,
-         _arg_spec,
-         _path,
-         _field_index,
-         _functions
-       ) do
+        errors,
+        _section,
+        _function_id,
+        _arg,
+        _arg_spec,
+        _path,
+        _field_index,
+        _functions
+      ) do
     errors
   end
+
   def validate_query_function_selector_arg(
-         errors,
-         section,
-         {:field, field},
-         path,
-         field_index,
-         functions
-       ) do
+        errors,
+        section,
+        {:field, field},
+        path,
+        field_index,
+        functions
+      ) do
     validate_query_selector_reference(
       errors,
       section,
@@ -707,13 +731,13 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_function_selector_arg(
-         errors,
-         section,
-         {:field, field, _alias},
-         path,
-         field_index,
-         functions
-       ) do
+        errors,
+        section,
+        {:field, field, _alias},
+        path,
+        field_index,
+        functions
+      ) do
     validate_query_selector_reference(
       errors,
       section,
@@ -726,14 +750,14 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_function_selector_arg(
-         errors,
-         section,
-         {:udf, function_id, args},
-         path,
-         field_index,
-         functions
-       )
-       when is_list(args) do
+        errors,
+        section,
+        {:udf, function_id, args},
+        path,
+        field_index,
+        functions
+      )
+      when is_list(args) do
     validate_query_function_reference(
       errors,
       section,
@@ -747,27 +771,28 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
   end
 
   def validate_query_function_selector_arg(
-         errors,
-         section,
-         field,
-         path,
-         field_index,
-         _functions
-       )
-       when is_atom(field) or is_binary(field) do
+        errors,
+        section,
+        field,
+        path,
+        field_index,
+        _functions
+      )
+      when is_atom(field) or is_binary(field) do
     validate_query_field_reference(errors, section, field, path, field_index)
   end
 
   def validate_query_function_selector_arg(
-         errors,
-         _section,
-         _expression,
-         _path,
-         _field_index,
-         _functions
-       ) do
+        errors,
+        _section,
+        _expression,
+        _path,
+        _field_index,
+        _functions
+      ) do
     errors
   end
+
   def validate_query_field_reference(errors, section, field, path, field_index) do
     cond do
       not Core.valid_static_source_path?(field) ->
@@ -789,6 +814,7 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
         ]
     end
   end
+
   def invalid_query_field_reference(errors, section, field, path) do
     [
       Core.error(
@@ -803,5 +829,6 @@ defmodule Selecto.Domain.Contract.Query.FieldLists do
       | errors
     ]
   end
+
   def query_order_direction?(direction), do: Core.enum_value?(direction, @query_order_directions)
 end

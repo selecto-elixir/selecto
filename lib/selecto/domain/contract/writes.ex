@@ -143,5 +143,4 @@ defmodule Selecto.Domain.Contract.Writes do
       | errors
     ]
   end
-
 end

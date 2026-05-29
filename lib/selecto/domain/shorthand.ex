@@ -31,6 +31,7 @@ defmodule Selecto.Domain.Shorthand do
       domain
     end
   end
+
   def normalize_source_choice_shorthand(domain, acc) do
     case MapHelpers.section(domain, :source) do
       source when is_map(source) ->
@@ -41,6 +42,7 @@ defmodule Selecto.Domain.Shorthand do
         {domain, acc}
     end
   end
+
   def normalize_schema_choice_shorthand({domain, acc}) do
     case MapHelpers.section(domain, :schemas, %{}) do
       schemas when is_map(schemas) ->
@@ -56,6 +58,7 @@ defmodule Selecto.Domain.Shorthand do
         {domain, acc}
     end
   end
+
   def normalize_projection_choice_shorthand({domain, acc}) do
     case MapHelpers.fetch_section(domain, :columns) do
       {:ok, columns} when is_map(columns) ->
@@ -69,6 +72,7 @@ defmodule Selecto.Domain.Shorthand do
         {domain, acc}
     end
   end
+
   def normalize_relation_choice_shorthand(relation, scope, acc) when is_map(relation) do
     case MapHelpers.map_value(relation, :columns) do
       columns when is_map(columns) ->
@@ -81,12 +85,14 @@ defmodule Selecto.Domain.Shorthand do
   end
 
   def normalize_relation_choice_shorthand(relation, _scope, acc), do: {relation, acc}
+
   def normalize_columns_choice_shorthand(columns, scope, acc) do
     Enum.reduce(columns, {%{}, acc}, fn {field, column}, {columns_acc, acc} ->
       {column, acc} = normalize_column_choice_shorthand(column, scope, field, acc)
       {Map.put(columns_acc, field, column), acc}
     end)
   end
+
   def normalize_column_choice_shorthand(column, scope, field, acc) when is_map(column) do
     case MapHelpers.map_value(column, :choice_source) do
       shorthand when is_map(shorthand) ->
@@ -117,6 +123,7 @@ defmodule Selecto.Domain.Shorthand do
   end
 
   def normalize_column_choice_shorthand(column, _scope, _field, acc), do: {column, acc}
+
   def shorthand_choice_source(shorthand, _choice_source_id, scope, field, acc) do
     source_relationship = MapHelpers.map_value(shorthand, :source_relationship)
 
@@ -155,9 +162,18 @@ defmodule Selecto.Domain.Shorthand do
       |> MapHelpers.delete_key_variants(:id)
       |> MapHelpers.delete_key_variants(:source_relationship_id)
       |> MapHelpers.maybe_put_default(:domain, MapHelpers.map_value(shorthand, :domain))
-      |> MapHelpers.maybe_put_default(:value_field, path_leaf(MapHelpers.map_value(shorthand, :value_source)))
-      |> MapHelpers.maybe_put_default(:label_field, path_leaf(MapHelpers.map_value(shorthand, :caption_source)))
-      |> MapHelpers.maybe_put_default(:source_path, path_parent(MapHelpers.map_value(shorthand, :value_source)))
+      |> MapHelpers.maybe_put_default(
+        :value_field,
+        path_leaf(MapHelpers.map_value(shorthand, :value_source))
+      )
+      |> MapHelpers.maybe_put_default(
+        :label_field,
+        path_leaf(MapHelpers.map_value(shorthand, :caption_source))
+      )
+      |> MapHelpers.maybe_put_default(
+        :source_path,
+        path_parent(MapHelpers.map_value(shorthand, :value_source))
+      )
       |> normalize_choice_source_presentation()
 
     choice_source =
@@ -169,6 +185,7 @@ defmodule Selecto.Domain.Shorthand do
 
     {choice_source, acc}
   end
+
   def shorthand_source_relationship(relationship, choice_source, _relationship_id, scope, field) do
     virtual_join = MapHelpers.map_value(relationship, :virtual_join)
     first_virtual_join = first_virtual_join_entry(virtual_join)
@@ -179,12 +196,14 @@ defmodule Selecto.Domain.Shorthand do
     |> MapHelpers.delete_key_variants(:domain)
     |> MapHelpers.maybe_put_default(
       :target_domain,
-      MapHelpers.map_value(relationship, :target_domain) || MapHelpers.map_value(relationship, :domain) ||
+      MapHelpers.map_value(relationship, :target_domain) ||
+        MapHelpers.map_value(relationship, :domain) ||
         MapHelpers.map_value(choice_source, :domain)
     )
     |> MapHelpers.maybe_put_default(
       :source_field,
-      MapHelpers.map_value(relationship, :source_field) || MapHelpers.map_value(first_virtual_join, :working_field) ||
+      MapHelpers.map_value(relationship, :source_field) ||
+        MapHelpers.map_value(first_virtual_join, :working_field) ||
         scoped_field_ref(scope, field)
     )
     |> MapHelpers.maybe_put_default(
@@ -199,6 +218,7 @@ defmodule Selecto.Domain.Shorthand do
         MapHelpers.map_value(choice_source, :source_path)
     )
   end
+
   def shorthand_field_reference(column, shorthand, choice_source_id) do
     base_reference =
       case MapHelpers.map_value(column, :reference) do
@@ -209,14 +229,19 @@ defmodule Selecto.Domain.Shorthand do
     base_reference
     |> MapHelpers.put_map_value(:choice_source, choice_source_id)
     |> MapHelpers.maybe_put_default(:value_source, MapHelpers.map_value(shorthand, :value_source))
-    |> MapHelpers.maybe_put_default(:caption_source, MapHelpers.map_value(shorthand, :caption_source))
+    |> MapHelpers.maybe_put_default(
+      :caption_source,
+      MapHelpers.map_value(shorthand, :caption_source)
+    )
   end
+
   def shorthand_choice_source_id(shorthand, scope, field) do
     case MapHelpers.map_value(shorthand, :id) do
       id when (is_atom(id) and not is_nil(id)) or is_binary(id) -> id
       _id -> "#{shorthand_field_prefix(scope, field)}_choice_source"
     end
   end
+
   def shorthand_source_relationship_id(shorthand, source_relationship, scope, field) do
     id =
       cond do
@@ -240,16 +265,19 @@ defmodule Selecto.Domain.Shorthand do
         "#{shorthand_field_prefix(scope, field)}_source_relationship"
     end
   end
+
   def shorthand_field_prefix(:source, field), do: MapHelpers.field_id(field)
   def shorthand_field_prefix(:projection, field), do: "projection_#{MapHelpers.field_id(field)}"
 
   def shorthand_field_prefix({:schema, schema_id}, field),
     do: "#{MapHelpers.field_id(schema_id)}_#{MapHelpers.field_id(field)}"
+
   def scoped_field_ref(:source, field), do: field
   def scoped_field_ref(:projection, field), do: field
 
   def scoped_field_ref({:schema, schema_id}, field),
     do: "#{MapHelpers.field_id(schema_id)}.#{MapHelpers.field_id(field)}"
+
   def normalize_choice_source_presentation(choice_source) do
     case MapHelpers.map_value(choice_source, :presentation) do
       presentation
@@ -260,6 +288,7 @@ defmodule Selecto.Domain.Shorthand do
         choice_source
     end
   end
+
   def first_virtual_join_entry([entry | _entries]) when is_map(entry), do: entry
   def first_virtual_join_entry(_virtual_join), do: %{}
   def path_leaf(path) when is_atom(path), do: path
@@ -271,6 +300,7 @@ defmodule Selecto.Domain.Shorthand do
   end
 
   def path_leaf(_path), do: nil
+
   def path_parent(path) when is_binary(path) do
     parts = String.split(path, ".", trim: true)
 
@@ -282,6 +312,7 @@ defmodule Selecto.Domain.Shorthand do
   end
 
   def path_parent(_path), do: nil
+
   def put_registry_entry(acc, registry_key, id, entry) do
     registry = Map.fetch!(acc, registry_key)
 
@@ -291,6 +322,7 @@ defmodule Selecto.Domain.Shorthand do
       Map.put(acc, registry_key, Map.put(registry, id, entry))
     end
   end
+
   def registry_has_key?(registry, id) when is_map(registry) do
     Map.has_key?(registry, id) or
       (is_atom(id) and Map.has_key?(registry, Atom.to_string(id))) or
@@ -298,6 +330,7 @@ defmodule Selecto.Domain.Shorthand do
   end
 
   def registry_has_key?(_registry, _id), do: false
+
   def registry_has_atom_key?(registry, id) do
     Enum.any?(Map.keys(registry), &(is_atom(&1) and Atom.to_string(&1) == id))
   end

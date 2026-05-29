@@ -526,8 +526,13 @@ defmodule Selecto do
     default_options =
       []
       |> QueryMembers.maybe_put_keyword(:type, Map.get(spec, :type))
-      |> QueryMembers.maybe_put_keyword(:on, QueryMembers.normalize_subquery_on(Map.get(spec, :on)))
-      |> Keyword.merge(QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :subqueries, member_name))
+      |> QueryMembers.maybe_put_keyword(
+        :on,
+        QueryMembers.normalize_subquery_on(Map.get(spec, :on))
+      )
+      |> Keyword.merge(
+        QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :subqueries, member_name)
+      )
 
     override_options =
       QueryMembers.merge_member_options(
@@ -1178,7 +1183,6 @@ defmodule Selecto do
   @doc false
   defdelegate sqlite_fts_rank(selecto, fields, opts \\ []), to: Selecto.TextSearch
 
-
   @doc """
   Apply a named UNNEST preset from `domain.query_members.unnests`.
 
@@ -1200,7 +1204,11 @@ defmodule Selecto do
       Keyword.get(
         normalized_overrides,
         :array_field,
-        Keyword.get(normalized_overrides, :field, QueryMembers.map_get(spec, :array_field, :field))
+        Keyword.get(
+          normalized_overrides,
+          :field,
+          QueryMembers.map_get(spec, :array_field, :field)
+        )
       )
 
     if is_nil(array_field) do
@@ -1217,7 +1225,8 @@ defmodule Selecto do
 
     ordinality = Keyword.get(normalized_overrides, :ordinality, Map.get(spec, :ordinality))
 
-    default_options = QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :unnests, member_name)
+    default_options =
+      QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :unnests, member_name)
 
     override_options =
       normalized_overrides
@@ -1537,18 +1546,26 @@ defmodule Selecto do
     lateral_source = QueryMembers.normalize_lateral_source!(lateral_source, selecto, member_name)
 
     alias_name =
-      QueryMembers.resolve_alias_name(normalized_overrides, QueryMembers.values_member_alias(spec) || member_name)
+      QueryMembers.resolve_alias_name(
+        normalized_overrides,
+        QueryMembers.values_member_alias(spec) || member_name
+      )
 
     join_type =
       Keyword.get(
         normalized_overrides,
         :join_type,
-        Keyword.get(normalized_overrides, :type, QueryMembers.map_get(spec, :join_type, :type) || :left)
+        Keyword.get(
+          normalized_overrides,
+          :type,
+          QueryMembers.map_get(spec, :join_type, :type) || :left
+        )
       )
 
     join_type = QueryMembers.normalize_lateral_join_type!(join_type, member_name)
 
-    default_options = QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :laterals, member_name)
+    default_options =
+      QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :laterals, member_name)
 
     override_options =
       QueryMembers.merge_member_options(
@@ -1754,7 +1771,6 @@ defmodule Selecto do
       {"path", :string}
     ]
   end
-
 
   @doc """
   Add a VALUES clause to create an inline table from literal data.
@@ -2233,7 +2249,6 @@ defmodule Selecto do
   """
   def with_ctes(selecto, cte_specs, opts \\ []),
     do: Selecto.CteQuery.with_ctes(selecto, cte_specs, opts)
-
 
   @doc """
   Add a simple CASE expression to the select fields.

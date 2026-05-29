@@ -5,8 +5,8 @@ defmodule Selecto.Domain.Contract.Shared.IdValue do
   def validate_id_value(errors, nil, _path, _code, _message, _attrs), do: errors
 
   def validate_id_value(errors, value, _path, _code, _message, _attrs)
-       when is_atom(value) or is_binary(value),
-       do: errors
+      when is_atom(value) or is_binary(value),
+      do: errors
 
   def validate_id_value(errors, value, path, code, message, attrs) do
     [

@@ -234,7 +234,7 @@ defmodule Selecto.Domain.Contract.PublishedViews do
   end
 
   def validate_published_view_index(errors, view_id, index_spec, index)
-       when is_map(index_spec) do
+      when is_map(index_spec) do
     errors
     |> validate_published_view_index_columns(view_id, index_spec, index)
     |> validate_published_view_index_boolean(view_id, index_spec, index, :unique)
@@ -258,7 +258,8 @@ defmodule Selecto.Domain.Contract.PublishedViews do
   def validate_published_view_index_columns(errors, view_id, index_spec, index) do
     columns = Core.map_value(index_spec, :columns)
 
-    if is_list(columns) and columns != [] and Enum.all?(columns, &Core.non_empty_atom_or_string?/1) do
+    if is_list(columns) and columns != [] and
+         Enum.all?(columns, &Core.non_empty_atom_or_string?/1) do
       errors
     else
       [
@@ -328,5 +329,4 @@ defmodule Selecto.Domain.Contract.PublishedViews do
         ]
     end
   end
-
 end

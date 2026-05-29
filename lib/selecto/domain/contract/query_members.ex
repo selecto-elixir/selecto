@@ -82,7 +82,7 @@ defmodule Selecto.Domain.Contract.QueryMembers do
   end
 
   def validate_query_member_spec(errors, group_key, member_id, member_spec)
-       when is_map(member_spec) do
+      when is_map(member_spec) do
     case group_key do
       :ctes -> validate_cte_member(errors, member_id, member_spec)
       :values -> validate_values_member(errors, member_id, member_spec)
@@ -624,5 +624,4 @@ defmodule Selecto.Domain.Contract.QueryMembers do
   def valid_unnest_field?(field) when is_tuple(field), do: true
 
   def valid_unnest_field?(field), do: Core.non_empty_atom_or_string?(field)
-
 end

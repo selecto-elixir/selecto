@@ -2,6 +2,7 @@ defmodule Selecto.Domain.Contract.Shared.FieldReference do
   @moduledoc false
 
   alias Selecto.Domain.Contract.Shared.Core
+
   def validate_field_reference(errors, field, path, field_index) do
     if Core.known_field?(field_index, field) do
       errors

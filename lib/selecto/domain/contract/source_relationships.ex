@@ -10,7 +10,7 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationships(errors, source_relationships, field_index)
-       when is_map(source_relationships) do
+      when is_map(source_relationships) do
     Enum.reduce(source_relationships, errors, fn {relationship_id, relationship}, acc ->
       path = [:source_relationships, relationship_id]
 
@@ -34,7 +34,7 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_id(errors, relationship_id, _path)
-       when is_atom(relationship_id) or is_binary(relationship_id) do
+      when is_atom(relationship_id) or is_binary(relationship_id) do
     errors
   end
 
@@ -53,7 +53,7 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship(errors, relationship_id, relationship, path, field_index)
-       when is_map(relationship) do
+      when is_map(relationship) do
     errors
     |> validate_source_relationship_required_keys(relationship_id, relationship, path)
     |> IdValue.validate_id_value(
@@ -94,7 +94,10 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
 
   def validate_source_relationship_required_keys(errors, relationship_id, relationship, path) do
     missing_keys =
-      Enum.reject([:target_domain, :source_field, :target_field], &Core.has_key?(relationship, &1))
+      Enum.reject(
+        [:target_domain, :source_field, :target_field],
+        &Core.has_key?(relationship, &1)
+      )
 
     case missing_keys do
       [] ->
@@ -115,12 +118,12 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_source_field(
-         errors,
-         relationship_id,
-         relationship,
-         path,
-         field_index
-       ) do
+        errors,
+        relationship_id,
+        relationship,
+        path,
+        field_index
+      ) do
     case Core.map_value(relationship, :source_field) do
       nil ->
         errors
@@ -183,12 +186,12 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_virtual_join(
-         errors,
-         relationship_id,
-         relationship,
-         path,
-         field_index
-       ) do
+        errors,
+        relationship_id,
+        relationship,
+        path,
+        field_index
+      ) do
     case Core.map_value(relationship, :virtual_join) do
       nil ->
         errors
@@ -222,13 +225,13 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_virtual_join_entry(
-         errors,
-         relationship_id,
-         entry,
-         path,
-         field_index
-       )
-       when is_map(entry) do
+        errors,
+        relationship_id,
+        entry,
+        path,
+        field_index
+      )
+      when is_map(entry) do
     errors
     |> validate_source_relationship_virtual_join_required_keys(relationship_id, entry, path)
     |> validate_source_relationship_virtual_join_working_field(
@@ -242,12 +245,12 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_virtual_join_entry(
-         errors,
-         relationship_id,
-         entry,
-         path,
-         _field_index
-       ) do
+        errors,
+        relationship_id,
+        entry,
+        path,
+        _field_index
+      ) do
     [
       Core.error(
         :invalid_source_relationship_virtual_join_entry,
@@ -262,11 +265,11 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_virtual_join_required_keys(
-         errors,
-         relationship_id,
-         entry,
-         path
-       ) do
+        errors,
+        relationship_id,
+        entry,
+        path
+      ) do
     missing_keys = Enum.reject([:working_field, :source_field], &Core.has_key?(entry, &1))
 
     case missing_keys do
@@ -288,12 +291,12 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_virtual_join_working_field(
-         errors,
-         relationship_id,
-         entry,
-         path,
-         field_index
-       ) do
+        errors,
+        relationship_id,
+        entry,
+        path,
+        field_index
+      ) do
     case Core.map_value(entry, :working_field) do
       nil ->
         errors
@@ -331,11 +334,11 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_virtual_join_source_field(
-         errors,
-         relationship_id,
-         entry,
-         path
-       ) do
+        errors,
+        relationship_id,
+        entry,
+        path
+      ) do
     case Core.map_value(entry, :source_field) do
       nil ->
         errors
@@ -361,11 +364,11 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
   end
 
   def validate_source_relationship_virtual_join_required(
-         errors,
-         relationship_id,
-         entry,
-         path
-       ) do
+        errors,
+        relationship_id,
+        entry,
+        path
+      ) do
     case Core.map_value(entry, :required) do
       nil ->
         errors
@@ -420,5 +423,4 @@ defmodule Selecto.Domain.Contract.SourceRelationships do
         ]
     end
   end
-
 end

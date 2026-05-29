@@ -10,7 +10,11 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   @choice_source_presentation_controls [:select, :autocomplete, :table_picker]
   @choice_source_presentation_modes [:static, :searchable, :async, :inline]
   @choice_source_presentation_cardinalities [:one, :many]
-  @choice_source_constraint_policy_keys [:source_relationship, :choice_source, :domain_of_interest]
+  @choice_source_constraint_policy_keys [
+    :source_relationship,
+    :choice_source,
+    :domain_of_interest
+  ]
   @choice_source_constraint_policy_modes [:best_effort, :fail_closed]
   @order_directions [:asc, :desc]
 
@@ -19,7 +23,7 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_sources(errors, choice_sources, source_relationships, capabilities)
-       when is_map(choice_sources) do
+      when is_map(choice_sources) do
     Enum.reduce(choice_sources, errors, fn {choice_source_id, choice_source}, acc ->
       path = [:choice_sources, choice_source_id]
 
@@ -49,7 +53,7 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source_id(errors, choice_source_id, _path)
-       when is_atom(choice_source_id) or is_binary(choice_source_id) do
+      when is_atom(choice_source_id) or is_binary(choice_source_id) do
     errors
   end
 
@@ -68,14 +72,14 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source(
-         errors,
-         choice_source_id,
-         choice_source,
-         path,
-         source_relationships,
-         capabilities
-       )
-       when is_map(choice_source) do
+        errors,
+        choice_source_id,
+        choice_source,
+        path,
+        source_relationships,
+        capabilities
+      )
+      when is_map(choice_source) do
     errors
     |> validate_choice_source_required_keys(choice_source_id, choice_source, path)
     |> IdValue.validate_id_value(
@@ -117,13 +121,13 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source(
-         errors,
-         choice_source_id,
-         choice_source,
-         path,
-         _source_relationships,
-         _capabilities
-       ) do
+        errors,
+        choice_source_id,
+        choice_source,
+        path,
+        _source_relationships,
+        _capabilities
+      ) do
     [
       Core.error(
         :invalid_section_shape,
@@ -223,7 +227,7 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source_filter_expression(errors, choice_source_id, filter, path)
-       when is_tuple(filter) or is_list(filter) do
+      when is_tuple(filter) or is_list(filter) do
     StaticFilters.validate_static_filter_expression(
       errors,
       StaticFilters.static_filter_owner(:choice_source, choice_source_id),
@@ -274,7 +278,7 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source_order_entry(errors, choice_source_id, order_entry, path)
-       when is_atom(order_entry) do
+      when is_atom(order_entry) do
     if Core.valid_choice_source_path?(order_entry) do
       errors
     else
@@ -283,7 +287,7 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source_order_entry(errors, choice_source_id, order_entry, path)
-       when is_binary(order_entry) do
+      when is_binary(order_entry) do
     if Core.valid_choice_source_path?(order_entry) do
       errors
     else
@@ -331,7 +335,7 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source_order_direction(errors, _choice_source_id, direction, _path)
-       when direction in @order_directions or direction in ["asc", "desc"] do
+      when direction in @order_directions or direction in ["asc", "desc"] do
     errors
   end
 
@@ -398,14 +402,14 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source_presentation_enum(
-         errors,
-         choice_source_id,
-         presentation,
-         path,
-         key,
-         allowed,
-         code
-       ) do
+        errors,
+        choice_source_id,
+        presentation,
+        path,
+        key,
+        allowed,
+        code
+      ) do
     case Core.map_value(presentation, key) do
       nil ->
         errors
@@ -515,12 +519,12 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source_relationship(
-         errors,
-         choice_source_id,
-         choice_source,
-         path,
-         source_relationships
-       ) do
+        errors,
+        choice_source_id,
+        choice_source,
+        path,
+        source_relationships
+      ) do
     case Core.map_value(choice_source, :source_relationship) do
       nil ->
         errors
@@ -559,12 +563,12 @@ defmodule Selecto.Domain.Contract.ChoiceSources do
   end
 
   def validate_choice_source_capability(
-         errors,
-         choice_source_id,
-         choice_source,
-         path,
-         capabilities
-       ) do
+        errors,
+        choice_source_id,
+        choice_source,
+        path,
+        capabilities
+      ) do
     case Core.map_value(choice_source, :capability) do
       nil ->
         errors

@@ -16,24 +16,24 @@ defmodule Selecto.Domain.Contract.FieldBindings do
   end
 
   def validate_field_choice_source_bindings(
-         errors,
-         _source,
-         _schemas,
-         _projection,
-         choice_sources,
-         _field_index
-       )
-       when not is_map(choice_sources),
-       do: errors
+        errors,
+        _source,
+        _schemas,
+        _projection,
+        choice_sources,
+        _field_index
+      )
+      when not is_map(choice_sources),
+      do: errors
 
   def validate_field_choice_source_bindings(
-         errors,
-         source,
-         schemas,
-         projection,
-         choice_sources,
-         field_index
-       ) do
+        errors,
+        source,
+        schemas,
+        projection,
+        choice_sources,
+        field_index
+      ) do
     errors
     |> validate_relation_choice_source_bindings(
       :source,
@@ -47,7 +47,7 @@ defmodule Selecto.Domain.Contract.FieldBindings do
   end
 
   def validate_schema_choice_source_bindings(errors, schemas, choice_sources, field_index)
-       when is_map(schemas) do
+      when is_map(schemas) do
     Enum.reduce(schemas, errors, fn {schema_id, schema}, acc ->
       validate_relation_choice_source_bindings(
         acc,
@@ -82,14 +82,14 @@ defmodule Selecto.Domain.Contract.FieldBindings do
   end
 
   def validate_relation_choice_source_bindings(
-         errors,
-         relation_id,
-         relation,
-         path,
-         choice_sources,
-         field_index
-       )
-       when is_map(relation) do
+        errors,
+        relation_id,
+        relation,
+        path,
+        choice_sources,
+        field_index
+      )
+      when is_map(relation) do
     case Core.map_value(relation, :columns) do
       columns when is_map(columns) ->
         validate_field_choice_source_bindings_in_columns(
@@ -107,24 +107,24 @@ defmodule Selecto.Domain.Contract.FieldBindings do
   end
 
   def validate_relation_choice_source_bindings(
-         errors,
-         _relation_id,
-         _relation,
-         _path,
-         _choice_sources,
-         _field_index
-       ) do
+        errors,
+        _relation_id,
+        _relation,
+        _path,
+        _choice_sources,
+        _field_index
+      ) do
     errors
   end
 
   def validate_field_choice_source_bindings_in_columns(
-         errors,
-         columns,
-         path,
-         choice_sources,
-         field_index,
-         field_ref_fun
-       ) do
+        errors,
+        columns,
+        path,
+        choice_sources,
+        field_index,
+        field_ref_fun
+      ) do
     Enum.reduce(columns, errors, fn {field, column}, acc ->
       field_ref = field_ref_fun.(field)
       column_path = path ++ [field]
@@ -142,8 +142,8 @@ defmodule Selecto.Domain.Contract.FieldBindings do
   end
 
   def validate_column_choice_source(errors, _field, column, _path, _choice_sources)
-       when not is_map(column),
-       do: errors
+      when not is_map(column),
+      do: errors
 
   def validate_column_choice_source(errors, field, column, path, choice_sources) do
     case Core.map_value(column, :choice_source) do
@@ -183,15 +183,15 @@ defmodule Selecto.Domain.Contract.FieldBindings do
   end
 
   def validate_column_reference_binding(
-         errors,
-         _field,
-         column,
-         _path,
-         _choice_sources,
-         _field_index
-       )
-       when not is_map(column),
-       do: errors
+        errors,
+        _field,
+        column,
+        _path,
+        _choice_sources,
+        _field_index
+      )
+      when not is_map(column),
+      do: errors
 
   def validate_column_reference_binding(errors, field, column, path, choice_sources, field_index) do
     case Core.map_value(column, :reference) do
@@ -240,12 +240,12 @@ defmodule Selecto.Domain.Contract.FieldBindings do
   end
 
   def validate_field_reference_choice_source(
-         field_errors,
-         field,
-         reference,
-         path,
-         choice_sources
-       ) do
+        field_errors,
+        field,
+        reference,
+        path,
+        choice_sources
+      ) do
     case Core.map_value(reference, :choice_source) do
       nil ->
         field_errors
@@ -331,5 +331,4 @@ defmodule Selecto.Domain.Contract.FieldBindings do
         ]
     end
   end
-
 end

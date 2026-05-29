@@ -44,6 +44,7 @@ defmodule Selecto.Domain.Inspector do
     |> MapHelpers.maybe_put(:domain_version, Map.get(normalized, :domain_version))
     |> MapHelpers.maybe_put(:domain_fingerprint, Map.get(normalized, :domain_fingerprint))
   end
+
   def inspection_sections(diagnostics) do
     %{
       canonical: diagnostics.canonical_sections,
@@ -52,6 +53,7 @@ defmodule Selecto.Domain.Inspector do
       unknown: diagnostics.unknown_sections
     }
   end
+
   def inspection_diagnostics(diagnostics) do
     %{
       error_count: length(diagnostics.errors),
@@ -61,9 +63,11 @@ defmodule Selecto.Domain.Inspector do
       schema_version_inferred: diagnostics.schema_version_inferred
     }
   end
+
   def diagnostic_codes(diagnostics) do
     Enum.map(diagnostics, &Map.get(&1, :code))
   end
+
   def inspection_counts(normalized, field_choice_bindings, capability_usage, diagnostics) do
     query = Map.get(normalized, :query, %{})
     projection = Map.get(normalized, :projection, %{})
@@ -97,6 +101,7 @@ defmodule Selecto.Domain.Inspector do
       errors: length(diagnostics.errors)
     }
   end
+
   def inspection_registries(normalized) do
     query = Map.get(normalized, :query, %{})
     projection = Map.get(normalized, :projection, %{})
@@ -116,6 +121,7 @@ defmodule Selecto.Domain.Inspector do
       choice_sources: MapHelpers.sorted_keys(Map.get(normalized, :choice_sources))
     }
   end
+
   def inspect_writes(writes) when is_map(writes) do
     %{
       operations: MapHelpers.sorted_keys(MapHelpers.map_value(writes, :operations)),
@@ -141,6 +147,7 @@ defmodule Selecto.Domain.Inspector do
       hooks: []
     }
   end
+
   def inspect_write_scope(scope) when is_map(scope) do
     scope
     |> MapHelpers.sorted_entries()
@@ -151,8 +158,10 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_write_scope(_scope), do: %{}
+
   def inspect_write_scope_entry(:tenant, spec) when is_map(spec) do
-    sources = List.wrap(MapHelpers.map_value(spec, :satisfied_by) || MapHelpers.map_value(spec, :sources))
+    sources =
+      List.wrap(MapHelpers.map_value(spec, :satisfied_by) || MapHelpers.map_value(spec, :sources))
 
     scope =
       %{
@@ -175,6 +184,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_write_scope_entry(_scope_id, spec), do: spec
+
   def inspect_write_hooks(hooks) when is_map(hooks) do
     hooks
     |> MapHelpers.sorted_entries()
@@ -192,6 +202,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_write_hooks(_hooks), do: []
+
   def inspect_write_hook_ref(hook) when is_function(hook) do
     %{
       kind: :function,
@@ -210,7 +221,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_write_hook_ref({module, function, args})
-       when is_atom(module) and is_atom(function) and is_list(args) do
+      when is_atom(module) and is_atom(function) and is_list(args) do
     %{
       kind: :module_function,
       module: inspect(module),
@@ -225,6 +236,7 @@ defmodule Selecto.Domain.Inspector do
       inspect: inspect(hook)
     }
   end
+
   def inspect_actions(actions) when is_map(actions) do
     actions
     |> MapHelpers.sorted_entries()
@@ -239,6 +251,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_actions(_actions), do: []
+
   def inspect_capabilities(capabilities) when is_map(capabilities) do
     capabilities
     |> MapHelpers.sorted_entries()
@@ -252,6 +265,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_capabilities(_capabilities), do: []
+
   def inspect_capability_visibility(capabilities, capability_usage) do
     catalog_ids =
       capabilities
@@ -285,7 +299,10 @@ defmodule Selecto.Domain.Inspector do
         |> Enum.map(fn capability ->
           capability_visibility_entry(
             capability,
-            capability_visibility_references(capability_usage, MapHelpers.map_value(capability, :id))
+            capability_visibility_references(
+              capability_usage,
+              MapHelpers.map_value(capability, :id)
+            )
           )
         end)
         |> Enum.sort_by(&to_string(MapHelpers.map_value(&1, :id) || "")),
@@ -293,10 +310,12 @@ defmodule Selecto.Domain.Inspector do
         capability_usage
         |> Enum.map(&capability_visibility_reference/1)
         |> Enum.sort_by(
-          &{to_string(MapHelpers.map_value(&1, :capability) || ""), to_string(MapHelpers.map_value(&1, :path) || "")}
+          &{to_string(MapHelpers.map_value(&1, :capability) || ""),
+           to_string(MapHelpers.map_value(&1, :path) || "")}
         )
     }
   end
+
   def capability_visibility_entry(capability, references) do
     %{
       id: normalize_capability_id(MapHelpers.map_value(capability, :id)),
@@ -310,6 +329,7 @@ defmodule Selecto.Domain.Inspector do
     }
     |> maybe_put_nonempty(:actions, capability_actions(capability))
   end
+
   def capability_actions(capability) do
     []
     |> Kernel.++(List.wrap(MapHelpers.map_value(capability, :action)))
@@ -319,25 +339,35 @@ defmodule Selecto.Domain.Inspector do
     |> Enum.uniq()
     |> Enum.sort()
   end
+
   def capability_visibility_references(capability_usage, capability_id) do
     capability_id = normalize_capability_id(capability_id)
 
     capability_usage
-    |> Enum.filter(&(normalize_capability_id(MapHelpers.map_value(&1, :capability)) == capability_id))
+    |> Enum.filter(
+      &(normalize_capability_id(MapHelpers.map_value(&1, :capability)) == capability_id)
+    )
     |> Enum.map(&capability_visibility_reference/1)
   end
+
   def capability_visibility_reference(usage) do
     %{
       capability: normalize_capability_id(MapHelpers.map_value(usage, :capability)),
       section: normalize_capability_id(MapHelpers.map_value(usage, :section)),
       role: normalize_capability_id(MapHelpers.map_value(usage, :role)),
-      id: normalize_capability_id(MapHelpers.map_value(usage, :id) || MapHelpers.map_value(usage, :field)),
+      id:
+        normalize_capability_id(
+          MapHelpers.map_value(usage, :id) || MapHelpers.map_value(usage, :field)
+        ),
       group: normalize_capability_id(MapHelpers.map_value(usage, :group)),
       path: usage |> MapHelpers.map_value(:path) |> format_capability_path()
     }
     |> MapHelpers.compact_nil()
   end
-  def format_capability_path(path) when is_list(path), do: Enum.map_join(path, ".", &MapHelpers.field_id/1)
+
+  def format_capability_path(path) when is_list(path),
+    do: Enum.map_join(path, ".", &MapHelpers.field_id/1)
+
   def format_capability_path(path) when is_nil(path), do: nil
   def format_capability_path(path), do: to_string(path)
   def normalize_capability_id(nil), do: nil
@@ -346,6 +376,7 @@ defmodule Selecto.Domain.Inspector do
   def normalize_capability_id(value), do: to_string(value)
   def maybe_put_nonempty(map, _key, []), do: map
   def maybe_put_nonempty(map, key, value), do: Map.put(map, key, value)
+
   def inspect_security_review(normalized) do
     @security_review_sections
     |> Enum.flat_map(fn
@@ -356,6 +387,7 @@ defmodule Selecto.Domain.Inspector do
         inspect_security_registry(section, Map.get(normalized, section), reason)
     end)
   end
+
   def inspect_security_registry(section, registry, reason) when is_map(registry) do
     items = MapHelpers.sorted_keys(registry)
 
@@ -376,6 +408,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_security_registry(_section, _registry, _reason), do: []
+
   def inspect_security_writes(writes, reason) when is_map(writes) do
     items = inspect_writes(writes)
 
@@ -397,6 +430,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_security_writes(_writes, _reason), do: []
+
   def inspect_capability_usage(normalized) do
     query = Map.get(normalized, :query, %{})
     projection = Map.get(normalized, :projection, %{})
@@ -415,9 +449,14 @@ defmodule Selecto.Domain.Inspector do
       )
     )
     |> Kernel.++(
-      inspect_capability_section_usage(:filters, MapHelpers.map_value(query, :filters), :query_filter, [
-        :filters
-      ])
+      inspect_capability_section_usage(
+        :filters,
+        MapHelpers.map_value(query, :filters),
+        :query_filter,
+        [
+          :filters
+        ]
+      )
     )
     |> Kernel.++(
       inspect_capability_section_usage(
@@ -427,7 +466,9 @@ defmodule Selecto.Domain.Inspector do
         [:functions]
       )
     )
-    |> Kernel.++(inspect_query_member_capability_usage(MapHelpers.map_value(query, :query_members)))
+    |> Kernel.++(
+      inspect_query_member_capability_usage(MapHelpers.map_value(query, :query_members))
+    )
     |> Kernel.++(
       inspect_capability_section_usage(
         :published_views,
@@ -459,6 +500,7 @@ defmodule Selecto.Domain.Inspector do
     )
     |> Enum.sort_by(&capability_usage_sort_key/1)
   end
+
   def inspect_schema_capability_usage(schemas) when is_map(schemas) do
     schemas
     |> MapHelpers.sorted_entries()
@@ -468,6 +510,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_schema_capability_usage(_schemas), do: []
+
   def inspect_relation_capability_usage(section, relation, path_prefix) when is_map(relation) do
     relation
     |> MapHelpers.relation_field_entries()
@@ -482,8 +525,9 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_relation_capability_usage(_section, _relation, _path_prefix), do: []
+
   def inspect_capability_section_usage(section, registry, role, path_prefix)
-       when is_map(registry) do
+      when is_map(registry) do
     registry
     |> MapHelpers.sorted_entries()
     |> Enum.flat_map(fn {id, spec} ->
@@ -497,6 +541,7 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_capability_section_usage(_section, _registry, _role, _path_prefix), do: []
+
   def inspect_query_member_capability_usage(query_members) when is_map(query_members) do
     Enum.flat_map(@query_member_groups, fn group ->
       case MapHelpers.map_value(query_members, group) do
@@ -520,12 +565,14 @@ defmodule Selecto.Domain.Inspector do
   end
 
   def inspect_query_member_capability_usage(_query_members), do: []
+
   def capability_usage_entries(capability, attrs)
-       when not is_nil(capability) and (is_atom(capability) or is_binary(capability)) do
+      when not is_nil(capability) and (is_atom(capability) or is_binary(capability)) do
     [Map.put(attrs, :capability, capability)]
   end
 
   def capability_usage_entries(_capability, _attrs), do: []
+
   def capability_usage_sort_key(usage) do
     path =
       usage
@@ -535,6 +582,7 @@ defmodule Selecto.Domain.Inspector do
 
     {MapHelpers.field_id(Map.fetch!(usage, :capability)), path}
   end
+
   def inspect_source_relationships(source_relationships) when is_map(source_relationships) do
     source_relationships
     |> MapHelpers.sorted_entries()
@@ -545,13 +593,15 @@ defmodule Selecto.Domain.Inspector do
         source_field: MapHelpers.map_value(relationship, :source_field),
         target_field: MapHelpers.map_value(relationship, :target_field),
         source_path: MapHelpers.map_value(relationship, :source_path),
-        virtual_join_count: MapHelpers.list_count(MapHelpers.map_value(relationship, :virtual_join)),
+        virtual_join_count:
+          MapHelpers.list_count(MapHelpers.map_value(relationship, :virtual_join)),
         filters_count: MapHelpers.list_count(MapHelpers.map_value(relationship, :filters))
       }
     end)
   end
 
   def inspect_source_relationships(_source_relationships), do: []
+
   def inspect_choice_sources(choice_sources) when is_map(choice_sources) do
     choice_sources
     |> MapHelpers.sorted_entries()

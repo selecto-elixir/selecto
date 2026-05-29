@@ -244,13 +244,13 @@ defmodule Selecto.Domain do
   defdelegate project(normalized, projection), to: Projector
 
   def normalized_domain(
-         authored_domain,
-         canonical_domain,
-         schema_version,
-         domain_version,
-         domain_fingerprint,
-         sections
-       ) do
+        authored_domain,
+        canonical_domain,
+        schema_version,
+        domain_version,
+        domain_fingerprint,
+        sections
+      ) do
     %{
       schema_version: schema_version,
       domain_version: domain_version,
@@ -273,6 +273,7 @@ defmodule Selecto.Domain do
       extensions: MapHelpers.section(canonical_domain, :extensions, [])
     }
   end
+
   def domain_version(domain) do
     case MapHelpers.fetch_section(domain, :domain_version) do
       {:ok, version} when is_binary(version) ->
@@ -291,10 +292,12 @@ defmodule Selecto.Domain do
         nil
     end
   end
+
   def maybe_put_domain_version(domain, nil), do: domain
 
   def maybe_put_domain_version(domain, domain_version),
     do: MapHelpers.put_section(domain, :domain_version, domain_version)
+
   def domain_fingerprint(domain) do
     case MapHelpers.fetch_section(domain, :domain_fingerprint) do
       {:ok, fingerprint} when is_binary(fingerprint) ->
@@ -310,16 +313,19 @@ defmodule Selecto.Domain do
         nil
     end
   end
+
   def maybe_put_domain_fingerprint(domain, nil), do: domain
 
   def maybe_put_domain_fingerprint(domain, domain_fingerprint),
     do: MapHelpers.put_section(domain, :domain_fingerprint, domain_fingerprint)
+
   def schema_version(domain) do
     case MapHelpers.fetch_section(domain, :schema_version) do
       {:ok, version} -> normalize_schema_version(version)
       :error -> {@current_schema_version, true, []}
     end
   end
+
   def normalize_schema_version(version) do
     case parse_schema_version(version) do
       version when is_integer(version) and version > @current_schema_version ->
@@ -332,6 +338,7 @@ defmodule Selecto.Domain do
         {@current_schema_version, false, [invalid_schema_version_warning(version)]}
     end
   end
+
   def parse_schema_version(version) when is_integer(version), do: version
 
   def parse_schema_version(version) when is_binary(version) do
@@ -342,6 +349,7 @@ defmodule Selecto.Domain do
   end
 
   def parse_schema_version(version), do: version
+
   def unsupported_schema_version_warning(version) do
     %{
       code: :unsupported_schema_version,
@@ -350,6 +358,7 @@ defmodule Selecto.Domain do
       supported_schema_version: @current_schema_version
     }
   end
+
   def invalid_schema_version_warning(version) do
     %{
       code: :invalid_schema_version,
@@ -358,6 +367,7 @@ defmodule Selecto.Domain do
       schema_version: @current_schema_version
     }
   end
+
   def section_shape_warnings(domain) do
     []
     |> Kernel.++(shape_warnings(domain, [:name], "atom or string", &name?/1))
@@ -375,6 +385,7 @@ defmodule Selecto.Domain do
     |> Kernel.++(shape_warnings(domain, @map_sections, "map", &is_map/1))
     |> Kernel.++(shape_warnings(domain, @list_sections, "list", &is_list/1))
   end
+
   def shape_warnings(domain, sections, expected, valid?) do
     Enum.flat_map(sections, fn section ->
       case MapHelpers.fetch_section(domain, section) do
@@ -390,6 +401,7 @@ defmodule Selecto.Domain do
       end
     end)
   end
+
   def invalid_section_shape_warning(section, expected, value) do
     %{
       code: :invalid_section_shape,
@@ -399,6 +411,7 @@ defmodule Selecto.Domain do
       actual: MapHelpers.value_type(value)
     }
   end
+
   def name?(value), do: is_atom(value) or is_binary(value)
   def domain_version?(value) when is_binary(value), do: String.trim(value) != ""
   def domain_version?(value), do: is_atom(value) or is_integer(value)

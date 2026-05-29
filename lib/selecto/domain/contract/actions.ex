@@ -8,7 +8,7 @@ defmodule Selecto.Domain.Contract.Actions do
   end
 
   def validate_actions(errors, actions, capabilities, writes, field_index)
-       when is_map(actions) do
+      when is_map(actions) do
     Enum.reduce(actions, errors, fn {action_id, action}, acc ->
       path = [:actions, action_id]
 
@@ -32,7 +32,7 @@ defmodule Selecto.Domain.Contract.Actions do
   end
 
   def validate_action_id(errors, action_id, _path)
-       when is_atom(action_id) or is_binary(action_id) do
+      when is_atom(action_id) or is_binary(action_id) do
     errors
   end
 
@@ -51,7 +51,7 @@ defmodule Selecto.Domain.Contract.Actions do
   end
 
   def validate_action(errors, action_id, action, path, capabilities, writes, field_index)
-       when is_map(action) do
+      when is_map(action) do
     errors
     |> validate_action_capability(action_id, action, path, capabilities)
     |> validate_action_transition(action_id, action, path, writes, field_index)
@@ -227,8 +227,8 @@ defmodule Selecto.Domain.Contract.Actions do
   def validate_action_transition_state(errors, _action_id, nil, _path, _state_key), do: errors
 
   def validate_action_transition_state(errors, _action_id, state, _path, _state_key)
-       when is_atom(state) or is_binary(state),
-       do: errors
+      when is_atom(state) or is_binary(state),
+      do: errors
 
   def validate_action_transition_state(errors, action_id, state, path, state_key) do
     [
@@ -424,5 +424,4 @@ defmodule Selecto.Domain.Contract.Actions do
   end
 
   def state_ref?(state), do: is_atom(state) or is_binary(state)
-
 end
