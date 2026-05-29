@@ -31,7 +31,8 @@ defmodule Selecto.DomainValidator do
       end
   """
 
-  @detail_action_types [:modal, :iframe_modal, :external_link, :live_component]
+  use Selecto.Domain.Constants
+
   @domain_projections [:query, :write, :ui, :api]
 
   # import Selecto.Types - removed to avoid circular dependency

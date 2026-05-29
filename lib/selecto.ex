@@ -2,40 +2,11 @@ defmodule Selecto do
   @derive {Inspect, only: [:postgrex_opts, :adapter, :connection, :set, :tenant]}
   defstruct [:postgrex_opts, :adapter, :connection, :domain, :config, :set, :extensions, :tenant]
 
+  alias Selecto.QueryMembers
+
   # import Selecto.Types - removed to avoid circular dependency
 
   @type t :: Selecto.Types.t()
-
-  @named_query_member_kinds [:ctes, :values, :subqueries, :laterals, :unnests]
-
-  @named_query_member_key_map %{
-    "name" => :name,
-    "type" => :type,
-    "query" => :query,
-    "query_builder" => :query_builder,
-    "base_query" => :base_query,
-    "recursive_query" => :recursive_query,
-    "columns" => :columns,
-    "dependencies" => :dependencies,
-    "join" => :join,
-    "rows" => :rows,
-    "data" => :data,
-    "as" => :as,
-    "alias" => :alias,
-    "alias_name" => :alias_name,
-    "join_id" => :join_id,
-    "on" => :on,
-    "kind" => :kind,
-    "source" => :source,
-    "lateral_source" => :lateral_source,
-    "join_type" => :join_type,
-    "field" => :field,
-    "array_field" => :array_field,
-    "ordinality" => :ordinality,
-    "options" => :options,
-    "max_depth" => :max_depth,
-    "cycle_detection" => :cycle_detection
-  }
 
   @moduledoc """
   Selecto is a query builder for Elixir that uses Postgrex to execute queries.
@@ -525,9 +496,9 @@ defmodule Selecto do
 
   def with_subquery(selecto, member_id, opts)
       when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
-    normalized_overrides = normalize_named_query_member_opts(opts)
-    {member_name, raw_spec} = fetch_named_query_member!(selecto, :subqueries, member_id)
-    spec = normalize_named_query_member_spec(raw_spec)
+    normalized_overrides = QueryMembers.normalize_opts(opts)
+    {member_name, raw_spec} = QueryMembers.fetch!(selecto, :subqueries, member_id)
+    spec = QueryMembers.normalize_spec(raw_spec)
 
     kind = Map.get(spec, :kind, :join)
 
@@ -537,7 +508,7 @@ defmodule Selecto do
     end
 
     query_source =
-      resolve_override_or_spec_value(
+      QueryMembers.resolve_override_or_spec_value(
         normalized_overrides,
         spec,
         [:query, :query_builder],
@@ -545,21 +516,21 @@ defmodule Selecto do
       )
 
     join_selecto =
-      evaluate_named_query_member_query!(query_source, selecto, :subqueries, member_name)
+      QueryMembers.evaluate_query!(query_source, selecto, :subqueries, member_name)
 
     join_id =
       normalized_overrides
       |> Keyword.get(:join_id, Map.get(spec, :join_id, member_name))
-      |> normalize_values_join_id()
+      |> QueryMembers.normalize_values_join_id()
 
     default_options =
       []
-      |> maybe_put_keyword(:type, Map.get(spec, :type))
-      |> maybe_put_keyword(:on, normalize_subquery_on(Map.get(spec, :on)))
-      |> Keyword.merge(ensure_keyword_opts(Map.get(spec, :options, []), :subqueries, member_name))
+      |> QueryMembers.maybe_put_keyword(:type, Map.get(spec, :type))
+      |> QueryMembers.maybe_put_keyword(:on, QueryMembers.normalize_subquery_on(Map.get(spec, :on)))
+      |> Keyword.merge(QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :subqueries, member_name))
 
     override_options =
-      merge_named_member_options(
+      QueryMembers.merge_member_options(
         normalized_overrides,
         :subqueries,
         member_name,
@@ -568,7 +539,7 @@ defmodule Selecto do
 
     override_options =
       if Keyword.has_key?(override_options, :on) do
-        Keyword.update!(override_options, :on, &normalize_subquery_on/1)
+        Keyword.update!(override_options, :on, &QueryMembers.normalize_subquery_on/1)
       else
         override_options
       end
@@ -1339,15 +1310,15 @@ defmodule Selecto do
 
   def with_unnest(selecto, member_id, opts)
       when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
-    normalized_overrides = normalize_named_query_member_opts(opts)
-    {member_name, raw_spec} = fetch_named_query_member!(selecto, :unnests, member_id)
-    spec = normalize_named_query_member_spec(raw_spec)
+    normalized_overrides = QueryMembers.normalize_opts(opts)
+    {member_name, raw_spec} = QueryMembers.fetch!(selecto, :unnests, member_id)
+    spec = QueryMembers.normalize_spec(raw_spec)
 
     array_field =
       Keyword.get(
         normalized_overrides,
         :array_field,
-        Keyword.get(normalized_overrides, :field, map_get(spec, :array_field, :field))
+        Keyword.get(normalized_overrides, :field, QueryMembers.map_get(spec, :array_field, :field))
       )
 
     if is_nil(array_field) do
@@ -1360,11 +1331,11 @@ defmodule Selecto do
       |> Keyword.get(
         :as,
         Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
-      ) || values_member_alias(spec) || "unnested_#{array_field}"
+      ) || QueryMembers.values_member_alias(spec) || "unnested_#{array_field}"
 
     ordinality = Keyword.get(normalized_overrides, :ordinality, Map.get(spec, :ordinality))
 
-    default_options = ensure_keyword_opts(Map.get(spec, :options, []), :unnests, member_name)
+    default_options = QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :unnests, member_name)
 
     override_options =
       normalized_overrides
@@ -1379,7 +1350,7 @@ defmodule Selecto do
       ])
 
     override_nested_options =
-      ensure_keyword_opts(
+      QueryMembers.ensure_keyword_opts(
         Keyword.get(normalized_overrides, :options, :__missing__),
         :unnests,
         member_name
@@ -1388,7 +1359,7 @@ defmodule Selecto do
     unnest_opts =
       default_options
       |> Keyword.put(:as, to_string(alias_name))
-      |> maybe_put_keyword(:ordinality, ordinality)
+      |> QueryMembers.maybe_put_keyword(:ordinality, ordinality)
       |> Keyword.merge(override_options)
       |> Keyword.merge(override_nested_options)
 
@@ -1662,9 +1633,9 @@ defmodule Selecto do
 
   def with_lateral(selecto, member_id, opts)
       when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
-    normalized_overrides = normalize_named_query_member_opts(opts)
-    {member_name, raw_spec} = fetch_named_query_member!(selecto, :laterals, member_id)
-    spec = normalize_named_query_member_spec(raw_spec)
+    normalized_overrides = QueryMembers.normalize_opts(opts)
+    {member_name, raw_spec} = QueryMembers.fetch!(selecto, :laterals, member_id)
+    spec = QueryMembers.normalize_spec(raw_spec)
 
     lateral_source =
       Keyword.get(
@@ -1676,29 +1647,29 @@ defmodule Selecto do
           Keyword.get(
             normalized_overrides,
             :lateral_source,
-            map_get(spec, :query, :source, :lateral_source)
+            QueryMembers.map_get(spec, :query, :source, :lateral_source)
           )
         )
       )
 
-    lateral_source = normalize_lateral_source!(lateral_source, selecto, member_name)
+    lateral_source = QueryMembers.normalize_lateral_source!(lateral_source, selecto, member_name)
 
     alias_name =
-      resolve_alias_name(normalized_overrides, values_member_alias(spec) || member_name)
+      QueryMembers.resolve_alias_name(normalized_overrides, QueryMembers.values_member_alias(spec) || member_name)
 
     join_type =
       Keyword.get(
         normalized_overrides,
         :join_type,
-        Keyword.get(normalized_overrides, :type, map_get(spec, :join_type, :type) || :left)
+        Keyword.get(normalized_overrides, :type, QueryMembers.map_get(spec, :join_type, :type) || :left)
       )
 
-    join_type = normalize_lateral_join_type!(join_type, member_name)
+    join_type = QueryMembers.normalize_lateral_join_type!(join_type, member_name)
 
-    default_options = ensure_keyword_opts(Map.get(spec, :options, []), :laterals, member_name)
+    default_options = QueryMembers.ensure_keyword_opts(Map.get(spec, :options, []), :laterals, member_name)
 
     override_options =
-      merge_named_member_options(
+      QueryMembers.merge_member_options(
         normalized_overrides,
         :laterals,
         member_name,
@@ -1716,9 +1687,9 @@ defmodule Selecto do
   end
 
   defp apply_direct_lateral(selecto, lateral_source, opts) do
-    normalized_overrides = normalize_named_query_member_opts(opts)
+    normalized_overrides = QueryMembers.normalize_opts(opts)
 
-    alias_name = resolve_alias_name(normalized_overrides)
+    alias_name = QueryMembers.resolve_alias_name(normalized_overrides)
 
     if is_nil(alias_name) do
       raise ArgumentError,
@@ -1732,10 +1703,10 @@ defmodule Selecto do
         Keyword.get(normalized_overrides, :type, :left)
       )
 
-    join_type = normalize_lateral_join_type!(join_type, to_string(alias_name))
+    join_type = QueryMembers.normalize_lateral_join_type!(join_type, to_string(alias_name))
 
     lateral_opts =
-      merge_named_member_options(
+      QueryMembers.merge_member_options(
         normalized_overrides,
         :laterals,
         to_string(alias_name),
@@ -2089,9 +2060,9 @@ defmodule Selecto do
 
   def with_values(selecto, member_id, opts)
       when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
-    normalized_overrides = normalize_named_query_member_opts(opts)
-    {member_name, raw_spec} = fetch_named_query_member!(selecto, :values, member_id)
-    spec = normalize_named_query_member_spec(raw_spec)
+    normalized_overrides = QueryMembers.normalize_opts(opts)
+    {member_name, raw_spec} = QueryMembers.fetch!(selecto, :values, member_id)
+    spec = QueryMembers.normalize_spec(raw_spec)
 
     rows_override =
       Keyword.get(
@@ -2116,24 +2087,24 @@ defmodule Selecto do
       |> Keyword.get(
         :as,
         Keyword.get(normalized_overrides, :alias, Keyword.get(normalized_overrides, :alias_name))
-      ) || values_member_alias(spec) || member_name
+      ) || QueryMembers.values_member_alias(spec) || member_name
 
     values_opts =
       []
-      |> maybe_put_keyword(
+      |> QueryMembers.maybe_put_keyword(
         :columns,
         Keyword.get(normalized_overrides, :columns, Map.get(spec, :columns))
       )
       |> Keyword.put(:as, to_string(alias_name))
 
     join_opts =
-      merge_named_join_opts(
+      QueryMembers.merge_join_opts(
         Map.get(spec, :join),
         if(Keyword.has_key?(normalized_overrides, :join),
           do: Keyword.get(normalized_overrides, :join),
           else: :__missing__
         ),
-        &normalize_values_join_opts/1
+        &QueryMembers.normalize_values_join_opts/1
       )
 
     values_opts =
@@ -2194,11 +2165,11 @@ defmodule Selecto do
 
   defp build_values_join_options(values_spec, join_opts) when is_map(join_opts) do
     values_spec
-    |> build_values_join_options(normalize_values_join_opts(join_opts))
+    |> build_values_join_options(QueryMembers.normalize_values_join_opts(join_opts))
   end
 
   defp build_values_join_options(values_spec, join_opts) when is_list(join_opts) do
-    normalized_join_opts = normalize_values_join_opts(join_opts)
+    normalized_join_opts = QueryMembers.normalize_values_join_opts(join_opts)
     default_join_key = default_values_join_key(values_spec)
 
     owner_key = Keyword.get(normalized_join_opts, :owner_key, default_join_key)
@@ -2207,7 +2178,7 @@ defmodule Selecto do
     join_id =
       normalized_join_opts
       |> Keyword.get(:id, values_spec.alias)
-      |> normalize_values_join_id()
+      |> QueryMembers.normalize_values_join_id()
 
     join_options =
       normalized_join_opts
@@ -2224,41 +2195,6 @@ defmodule Selecto do
   defp build_values_join_options(_values_spec, invalid_opts) do
     raise ArgumentError,
           ":join option for with_values/3 must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_opts)}"
-  end
-
-  defp normalize_values_join_opts(join_opts) when is_map(join_opts),
-    do: join_opts |> Map.to_list() |> normalize_values_join_opts()
-
-  defp normalize_values_join_opts(join_opts) when is_list(join_opts) do
-    Enum.map(join_opts, fn
-      {key, value} -> {normalize_values_join_key(key), value}
-      other -> other
-    end)
-  end
-
-  defp normalize_values_join_key(key) when is_atom(key), do: key
-
-  defp normalize_values_join_key(key) when is_binary(key) do
-    case key do
-      "id" -> :id
-      "source" -> :source
-      "type" -> :type
-      "owner_key" -> :owner_key
-      "related_key" -> :related_key
-      "on" -> :on
-      "fields" -> :fields
-      other -> other
-    end
-  end
-
-  defp normalize_values_join_key(key), do: key
-
-  defp normalize_values_join_id(join_id) when is_atom(join_id), do: join_id
-  defp normalize_values_join_id(join_id) when is_binary(join_id), do: String.to_atom(join_id)
-
-  defp normalize_values_join_id(join_id) do
-    raise ArgumentError,
-          "VALUES auto-join id must be an atom or string. Got: #{inspect(join_id)}"
   end
 
   defp default_values_join_key(%{columns: [first_column | _]}), do: first_column
@@ -2307,44 +2243,8 @@ defmodule Selecto do
       selecto
       |> Selecto.json_select({:json_extract, "data", "$.status", as: "status"})
   """
-  def json_select(selecto, json_operations, opts \\ [])
-
-  def json_select(selecto, json_operations, _opts) when is_list(json_operations) do
-    # Create JSON operation specifications
-    json_specs =
-      json_operations
-      |> Enum.map(fn
-        {operation, column, path_or_opts} when is_binary(path_or_opts) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
-            path: path_or_opts
-          )
-
-        {operation, column, path, opts} when is_binary(path) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(
-            operation,
-            column,
-            [path: path] ++ opts
-          )
-
-        {operation, column, opts} when is_list(opts) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, opts)
-
-        {operation, column} ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
-      end)
-
-    # Add to selecto set
-    Selecto.QueryValidator.validate_json_specs!(selecto, json_specs)
-
-    current_json_selects = Map.get(selecto.set, :json_selects, [])
-    updated_json_selects = current_json_selects ++ json_specs
-
-    put_in(selecto.set[:json_selects], updated_json_selects)
-  end
-
-  def json_select(selecto, json_operation, opts) do
-    json_select(selecto, [json_operation], opts)
-  end
+  def json_select(selecto, json_operations, opts \\ []),
+    do: Selecto.JsonQuery.select(selecto, json_operations, opts)
 
   @doc """
   Add JSON operations to WHERE clauses for filtering with PostgreSQL JSON/JSONB functionality.
@@ -2377,43 +2277,8 @@ defmodule Selecto do
       selecto
       |> Selecto.json_filter({:json_exists, "tags", "electronics"})
   """
-  def json_filter(selecto, json_filters, opts \\ [])
-
-  def json_filter(selecto, json_filters, _opts) when is_list(json_filters) do
-    # Create JSON filter specifications
-    json_specs =
-      json_filters
-      |> Enum.map(fn
-        {operation, column, path_or_value, comparison} when is_binary(path_or_value) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column,
-            path: path_or_value,
-            comparison: comparison
-          )
-
-        {operation, column, path}
-        when operation in [:json_extract, :json_extract_text, :json_exists, :json_path_exists] and
-               is_binary(path) ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
-
-        {operation, column, value} ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column, value: value)
-
-        {operation, column} ->
-          Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
-      end)
-
-    # Add to selecto set
-    Selecto.QueryValidator.validate_json_specs!(selecto, json_specs)
-
-    current_json_filters = Map.get(selecto.set, :json_filters, [])
-    updated_json_filters = current_json_filters ++ json_specs
-
-    put_in(selecto.set[:json_filters], updated_json_filters)
-  end
-
-  def json_filter(selecto, json_filter, opts) do
-    json_filter(selecto, [json_filter], opts)
-  end
+  def json_filter(selecto, json_filters, opts \\ []),
+    do: Selecto.JsonQuery.filter(selecto, json_filters, opts)
 
   @doc """
   Add JSON operations to ORDER BY clauses for sorting with PostgreSQL JSON/JSONB functionality.
@@ -2437,49 +2302,8 @@ defmodule Selecto do
       selecto
       |> Selecto.json_order_by({:json_extract, "settings", "$.sort_order"})
   """
-  def json_order_by(selecto, json_sorts, opts \\ [])
-
-  def json_order_by(selecto, json_sorts, _opts) when is_list(json_sorts) do
-    # Create JSON sort specifications
-    json_specs =
-      json_sorts
-      |> Enum.map(fn
-        {operation, column, path, direction} when is_binary(path) ->
-          spec =
-            Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
-
-          {spec, direction || :asc}
-
-        {operation, column, direction} when direction in [:asc, :desc] ->
-          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
-          {spec, direction}
-
-        {operation, column, path} when is_binary(path) ->
-          spec =
-            Selecto.Advanced.JsonOperations.create_json_operation(operation, column, path: path)
-
-          {spec, :asc}
-
-        {operation, column} ->
-          spec = Selecto.Advanced.JsonOperations.create_json_operation(operation, column)
-          {spec, :asc}
-      end)
-
-    # Add to selecto set
-    Selecto.QueryValidator.validate_json_specs!(
-      selecto,
-      Enum.map(json_specs, fn {spec, _direction} -> spec end)
-    )
-
-    current_json_sorts = Map.get(selecto.set, :json_order_by, [])
-    updated_json_sorts = current_json_sorts ++ json_specs
-
-    put_in(selecto.set[:json_order_by], updated_json_sorts)
-  end
-
-  def json_order_by(selecto, json_sort, opts) do
-    json_order_by(selecto, [json_sort], opts)
-  end
+  def json_order_by(selecto, json_sorts, opts \\ []),
+    do: Selecto.JsonQuery.order_by(selecto, json_sorts, opts)
 
   @doc """
   Add a Common Table Expression (CTE) to the query using WITH clause.
@@ -2542,18 +2366,18 @@ defmodule Selecto do
 
   def with_cte(selecto, member_id, opts)
       when (is_atom(member_id) or is_binary(member_id)) and (is_list(opts) or is_map(opts)) do
-    normalized_overrides = normalize_named_query_member_opts(opts)
-    {member_name, raw_spec} = fetch_named_query_member!(selecto, :ctes, member_id)
-    spec = normalize_named_query_member_spec(raw_spec)
+    normalized_overrides = QueryMembers.normalize_opts(opts)
+    {member_name, raw_spec} = QueryMembers.fetch!(selecto, :ctes, member_id)
+    spec = QueryMembers.normalize_spec(raw_spec)
 
     join_opts =
-      merge_named_join_opts(
+      QueryMembers.merge_join_opts(
         Map.get(spec, :join),
         if(Keyword.has_key?(normalized_overrides, :join),
           do: Keyword.get(normalized_overrides, :join),
           else: :__missing__
         ),
-        &normalize_cte_join_opts/1
+        &QueryMembers.normalize_cte_join_opts/1
       )
 
     recursive? =
@@ -2568,27 +2392,27 @@ defmodule Selecto do
       if recursive? do
         base_query =
           Keyword.get(normalized_overrides, :base_query, Map.get(spec, :base_query))
-          |> wrap_named_base_query!(selecto, member_name)
+          |> QueryMembers.wrap_base_query!(selecto, member_name)
 
         recursive_query =
           Keyword.get(normalized_overrides, :recursive_query, Map.get(spec, :recursive_query))
-          |> wrap_named_recursive_query!(selecto, member_name)
+          |> QueryMembers.wrap_recursive_query!(selecto, member_name)
 
         recursive_opts =
           []
-          |> maybe_put_keyword(
+          |> QueryMembers.maybe_put_keyword(
             :columns,
             Keyword.get(normalized_overrides, :columns, Map.get(spec, :columns))
           )
-          |> maybe_put_keyword(
+          |> QueryMembers.maybe_put_keyword(
             :dependencies,
             Keyword.get(normalized_overrides, :dependencies, Map.get(spec, :dependencies))
           )
-          |> maybe_put_keyword(
+          |> QueryMembers.maybe_put_keyword(
             :max_depth,
             Keyword.get(normalized_overrides, :max_depth, Map.get(spec, :max_depth))
           )
-          |> maybe_put_keyword(
+          |> QueryMembers.maybe_put_keyword(
             :cycle_detection,
             Keyword.get(normalized_overrides, :cycle_detection, Map.get(spec, :cycle_detection))
           )
@@ -2606,18 +2430,18 @@ defmodule Selecto do
 
         cte_opts =
           []
-          |> maybe_put_keyword(
+          |> QueryMembers.maybe_put_keyword(
             :columns,
             Keyword.get(normalized_overrides, :columns, Map.get(spec, :columns))
           )
-          |> maybe_put_keyword(
+          |> QueryMembers.maybe_put_keyword(
             :dependencies,
             Keyword.get(normalized_overrides, :dependencies, Map.get(spec, :dependencies))
           )
 
         Selecto.Advanced.CTE.create_cte(
           to_string(cte_name),
-          wrap_named_query_builder!(query_builder, selecto, :ctes, member_name),
+          QueryMembers.wrap_query_builder!(query_builder, selecto, :ctes, member_name),
           cte_opts
         )
       end
@@ -2705,7 +2529,7 @@ defmodule Selecto do
         # Format 1: (selecto, cte_name, base_fn, recursive_fn, opts)
         {cte_name, base_fn, recursive_fn, opts}
         when is_function(base_fn) and is_function(recursive_fn) ->
-          normalized_opts = normalize_cte_option_list(opts)
+          normalized_opts = QueryMembers.normalize_cte_option_list(opts)
           join_opts = Keyword.get(normalized_opts, :join)
           cte_opts = Keyword.delete(normalized_opts, :join)
 
@@ -2722,7 +2546,7 @@ defmodule Selecto do
 
         # Format 2: (selecto, name, opts)
         {name, opts, nil, []} when is_list(opts) or is_map(opts) ->
-          normalized_opts = normalize_cte_option_list(opts)
+          normalized_opts = QueryMembers.normalize_cte_option_list(opts)
           join_opts = Keyword.get(normalized_opts, :join)
           cte_opts = Keyword.delete(normalized_opts, :join)
 
@@ -2817,17 +2641,17 @@ defmodule Selecto do
 
   defp build_cte_join_options(cte_spec, join_opts) when is_map(join_opts) do
     cte_spec
-    |> build_cte_join_options(normalize_cte_join_opts(join_opts))
+    |> build_cte_join_options(QueryMembers.normalize_cte_join_opts(join_opts))
   end
 
   defp build_cte_join_options(cte_spec, join_opts) when is_list(join_opts) do
     cte_name = cte_spec_name!(cte_spec)
-    normalized_join_opts = normalize_cte_join_opts(join_opts)
+    normalized_join_opts = QueryMembers.normalize_cte_join_opts(join_opts)
 
     join_id =
       normalized_join_opts
       |> Keyword.get(:id, cte_name)
-      |> normalize_values_join_id()
+      |> QueryMembers.normalize_values_join_id()
 
     join_options =
       normalized_join_opts
@@ -2973,7 +2797,7 @@ defmodule Selecto do
   end
 
   defp resolve_with_ctes_join_entry(cte_specs, join_entry) when is_list(join_entry) do
-    normalized_entry = normalize_cte_join_opts(join_entry)
+    normalized_entry = QueryMembers.normalize_cte_join_opts(join_entry)
     cte_name = Keyword.get(normalized_entry, :name)
 
     if is_nil(cte_name) do
@@ -2998,472 +2822,6 @@ defmodule Selecto do
     end) ||
       raise ArgumentError,
             "CTE named '#{cte_name_string}' was not found in with_ctes/3 input"
-  end
-
-  defp normalize_cte_option_list(opts) when is_map(opts),
-    do: opts |> Map.to_list() |> normalize_cte_option_list()
-
-  defp normalize_cte_option_list(opts) when is_list(opts) do
-    Enum.map(opts, fn
-      {key, value} -> {normalize_cte_option_key(key), value}
-      other -> other
-    end)
-  end
-
-  defp normalize_cte_option_key(key) when is_atom(key), do: key
-
-  defp normalize_cte_option_key(key) when is_binary(key) do
-    case key do
-      "base_query" -> :base_query
-      "recursive_query" -> :recursive_query
-      "columns" -> :columns
-      "dependencies" -> :dependencies
-      "join" -> :join
-      "joins" -> :joins
-      "max_depth" -> :max_depth
-      "cycle_detection" -> :cycle_detection
-      other -> other
-    end
-  end
-
-  defp normalize_cte_option_key(key), do: key
-
-  defp normalize_cte_join_opts(join_opts) when is_map(join_opts),
-    do: join_opts |> Map.to_list() |> normalize_cte_join_opts()
-
-  defp normalize_cte_join_opts(join_opts) when is_list(join_opts) do
-    Enum.map(join_opts, fn
-      {key, value} -> {normalize_cte_join_key(key), value}
-      other -> other
-    end)
-  end
-
-  defp normalize_cte_join_key(key) when is_atom(key), do: key
-
-  defp normalize_cte_join_key(key) when is_binary(key) do
-    case key do
-      "name" -> :name
-      "id" -> :id
-      "source" -> :source
-      "type" -> :type
-      "owner_key" -> :owner_key
-      "related_key" -> :related_key
-      "on" -> :on
-      "fields" -> :fields
-      other -> other
-    end
-  end
-
-  defp normalize_cte_join_key(key), do: key
-
-  defp maybe_put_keyword(keyword, _key, value) when value in [nil, :__missing__], do: keyword
-  defp maybe_put_keyword(keyword, key, value), do: Keyword.put(keyword, key, value)
-
-  defp normalize_named_query_member_opts(opts) when is_map(opts),
-    do: opts |> Map.to_list() |> normalize_named_query_member_opts()
-
-  defp normalize_named_query_member_opts(opts) when is_list(opts) do
-    Enum.map(opts, fn
-      {key, value} ->
-        {normalize_named_query_member_key(key), value}
-
-      other ->
-        raise ArgumentError,
-              "Named query member options must be a keyword list or map. Invalid option: #{inspect(other)}"
-    end)
-  end
-
-  defp normalize_named_query_member_opts(invalid_opts) do
-    raise ArgumentError,
-          "Named query member options must be a keyword list or map. Got: #{inspect(invalid_opts)}"
-  end
-
-  defp resolve_alias_name(overrides, default \\ nil) do
-    Keyword.get(
-      overrides,
-      :as,
-      Keyword.get(overrides, :alias, Keyword.get(overrides, :alias_name))
-    ) ||
-      default
-  end
-
-  defp resolve_override_or_spec_value(overrides, spec, override_keys, spec_keys) do
-    Enum.find_value(override_keys, fn key -> Keyword.get(overrides, key) end) ||
-      Enum.find_value(spec_keys, fn key -> Map.get(spec, key) end)
-  end
-
-  defp merge_named_member_options(overrides, kind, member_name, drop_keys) do
-    override_options = Keyword.drop(overrides, drop_keys ++ [:options])
-
-    nested_options =
-      ensure_keyword_opts(
-        Keyword.get(overrides, :options, :__missing__),
-        kind,
-        member_name
-      )
-
-    Keyword.merge(override_options, nested_options)
-  end
-
-  defp normalize_named_query_member_spec(spec) when is_map(spec) do
-    spec
-    |> Enum.map(fn {key, value} -> {normalize_named_query_member_key(key), value} end)
-    |> Map.new()
-  end
-
-  defp normalize_named_query_member_spec(spec) do
-    raise ArgumentError,
-          "Named query member specifications must be maps. Got: #{inspect(spec)}"
-  end
-
-  defp normalize_named_query_member_key(key) when is_atom(key), do: key
-
-  defp normalize_named_query_member_key(key) when is_binary(key),
-    do: Map.get(@named_query_member_key_map, key, key)
-
-  defp normalize_named_query_member_key(key), do: key
-
-  defp fetch_named_query_member!(selecto, kind, member_id)
-       when kind in @named_query_member_kinds do
-    members = query_members_for_kind!(selecto, kind)
-    member_name = to_string(member_id)
-
-    Enum.find_value(members, fn {key, spec} ->
-      if to_string(key) == member_name do
-        {member_name, spec}
-      end
-    end) ||
-      raise ArgumentError,
-            "Named #{kind_to_label(kind)} '#{member_name}' was not found in domain query_members. Available: #{available_named_members(members)}"
-  end
-
-  defp query_members_for_kind!(selecto, kind) when kind in @named_query_member_kinds do
-    query_members =
-      selecto
-      |> Map.get(:domain, %{})
-      |> Map.get(:query_members, %{})
-
-    if not is_map(query_members) do
-      raise ArgumentError,
-            "domain.query_members must be a map to resolve named #{kind_to_label(kind)} members."
-    end
-
-    members = Map.get(query_members, kind, Map.get(query_members, Atom.to_string(kind), %{}))
-
-    if is_map(members) do
-      members
-    else
-      raise ArgumentError,
-            "domain.query_members.#{kind} must be a map of named members. Got: #{inspect(members)}"
-    end
-  end
-
-  defp available_named_members(members) do
-    case members |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort() do
-      [] -> "none"
-      ids -> Enum.join(ids, ", ")
-    end
-  end
-
-  defp kind_to_label(:ctes), do: "CTE"
-  defp kind_to_label(:values), do: "VALUES"
-  defp kind_to_label(:subqueries), do: "subquery"
-  defp kind_to_label(:laterals), do: "lateral"
-  defp kind_to_label(:unnests), do: "unnest"
-
-  defp map_get(map, key, alt_key) when is_map(map) do
-    Map.get(map, key, Map.get(map, alt_key))
-  end
-
-  defp map_get(map, key, alt_key1, alt_key2) when is_map(map) do
-    Map.get(map, key, Map.get(map, alt_key1, Map.get(map, alt_key2)))
-  end
-
-  defp normalize_lateral_source!(source, selecto, member_name) do
-    case source do
-      source when is_tuple(source) ->
-        source
-
-      %Selecto{} = query ->
-        fn _base_query -> query end
-
-      query_builder when is_function(query_builder, 0) ->
-        fn _base_query ->
-          result = query_builder.()
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      query_builder when is_function(query_builder, 1) ->
-        fn base_query ->
-          result = query_builder.(base_query)
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      query_builder when is_function(query_builder, 2) ->
-        fn base_query ->
-          result = query_builder.(selecto, base_query)
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named lateral '#{member_name}' query function must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      nil ->
-        raise ArgumentError,
-              "Named lateral '#{member_name}' requires :query, :source, or :lateral_source."
-
-      invalid ->
-        raise ArgumentError,
-              "Named lateral '#{member_name}' source must be a tuple, Selecto struct, or function with arity 0/1/2. Got: #{inspect(invalid)}"
-    end
-  end
-
-  defp normalize_lateral_join_type!(join_type, _member_name)
-       when join_type in [:left, :inner, :right, :full],
-       do: join_type
-
-  defp normalize_lateral_join_type!(join_type, member_name) do
-    raise ArgumentError,
-          "Named lateral '#{member_name}' join type must be one of :left, :inner, :right, :full. Got: #{inspect(join_type)}"
-  end
-
-  defp ensure_keyword_opts(nil, _kind, _member_name), do: []
-  defp ensure_keyword_opts(:__missing__, _kind, _member_name), do: []
-  defp ensure_keyword_opts(opts, _kind, _member_name) when is_list(opts), do: opts
-  defp ensure_keyword_opts(opts, _kind, _member_name) when is_map(opts), do: Map.to_list(opts)
-
-  defp ensure_keyword_opts(opts, kind, member_name) do
-    raise ArgumentError,
-          "Named #{kind_to_label(kind)} '#{member_name}' expects :options to be a keyword list or map. Got: #{inspect(opts)}"
-  end
-
-  defp evaluate_named_query_member_query!(query_source, selecto, kind, member_name) do
-    query =
-      case query_source do
-        %Selecto{} = query ->
-          query
-
-        query_builder when is_function(query_builder, 0) ->
-          query_builder.()
-
-        query_builder when is_function(query_builder, 1) ->
-          query_builder.(selecto)
-
-        nil ->
-          raise ArgumentError,
-                "Named #{kind_to_label(kind)} '#{member_name}' requires a query source (:query or :query_builder)."
-
-        invalid ->
-          raise ArgumentError,
-                "Named #{kind_to_label(kind)} '#{member_name}' query source must be a Selecto struct or function with arity 0/1. Got: #{inspect(invalid)}"
-      end
-
-    if match?(%Selecto{}, query) do
-      query
-    else
-      raise ArgumentError,
-            "Named #{kind_to_label(kind)} '#{member_name}' query builder must return a Selecto struct. Got: #{inspect(query)}"
-    end
-  end
-
-  defp wrap_named_query_builder!(query_source, selecto, kind, member_name) do
-    case query_source do
-      %Selecto{} = query ->
-        fn -> query end
-
-      query_builder when is_function(query_builder, 0) ->
-        fn ->
-          result = query_builder.()
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named #{kind_to_label(kind)} '#{member_name}' query builder must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      query_builder when is_function(query_builder, 1) ->
-        fn ->
-          result = query_builder.(selecto)
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named #{kind_to_label(kind)} '#{member_name}' query builder must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      nil ->
-        raise ArgumentError,
-              "Named #{kind_to_label(kind)} '#{member_name}' requires :query or :query_builder."
-
-      invalid ->
-        raise ArgumentError,
-              "Named #{kind_to_label(kind)} '#{member_name}' query source must be a Selecto struct or function with arity 0/1. Got: #{inspect(invalid)}"
-    end
-  end
-
-  defp wrap_named_base_query!(base_query, selecto, member_name) do
-    case base_query do
-      query_builder when is_function(query_builder, 0) ->
-        fn ->
-          result = query_builder.()
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named CTE '#{member_name}' base_query must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      query_builder when is_function(query_builder, 1) ->
-        fn ->
-          result = query_builder.(selecto)
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named CTE '#{member_name}' base_query must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      invalid ->
-        raise ArgumentError,
-              "Named CTE '#{member_name}' requires :base_query function with arity 0 or 1. Got: #{inspect(invalid)}"
-    end
-  end
-
-  defp wrap_named_recursive_query!(recursive_query, selecto, member_name) do
-    case recursive_query do
-      query_builder when is_function(query_builder, 1) ->
-        fn cte_ref ->
-          result = query_builder.(cte_ref)
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named CTE '#{member_name}' recursive_query must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      query_builder when is_function(query_builder, 2) ->
-        fn cte_ref ->
-          result = query_builder.(selecto, cte_ref)
-
-          if match?(%Selecto{}, result) do
-            result
-          else
-            raise ArgumentError,
-                  "Named CTE '#{member_name}' recursive_query must return a Selecto struct. Got: #{inspect(result)}"
-          end
-        end
-
-      invalid ->
-        raise ArgumentError,
-              "Named CTE '#{member_name}' requires :recursive_query function with arity 1 or 2. Got: #{inspect(invalid)}"
-    end
-  end
-
-  defp merge_named_join_opts(default_join_opts, :__missing__, normalizer_fun) do
-    normalize_named_join_opts(default_join_opts, normalizer_fun)
-  end
-
-  defp merge_named_join_opts(_default_join_opts, override_join_opts, _normalizer_fun)
-       when override_join_opts in [nil, false, true],
-       do: override_join_opts
-
-  defp merge_named_join_opts(default_join_opts, override_join_opts, normalizer_fun)
-       when is_list(override_join_opts) or is_map(override_join_opts) do
-    override_join_opts = normalize_named_join_opts(override_join_opts, normalizer_fun)
-    default_join_opts = normalize_named_join_opts(default_join_opts, normalizer_fun)
-
-    if is_list(default_join_opts) do
-      Keyword.merge(default_join_opts, override_join_opts)
-    else
-      override_join_opts
-    end
-  end
-
-  defp merge_named_join_opts(_default_join_opts, invalid_join_opts, _normalizer_fun) do
-    raise ArgumentError,
-          "Named query member :join must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_join_opts)}"
-  end
-
-  defp normalize_named_join_opts(join_opts, _normalizer_fun)
-       when join_opts in [nil, false, true, :__missing__],
-       do: join_opts
-
-  defp normalize_named_join_opts(join_opts, normalizer_fun)
-       when is_list(join_opts) or is_map(join_opts),
-       do: normalizer_fun.(join_opts)
-
-  defp normalize_named_join_opts(invalid_join_opts, _normalizer_fun) do
-    raise ArgumentError,
-          "Named query member :join must be true, false, nil, a keyword list, or a map. Got: #{inspect(invalid_join_opts)}"
-  end
-
-  defp values_member_alias(spec) when is_map(spec) do
-    Map.get(spec, :as) || Map.get(spec, :alias) || Map.get(spec, :alias_name)
-  end
-
-  defp normalize_subquery_on(nil), do: nil
-  defp normalize_subquery_on(:__missing__), do: nil
-
-  defp normalize_subquery_on(on_conditions) when is_list(on_conditions) do
-    Enum.map(on_conditions, fn
-      condition when is_map(condition) ->
-        normalize_subquery_on_condition(condition)
-
-      condition when is_list(condition) ->
-        condition |> Map.new() |> normalize_subquery_on_condition()
-
-      invalid ->
-        raise ArgumentError, "Invalid subquery :on condition: #{inspect(invalid)}"
-    end)
-  end
-
-  defp normalize_subquery_on(invalid_on) do
-    raise ArgumentError,
-          "Subquery :on option must be a list of conditions. Got: #{inspect(invalid_on)}"
-  end
-
-  defp normalize_subquery_on_condition(condition) do
-    left = Map.get(condition, :left, Map.get(condition, "left"))
-    right = Map.get(condition, :right, Map.get(condition, "right"))
-    operator = Map.get(condition, :operator, Map.get(condition, "operator"))
-
-    if is_nil(left) or is_nil(right) do
-      raise ArgumentError,
-            "Subquery :on conditions must include :left and :right. Got: #{inspect(condition)}"
-    end
-
-    result = %{left: left, right: right}
-
-    if is_nil(operator) do
-      result
-    else
-      Map.put(result, :operator, operator)
-    end
   end
 
   @doc """
@@ -3593,147 +2951,8 @@ defmodule Selecto do
       selecto
       |> Selecto.array_select({:array_length, "tags", 1, as: "tag_count"})
   """
-  def array_select(selecto, array_operations, opts \\ [])
-
-  def array_select(selecto, array_operations, _opts) when is_list(array_operations) do
-    # Create array operation specifications
-    array_specs =
-      array_operations
-      |> Enum.map(fn
-        # Aggregation operations
-        {:array_agg, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_agg, column, opts)
-
-        {:array_agg_distinct, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_agg_distinct,
-            column,
-            opts
-          )
-
-        {:string_agg, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(:string_agg, column, opts)
-
-        # Size operations with dimension
-        {:array_length, column, dimension, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(
-            :array_length,
-            column,
-            dimension,
-            opts
-          )
-
-        # Size operations without dimension
-        {:cardinality, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(:cardinality, column, nil, opts)
-
-        {:array_ndims, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(:array_ndims, column, nil, opts)
-
-        {:array_dims, column, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_size(:array_dims, column, nil, opts)
-
-        # Array construction/manipulation with value
-        {:array_append, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_append,
-            column,
-            spec_opts
-          )
-
-        {:array_prepend, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_prepend,
-            column,
-            spec_opts
-          )
-
-        {:array_remove, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_remove,
-            column,
-            spec_opts
-          )
-
-        {:array_replace, column, old_value, new_value, opts} ->
-          spec_opts = opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_replace,
-            column,
-            spec_opts
-          )
-
-        {:array_cat, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array_cat, column, spec_opts)
-
-        {:array_position, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_position,
-            column,
-            spec_opts
-          )
-
-        {:array_positions, column, value, opts} ->
-          spec_opts = Keyword.put(opts, :value, value)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_positions,
-            column,
-            spec_opts
-          )
-
-        # Array transformation operations
-        {:array_to_string, column, delimiter, opts} ->
-          spec_opts = Keyword.put(opts, :value, delimiter)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_to_string,
-            column,
-            spec_opts
-          )
-
-        {:string_to_array, column, delimiter, opts} ->
-          spec_opts = Keyword.put(opts, :value, delimiter)
-
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :string_to_array,
-            column,
-            spec_opts
-          )
-
-        # Array constructor (no column)
-        {:array, elements, opts} ->
-          spec_opts = Keyword.put(opts, :value, elements)
-          Selecto.Advanced.ArrayOperations.create_array_operation(:array, nil, spec_opts)
-
-        # Generic pattern for operations with column and options
-        {operation, column, opts} when is_atom(operation) and is_list(opts) ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
-
-        _ = spec ->
-          spec
-      end)
-
-    # Add to selecto set
-    current_array_ops = Map.get(selecto.set, :array_operations, [])
-    updated_array_ops = current_array_ops ++ array_specs
-
-    put_in(selecto.set[:array_operations], updated_array_ops)
-  end
-
-  def array_select(selecto, array_operation, opts) do
-    array_select(selecto, [array_operation], opts)
-  end
+  def array_select(selecto, array_operations, opts \\ []),
+    do: Selecto.ArrayQuery.select(selecto, array_operations, opts)
 
   @doc """
   Add array filtering operations to WHERE clauses.
@@ -3767,32 +2986,8 @@ defmodule Selecto do
           {:array_overlap, "languages", ["English", "Spanish"]}
         ])
   """
-  def array_filter(selecto, array_filters, opts \\ [])
-
-  def array_filter(selecto, array_filters, _opts) when is_list(array_filters) do
-    # Create array filter specifications
-    array_specs =
-      array_filters
-      |> Enum.map(fn
-        {operation, column, value} ->
-          Selecto.Advanced.ArrayOperations.create_array_filter(operation, column, value)
-
-        _ = spec ->
-          spec
-      end)
-
-    # Add to selecto set filters
-    Selecto.QueryValidator.validate_array_specs!(selecto, array_specs)
-
-    current_filters = Map.get(selecto.set, :array_filters, [])
-    updated_filters = current_filters ++ array_specs
-
-    put_in(selecto.set[:array_filters], updated_filters)
-  end
-
-  def array_filter(selecto, array_filter, opts) do
-    array_filter(selecto, [array_filter], opts)
-  end
+  def array_filter(selecto, array_filters, opts \\ []),
+    do: Selecto.ArrayQuery.filter(selecto, array_filters, opts)
 
   @doc """
   Add array manipulation operations to select fields.
@@ -3819,72 +3014,6 @@ defmodule Selecto do
       selecto
       |> Selecto.array_manipulate({:array_to_string, "tags", ", ", as: "tag_string"})
   """
-  def array_manipulate(selecto, array_operations, opts \\ [])
-
-  def array_manipulate(selecto, array_operations, _opts) when is_list(array_operations) do
-    # Create array operation specifications
-    array_specs =
-      array_operations
-      |> Enum.map(fn
-        {:array_append, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_append,
-            column,
-            Keyword.put(opts, :value, value)
-          )
-
-        {:array_prepend, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_prepend,
-            column,
-            Keyword.put(opts, :value, value)
-          )
-
-        {:array_remove, column, value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_remove,
-            column,
-            Keyword.put(opts, :value, value)
-          )
-
-        {:array_replace, column, old_value, new_value, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_replace,
-            column,
-            opts |> Keyword.put(:value, old_value) |> Keyword.put(:new_value, new_value)
-          )
-
-        {:array_to_string, column, delimiter, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :array_to_string,
-            column,
-            Keyword.put(opts, :value, delimiter)
-          )
-
-        {:string_to_array, column, delimiter, opts} ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(
-            :string_to_array,
-            column,
-            Keyword.put(opts, :value, delimiter)
-          )
-
-        {operation, column, opts} when is_atom(operation) ->
-          Selecto.Advanced.ArrayOperations.create_array_operation(operation, column, opts)
-
-        _ = spec ->
-          spec
-      end)
-
-    # Add to selecto set
-    Selecto.QueryValidator.validate_array_specs!(selecto, array_specs)
-
-    current_array_ops = Map.get(selecto.set, :array_operations, [])
-    updated_array_ops = current_array_ops ++ array_specs
-
-    put_in(selecto.set[:array_operations], updated_array_ops)
-  end
-
-  def array_manipulate(selecto, array_operation, opts) do
-    array_manipulate(selecto, [array_operation], opts)
-  end
+  def array_manipulate(selecto, array_operations, opts \\ []),
+    do: Selecto.ArrayQuery.manipulate(selecto, array_operations, opts)
 end
