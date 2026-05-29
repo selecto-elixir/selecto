@@ -37,6 +37,50 @@ defmodule Selecto.DomainContractTest do
       assert {:ok, _normalized, _diagnostics} = Domain.validate(domain)
     end
 
+    test "accepts canonical ecosystem examples" do
+      for {name, domain} <- canonical_examples() do
+        assert {:ok, normalized, diagnostics} = Domain.validate(domain), Atom.to_string(name)
+        assert diagnostics.errors == []
+        assert Contract.validate(normalized) == :ok
+
+        query_contract = Domain.project(normalized, :query_contract)
+        write_projection = Domain.project(normalized, :write)
+
+        assert query_contract.projection == :query_contract
+        assert query_contract.capability_ids != []
+        assert query_contract.choice_sources != []
+        assert query_contract.published_views != []
+
+        assert map_size(write_projection.writes) > 0
+        assert map_size(write_projection.actions) > 0
+        assert map_size(write_projection.capabilities) > 0
+      end
+    end
+
+    test "builds stable canonical compatibility artifacts" do
+      assert {:ok, artifacts} =
+               Selecto.Domain.Examples.Compatibility.query_contract_artifacts(
+                 generated_at: "2026-05-18T00:00:00Z"
+               )
+
+      expectations = Selecto.Domain.Examples.Compatibility.expectations()
+
+      for {domain_id, artifact} <- artifacts do
+        expected = Map.fetch!(expectations, domain_id)
+        summary = Selecto.Domain.Examples.Compatibility.query_summary(artifact)
+
+        assert artifact["domain_id"] == Atom.to_string(domain_id)
+        assert artifact["generated_at"] == "2026-05-18T00:00:00Z"
+        assert summary.capability_ids == expected.capability_ids
+        assert summary.field_ids == expected.field_ids
+        assert summary.filter_ids == expected.filter_ids
+        assert summary.choice_source_ids == expected.choice_source_ids
+        assert summary.published_view_ids == expected.published_view_ids
+      end
+
+      assert :ok = Selecto.Domain.Examples.Compatibility.check()
+    end
+
     test "reports missing required sections as structured diagnostics" do
       assert {:error, diagnostics} = Domain.validate(%{source: valid_source()})
 
@@ -2411,6 +2455,13 @@ defmodule Selecto.DomainContractTest do
       },
       required_filters: [{"status", "open"}]
     }
+  end
+
+  defp canonical_examples do
+    [
+      work_items: Selecto.Domain.Examples.work_items(),
+      camp_registrations: Selecto.Domain.Examples.camp_registrations()
+    ]
   end
 
   defp valid_source do
