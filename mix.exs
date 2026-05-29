@@ -95,6 +95,7 @@ defmodule Selecto.MixProject do
   defp deps do
     [
       {:postgrex, "~> 0.22", only: :test},
+      {:exqlite, "~> 0.35", only: :test},
       {:jason, "~> 1.2"},
       {:nimble_options, "~> 1.1"},
       {:uuid, "~> 1.1"},

@@ -1,4 +1,7 @@
 Code.require_file("support/selecto_db_postgresql_adapter.exs", __DIR__)
+
+Code.require_file("support/selecto_db_sqlite_adapter.exs", __DIR__)
+
 Code.require_file("support/selecto_db_adapter_stubs.exs", __DIR__)
 
 run_db_tests? =

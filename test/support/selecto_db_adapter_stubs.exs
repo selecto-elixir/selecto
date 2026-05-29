@@ -186,23 +186,3 @@ defmodule SelectoDBDuckDB.Adapter do
     ["CAST(", sel_iodata, " AS VARCHAR)"]
   end
 end
-
-defmodule SelectoDBSQLite.Adapter do
-  @behaviour Selecto.DB.Adapter
-
-  def name, do: :sqlite
-  def connect(_opts), do: {:error, {:adapter_dependency_missing, :exqlite}}
-
-  def execute(_connection, _query, _params, _opts),
-    do: {:error, {:adapter_dependency_missing, :exqlite}}
-
-  def placeholder(_index), do: "?"
-
-  def quote_identifier(identifier) do
-    escaped = String.replace(to_string(identifier), "\"", "\"\"")
-    "\"#{escaped}\""
-  end
-
-  def supports?(:json_rowset), do: true
-  def supports?(_feature), do: false
-end
