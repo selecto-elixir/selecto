@@ -81,11 +81,8 @@ defmodule Selecto.Diagnostics do
            plan_lines: plan_lines
          }}
 
-      {:error, %Error{} = error} ->
+      {:error, error} ->
         {:error, error}
-
-      {:error, other} ->
-        {:error, Error.from_reason(other)}
     end
   end
 

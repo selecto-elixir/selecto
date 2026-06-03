@@ -7,7 +7,6 @@ defmodule Selecto.Schema.ParameterizedJoin do
   """
 
   alias Selecto.FieldResolver.ParameterizedParser
-  require Logger
 
   @type parameter_definition :: %{
           name: atom(),

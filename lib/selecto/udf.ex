@@ -82,6 +82,4 @@ defmodule Selecto.UDF do
       ArgumentError -> nil
     end
   end
-
-  defp safe_existing_atom(_value), do: nil
 end

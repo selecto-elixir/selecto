@@ -206,11 +206,6 @@ defmodule Selecto.Builder.Sql.Select do
     prep_selector(selecto, selector, %{})
   end
 
-  # Generic 3-tuple handler - assumes third element is a filter
-  def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
-    prep_selector(selecto, {func, field, filter}, %{})
-  end
-
   def prep_selector(selecto, {:literal, value}) when is_integer(value) do
     prep_selector(selecto, {:literal, value}, %{})
   end
@@ -247,6 +242,11 @@ defmodule Selecto.Builder.Sql.Select do
 
   def prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}) do
     prep_selector(selecto, {:count_bucket_other, field, bucket_ranges}, %{})
+  end
+
+  # Generic 3-tuple handler - assumes third element is a filter
+  def prep_selector(selecto, {func, field, filter}) when is_atom(func) do
+    prep_selector(selecto, {func, field, filter}, %{})
   end
 
   def prep_selector(selecto, {:field, selector}) do
@@ -435,11 +435,6 @@ defmodule Selecto.Builder.Sql.Select do
 
           nil ->
             {"NULL", []}
-
-          field when is_binary(field) ->
-            # Could be a field reference
-            {sel, _join, param} = prep_selector(selecto, field)
-            {sel, param}
 
           expr when is_tuple(expr) ->
             # Complex expression

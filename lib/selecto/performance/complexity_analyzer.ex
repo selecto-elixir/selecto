@@ -37,8 +37,6 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
         warn_on_full_table_scan: true
   """
 
-  require Logger
-
   @max_complexity_score 100
   @max_joins 10
   @max_in_clause_size 100
@@ -179,27 +177,7 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
   end
 
   # Detect cartesian products (joins without proper conditions)
-  defp check_cartesian_products(analysis, selecto) do
-    if has_cartesian_product?(selecto.config.joins) do
-      %{
-        analysis
-        | score: analysis.score + 100,
-          blocking_issues:
-            analysis.blocking_issues ++
-              [
-                "Cartesian product detected - JOIN without proper conditions"
-              ],
-          recommendations:
-            analysis.recommendations ++
-              [
-                "Ensure all JOINs have proper ON conditions",
-                "Review join relationships in domain configuration"
-              ]
-      }
-    else
-      analysis
-    end
-  end
+  defp check_cartesian_products(analysis, _selecto), do: analysis
 
   # Check IN clause sizes
   defp check_in_clause_size(analysis, selecto, max_in_size) do
@@ -397,17 +375,6 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
   defp count_subselects(query_set) do
     Map.get(query_set, :subselected, []) |> length()
   end
-
-  # Helper: Detect cartesian products
-  # This is a simplified check - real implementation would need deeper analysis
-  defp has_cartesian_product?(joins) when is_map(joins) do
-    # In Selecto, joins are configured with associations, so cartesian products
-    # are less common. This would need to check for missing join conditions.
-    # For now, we'll return false as Selecto's join system handles this.
-    false
-  end
-
-  defp has_cartesian_product?(_), do: false
 
   # Helper: Find maximum IN clause size
   defp find_max_in_clause(filters) do

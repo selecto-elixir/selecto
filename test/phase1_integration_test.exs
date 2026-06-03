@@ -18,8 +18,13 @@ defmodule Selecto.Phase1IntegrationTest do
     {cl_sql, cl_params} =
       Selecto.Builder.Sql.Hierarchy.build_closure_table_query(nil, :test, %{source: "tbl"})
 
-    assert is_list(adj_sql) and is_list(adj_params)
-    assert is_list(mp_sql) and is_list(mp_params)
-    assert is_list(cl_sql) and is_list(cl_params)
+    assert byte_size(IO.iodata_to_binary(adj_sql)) > 0
+    assert is_list(adj_params)
+
+    assert byte_size(IO.iodata_to_binary(mp_sql)) > 0
+    assert is_list(mp_params)
+
+    assert byte_size(IO.iodata_to_binary(cl_sql)) > 0
+    assert is_list(cl_params)
   end
 end

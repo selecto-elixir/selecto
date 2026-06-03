@@ -11,7 +11,6 @@ defmodule Selecto.Performance.MetricsCollector do
   """
 
   use GenServer
-  require Logger
 
   @table_name :selecto_query_metrics
   @history_limit 10_000

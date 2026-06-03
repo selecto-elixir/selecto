@@ -372,29 +372,6 @@ defmodule Selecto.TypeSystem do
     {:array, inner_type}
   end
 
-  # Scalar functions with known return types
-  defp do_infer_type(selecto, {func, args}) when is_atom(func) do
-    case Map.get(@scalar_function_return_types, func) do
-      nil ->
-        :unknown
-
-      :preserve ->
-        # Return type matches first argument type
-        first_arg = if is_list(args), do: List.first(args), else: args
-        do_infer_type(selecto, first_arg)
-
-      :dynamic ->
-        :unknown
-
-      type ->
-        type
-    end
-  end
-
-  defp do_infer_type(selecto, {func, args, _opts}) when is_atom(func) do
-    do_infer_type(selecto, {func, args})
-  end
-
   # Multi-arg functions like coalesce, greatest, least
   defp do_infer_type(selecto, {func, fields})
        when func in [:coalesce, :greatest, :least] and is_list(fields) do
@@ -463,16 +440,11 @@ defmodule Selecto.TypeSystem do
   defp do_infer_type(selecto, {:as, expression, _alias}), do: do_infer_type(selecto, expression)
   defp do_infer_type(selecto, {:field, field, _alias}), do: do_infer_type(selecto, field)
 
-  # Field reference - look up in domain/joins
-  defp do_infer_type(selecto, field) when is_binary(field) do
+  defp do_infer_type(selecto, {:field, field}) when is_binary(field) do
     case FieldResolver.resolve_field(selecto, field) do
       {:ok, %{type: type}} -> normalize_type(type)
       _ -> :unknown
     end
-  end
-
-  defp do_infer_type(selecto, {:field, field}) when is_binary(field) do
-    do_infer_type(selecto, field)
   end
 
   defp do_infer_type(selecto, field) when is_atom(field) do
@@ -495,6 +467,29 @@ defmodule Selecto.TypeSystem do
   end
 
   defp do_infer_type(selecto, {:window, func, args, _window_spec}) when is_atom(func) do
+    do_infer_type(selecto, {func, args})
+  end
+
+  # Scalar functions with known return types
+  defp do_infer_type(selecto, {func, args}) when is_atom(func) do
+    case Map.get(@scalar_function_return_types, func) do
+      nil ->
+        :unknown
+
+      :preserve ->
+        # Return type matches first argument type
+        first_arg = if is_list(args), do: List.first(args), else: args
+        do_infer_type(selecto, first_arg)
+
+      :dynamic ->
+        :unknown
+
+      type ->
+        type
+    end
+  end
+
+  defp do_infer_type(selecto, {func, args, _opts}) when is_atom(func) do
     do_infer_type(selecto, {func, args})
   end
 

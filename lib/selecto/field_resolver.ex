@@ -429,12 +429,7 @@ defmodule Selecto.FieldResolver do
           Map.get(join_config, :fields)
         else
           # Look up schema by join source
-          schema_name =
-            case Map.get(join_config, :source) do
-              source when is_atom(source) -> Atom.to_string(source)
-              source when is_binary(source) -> source
-              nil -> nil
-            end
+          schema_name = normalize_join_source(Map.get(join_config, :source))
 
           if schema_name do
             schema = get_in(selecto.domain, [:schemas, schema_name])
@@ -458,11 +453,9 @@ defmodule Selecto.FieldResolver do
 
         # Get the database field name from the configuration
         database_field_name =
-          case Map.get(field_config, :field, field_config[:field]) do
-            atom when is_atom(atom) -> Atom.to_string(atom)
-            string when is_binary(string) -> string
-            nil -> field_name
-          end
+          field_config
+          |> Map.get(:field, field_config[:field])
+          |> normalize_database_field(field_name)
 
         field_info = %{
           name: field_name,
@@ -481,6 +474,14 @@ defmodule Selecto.FieldResolver do
     end)
     |> Enum.into(%{})
   end
+
+  defp normalize_join_source(source) when is_atom(source), do: Atom.to_string(source)
+  defp normalize_join_source(source) when is_binary(source), do: source
+  defp normalize_join_source(_source), do: nil
+
+  defp normalize_database_field(field, _fallback) when is_atom(field), do: Atom.to_string(field)
+  defp normalize_database_field(field, _fallback) when is_binary(field), do: field
+  defp normalize_database_field(_field, fallback), do: fallback
 
   defp infer_cte_join_fields(join_name, join_config) do
     case normalize_cte_columns(Map.get(join_config, :cte_columns)) do

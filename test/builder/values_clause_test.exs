@@ -4,6 +4,18 @@ defmodule Selecto.Builder.ValuesClauseTest do
   alias Selecto.Advanced.ValuesClause
   alias Selecto.Builder.ValuesClause, as: Builder
 
+  @spec unvalidated_spec() :: term()
+  defp unvalidated_spec do
+    struct(ValuesClause.Spec, %{
+      id: "test_id",
+      data: [["A", 1]],
+      columns: ["col1", "col2"],
+      alias: "test",
+      data_type: :list_of_lists,
+      validated: false
+    })
+  end
+
   describe "basic VALUES SQL generation" do
     test "generates SQL for list of lists data" do
       data = [
@@ -244,14 +256,7 @@ defmodule Selecto.Builder.ValuesClauseTest do
   describe "error handling" do
     test "raises error for unvalidated specs" do
       # Create an unvalidated spec manually
-      spec = %ValuesClause.Spec{
-        id: "test_id",
-        data: [["A", 1]],
-        columns: ["col1", "col2"],
-        alias: "test",
-        data_type: :list_of_lists,
-        validated: false
-      }
+      spec = unvalidated_spec()
 
       assert_raise ArgumentError, ~r/must be validated before SQL generation/, fn ->
         Builder.build_values_clause(spec)
@@ -259,14 +264,7 @@ defmodule Selecto.Builder.ValuesClauseTest do
     end
 
     test "raises error for unvalidated CTE specs" do
-      spec = %ValuesClause.Spec{
-        id: "test_id",
-        data: [["A", 1]],
-        columns: ["col1", "col2"],
-        alias: "test",
-        data_type: :list_of_lists,
-        validated: false
-      }
+      spec = unvalidated_spec()
 
       assert_raise ArgumentError, ~r/must be validated before CTE generation/, fn ->
         Builder.build_values_cte(spec)
@@ -274,14 +272,7 @@ defmodule Selecto.Builder.ValuesClauseTest do
     end
 
     test "raises error for unvalidated parameterized specs" do
-      spec = %ValuesClause.Spec{
-        id: "test_id",
-        data: [["A", 1]],
-        columns: ["col1", "col2"],
-        alias: "test",
-        data_type: :list_of_lists,
-        validated: false
-      }
+      spec = unvalidated_spec()
 
       assert_raise ArgumentError, ~r/must be validated before parameterized SQL generation/, fn ->
         Builder.build_values_clause_with_params(spec)
