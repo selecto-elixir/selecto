@@ -899,7 +899,9 @@ defmodule Selecto.Builder.Sql.Where do
     if Selecto.Temporal.epoch_storage(conf) && date_like_type(conf) do
       Selecto.Temporal.coerce_filter_value(conf, value)
     else
-      to_type(Map.get(conf, :type), value)
+      conf
+      |> Selecto.Temporal.coerce_sql_param_value(value)
+      |> then(&to_type(Map.get(conf, :type), &1))
     end
   end
 
