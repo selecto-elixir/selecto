@@ -76,6 +76,27 @@ defmodule Selecto.Builder.Sql.WhereTest do
     Selecto.configure(domain, :mock_connection)
   end
 
+  defp datetime_selecto do
+    domain = %{
+      name: "DateTime Where Test Domain",
+      source: %{
+        source_table: "events",
+        primary_key: :id,
+        fields: [:id, :starts_at],
+        redact_fields: [],
+        columns: %{
+          id: %{type: :integer},
+          starts_at: %{type: :datetime}
+        },
+        associations: %{}
+      },
+      schemas: %{},
+      joins: %{}
+    }
+
+    Selecto.configure(domain, :mock_connection)
+  end
+
   defp sqlite_fts_selecto do
     selecto = Map.put(selecto(), :adapter, SelectoDBSQLite.Adapter)
 
@@ -138,6 +159,19 @@ defmodule Selecto.Builder.Sql.WhereTest do
       {_joins, iodata, _params} =
         Where.build(
           utc_datetime_selecto(),
+          {"starts_at", {:between, ~N[2007-01-01 00:00:00], ~N[2008-01-01 00:00:00]}}
+        )
+
+      {_sql, [start_dt, end_dt]} = Params.finalize(iodata)
+
+      assert start_dt == ~U[2007-01-01 00:00:00Z]
+      assert end_dt == ~U[2008-01-01 00:00:00Z]
+    end
+
+    test "datetime between coerces naive datetime bounds to DateTime params" do
+      {_joins, iodata, _params} =
+        Where.build(
+          datetime_selecto(),
           {"starts_at", {:between, ~N[2007-01-01 00:00:00], ~N[2008-01-01 00:00:00]}}
         )
 

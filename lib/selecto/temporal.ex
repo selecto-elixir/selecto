@@ -85,7 +85,7 @@ defmodule Selecto.Temporal do
       {storage, type} when storage != nil and type != nil ->
         to_epoch_value(value, storage, type)
 
-      {_storage, type} when type in [:utc_datetime, :naive_datetime] ->
+      {_storage, type} when type in [:datetime, :timestamp, :utc_datetime, :naive_datetime] ->
         to_datetime(value, type)
 
       _ ->
