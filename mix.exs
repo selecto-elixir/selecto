@@ -8,6 +8,7 @@ defmodule Selecto.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      aliases: aliases(),
       cli: cli(),
       name: "Selecto",
       description:
@@ -78,7 +79,8 @@ defmodule Selecto.MixProject do
         "coveralls.detail": :test,
         "coveralls.post": :test,
         "coveralls.html": :test,
-        "coveralls.json": :test
+        "coveralls.json": :test,
+        precommit: :test
       ]
     ]
   end
@@ -108,9 +110,17 @@ defmodule Selecto.MixProject do
       {:benchee, "~> 1.5", only: [:dev, :test], optional: true},
       {:benchee_html, "~> 1.0", only: [:dev, :test], optional: true},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ecto_sql, "~> 3.13", optional: true},
       {:stream_data, "~> 1.3", only: :test},
       {:excoveralls, "~> 0.18", only: :test}
+    ]
+  end
+
+  defp aliases do
+    [
+      "credo.atom_audit": ["credo -C atom_audit --all-priorities"],
+      precommit: ["compile --warnings-as-errors", "format --check-formatted", "credo", "test"]
     ]
   end
 
