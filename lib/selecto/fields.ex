@@ -173,7 +173,9 @@ defmodule Selecto.Fields do
           # Fallback to config columns
           fallback_result =
             selecto.config.columns[field_name] ||
-              selecto.config.columns[String.to_atom(field_name)]
+              field_name
+              |> existing_atom()
+              |> then(&selecto.config.columns[&1])
 
           if fallback_result do
             # Ensure the field property contains the database field name
@@ -189,6 +191,14 @@ defmodule Selecto.Fields do
       end
     end
   end
+
+  defp existing_atom(value) when is_binary(value) do
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp existing_atom(_value), do: nil
 
   defp fallback_database_field(fallback_result, field_name) do
     case Map.get(fallback_result, :colid) do

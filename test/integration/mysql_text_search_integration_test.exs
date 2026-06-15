@@ -86,9 +86,9 @@ defmodule Selecto.Integration.MySQLTextSearchTest do
     {sql, params} = Selecto.to_sql(query)
 
     assert sql =~
-             ~r/MATCH\(selecto_root\.name, selecto_root\.description\) AGAINST \('wireless charger' IN NATURAL LANGUAGE MODE\) AS "relevance"/i
+             ~r/MATCH\(selecto_root\.name, selecto_root\.description\) AGAINST \(\? IN NATURAL LANGUAGE MODE\) AS `relevance`/i
 
-    assert params == []
+    assert params == ["wireless charger"]
   end
 
   test "mysql text_search_rank compiles boolean ranking mode", %{domain: domain} do
@@ -105,9 +105,20 @@ defmodule Selecto.Integration.MySQLTextSearchTest do
     {sql, params} = Selecto.to_sql(query)
 
     assert sql =~
-             ~r/MATCH\(selecto_root\.name, selecto_root\.description\) AGAINST \('\+wireless -charger' IN BOOLEAN MODE\) AS "relevance"/i
+             ~r/MATCH\(selecto_root\.name, selecto_root\.description\) AGAINST \(\? IN BOOLEAN MODE\) AS `relevance`/i
 
-    assert params == []
+    assert params == ["+wireless -charger"]
+  end
+
+  test "mysql text_search_rank rejects unknown fields before rendering SQL", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBMySQL.Adapter)
+      |> Selecto.select(["name"])
+
+    assert_raise ArgumentError, ~r/field not found/, fn ->
+      Selecto.text_search_rank(query, ["name;drop"], as: "relevance", query: "wireless")
+    end
   end
 
   test "mysql text_search_rank rejects unsupported phrase mode", %{domain: domain} do

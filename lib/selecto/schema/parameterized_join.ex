@@ -26,7 +26,7 @@ defmodule Selecto.Schema.ParameterizedJoin do
           base_config: map(),
           parameters: [validated_parameter()],
           parameter_context: map(),
-          join_condition: String.t() | nil,
+          join_condition: iodata() | nil,
           parameter_signature: String.t()
         }
 
@@ -129,19 +129,14 @@ defmodule Selecto.Schema.ParameterizedJoin do
   @doc """
   Resolve parameterized join condition by replacing parameter placeholders.
   """
-  @spec resolve_parameterized_condition(map(), [validated_parameter()]) :: String.t() | nil
+  @spec resolve_parameterized_condition(map(), [validated_parameter()]) :: iodata() | nil
   def resolve_parameterized_condition(join_config, validated_params) do
     case Map.get(join_config, :join_condition) do
       nil ->
         nil
 
       condition_template when is_binary(condition_template) ->
-        # Replace parameter placeholders with actual values
-        Enum.reduce(validated_params, condition_template, fn param, acc ->
-          placeholder = "$param_#{param.name}"
-          replacement = format_parameter_for_sql(param.value, param.type)
-          String.replace(acc, placeholder, replacement)
-        end)
+        parameterize_condition(condition_template, validated_params)
 
       _ ->
         nil
@@ -185,7 +180,7 @@ defmodule Selecto.Schema.ParameterizedJoin do
 
       # String can be converted to atom
       {:string, :atom} ->
-        {:ok, String.to_atom(provided_value)}
+        existing_atom(provided_value)
 
       # Integer can be converted to float
       {:integer, :float} ->
@@ -221,14 +216,20 @@ defmodule Selecto.Schema.ParameterizedJoin do
     end
   end
 
-  defp format_parameter_for_sql(value, type) do
-    case type do
-      :string -> "'#{String.replace(to_string(value), "'", "''")}'"
-      :integer -> to_string(value)
-      :float -> to_string(value)
-      :boolean -> if value, do: "true", else: "false"
-      :atom -> "'#{String.replace(to_string(value), "'", "''")}'"
-      _ -> "'#{String.replace(to_string(value), "'", "''")}'"
-    end
+  defp parameterize_condition(condition_template, validated_params) do
+    replacements =
+      Map.new(validated_params, fn param ->
+        {"$param_#{param.name}", {:param, param.value}}
+      end)
+
+    ~r/(\$param_[a-zA-Z_][a-zA-Z0-9_]*)/
+    |> Regex.split(condition_template, include_captures: true, trim: false)
+    |> Enum.map(fn fragment -> Map.get(replacements, fragment, fragment) end)
+  end
+
+  defp existing_atom(value) do
+    {:ok, String.to_existing_atom(value)}
+  rescue
+    ArgumentError -> {:error, "Cannot convert '#{value}' to an existing atom"}
   end
 end

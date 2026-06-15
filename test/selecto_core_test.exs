@@ -138,6 +138,16 @@ defmodule Selecto.CoreTest do
       assert is_nil(field_config)
     end
 
+    test "field/2 does not create atoms for unknown field names", %{selecto: selecto} do
+      field_name = "unknown_field_#{System.unique_integer([:positive])}"
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(field_name) end
+
+      assert is_nil(Selecto.field(selecto, field_name))
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(field_name) end
+    end
+
     test "set/1 returns selecto set", %{selecto: selecto} do
       set = Selecto.set(selecto)
       # set should be the Selecto configuration's set

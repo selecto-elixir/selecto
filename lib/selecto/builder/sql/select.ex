@@ -47,7 +47,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   # Custom SQL clause (Phase 1 safety implementation)
   def prep_selector(selecto, {:custom_sql, sql_template, field_mappings})
-      when is_binary(sql_template) do
+      when is_binary(sql_template) or is_list(sql_template) do
     # Validate that all referenced fields exist
     available_fields = get_available_fields(selecto)
     validate_field_references(selecto, field_mappings, available_fields)
@@ -55,7 +55,7 @@ defmodule Selecto.Builder.Sql.Select do
     # Replace field placeholders with actual field references
     safe_sql = substitute_field_references(sql_template, field_mappings, selecto)
 
-    # Return as safe iodata (no parameters for now - Phase 1 safety only)
+    # Return as safe iodata. {:param, value} markers are preserved for finalization.
     {[safe_sql], :selecto_root, []}
   end
 
@@ -275,7 +275,7 @@ defmodule Selecto.Builder.Sql.Select do
 
   # Phase 4: iodata-based prep_selector/3 functions
   def prep_selector(selecto, {:custom_sql, sql_template, field_mappings}, _retarget_aliases)
-      when is_binary(sql_template) do
+      when is_binary(sql_template) or is_list(sql_template) do
     prep_selector(selecto, {:custom_sql, sql_template, field_mappings})
   end
 
@@ -1581,13 +1581,24 @@ defmodule Selecto.Builder.Sql.Select do
     end
   end
 
-  defp substitute_field_references(sql_template, field_mappings, selecto) do
+  defp substitute_field_references(sql_template, field_mappings, selecto)
+       when is_binary(sql_template) do
     # Safely replace {{field}} placeholders with actual field references
     Enum.reduce(field_mappings, sql_template, fn {placeholder, field_ref}, acc_sql ->
       safe_field_reference = build_safe_field_reference(field_ref, selecto)
       String.replace(acc_sql, "{{#{placeholder}}}", safe_field_reference)
     end)
   end
+
+  defp substitute_field_references(sql_template, field_mappings, selecto)
+       when is_list(sql_template) do
+    Enum.map(sql_template, &substitute_field_references(&1, field_mappings, selecto))
+  end
+
+  defp substitute_field_references({:param, _value} = marker, _field_mappings, _selecto),
+    do: marker
+
+  defp substitute_field_references(other, _field_mappings, _selecto), do: other
 
   defp build_safe_field_reference(field_ref, selecto) do
     case String.split(to_string(field_ref), ".", parts: 2) do

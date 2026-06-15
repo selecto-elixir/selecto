@@ -102,6 +102,17 @@ defmodule Selecto.Integration.SQLiteTextSearchTest do
     assert params == []
   end
 
+  test "sqlite_fts_rank rejects non-numeric weights", %{domain: domain} do
+    query =
+      Selecto.configure(domain, [], validate: false)
+      |> Map.put(:adapter, SelectoDBSQLite.Adapter)
+      |> Selecto.select(["name"])
+
+    assert_raise ArgumentError, ~r/weights must contain only numbers/, fn ->
+      Selecto.text_search_rank(query, ["name"], as: "relevance", weights: ["1); drop table"])
+    end
+  end
+
   test "text_search_rank fails explicitly on unsupported adapters", %{domain: domain} do
     query =
       Selecto.configure(domain, [], validate: false)

@@ -240,7 +240,7 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
 
       # String can be converted to atom
       {:string, :atom} ->
-        {:ok, String.to_atom(provided_value)}
+        existing_atom(provided_value)
 
       # Integer can be converted to float
       {:integer, :float} ->
@@ -274,5 +274,11 @@ defmodule Selecto.FieldResolver.ParameterizedParser do
       _ ->
         {:error, "Expected #{expected_type}, got #{provided_type} '#{provided_value}'"}
     end
+  end
+
+  defp existing_atom(value) do
+    {:ok, String.to_existing_atom(value)}
+  rescue
+    ArgumentError -> {:error, "Cannot convert '#{value}' to an existing atom"}
   end
 end
