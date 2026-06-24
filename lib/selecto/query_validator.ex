@@ -267,6 +267,13 @@ defmodule Selecto.QueryValidator do
     Enum.each(fields, &validate_function_arg!(selecto, &1))
   end
 
+  defp validate_selector!(selecto, {:custom_sql, _sql_template, field_mappings})
+       when is_map(field_mappings) do
+    field_mappings
+    |> Map.values()
+    |> Enum.each(&validate_field_reference!(selecto, &1))
+  end
+
   defp validate_selector!(_selecto, {func}) when is_atom(func), do: :ok
 
   defp validate_selector!(selecto, {func, selector}) when is_atom(func) do
@@ -276,13 +283,6 @@ defmodule Selecto.QueryValidator do
   defp validate_selector!(selecto, {func, selector, filter}) when is_atom(func) do
     validate_selector!(selecto, selector)
     validate_filter!(selecto, filter)
-  end
-
-  defp validate_selector!(selecto, {:custom_sql, _sql_template, field_mappings})
-       when is_map(field_mappings) do
-    field_mappings
-    |> Map.values()
-    |> Enum.each(&validate_field_reference!(selecto, &1))
   end
 
   defp validate_selector!(_selecto, _selector), do: :ok
@@ -630,8 +630,6 @@ defmodule Selecto.QueryValidator do
   defp field_reference_like?(field_ref) when is_binary(field_ref) do
     Regex.match?(~r/^[A-Za-z_][A-Za-z0-9_]*(?::[^.]+)*(?:\.[A-Za-z_][A-Za-z0-9_]*)?$/, field_ref)
   end
-
-  defp field_reference_like?(_field_ref), do: false
 
   defp computed_alias?(selecto, field_ref) do
     field_name = to_string(field_ref)

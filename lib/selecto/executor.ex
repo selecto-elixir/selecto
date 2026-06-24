@@ -376,8 +376,7 @@ defmodule Selecto.Executor do
 
         case execute_stream_for_context(selecto, query, params, aliases, opts) do
           {:ok, stream} -> {:ok, stream}
-          {:error, %Selecto.Error{} = error} -> {:error, error}
-          {:error, reason} -> {:error, Selecto.Error.from_reason(reason)}
+          {:error, error} -> {:error, error}
         end
       rescue
         error ->
@@ -653,8 +652,6 @@ defmodule Selecto.Executor do
       _ -> false
     end
   end
-
-  defp is_ecto_repo?(_), do: false
 
   defp runtime_connection(%{connection: nil, postgrex_opts: postgrex_opts}), do: postgrex_opts
   defp runtime_connection(%{connection: connection}), do: connection

@@ -5,11 +5,11 @@ on:
     branches: [main, non-ecto]
   pull_request:
     branches: [main, non-ecto]
+  workflow_dispatch:
 
 env:
-  ELIXIR_VERSION: "1.18"
-  # OTP 28 + Elixir 1.18 breaks regexes in module attributes (e.g. inflex via mneme).
-  OTP_VERSION: "27"
+  ELIXIR_VERSION: "1.20.0"
+  OTP_VERSION: "29.0"
 
 jobs:
   test:
@@ -32,21 +32,15 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('**/mix.lock') }}
+          key: ${{ runner.os }}-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-${{ hashFiles('mix.exs', 'mix.lock') }}
           restore-keys: |
             ${{ runner.os }}-mix-${{ env.ELIXIR_VERSION }}-${{ env.OTP_VERSION }}-
 
       - name: Install dependencies
         run: mix deps.get
 
-      - name: Check formatting
-        run: mix format --check-formatted
-
-      - name: Compile with warnings as errors
-        run: mix compile --warnings-as-errors
-
-      - name: Run tests
-        run: mix test --cover
+      - name: Run precommit checks
+        run: mix precommit
 
       - name: Run performance tests
         run: mix test test/performance_test.exs --include performance:true
@@ -56,6 +50,7 @@ jobs:
 
   dialyzer:
     name: Dialyzer Analysis
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:

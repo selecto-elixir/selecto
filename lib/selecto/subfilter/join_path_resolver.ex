@@ -283,7 +283,6 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   defp extract_first_join_condition(on_clause) do
     case split_first_top_level_and(on_clause) do
       {first_condition, _second_condition} -> first_condition
-      _ -> String.trim(on_clause)
     end
   end
 

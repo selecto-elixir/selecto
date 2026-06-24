@@ -1,6 +1,8 @@
 defmodule Selecto.TextSearch do
   @moduledoc false
 
+  alias Selecto.Builder.Sql.Helpers
+
   def text_search_rank(selecto, fields, opts \\ [])
 
   def text_search_rank(selecto, fields, opts) when is_map(opts) do
@@ -46,13 +48,20 @@ defmodule Selecto.TextSearch do
 
     match_args =
       normalized_fields
-      |> Enum.map(fn field -> "selecto_root.#{field}" end)
-      |> Enum.join(", ")
+      |> Enum.map(&mysql_text_search_field_reference!(selecto, &1))
+      |> Enum.intersperse(", ")
 
     selector =
       {:custom_sql,
-       "MATCH(#{match_args}) AGAINST ('#{escape_sql_literal(query)}'#{mysql_rank_mode_sql(selecto, mode)}) AS \"#{alias_name}\"",
-       %{}}
+       [
+         "MATCH(",
+         match_args,
+         ") AGAINST (",
+         {:param, query},
+         mysql_rank_mode_sql(selecto, mode),
+         ") AS ",
+         quoted_alias!(selecto, alias_name)
+       ], %{}}
 
     put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
   end
@@ -124,14 +133,18 @@ defmodule Selecto.TextSearch do
     alias_name = Keyword.get(opts, :as, "fts_rank")
     weights = Keyword.get(opts, :weights, [])
     source_table = sqlite_fts_rank_source_table!(selecto, normalized_fields)
+    weight_args = sqlite_fts_rank_weight_args!(weights)
 
-    bm25_args =
-      case weights do
-        [] -> source_table
-        list when is_list(list) -> Enum.join([source_table | Enum.map(list, &to_string/1)], ", ")
-      end
+    selector =
+      {:custom_sql,
+       [
+         "bm25(",
+         Helpers.quote_identifier(selecto, source_table),
+         weight_args,
+         ") AS ",
+         quoted_alias!(selecto, alias_name)
+       ], %{}}
 
-    selector = {:custom_sql, "bm25(#{bm25_args}) AS \"#{alias_name}\"", %{}}
     put_in(selecto.set[:selected], Enum.uniq(selecto.set.selected ++ [selector]))
   end
 
@@ -159,9 +172,8 @@ defmodule Selecto.TextSearch do
   end
 
   defp sqlite_fts_rank_field_conf!(selecto, field) do
-    columns = selecto.config[:columns] || %{}
     field_key = to_string(field)
-    conf = Map.get(columns, field_key) || Map.get(columns, safe_existing_atom(field_key))
+    conf = root_column_conf(selecto, field_key)
 
     cond do
       is_nil(conf) ->
@@ -178,9 +190,8 @@ defmodule Selecto.TextSearch do
   end
 
   defp postgresql_text_search_rank_field_conf!(selecto, field) do
-    columns = selecto.config[:columns] || %{}
     field_key = to_string(field)
-    conf = Map.get(columns, field_key) || Map.get(columns, safe_existing_atom(field_key))
+    conf = root_column_conf(selecto, field_key)
 
     cond do
       is_nil(conf) ->
@@ -248,7 +259,59 @@ defmodule Selecto.TextSearch do
     end
   end
 
-  defp escape_sql_literal(value) when is_binary(value), do: String.replace(value, "'", "''")
+  defp mysql_text_search_field_reference!(selecto, field) do
+    field_key = to_string(field)
+
+    if is_nil(root_column_conf(selecto, field_key)) do
+      raise ArgumentError, "mysql text_search_rank/3 field not found: #{inspect(field)}"
+    end
+
+    [
+      Helpers.quote_identifier(selecto, "selecto_root"),
+      ".",
+      Helpers.quote_identifier(selecto, field_key)
+    ]
+  end
+
+  defp sqlite_fts_rank_weight_args!([]), do: []
+
+  defp sqlite_fts_rank_weight_args!(weights) when is_list(weights) do
+    weights
+    |> Enum.map(&sqlite_fts_rank_weight_sql!/1)
+    |> case do
+      [] -> []
+      weight_sql -> [", ", Enum.intersperse(weight_sql, ", ")]
+    end
+  end
+
+  defp sqlite_fts_rank_weight_args!(weights) do
+    raise ArgumentError,
+          "sqlite_fts_rank/3 :weights must be a list of numbers, got: #{inspect(weights)}"
+  end
+
+  defp sqlite_fts_rank_weight_sql!(weight) when is_integer(weight), do: Integer.to_string(weight)
+
+  defp sqlite_fts_rank_weight_sql!(weight) when is_float(weight), do: Float.to_string(weight)
+
+  defp sqlite_fts_rank_weight_sql!(weight) do
+    raise ArgumentError,
+          "sqlite_fts_rank/3 :weights must contain only numbers, got: #{inspect(weight)}"
+  end
+
+  defp quoted_alias!(selecto, alias_name) do
+    alias_string = to_string(alias_name)
+    _validated = Helpers.quote_identifier(selecto, alias_string)
+    Helpers.force_quote_identifier(selecto, alias_string)
+  end
+
+  defp root_column_conf(selecto, field_key) do
+    columns =
+      selecto
+      |> Map.get(:config, %{})
+      |> Map.get(:columns, %{})
+
+    Map.get(columns, field_key) || Map.get(columns, safe_existing_atom(field_key))
+  end
 
   defp safe_existing_atom(value) when is_binary(value) do
     try do

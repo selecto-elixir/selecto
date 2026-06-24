@@ -87,17 +87,19 @@ defmodule Selecto.ParameterizedJoinIntegrationTest do
              }
 
       expected_condition = """
-      {join_alias}.category = 'electronics' AND
-      {join_alias}.price >= 25.0 AND
-      {join_alias}.active = true AND
-      {join_alias}.featured = true
+      {join_alias}.category = $1 AND
+      {join_alias}.price >= $2 AND
+      {join_alias}.active = $3 AND
+      {join_alias}.featured = $4
       """
 
       # Normalize whitespace for comparison
-      normalized_result = String.replace(result.join_condition, ~r/\s+/, " ")
+      {condition_sql, condition_params} = finalize_condition(result.join_condition)
+      normalized_result = String.replace(condition_sql, ~r/\s+/, " ")
       normalized_expected = String.replace(expected_condition, ~r/\s+/, " ")
 
       assert String.trim(normalized_result) == String.trim(normalized_expected)
+      assert condition_params == ["electronics", 25.0, true, true]
     end
 
     test "applies default values for missing optional parameters", %{
@@ -320,8 +322,8 @@ defmodule Selecto.ParameterizedJoinIntegrationTest do
 
       condition = ParameterizedJoin.resolve_parameterized_condition(join_config, validated_params)
 
-      expected = "{join_alias}.category = 'electronics' AND {join_alias}.price >= 25.0"
-      assert condition == expected
+      assert finalize_condition(condition) ==
+               {"{join_alias}.category = $1 AND {join_alias}.price >= $2", ["electronics", 25.0]}
     end
 
     test "handles different parameter types" do
@@ -339,11 +341,12 @@ defmodule Selecto.ParameterizedJoinIntegrationTest do
 
       condition = ParameterizedJoin.resolve_parameterized_condition(join_config, validated_params)
 
-      expected = "field1 = 'test' AND field2 = 42 AND field3 = true AND field4 = 3.14"
-      assert condition == expected
+      assert finalize_condition(condition) ==
+               {"field1 = $1 AND field2 = $2 AND field3 = $3 AND field4 = $4",
+                ["test", 42, true, 3.14]}
     end
 
-    test "escapes single quotes in string values" do
+    test "binds string values containing single quotes" do
       join_config = %{
         join_condition: "name = $param_name"
       }
@@ -354,8 +357,7 @@ defmodule Selecto.ParameterizedJoinIntegrationTest do
 
       condition = ParameterizedJoin.resolve_parameterized_condition(join_config, validated_params)
 
-      expected = "name = 'O''Reilly'"
-      assert condition == expected
+      assert finalize_condition(condition) == {"name = $1", ["O'Reilly"]}
     end
 
     test "returns nil when no join_condition specified" do
@@ -378,7 +380,7 @@ defmodule Selecto.ParameterizedJoinIntegrationTest do
       parameterized_config = %{
         parameters: [%{name: :category, value: "electronics", type: :string}],
         parameter_context: %{category: "electronics"},
-        join_condition: "category = 'electronics'",
+        join_condition: ["category = ", {:param, "electronics"}],
         parameter_signature: "electronics"
       }
 
@@ -395,5 +397,9 @@ defmodule Selecto.ParameterizedJoinIntegrationTest do
       assert enhanced.name == "Products"
       assert enhanced.type == :left
     end
+  end
+
+  defp finalize_condition(condition) do
+    Selecto.SQL.Params.finalize(condition, adapter: SelectoDBPostgreSQL.Adapter)
   end
 end

@@ -254,8 +254,7 @@ defmodule Selecto.Domain.Shorthand do
         id
 
       source_relationship_id = MapHelpers.map_value(shorthand, :source_relationship_id) ->
-        if (is_atom(source_relationship_id) and not is_nil(source_relationship_id)) or
-             is_binary(source_relationship_id) do
+        if is_atom(source_relationship_id) or is_binary(source_relationship_id) do
           source_relationship_id
         else
           "#{shorthand_field_prefix(scope, field)}_source_relationship"

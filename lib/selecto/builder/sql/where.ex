@@ -239,40 +239,23 @@ defmodule Selecto.Builder.Sql.Where do
     end
   end
 
+  # Handle :between with separate min, max parameters and JSONB dot notation
+  def build(selecto, {field, {:between, min, max}}) when is_binary(field) do
+    domain = selecto.config
+
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        build_jsonb_between(selecto, column, path, min, max)
+
+      {:regular, _} ->
+        build_regular_between(selecto, field, min, max)
+    end
+  end
+
   # Handle :between with separate min, max parameters
   # For datetime types, use >= start AND < end for better boundary handling
   def build(selecto, {field, {:between, min, max}}) do
-    conf = field_conf(selecto, field)
-    # Extract actual field name, not display name
-    field_name = extract_database_field(field, conf)
-
-    # Use half-open interval for datetime types to avoid precision issues
-    if date_like_type(conf) do
-      {conf.requires_join,
-       [
-         " (",
-         build_selector_string(selecto, conf.requires_join, field_name),
-         " >= ",
-         {:param, to_field_value(conf, min)},
-         " and ",
-         build_selector_string(selecto, conf.requires_join, field_name),
-         " < ",
-         {:param, to_field_value(conf, max)},
-         ") "
-       ], []}
-    else
-      # Use standard BETWEEN for non-datetime types
-      {conf.requires_join,
-       [
-         " ",
-         build_selector_string(selecto, conf.requires_join, field_name),
-         " between ",
-         {:param, to_field_value(conf, min)},
-         " and ",
-         {:param, to_field_value(conf, max)},
-         " "
-       ], []}
-    end
+    build_regular_between(selecto, field, min, max)
   end
 
   def build(selecto, {field, {comp, value}}) when comp in [:like, :ilike] do
@@ -317,6 +300,21 @@ defmodule Selecto.Builder.Sql.Where do
     {List.wrap(join), [" ", sel, " NOT LIKE ", {:param, value}, " "], param}
   end
 
+  # JSONB path with comparison operators
+  def build(selecto, {field, {comp, value}})
+      when is_binary(field) and
+             comp in [:gt, :lt, :gte, :lte, :eq, :ne, :=, :!=, :<, :>, :<=, :>=] do
+    domain = selecto.config
+
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        build_jsonb_comparison(selecto, column, path, comp, value)
+
+      {:regular, _} ->
+        build_regular_comparison(selecto, field, comp, value)
+    end
+  end
+
   def build(selecto, {field, {comp, value}})
       when comp in [:=, :!=, :<, :>, :<=, :>=, :gt, :lt, :gte, :lte, :eq, :ne] do
     conf = field_conf(selecto, field)
@@ -344,6 +342,24 @@ defmodule Selecto.Builder.Sql.Where do
 
     {List.wrap(conf.requires_join) ++ List.wrap(join),
      [" ", sel, " ", comp, " ", {:param, to_field_value(conf, value)}, " "], param}
+  end
+
+  # JSONB path with :in operator
+  def build(selecto, {field, {:in, list}}) when is_binary(field) and is_list(list) do
+    domain = selecto.config
+
+    case Jsonb.parse_field_reference(field, domain) do
+      {:jsonb, column, path} ->
+        build_jsonb_in(selecto, column, path, list)
+
+      {:regular, _} ->
+        conf = field_conf(selecto, field)
+        {sel, join, param} = Select.prep_selector(selecto, field)
+        typed_values = Enum.map(list, fn i -> to_field_value(conf, i) end)
+        in_clause = build_list_clause(selecto, sel, typed_values, false)
+
+        {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
+    end
   end
 
   def build(selecto, {field, {:in, list}}) when is_list(list) do
@@ -534,82 +550,6 @@ defmodule Selecto.Builder.Sql.Where do
       {:regular, _} ->
         # Fallback to array contains for regular array columns
         build(selecto, {:array_contains, field, values})
-    end
-  end
-
-  # JSONB path with comparison operators
-  def build(selecto, {field, {comp, value}})
-      when is_binary(field) and
-             comp in [:gt, :lt, :gte, :lte, :eq, :ne, :=, :!=, :<, :>, :<=, :>=] do
-    domain = selecto.config
-
-    case Jsonb.parse_field_reference(field, domain) do
-      {:jsonb, column, path} ->
-        build_jsonb_comparison(selecto, column, path, comp, value)
-
-      {:regular, _} ->
-        # Not a JSONB field, use regular comparison
-        build_regular_comparison(selecto, field, comp, value)
-    end
-  end
-
-  # JSONB path with :in operator
-  def build(selecto, {field, {:in, list}}) when is_binary(field) and is_list(list) do
-    domain = selecto.config
-
-    case Jsonb.parse_field_reference(field, domain) do
-      {:jsonb, column, path} ->
-        build_jsonb_in(selecto, column, path, list)
-
-      {:regular, _} ->
-        # Not a JSONB field, use regular IN
-        conf = field_conf(selecto, field)
-        {sel, join, param} = Select.prep_selector(selecto, field)
-        typed_values = Enum.map(list, fn i -> to_field_value(conf, i) end)
-        in_clause = build_list_clause(selecto, sel, typed_values, false)
-
-        {List.wrap(conf.requires_join) ++ List.wrap(join), in_clause, param}
-    end
-  end
-
-  # JSONB path with :between operator
-  def build(selecto, {field, {:between, min, max}}) when is_binary(field) do
-    domain = selecto.config
-
-    case Jsonb.parse_field_reference(field, domain) do
-      {:jsonb, column, path} ->
-        build_jsonb_between(selecto, column, path, min, max)
-
-      {:regular, _} ->
-        # Not a JSONB field, delegate to regular between handler
-        conf = field_conf(selecto, field)
-        field_name = extract_database_field(field, conf)
-
-        if date_like_type(conf) do
-          {conf.requires_join,
-           [
-             " (",
-             build_selector_string(selecto, conf.requires_join, field_name),
-             " >= ",
-             {:param, to_field_value(conf, min)},
-             " and ",
-             build_selector_string(selecto, conf.requires_join, field_name),
-             " < ",
-             {:param, to_field_value(conf, max)},
-             ") "
-           ], []}
-        else
-          {conf.requires_join,
-           [
-             " ",
-             build_selector_string(selecto, conf.requires_join, field_name),
-             " between ",
-             {:param, to_field_value(conf, min)},
-             " and ",
-             {:param, to_field_value(conf, max)},
-             " "
-           ], []}
-        end
     end
   end
 
@@ -875,6 +815,40 @@ defmodule Selecto.Builder.Sql.Where do
     {case_iodata, all_joins ++ List.wrap(else_joins), all_params ++ else_params}
   end
 
+  defp build_regular_between(selecto, field, min, max) do
+    conf = field_conf(selecto, field)
+    # Extract actual field name, not display name
+    field_name = extract_database_field(field, conf)
+
+    # Use half-open interval for datetime types to avoid precision issues
+    if date_like_type(conf) do
+      {conf.requires_join,
+       [
+         " (",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " >= ",
+         {:param, to_field_value(conf, min)},
+         " and ",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " < ",
+         {:param, to_field_value(conf, max)},
+         ") "
+       ], []}
+    else
+      # Use standard BETWEEN for non-datetime types
+      {conf.requires_join,
+       [
+         " ",
+         build_selector_string(selecto, conf.requires_join, field_name),
+         " between ",
+         {:param, to_field_value(conf, min)},
+         " and ",
+         {:param, to_field_value(conf, max)},
+         " "
+       ], []}
+    end
+  end
+
   # Helper to convert array SQL with params to iodata format
   defp convert_array_sql_to_iodata(sql, params) do
     # Replace $1, $2, etc. with {:param, value} markers
@@ -904,10 +878,9 @@ defmodule Selecto.Builder.Sql.Where do
   end
 
   defp to_type(type, value) when type in [:uuid, :binary_id] and is_binary(value) do
-    case Ecto.UUID.dump(value) do
-      {:ok, dumped} -> dumped
-      :error -> value
-    end
+    UUID.string_to_binary!(value)
+  rescue
+    ArgumentError -> value
   end
 
   defp to_type(:integer, value) when is_integer(value) do
@@ -926,7 +899,9 @@ defmodule Selecto.Builder.Sql.Where do
     if Selecto.Temporal.epoch_storage(conf) && date_like_type(conf) do
       Selecto.Temporal.coerce_filter_value(conf, value)
     else
-      to_type(Map.get(conf, :type), value)
+      conf
+      |> Selecto.Temporal.coerce_sql_param_value(value)
+      |> then(&to_type(Map.get(conf, :type), &1))
     end
   end
 

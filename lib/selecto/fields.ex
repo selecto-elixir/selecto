@@ -173,31 +173,16 @@ defmodule Selecto.Fields do
           # Fallback to config columns
           fallback_result =
             selecto.config.columns[field_name] ||
-              selecto.config.columns[String.to_atom(field_name)]
+              field_name
+              |> existing_atom()
+              |> then(&selecto.config.columns[&1])
 
           if fallback_result do
             # Ensure the field property contains the database field name
             database_field =
-              case Map.get(fallback_result, :field) do
-                atom when is_atom(atom) ->
-                  Atom.to_string(atom)
-
-                string when is_binary(string) ->
-                  string
-
-                nil ->
-                  # Extract field name from colid if available, otherwise use the field parameter
-                  case Map.get(fallback_result, :colid) do
-                    colid when is_binary(colid) ->
-                      case String.split(colid, ".") do
-                        [_join, nested_field] when nested_field != "" -> nested_field
-                        _ -> Atom.to_string(field_name)
-                      end
-
-                    _ ->
-                      Atom.to_string(field_name)
-                  end
-              end
+              fallback_result
+              |> Map.get(:field)
+              |> normalize_database_field(fallback_result, field_name)
 
             Map.put(fallback_result, :field, database_field)
           else
@@ -206,6 +191,36 @@ defmodule Selecto.Fields do
       end
     end
   end
+
+  defp existing_atom(value) when is_binary(value) do
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp existing_atom(_value), do: nil
+
+  defp fallback_database_field(fallback_result, field_name) do
+    case Map.get(fallback_result, :colid) do
+      colid when is_binary(colid) ->
+        case String.split(colid, ".") do
+          [_join, nested_field] when nested_field != "" -> nested_field
+          _ -> Atom.to_string(field_name)
+        end
+
+      _ ->
+        Atom.to_string(field_name)
+    end
+  end
+
+  defp normalize_database_field(field, _fallback_result, _field_name) when is_atom(field),
+    do: Atom.to_string(field)
+
+  defp normalize_database_field(field, _fallback_result, _field_name) when is_binary(field),
+    do: field
+
+  defp normalize_database_field(_field, fallback_result, field_name),
+    do: fallback_database_field(fallback_result, field_name)
 
   @doc """
   Enhanced field resolution with disambiguation and error handling.

@@ -79,6 +79,22 @@ defmodule Selecto.Temporal do
     end
   end
 
+  @spec coerce_sql_param_value(map() | nil, term()) :: term()
+  def coerce_sql_param_value(conf, value) when is_map(conf) do
+    case {epoch_storage(conf), date_like_type(conf)} do
+      {storage, type} when storage != nil and type != nil ->
+        to_epoch_value(value, storage, type)
+
+      {_storage, type} when type in [:datetime, :timestamp, :utc_datetime, :naive_datetime] ->
+        to_datetime(value, type)
+
+      _ ->
+        value
+    end
+  end
+
+  def coerce_sql_param_value(_conf, value), do: value
+
   @spec to_display_temporal(map() | nil, term()) :: term()
   def to_display_temporal(conf, value) when is_map(conf) do
     case {epoch_storage(conf), date_like_type(conf)} do

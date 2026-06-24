@@ -184,14 +184,14 @@ defmodule Selecto.Advanced.ValuesClause do
       rest
       |> Enum.with_index(1)
       |> Enum.filter(fn {row, _index} ->
-        not is_list(row) or (is_list(row) and length(row) != expected_length)
+        row_length(row) != expected_length
       end)
 
     if Enum.empty?(invalid_rows) do
       {:ok, :list_of_lists}
     else
       [{invalid_row, index}] = Enum.take(invalid_rows, 1)
-      actual_length = if is_list(invalid_row), do: length(invalid_row), else: 0
+      actual_length = row_length(invalid_row)
 
       {:error,
        %ValidationError{
@@ -205,6 +205,9 @@ defmodule Selecto.Advanced.ValuesClause do
        }}
     end
   end
+
+  defp row_length(row) when is_list(row), do: length(row)
+  defp row_length(_row), do: 0
 
   # Validate that all rows are maps with consistent keys
   defp validate_map_consistency([first_row | rest]) when is_map(first_row) do

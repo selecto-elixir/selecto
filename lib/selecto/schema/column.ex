@@ -219,6 +219,4 @@ defmodule Selecto.Schema.Column do
       _ -> humanize(fallback)
     end
   end
-
-  defp resolve_assigned_name(_config, fallback), do: humanize(fallback)
 end

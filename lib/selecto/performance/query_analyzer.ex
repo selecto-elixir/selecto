@@ -10,8 +10,6 @@ defmodule Selecto.Performance.QueryAnalyzer do
   - Tracking index usage
   """
 
-  require Logger
-
   @doc """
   Analyze a query using EXPLAIN ANALYZE and return detailed performance information.
 

@@ -1166,8 +1166,6 @@ defmodule Selecto.Builder.Sql do
   end
 
   # Phase 1: Join pattern detection for advanced join types
-  defp detect_advanced_join_pattern(nil), do: :basic
-
   defp detect_advanced_join_pattern(config) do
     case Map.get(config, :join_type) do
       :hierarchical_adjacency ->
