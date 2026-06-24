@@ -1,6 +1,15 @@
 
 # Selecto Library Changelog
 
+## V 0.4.6 - Coordinated 0.5 Compatibility Guidance
+---------------------------------------------------------
+
+#### Changed
+- Updated release guidance for the coordinated Selecto ecosystem point release,
+  keeping current `0.4` lower bounds available while allowing companion
+  packages to advertise the `0.5` compatibility line.
+- Bump package version to `0.4.6`.
+
 ## V 0.4.5 - Presentation Metadata and Livebook Query Validation Fixes
 ---------------------------------------------------------
 
