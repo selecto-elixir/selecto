@@ -49,59 +49,7 @@ defmodule Selecto.Executor do
   end
 
   defp execute_safe(selecto, opts, query_id, start_time) do
-    try do
-      # Check query complexity before execution (unless disabled)
-      if opts[:analyze_complexity] != false do
-        case Selecto.Performance.ComplexityAnalyzer.analyze(selecto, opts) do
-          {:ok, analysis} ->
-            # Log warnings but proceed
-            Enum.each(analysis.warnings, fn warning ->
-              Logger.warning("[Selecto] Query complexity: #{warning}")
-            end)
-
-            # Emit telemetry for complexity analysis
-            :telemetry.execute(
-              [:selecto, :query, :complexity_analyzed],
-              %{complexity_score: analysis.score},
-              %{
-                query_id: query_id,
-                warnings: analysis.warnings,
-                details: analysis.details
-              }
-            )
-
-          {:error, :too_complex, analysis} ->
-            Logger.error("[Selecto] Query rejected due to high complexity",
-              score: analysis.score,
-              issues: analysis.blocking_issues
-            )
-
-            # Emit telemetry for rejected query
-            :telemetry.execute(
-              [:selecto, :query, :complexity_rejected],
-              %{complexity_score: analysis.score},
-              %{
-                query_id: query_id,
-                blocking_issues: analysis.blocking_issues,
-                recommendations: analysis.recommendations
-              }
-            )
-
-            {:error,
-             Selecto.Error.validation_error(
-               "Query too complex to execute safely",
-               %{
-                 complexity_score: analysis.score,
-                 max_score: analysis.details.max_score,
-                 issues: analysis.blocking_issues,
-                 recommendations: analysis.recommendations,
-                 details: analysis.details
-               }
-             )}
-        end
-      end
-
-      # Execute with timeout protection
+    with :ok <- check_query_complexity(selecto, opts, query_id) do
       result = execute_with_timeout_protection(selecto, opts, query_id, start_time)
 
       # Apply output format transformation if specified
@@ -126,45 +74,54 @@ defmodule Selecto.Executor do
         error_result ->
           error_result
       end
-    rescue
-      error ->
-        duration = System.monotonic_time(:millisecond) - start_time
-        error_result = {:error, Selecto.Error.from_reason(error)}
+    end
+  end
 
-        # Emit telemetry event for query error
+  defp check_query_complexity(selecto, opts, query_id) do
+    if opts[:analyze_complexity] == false do
+      :ok
+    else
+      analyze_query_complexity(selecto, opts, query_id)
+    end
+  end
+
+  defp analyze_query_complexity(selecto, opts, query_id) do
+    case Selecto.Performance.ComplexityAnalyzer.analyze(selecto, opts) do
+      {:ok, analysis} ->
+        Enum.each(analysis.warnings, &Logger.warning("[Selecto] Query complexity: #{&1}"))
+
         :telemetry.execute(
-          [:selecto, :query, :error],
-          %{count: 1},
+          [:selecto, :query, :complexity_analyzed],
+          %{complexity_score: analysis.score},
+          %{query_id: query_id, warnings: analysis.warnings, details: analysis.details}
+        )
+
+        :ok
+
+      {:error, :too_complex, analysis} ->
+        Logger.error("[Selecto] Query rejected due to high complexity",
+          score: analysis.score,
+          issues: analysis.blocking_issues
+        )
+
+        :telemetry.execute(
+          [:selecto, :query, :complexity_rejected],
+          %{complexity_score: analysis.score},
           %{
             query_id: query_id,
-            error: error,
-            duration: duration
+            blocking_issues: analysis.blocking_issues,
+            recommendations: analysis.recommendations
           }
         )
 
-        track_query_execution("Query compilation failed", duration, error_result)
-        error_result
-    catch
-      :exit, reason ->
-        duration = System.monotonic_time(:millisecond) - start_time
-
-        error_result =
-          {:error,
-           Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
-
-        # Emit telemetry event for connection error
-        :telemetry.execute(
-          [:selecto, :query, :error],
-          %{count: 1},
-          %{
-            query_id: query_id,
-            error: reason,
-            duration: duration
-          }
-        )
-
-        track_query_execution("Database connection failed", duration, error_result)
-        error_result
+        {:error,
+         Selecto.Error.validation_error("Query too complex to execute safely", %{
+           complexity_score: analysis.score,
+           max_score: analysis.details.max_score,
+           issues: analysis.blocking_issues,
+           recommendations: analysis.recommendations,
+           details: analysis.details
+         })}
     end
   end
 
@@ -182,55 +139,30 @@ defmodule Selecto.Executor do
     task =
       Selecto.TaskSupervisor.async(fn ->
         Selecto.Performance.Hooks.restore_hooks(hook_snapshot)
-
-        try do
-          execute_with_hooks(selecto, opts, query_id, start_time)
-        rescue
-          error ->
-            duration = System.monotonic_time(:millisecond) - start_time
-            error_result = {:error, Selecto.Error.from_reason(error)}
-
-            # Emit telemetry event for query error
-            :telemetry.execute(
-              [:selecto, :query, :error],
-              %{count: 1},
-              %{
-                query_id: query_id,
-                error: error,
-                duration: duration
-              }
-            )
-
-            track_query_execution("Query compilation failed", duration, error_result)
-            error_result
-        catch
-          :exit, reason ->
-            duration = System.monotonic_time(:millisecond) - start_time
-
-            error_result =
-              {:error,
-               Selecto.Error.connection_error("Database connection failed", %{exit_reason: reason})}
-
-            # Emit telemetry event for connection error
-            :telemetry.execute(
-              [:selecto, :query, :error],
-              %{count: 1},
-              %{
-                query_id: query_id,
-                error: reason,
-                duration: duration
-              }
-            )
-
-            track_query_execution("Database connection failed", duration, error_result)
-            error_result
-        end
+        execute_with_hooks(selecto, opts, query_id, start_time)
       end)
 
     # Wait for task with timeout
     case Task.yield(task, timeout) || Task.shutdown(task) do
       {:ok, result} ->
         result
+
+      {:exit, {%_{} = error, stacktrace}} when is_list(stacktrace) ->
+        reraise error, stacktrace
+
+      {:exit, reason} ->
+        duration = System.monotonic_time(:millisecond) - start_time
+
+        :telemetry.execute(
+          [:selecto, :query, :error],
+          %{count: 1},
+          %{query_id: query_id, error: reason, duration: duration}
+        )
+
+        {:error,
+         Selecto.Error.connection_error("Database execution process exited", %{
+           exit_reason: reason
+         })}
 
       nil ->
         # Task was killed due to timeout
@@ -612,36 +544,7 @@ defmodule Selecto.Executor do
     end
   end
 
-  # Track query execution for monitoring if SelectoDev.QueryMonitor is available.
-  defp track_query_execution(_query, _duration, result) do
-    try do
-      # Only attempt to track if the QueryMonitor module exists and is running
-      if Code.ensure_loaded?(SelectoDev.QueryMonitor) do
-        case result do
-          {:ok, _} ->
-            # SelectoDev.QueryMonitor.track_query(query, duration)
-            :ok
-
-          {:error, error} ->
-            _error_message =
-              case error do
-                %{message: msg} -> msg
-                error when is_binary(error) -> error
-                error -> inspect(error)
-              end
-
-            # SelectoDev.QueryMonitor.track_query_error(query, error_message, duration)
-            :ok
-        end
-      end
-    rescue
-      # Ignore any errors in tracking - we don't want monitoring to break queries
-      _ -> :ok
-    catch
-      # Also catch any exits from GenServer calls
-      :exit, _ -> :ok
-    end
-  end
+  defp track_query_execution(_query, _duration, _result), do: :ok
 
   # Helper function to check if a module is an Ecto repo
   defp is_ecto_repo?(module) when is_atom(module) do

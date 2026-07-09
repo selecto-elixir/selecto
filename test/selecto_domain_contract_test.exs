@@ -2508,6 +2508,17 @@ defmodule Selecto.DomainContractTest do
              )
     end
 
+    test "non-strict projection returns diagnostics without failing" do
+      provider =
+        provider_domain()
+        |> put_in([:published_views, :invoice_summary_v1, :required_filters], [:missing_tenant])
+
+      assert {:ok, projection} =
+               ContractVerification.published_surfaces(provider, strict: false)
+
+      assert projection.errors != []
+    end
+
     test "reports invalid provider result types" do
       provider =
         provider_domain()

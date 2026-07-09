@@ -619,6 +619,9 @@ defmodule Selecto.ConnectionPool do
       |> Base.encode16(case: :lower)
       |> String.slice(0, 8)
 
+    # Pool names are bounded by configured database identities and Postgrex requires
+    # registered names to be atoms or via tuples.
+    # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
     :"selecto_pool_#{hash}"
   end
 

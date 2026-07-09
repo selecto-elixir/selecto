@@ -428,7 +428,7 @@ defmodule Selecto.EctoAdapter do
       |> Module.split()
       |> List.last()
       |> Macro.underscore()
-      |> String.to_atom()
+      |> existing_atom_or_string()
     else
       # This is already a plain atom
       schema
@@ -436,7 +436,13 @@ defmodule Selecto.EctoAdapter do
   end
 
   defp get_schema_atom(schema) when is_binary(schema) do
-    String.to_atom(schema)
+    existing_atom_or_string(schema)
+  end
+
+  defp existing_atom_or_string(value) do
+    String.to_existing_atom(value)
+  rescue
+    ArgumentError -> value
   end
 
   defp is_ecto_schema?(module) when is_atom(module) do

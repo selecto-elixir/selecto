@@ -329,10 +329,14 @@ defmodule Selecto.Builder.Sql.Select do
 
           when_clause = ["when ", filters_iodata, " then ", sel_iodata]
 
-          {s ++ [when_clause], j ++ List.wrap(join_s) ++ List.wrap(join_w),
-           p ++ param_w ++ param_s}
+          {[when_clause | s], Enum.reverse(List.wrap(join_w), Enum.reverse(List.wrap(join_s), j)),
+           Enum.reverse(param_s, Enum.reverse(param_w, p))}
         end
       )
+
+    sel_parts = Enum.reverse(sel_parts)
+    join = Enum.reverse(join)
+    par = Enum.reverse(par)
 
     case else_clause do
       nil ->
@@ -373,8 +377,12 @@ defmodule Selecto.Builder.Sql.Select do
     {sel_parts, join, param} =
       Enum.reduce(processed_fields, {[], [], []}, fn f, {select, join, param} ->
         {s_iodata, j, p} = prep_selector(selecto, f, retarget_aliases)
-        {select ++ [s_iodata], join ++ List.wrap(j), param ++ p}
+        {[s_iodata | select], Enum.reverse(List.wrap(j), join), Enum.reverse(p, param)}
       end)
+
+    sel_parts = Enum.reverse(sel_parts)
+    join = Enum.reverse(join)
+    param = Enum.reverse(param)
 
     func_name = Atom.to_string(func)
     func_iodata = [func_name, "( ", Enum.intersperse(sel_parts, ", "), " )"]
@@ -745,8 +753,7 @@ defmodule Selecto.Builder.Sql.Select do
   end
 
   def prep_selector(_selecto, {:raw_sql, sql}, _retarget_aliases) when is_binary(sql) do
-    # For raw SQL, just return it as-is
-    # This is used for bucket CASE expressions
+    # Trusted escape hatch for application-authored expressions. Never pass user input here.
     {[sql], :selecto_root, []}
   end
 

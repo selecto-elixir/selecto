@@ -24,7 +24,6 @@ defmodule Selecto.ConnectionPoolTest do
       name1 = ConnectionPool.generate_pool_name(config1)
       name2 = ConnectionPool.generate_pool_name(config2)
 
-      # Names should be atoms
       assert is_atom(name1)
       assert is_atom(name2)
 

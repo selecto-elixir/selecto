@@ -557,8 +557,8 @@ defmodule Selecto.Builder.Sql do
     case find_join_config_between(selecto, from_schema, to_schema) do
       {:ok, join_config} ->
         to_table = get_table_name(selecto, to_schema)
-        owner_key = Map.get(join_config, :owner_key, :"#{to_schema}_id")
-        related_key = Map.get(join_config, :related_key, :"#{to_schema}_id")
+        owner_key = Map.get(join_config, :owner_key, "#{to_schema}_id")
+        related_key = Map.get(join_config, :related_key, "#{to_schema}_id")
 
         [
           "\n        LEFT JOIN ",
@@ -1389,8 +1389,11 @@ defmodule Selecto.Builder.Sql do
           specs
           |> Enum.map(&build_single_unnest(selecto, &1))
           |> Enum.reduce({[], []}, fn {clause, p}, {clauses, params} ->
-            {clauses ++ [clause], params ++ p}
+            {[clause | clauses], Enum.reverse(p, params)}
           end)
+
+        unnest_clauses = Enum.reverse(unnest_clauses)
+        params = Enum.reverse(params)
 
         # Format as comma-separated FROM clause additions  
         {unnest_clauses, params}

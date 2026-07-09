@@ -66,13 +66,9 @@ defmodule Selecto.Domain.ContractVerification do
         errors: errors
       }
 
-      projection =
-        case Keyword.get(opts, :strict, true) do
-          false -> projection
-          true -> projection
-        end
-
-      if errors == [], do: {:ok, projection}, else: {:error, projection}
+      if errors == [] or Keyword.get(opts, :strict, true) == false,
+        do: {:ok, projection},
+        else: {:error, projection}
     end
   end
 
@@ -229,7 +225,7 @@ defmodule Selecto.Domain.ContractVerification do
     Enum.reduce(missing, errors, fn id, acc ->
       [
         error(
-          :"missing_#{key |> Atom.to_string() |> String.trim_trailing("s")}",
+          missing_value_error_code(key),
           "provider contract #{Map.get(surface, :id)} does not publish #{key} #{id}",
           contract: Map.get(surface, :id),
           value: id,
@@ -278,7 +274,7 @@ defmodule Selecto.Domain.ContractVerification do
   end
 
   defp missing_surface_values(errors, surface, key, available) do
-    explicit? = Map.get(surface, :"#{key}_explicit?", false)
+    explicit? = Map.get(surface, explicit_surface_key(key), false)
     values = surface |> Map.get(key, []) |> normalize_id_list()
 
     if explicit? do
@@ -576,7 +572,7 @@ defmodule Selecto.Domain.ContractVerification do
     removed =
       Enum.map(left_values -- right_values, fn value ->
         %{
-          kind: :"#{key |> Atom.to_string() |> String.trim_trailing("s")}_removed",
+          kind: list_change_kind(key, :removed),
           value: value,
           classification: :breaking
         }
@@ -585,7 +581,7 @@ defmodule Selecto.Domain.ContractVerification do
     added =
       Enum.map(right_values -- left_values, fn value ->
         %{
-          kind: :"#{key |> Atom.to_string() |> String.trim_trailing("s")}_added",
+          kind: list_change_kind(key, :added),
           value: value,
           classification: :compatible
         }
@@ -641,7 +637,7 @@ defmodule Selecto.Domain.ContractVerification do
     else
       [
         %{
-          kind: :"#{key}_changed",
+          kind: value_change_kind(key),
           left: left_value,
           right: right_value,
           classification: classification
@@ -650,6 +646,25 @@ defmodule Selecto.Domain.ContractVerification do
       ]
     end
   end
+
+  defp missing_value_error_code(:fields), do: :missing_field
+  defp missing_value_error_code(:filters), do: :missing_filter
+  defp missing_value_error_code(:query_members), do: :missing_query_member
+
+  defp explicit_surface_key(:fields), do: :fields_explicit?
+  defp explicit_surface_key(:filters), do: :filters_explicit?
+  defp explicit_surface_key(:query_members), do: :query_members_explicit?
+  defp explicit_surface_key(:required_filters), do: :required_filters_explicit?
+
+  defp list_change_kind(:fields, :removed), do: :field_removed
+  defp list_change_kind(:fields, :added), do: :field_added
+  defp list_change_kind(:filters, :removed), do: :filter_removed
+  defp list_change_kind(:filters, :added), do: :filter_added
+  defp list_change_kind(:query_members, :removed), do: :query_member_removed
+  defp list_change_kind(:query_members, :added), do: :query_member_added
+
+  defp value_change_kind(:version), do: :version_changed
+  defp value_change_kind(:fingerprint), do: :fingerprint_changed
 
   defp classify_changes(changes) do
     cond do

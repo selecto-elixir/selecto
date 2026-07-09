@@ -562,6 +562,11 @@ defmodule Selecto do
   For macro-free query composition, prefer importing `Selecto.Expr` and using
   string field paths plus runtime helper constructors.
 
+  `{:raw_sql, sql}` is a trusted escape hatch for application-authored SQL.
+  Selecto passes that SQL through verbatim, so never construct it from user,
+  partner, request, or other untrusted input. Prefer normal selectors and
+  parameterized expressions whenever possible.
+
   ## Examples
 
       import Selecto.Expr
@@ -600,6 +605,9 @@ defmodule Selecto do
 
   For macro-free query composition, prefer importing `Selecto.Expr` and using
   runtime filter helpers.
+
+  `{:raw_sql_filter, iodata}` is a trusted escape hatch and is not validated or
+  parameterized by Selecto. Never construct it from untrusted input.
 
   ## Examples
 

@@ -103,7 +103,7 @@ defmodule Selecto.Builder.Retarget do
     # Build the subquery with proper joins
     {where_clause, where_params} = extract_retarget_conditions(selecto, retarget_config, "s")
 
-    owner_key = Map.get(assoc_config, :owner_key, :"#{assoc_name}_id")
+    owner_key = Map.get(assoc_config, :owner_key, "#{assoc_name}_id")
     related_key = Map.get(assoc_config, :related_key, target_pk)
 
     # Build subquery: SELECT target.pk FROM source JOIN target WHERE filters
@@ -195,7 +195,7 @@ defmodule Selecto.Builder.Retarget do
         current_alias = if current_pos == :source, do: "s", else: "j#{counter - 1}"
         next_alias = "j#{counter}"
 
-        owner_key = Map.get(assoc_config, :owner_key, :"#{assoc_name}_id")
+        owner_key = Map.get(assoc_config, :owner_key, "#{assoc_name}_id")
         related_key = Map.get(assoc_config, :related_key, target_pk)
 
         join_clause = [

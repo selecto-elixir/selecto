@@ -331,7 +331,7 @@ defmodule Selecto.Output.Transformers.Stream do
 
       case key_type do
         :atoms ->
-          String.to_atom(name)
+          existing_atom_or_string(name)
 
         :existing_atoms ->
           try do
@@ -344,6 +344,14 @@ defmodule Selecto.Output.Transformers.Stream do
           name
       end
     end)
+  end
+
+  defp existing_atom_or_string(name) do
+    try do
+      String.to_existing_atom(name)
+    rescue
+      ArgumentError -> name
+    end
   end
 
   defp transform_single_row(row, _columns, :raw, _options), do: row

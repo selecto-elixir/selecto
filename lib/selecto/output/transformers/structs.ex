@@ -70,8 +70,9 @@ defmodule Selecto.Output.Transformers.Structs do
           {:ok, list(struct())} | {:error, Error.t()}
   def transform(rows, columns, aliases, struct_module, options) do
     with {:ok, validated_options} <- validate_options(options),
-         {:ok, field_mappings} <- build_field_mappings(columns, aliases, validated_options),
-         {:ok, struct_mod} <- resolve_struct_module(struct_module, validated_options) do
+         {:ok, struct_mod} <- resolve_struct_module(struct_module, validated_options),
+         {:ok, field_mappings} <-
+           build_field_mappings(columns, aliases, struct_mod, validated_options) do
       case transform_rows(rows, columns, field_mappings, struct_mod, validated_options) do
         {:ok, structs} ->
           {:ok, structs}
@@ -110,8 +111,9 @@ defmodule Selecto.Output.Transformers.Structs do
           {:ok, Enumerable.t()} | {:error, Error.t()}
   def stream_transform(rows, columns, aliases, struct_module, options) do
     with {:ok, validated_options} <- validate_options(options),
-         {:ok, field_mappings} <- build_field_mappings(columns, aliases, validated_options),
-         {:ok, struct_mod} <- resolve_struct_module(struct_module, validated_options) do
+         {:ok, struct_mod} <- resolve_struct_module(struct_module, validated_options),
+         {:ok, field_mappings} <-
+           build_field_mappings(columns, aliases, struct_mod, validated_options) do
       stream =
         Stream.map(rows, fn row ->
           case transform_single_row(row, columns, field_mappings, struct_mod, validated_options) do
@@ -209,8 +211,10 @@ defmodule Selecto.Output.Transformers.Structs do
   defp validate_default_values(defaults),
     do: {:error, "default_values must be a map, got: #{inspect(defaults)}"}
 
-  defp build_field_mappings(columns, aliases, options) do
+  defp build_field_mappings(columns, aliases, struct_module, options) do
     try do
+      struct_fields = struct_module.__struct__() |> Map.keys() |> MapSet.new()
+
       mappings =
         Enum.with_index(columns)
         |> Enum.map(fn {column, index} ->
@@ -228,8 +232,7 @@ defmodule Selecto.Output.Transformers.Structs do
           # Apply key transformation
           final_name = transform_field_name(mapped_name, options.transform_keys)
 
-          # Convert to atom for struct field
-          field_atom = ensure_atom(final_name)
+          field_atom = resolve_struct_field(final_name, struct_fields)
 
           {index, field_atom, effective_name}
         end)
@@ -274,9 +277,15 @@ defmodule Selecto.Output.Transformers.Structs do
     end
   end
 
-  defp ensure_atom(value) when is_atom(value), do: value
-  defp ensure_atom(value) when is_binary(value), do: String.to_atom(value)
-  defp ensure_atom(value), do: String.to_atom(to_string(value))
+  defp resolve_struct_field(value, struct_fields) when is_atom(value) do
+    if MapSet.member?(struct_fields, value), do: value, else: value
+  end
+
+  defp resolve_struct_field(value, struct_fields) do
+    value = to_string(value)
+
+    Enum.find(struct_fields, value, fn field -> Atom.to_string(field) == value end)
+  end
 
   defp resolve_struct_module(module, _options) when is_atom(module) and not is_nil(module) do
     if Code.ensure_loaded?(module) do

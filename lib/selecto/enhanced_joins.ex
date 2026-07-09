@@ -478,15 +478,10 @@ defmodule Selecto.EnhancedJoins do
     # Add any custom fields from join configuration
     custom_fields = Map.get(config, :additional_fields, [])
 
-    # Ensure alias is an atom
-    alias_atom =
-      case Map.get(config, :alias, :enhanced_join) do
-        alias_name when is_binary(alias_name) -> String.to_atom(alias_name)
-        alias_name when is_atom(alias_name) -> alias_name
-      end
+    join_alias = Map.get(config, :alias, :enhanced_join)
 
     Selecto.Schema.Column.configure_columns(
-      alias_atom,
+      join_alias,
       base_fields ++ custom_fields,
       queryable,
       config

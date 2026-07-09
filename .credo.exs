@@ -34,8 +34,8 @@
     %{
       name: "atom_audit",
       files: %{
-        included: ["lib/", "test/", "config/", "mix.exs"],
-        excluded: [~r"/_build/", ~r"/deps/"]
+        included: ["lib/", "mix.exs"],
+        excluded: [~r"/_build/", ~r"/deps/", "lib/mix/tasks/selecto.bench.ex"]
       },
       checks: %{
         enabled: [

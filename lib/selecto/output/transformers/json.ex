@@ -10,7 +10,8 @@ defmodule Selecto.Output.Transformers.Json do
   - `:include_meta` - Include query metadata in response (default: false)
   - `:pretty` - Pretty print JSON output (default: false)
   - `:null_handling` - How to handle nil values: `:null`, `:omit`, `:empty_string` (default: `:null`)
-  - `:keys` - Key format: `:strings`, `:atoms` (default: `:strings`)
+  - `:keys` - Key format: `:strings`, `:atoms` (default: `:strings`). Atom keys
+    are used only when the atom already exists; unknown names remain strings.
   - `:coerce_types` - Enable type coercion (default: false)
   - `:date_format` - Date serialization format: `:iso8601`, `:unix`, `:string` (default: `:iso8601`)
   - `:decimal_format` - Decimal format: `:string`, `:float` (default: `:string`)
@@ -217,7 +218,7 @@ defmodule Selecto.Output.Transformers.Json do
           # Apply key transformation
           final_name =
             case opts.keys do
-              :atoms -> ensure_atom(effective_name)
+              :atoms -> existing_atom_or_string(effective_name)
               :strings -> to_string(effective_name)
             end
 
@@ -354,15 +355,15 @@ defmodule Selecto.Output.Transformers.Json do
     end
   end
 
-  defp ensure_atom(name) when is_atom(name), do: name
+  defp existing_atom_or_string(name) when is_atom(name), do: name
 
-  defp ensure_atom(name) when is_binary(name) do
+  defp existing_atom_or_string(name) when is_binary(name) do
     try do
       String.to_existing_atom(name)
     rescue
-      ArgumentError -> String.to_atom(name)
+      ArgumentError -> name
     end
   end
 
-  defp ensure_atom(name), do: name |> to_string() |> ensure_atom()
+  defp existing_atom_or_string(name), do: name |> to_string() |> existing_atom_or_string()
 end

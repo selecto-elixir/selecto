@@ -370,7 +370,7 @@ defmodule Selecto.CteQuery do
 
   defp inferred_cte_join_fields(cte_spec) do
     Enum.reduce(cte_columns(cte_spec), %{}, fn column, acc ->
-      Map.put(acc, String.to_atom(column), %{type: :any})
+      Map.put(acc, column, %{type: :any})
     end)
   end
 

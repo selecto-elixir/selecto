@@ -88,9 +88,9 @@ defmodule Selecto.AutoRetarget do
   @doc """
   Find the best table to retarget to based on selected columns.
 
-  Returns the table name (as atom) that should become the new source table.
+  Returns the configured table name that should become the new source table.
   """
-  @spec find_retarget_target(Selecto.Types.t(), [String.t() | atom()]) :: atom() | nil
+  @spec find_retarget_target(Selecto.Types.t(), [String.t() | atom()]) :: String.t() | nil
   def find_retarget_target(selecto, selected_columns) do
     source_columns = get_source_columns(selecto)
     {_source_cols, qualified_cols_by_table} = categorize_columns(selected_columns, source_columns)
@@ -100,12 +100,12 @@ defmodule Selecto.AutoRetarget do
         nil
 
       [single_table] ->
-        String.to_atom(single_table)
+        single_table
 
       [first_table | _rest] ->
         # For multiple tables, retarget to the first one
         # TODO: Could be smarter about choosing the "root" table
-        String.to_atom(first_table)
+        first_table
     end
   end
 
@@ -148,18 +148,11 @@ defmodule Selecto.AutoRetarget do
   end
 
   defp column_exists_in_source?(column_name, source_columns) do
-    col_atom =
-      if is_binary(column_name), do: String.to_existing_atom(column_name), else: column_name
-
-    col_string = if is_atom(column_name), do: Atom.to_string(column_name), else: column_name
+    col_string = to_string(column_name)
 
     Enum.any?(source_columns, fn source_col ->
-      source_col == col_atom or source_col == col_string or
-        Atom.to_string(source_col) == col_string or
-        String.to_atom(to_string(source_col)) == col_atom
+      to_string(source_col) == col_string
     end)
-  rescue
-    ArgumentError -> false
   end
 
   defp find_join_path(domain, target_table) do

@@ -50,7 +50,7 @@ jobs:
 
   dialyzer:
     name: Dialyzer Analysis
-    if: github.event_name == 'workflow_dispatch'
+    continue-on-error: true
     runs-on: ubuntu-latest
 
     steps:

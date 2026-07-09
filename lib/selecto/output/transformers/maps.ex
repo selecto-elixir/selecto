@@ -18,7 +18,8 @@ defmodule Selecto.Output.Transformers.Maps do
 
   ## Options
 
-  - `:keys` - Key type (:strings, :atoms, :existing_atoms). Default: :strings
+  - `:keys` - Key type (`:strings`, `:atoms`, `:existing_atoms`). Default: `:strings`.
+    Both atom modes only use atoms that already exist; unknown names remain strings.
   - `:transform` - Key name transformation (:none, :camelCase, :snake_case). Default: :none
   - `:coerce_types` - Whether to coerce database types to Elixir types. Default: false
   - `:null_handling` - How to handle NULL values (:preserve, :remove). Default: :preserve
@@ -173,13 +174,13 @@ defmodule Selecto.Output.Transformers.Maps do
   end
 
   defp convert_to_key_type(name, :strings), do: name
-  defp convert_to_key_type(name, :atoms), do: String.to_atom(name)
+  defp convert_to_key_type(name, :atoms), do: existing_atom_or_string(name)
+  defp convert_to_key_type(name, :existing_atoms), do: existing_atom_or_string(name)
 
-  defp convert_to_key_type(name, :existing_atoms) do
+  defp existing_atom_or_string(name) do
     try do
       String.to_existing_atom(name)
     rescue
-      # Fallback to string if atom doesn't exist
       ArgumentError -> name
     end
   end
