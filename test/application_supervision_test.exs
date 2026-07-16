@@ -16,4 +16,12 @@ defmodule Selecto.ApplicationSupervisionTest do
     assert {:ok, runtime_pid} = Selecto.ConnectionPool.Runtime.ensure_started()
     assert runtime_pid == Process.whereis(Selecto.ConnectionPool.Runtime)
   end
+
+  test "task helpers preserve supervised execution semantics" do
+    task = Selecto.TaskSupervisor.async(fn -> :ok end)
+    assert {:ok, :ok} = Task.yield(task)
+
+    assert {:ok, pid} = Selecto.TaskSupervisor.start_child(fn -> :ok end)
+    assert is_pid(pid)
+  end
 end

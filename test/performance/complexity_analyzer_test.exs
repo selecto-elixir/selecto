@@ -350,7 +350,12 @@ defmodule Selecto.Performance.ComplexityAnalyzerTest do
       end
 
     selecto = build_simple_selecto()
-    %{selecto | config: %{selecto.config | joins: joins}}
+
+    %{
+      selecto
+      | config: %{selecto.config | joins: joins},
+        set: Map.put(selecto.set, :active_joins, Map.keys(joins))
+    }
   end
 
   defp build_selecto_with_nested_joins do

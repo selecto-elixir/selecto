@@ -111,7 +111,7 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
 
   # Check number of joins
   defp check_join_count(analysis, selecto, max_joins) do
-    join_count = count_joins(selecto.config.joins)
+    join_count = active_join_count(selecto)
 
     details = Map.put(analysis.details, :join_count, join_count)
 
@@ -356,20 +356,32 @@ defmodule Selecto.Performance.ComplexityAnalyzer do
     end
   end
 
-  # Helper: Count all joins recursively
-  defp count_joins(joins) when is_map(joins) do
-    Enum.reduce(joins, 0, fn {_name, join_config}, acc ->
-      nested_count =
-        case Map.get(join_config, :joins) do
-          nil -> 0
-          nested_joins -> count_joins(nested_joins)
-        end
+  defp active_join_count(selecto) do
+    try do
+      resolved_joins =
+        selecto
+        |> Selecto.Builder.Sql.benchmark_components()
+        |> Map.fetch!(:joins_in_order)
 
-      acc + 1 + nested_count
+      explicit_joins = Map.get(selecto.set, :active_joins, [])
+
+      (resolved_joins ++ explicit_joins)
+      |> Enum.uniq()
+      |> length()
+    rescue
+      # Lightweight analyzer fixtures and partially constructed queries may not
+      # be SQL-compilable yet. Retain the conservative legacy count for them.
+      RuntimeError -> count_configured_joins(selecto.config.joins)
+    end
+  end
+
+  defp count_configured_joins(joins) when is_map(joins) do
+    Enum.reduce(joins, 0, fn {_name, join_config}, acc ->
+      acc + 1 + count_configured_joins(Map.get(join_config, :joins, %{}))
     end)
   end
 
-  defp count_joins(_), do: 0
+  defp count_configured_joins(_joins), do: 0
 
   # Helper: Count subselects
   defp count_subselects(query_set) do

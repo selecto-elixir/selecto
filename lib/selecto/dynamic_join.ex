@@ -62,7 +62,7 @@ defmodule Selecto.DynamicJoin do
         }
       )
   """
-  @spec join(Selecto.t(), atom(), keyword()) :: Selecto.t()
+  @spec join(Selecto.t(), atom() | String.t(), keyword()) :: Selecto.t()
   def join(selecto, join_id, options \\ []) do
     # Check if this join already exists in the domain
     existing_join = get_in(selecto.config, [:joins, join_id])
@@ -138,7 +138,7 @@ defmodule Selecto.DynamicJoin do
   @spec join_parameterize(Selecto.t(), atom(), String.t() | atom(), keyword()) :: Selecto.t()
   def join_parameterize(selecto, join_id, parameter, options \\ []) do
     # Create a unique identifier for this parameterized join
-    param_join_id = :"#{join_id}:#{parameter}"
+    param_join_id = "#{join_id}:#{parameter}"
 
     # Get the base join configuration
     base_join = get_in(selecto.config, [:joins, join_id])
@@ -149,7 +149,7 @@ defmodule Selecto.DynamicJoin do
     end
 
     # Extract filter options vs regular options
-    {filters, join_opts} = Keyword.split(options, extract_filter_keys(base_join))
+    {filters, join_opts} = split_filter_options(options, base_join)
 
     # Build parameterized join config
     param_config =
@@ -283,7 +283,7 @@ defmodule Selecto.DynamicJoin do
     on = Keyword.get(options, :on, [])
     type = Keyword.get(options, :type, :left)
     owner_key = Keyword.get(options, :owner_key, :id)
-    related_key = Keyword.get(options, :related_key, :"#{join_id}_id")
+    related_key = Keyword.get(options, :related_key, "#{join_id}_id")
     fields = Keyword.get(options, :fields, %{})
     source_kind = options |> Keyword.get(:source_kind) |> normalize_source_kind()
 
@@ -410,9 +410,14 @@ defmodule Selecto.DynamicJoin do
     end)
   end
 
-  defp extract_filter_keys(join_config) do
-    filters = Map.get(join_config, :filters, %{})
-    Map.keys(filters) |> Enum.map(&String.to_atom/1)
+  defp split_filter_options(options, join_config) do
+    filter_names =
+      join_config
+      |> Map.get(:filters, %{})
+      |> Map.keys()
+      |> MapSet.new(&to_string/1)
+
+    Enum.split_with(options, fn {key, _value} -> MapSet.member?(filter_names, to_string(key)) end)
   end
 
   defp update_field_names_for_param(config, param_join_id) do

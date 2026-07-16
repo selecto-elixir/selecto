@@ -60,11 +60,11 @@ defmodule Selecto.Subfilter.JoinPathResolver do
           {:ok, JoinResolution.t()} | {:error, Error.t()}
   def resolve(%RelationshipPath{} = path, domain_name, base_table \\ nil) do
     with {:ok, domain_config} <- get_domain_config(domain_name),
-         {:ok, resolved_base_table} <- resolve_base_table(path, base_table),
+         {:ok, resolved_base_table} <- resolve_base_table(path, base_table, domain_config),
          {:ok, joins} <- build_join_sequence(path, domain_config, resolved_base_table) do
       resolution = %JoinResolution{
         joins: joins,
-        target_table: determine_target_table(path, joins),
+        target_table: determine_target_table(path, joins, domain_config),
         target_field: path.target_field,
         path_segments: path.path_segments,
         is_aggregation: path.is_aggregation
@@ -160,15 +160,15 @@ defmodule Selecto.Subfilter.JoinPathResolver do
   defp normalize_join_key(key) when is_atom(key), do: Atom.to_string(key)
   defp normalize_join_key(key), do: to_string(key)
 
-  defp resolve_base_table(%RelationshipPath{path_segments: [first_segment | _]}, nil) do
-    {:ok, String.to_atom(first_segment)}
+  defp resolve_base_table(%RelationshipPath{path_segments: [first_segment | _]}, nil, config) do
+    resolve_configured_table(first_segment, config)
   end
 
-  defp resolve_base_table(_path, base_table) when is_atom(base_table) do
+  defp resolve_base_table(_path, base_table, _config) when is_atom(base_table) do
     {:ok, base_table}
   end
 
-  defp resolve_base_table(_path, base_table) do
+  defp resolve_base_table(_path, base_table, _config) do
     {:error,
      %Error{
        type: :invalid_base_table,
@@ -179,11 +179,12 @@ defmodule Selecto.Subfilter.JoinPathResolver do
 
   defp build_join_sequence(
          %RelationshipPath{is_aggregation: true, path_segments: [table]},
-         _config,
+         config,
          base_table
        ) do
-    # Aggregation subfilter - no joins needed, just count/aggregate on the base table
-    {:ok, [%{from: base_table, to: String.to_atom(table), type: :self, field: nil}]}
+    with {:ok, target_table} <- resolve_configured_table(table, config) do
+      {:ok, [%{from: base_table, to: target_table, type: :self, field: nil}]}
+    end
   end
 
   defp build_join_sequence(
@@ -494,18 +495,36 @@ defmodule Selecto.Subfilter.JoinPathResolver do
     end)
   end
 
-  defp determine_target_table(%RelationshipPath{target_table: target_table}, _joins)
+  defp determine_target_table(%RelationshipPath{target_table: target_table}, _joins, config)
        when is_binary(target_table) do
-    String.to_atom(target_table)
+    case resolve_configured_table(target_table, config) do
+      {:ok, table} -> table
+      {:error, _error} -> nil
+    end
   end
 
-  defp determine_target_table(_path, []) do
+  defp determine_target_table(_path, [], _config) do
     nil
   end
 
-  defp determine_target_table(_path, joins) do
+  defp determine_target_table(_path, joins, _config) do
     %{to: target_table} = List.last(joins)
     target_table
+  end
+
+  defp resolve_configured_table(table_name, %{tables: tables}) do
+    case Enum.find(tables, &(to_string(&1) == to_string(table_name))) do
+      nil ->
+        {:error,
+         %Error{
+           type: :unknown_table,
+           message: "Relationship path references a table absent from the domain configuration",
+           details: %{table: table_name}
+         }}
+
+      table ->
+        {:ok, table}
+    end
   end
 
   defp resolve_all_paths([], _domain_name, _base_table, acc) do

@@ -189,7 +189,12 @@ defmodule Selecto.Builder.ValuesClause do
   defp build_select_row_from_map(row, columns) do
     ordered_values =
       columns
-      |> Enum.map(fn column -> Map.get(row, column) || Map.get(row, String.to_atom(column)) end)
+      |> Enum.map(fn column ->
+        case Enum.find(row, fn {key, _value} -> to_string(key) == to_string(column) end) do
+          nil -> nil
+          {_key, value} -> value
+        end
+      end)
 
     build_select_row_from_list(ordered_values, columns)
   end

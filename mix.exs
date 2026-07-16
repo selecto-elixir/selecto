@@ -4,7 +4,7 @@ defmodule Selecto.MixProject do
   def project do
     [
       app: :selecto,
-      version: "0.4.6",
+      version: "0.4.7",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -119,8 +119,14 @@ defmodule Selecto.MixProject do
 
   defp aliases do
     [
-      "credo.atom_audit": ["credo -C atom_audit --all-priorities"],
-      precommit: ["compile --warnings-as-errors", "format --check-formatted", "credo", "test"]
+      "credo.atom_audit": ["credo -C atom_audit --all-priorities --strict"],
+      precommit: [
+        "compile --warnings-as-errors",
+        "format --check-formatted",
+        "credo",
+        "credo.atom_audit",
+        "test"
+      ]
     ]
   end
 

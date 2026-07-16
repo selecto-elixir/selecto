@@ -247,6 +247,11 @@ defmodule Selecto.ExecutorTest do
     assert {:error, %Selecto.Error{type: :timeout_error}} = result
   end
 
+  test "execute stops when complexity analysis rejects the query" do
+    assert {:error, %Selecto.Error{type: :validation_error}} =
+             Executor.execute(selecto_for(:single), max_complexity: 0)
+  end
+
   test "execute routes through performance hook orchestration" do
     Hooks.unregister(:before_query_build)
     parent = self()

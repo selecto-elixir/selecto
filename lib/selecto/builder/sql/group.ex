@@ -26,9 +26,13 @@ defmodule Selecto.Builder.Sql.Group do
         {[], [], []},
         fn g, {joins, clauses, params} ->
           {j, c, p} = group(selecto, g)
-          {joins ++ [j], clauses ++ [c], params ++ p}
+          {[j | joins], [c | clauses], Enum.reverse(p, params)}
         end
       )
+
+    joins = Enum.reverse(joins)
+    clauses_iodata = Enum.reverse(clauses_iodata)
+    params = Enum.reverse(params)
 
     # Join clauses with ", " separator as iodata
     clause_parts = Enum.intersperse(clauses_iodata, ", ")

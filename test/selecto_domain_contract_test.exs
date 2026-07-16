@@ -3,6 +3,7 @@ defmodule Selecto.DomainContractTest do
 
   alias Selecto.Domain
   alias Selecto.Domain.Contract
+  alias Selecto.Domain.ContractVerification
   alias Selecto.DomainValidator
 
   describe "validate/1" do
@@ -2424,6 +2425,165 @@ defmodule Selecto.DomainContractTest do
     end
   end
 
+  describe "contract verification" do
+    test "projects published query surfaces from provider published views" do
+      assert {:ok, projection} = ContractVerification.published_surfaces(provider_domain())
+
+      assert %{
+               provider: %{name: "billing", domain_version: "1.0.0"},
+               surfaces: [
+                 %{
+                   id: "invoice_summary_v1",
+                   fields: ["balance_due", "invoice_id", "status"],
+                   filters: ["status_picker"],
+                   query_members: [],
+                   required_filters: ["tenant_id"],
+                   result_shape: %{
+                     "balance_due" => "decimal",
+                     "invoice_id" => "integer",
+                     "status" => "string"
+                   }
+                 }
+               ],
+               errors: []
+             } = projection
+    end
+
+    test "verifies consumer dependency against provider published surface" do
+      consumer =
+        consumer_domain(%{
+          fields: [:invoice_id, :status],
+          filters: [:status_picker],
+          satisfies: [:tenant_id]
+        })
+
+      assert {:ok, report} = ContractVerification.verify(provider_domain(), consumer)
+      assert report.errors == []
+      assert [%{contract: "invoice_summary_v1", errors: []}] = report.dependencies
+    end
+
+    test "reports missing provider contract dependency pieces" do
+      consumer =
+        consumer_domain(%{
+          fields: [:invoice_id, :missing_balance],
+          filters: [:missing_filter],
+          satisfies: []
+        })
+
+      assert {:error, report} = ContractVerification.verify(provider_domain(), consumer)
+
+      assert Enum.any?(
+               report.errors,
+               &match?(%{code: :missing_field, value: "missing_balance"}, &1)
+             )
+
+      assert Enum.any?(
+               report.errors,
+               &match?(%{code: :missing_filter, value: "missing_filter"}, &1)
+             )
+
+      assert Enum.any?(
+               report.errors,
+               &match?(%{code: :unsatisfied_required_filter, filter: "tenant_id"}, &1)
+             )
+    end
+
+    test "reports invalid provider required filter references" do
+      provider =
+        provider_domain()
+        |> put_in([:published_views, :invoice_summary_v1, :required_filters], [:missing_tenant])
+
+      assert {:error, projection} = ContractVerification.published_surfaces(provider)
+
+      assert Enum.any?(
+               projection.errors,
+               &match?(
+                 %{
+                   code: :invalid_published_surface_reference,
+                   section: :required_filters,
+                   value: "missing_tenant"
+                 },
+                 &1
+               )
+             )
+    end
+
+    test "non-strict projection returns diagnostics without failing" do
+      provider =
+        provider_domain()
+        |> put_in([:published_views, :invoice_summary_v1, :required_filters], [:missing_tenant])
+
+      assert {:ok, projection} =
+               ContractVerification.published_surfaces(provider, strict: false)
+
+      assert projection.errors != []
+    end
+
+    test "reports invalid provider result types" do
+      provider =
+        provider_domain()
+        |> put_in([:published_views, :invoice_summary_v1, :columns, :balance_due, :type], nil)
+
+      assert {:error, projection} = ContractVerification.published_surfaces(provider)
+
+      assert Enum.any?(
+               projection.errors,
+               &match?(
+                 %{
+                   code: :invalid_published_surface_result_type,
+                   field: "balance_due"
+                 },
+                 &1
+               )
+             )
+    end
+
+    test "detects version and fingerprint drift" do
+      consumer =
+        consumer_domain(%{
+          accepts: "~> 2.0",
+          expected_fingerprint: "sha256:old",
+          fields: [:invoice_id],
+          satisfies: [:tenant_id]
+        })
+
+      assert {:error, report} = ContractVerification.verify(provider_domain(), consumer)
+
+      assert Enum.any?(report.errors, &match?(%{code: :incompatible_contract_version}, &1))
+      assert Enum.any?(report.errors, &match?(%{code: :provider_fingerprint_changed}, &1))
+    end
+
+    test "classifies published surface snapshot diffs" do
+      assert {:ok, left} = ContractVerification.snapshot(provider_domain())
+
+      right_domain =
+        provider_domain()
+        |> put_in(
+          [:published_views, :invoice_summary_v1, :columns, :balance_due, :type],
+          :integer
+        )
+        |> update_in([:published_views, :invoice_summary_v1, :columns], &Map.delete(&1, :status))
+        |> update_in(
+          [:published_views, :invoice_summary_v1, :columns],
+          &Map.put(&1, :due_days, %{type: :integer})
+        )
+
+      assert {:ok, right} = ContractVerification.snapshot(right_domain)
+
+      diff = ContractVerification.diff_snapshots(left, right)
+
+      assert diff.changed?
+      assert diff.breaking?
+
+      assert [%{contract: "invoice_summary_v1", classification: :breaking, changes: changes}] =
+               diff.surfaces.changed
+
+      assert Enum.any?(changes, &match?(%{kind: :result_type_changed, field: "balance_due"}, &1))
+      assert Enum.any?(changes, &match?(%{kind: :result_field_removed, field: "status"}, &1))
+      assert Enum.any?(changes, &match?(%{kind: :result_field_added, field: "due_days"}, &1))
+    end
+  end
+
   defp error_for(diagnostics, code) do
     Enum.find(diagnostics.errors, &(&1.code == code))
   end
@@ -2462,6 +2622,62 @@ defmodule Selecto.DomainContractTest do
       work_items: Selecto.Domain.Examples.work_items(),
       camp_registrations: Selecto.Domain.Examples.camp_registrations()
     ]
+  end
+
+  defp provider_domain do
+    valid_domain()
+    |> update_in([:source, :fields], &(&1 ++ [:tenant_id]))
+    |> put_in([:source, :columns, :tenant_id], %{type: :integer})
+    |> Map.merge(%{
+      name: :billing,
+      domain_version: "1.0.0",
+      domain_fingerprint: "sha256:provider",
+      filters: %{
+        status_picker: %{field: :status, type: :string}
+      },
+      published_views: %{
+        invoice_summary_v1: %{
+          version: "1.0.0",
+          compatibility: "~> 1.0",
+          stable: true,
+          database_name: "reporting.invoice_summary",
+          kind: :view,
+          query: fn selecto -> selecto end,
+          columns: %{
+            invoice_id: %{type: :integer},
+            status: %{type: :string},
+            balance_due: %{type: :decimal}
+          },
+          filters: [:status_picker],
+          required_filters: [:tenant_id],
+          fingerprint: "sha256:surface"
+        }
+      }
+    })
+  end
+
+  defp consumer_domain(opts) do
+    accepts = Map.get(opts, :accepts, "~> 1.0")
+    expected_fingerprint = Map.get(opts, :expected_fingerprint, "sha256:surface")
+
+    valid_domain()
+    |> Map.merge(%{
+      name: :registration,
+      domain_dependencies: [
+        %{
+          provider: :billing,
+          contract: :invoice_summary_v1,
+          accepts: accepts,
+          expected_fingerprint: expected_fingerprint,
+          uses: %{
+            fields: Map.get(opts, :fields, []),
+            filters: Map.get(opts, :filters, []),
+            query_members: Map.get(opts, :query_members, [])
+          },
+          satisfies: Map.get(opts, :satisfies, [])
+        }
+      ]
+    })
   end
 
   defp valid_source do

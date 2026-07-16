@@ -72,7 +72,8 @@ defmodule Selecto.Builder.Sql.Helpers do
   """
   def maybe_quote_identifier(str) when is_binary(str) do
     if needs_quoting?(str) do
-      ~s["#{str}"]
+      escaped = String.replace(str, "\"", "\"\"")
+      ~s["#{escaped}"]
     else
       str
     end
@@ -205,7 +206,8 @@ defmodule Selecto.Builder.Sql.Helpers do
         adapter.quote_identifier(str)
       else
         quote = get_quote_char(selecto)
-        "#{quote}#{str}#{quote}"
+        escaped = String.replace(str, quote, quote <> quote)
+        "#{quote}#{escaped}#{quote}"
       end
     else
       str

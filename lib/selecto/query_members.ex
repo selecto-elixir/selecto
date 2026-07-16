@@ -397,9 +397,9 @@ defmodule Selecto.QueryMembers do
     end)
   end
 
-  @spec normalize_values_join_id(term()) :: atom()
+  @spec normalize_values_join_id(term()) :: atom() | String.t()
   def normalize_values_join_id(join_id) when is_atom(join_id), do: join_id
-  def normalize_values_join_id(join_id) when is_binary(join_id), do: String.to_atom(join_id)
+  def normalize_values_join_id(join_id) when is_binary(join_id), do: join_id
 
   def normalize_values_join_id(join_id) do
     raise ArgumentError,

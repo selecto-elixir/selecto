@@ -48,7 +48,7 @@ defmodule Selecto.Output.Formats do
       # Maps with string keys
       {:ok, maps} = transform(result, :maps)
 
-      # Maps with atom keys
+      # Maps with existing atom keys (unknown names remain strings)
       {:ok, maps} = transform(result, {:maps, keys: :atoms})
 
       # Custom struct
@@ -138,6 +138,7 @@ defmodule Selecto.Output.Formats do
         memory_efficient: false,
         options: [
           keys: [:strings, :atoms, :existing_atoms],
+          atom_safety: :existing_only,
           transform: [:none, :camelCase, :snake_case]
         ]
       },

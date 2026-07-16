@@ -58,6 +58,29 @@ defmodule Selecto.Output.FormatsTest do
              }
     end
 
+    test "does not create atoms for unknown result names" do
+      unknown_name = "selecto_runtime_column_#{System.unique_integer([:positive])}"
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_name) end
+
+      assert {:ok, [%{^unknown_name => "value"}]} =
+               Formats.transform({[["value"]], [unknown_name], %{}}, {:maps, keys: :atoms})
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_name) end
+    end
+
+    test "JSON atom mode does not create atoms for unknown result names" do
+      unknown_name = "selecto_runtime_json_column_#{System.unique_integer([:positive])}"
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_name) end
+
+      assert {:ok, json} =
+               Formats.transform({[["value"]], [unknown_name], %{}}, {:json, keys: :atoms})
+
+      assert Jason.decode!(json) == [%{unknown_name => "value"}]
+      assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_name) end
+    end
+
     test "returns error for unknown format", %{rows: rows, columns: columns, aliases: aliases} do
       {:error, {:unknown_format, :invalid_format}} =
         Formats.transform({rows, columns, aliases}, :invalid_format)

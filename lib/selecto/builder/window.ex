@@ -314,9 +314,9 @@ defmodule Selecto.Builder.Window do
       [prefix, _field_name] ->
         # Check if prefix matches a join
         joins = Selecto.joins(selecto)
-        join_key = String.to_atom(prefix)
+        join_key = Enum.find(Map.keys(joins), &(to_string(&1) == prefix))
 
-        if Map.has_key?(joins, join_key) do
+        if join_key do
           join_key
         else
           # Check columns for this field

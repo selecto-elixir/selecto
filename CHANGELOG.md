@@ -1,6 +1,39 @@
 
 # Selecto Library Changelog
 
+## V 0.4.7 - Runtime Safety and Execution Reliability
+---------------------------------------------------------
+
+#### Security
+- Prevented query aliases, result metadata, dynamic joins, CTE names, subfilter
+  paths, retarget targets, and Ecto-derived identifiers from creating unbounded
+  runtime atoms. Atom-keyed result modes now reuse existing atoms and preserve
+  unknown names as strings.
+- Hardened SQL identifier quoting and documented `raw_sql` selectors and filters
+  as trusted application-authored escape hatches that must not receive
+  untrusted input.
+
+#### Fixed
+- Removed linked-task and raw-process fallbacks when the Selecto task supervisor
+  is unavailable, preserving supervised execution semantics.
+- Simplified query execution error handling so adapter failures remain
+  structured while internal programming exceptions are no longer mislabeled as
+  database failures.
+- Fixed query-complexity rejection so rejected queries stop before execution.
+- Made non-strict published-surface projection return diagnostics without
+  failing, replacing a previously ineffective `strict: false` branch.
+
+#### Changed
+- Reworked hot select, CASE, grouping, and UNNEST accumulators to avoid
+  quadratic list appends while preserving SQL and parameter ordering.
+- Added strict production atom auditing to `mix precommit` and enabled Dialyzer
+  on normal CI as a non-blocking baseline job while existing warnings are
+  reduced.
+- Added regression coverage for atom-table safety, struct field resolution,
+  supervised tasks, identifier escaping, complexity rejection, and contract
+  strictness.
+- Bump package version to `0.4.7`.
+
 ## V 0.4.6 - Coordinated 0.5 Compatibility Guidance
 ---------------------------------------------------------
 
