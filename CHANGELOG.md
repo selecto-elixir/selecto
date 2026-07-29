@@ -1,6 +1,21 @@
 
 # Selecto Library Changelog
 
+## V 0.4.8 - Bounded Formal Verification
+---------------------------------------------------------
+
+#### Security
+- Added bounded-exhaustive verification for required query scope and fixed a
+  fail-open path where an attached tenant id could satisfy validation before it
+  had been applied as a required SQL filter.
+
+#### Changed
+- Added `mix selecto.verify`, JSON proof artifacts, a reusable bounded model
+  checker, and exhaustive provider/consumer compatibility verification.
+- Added package documentation for the exact bounded proof guarantees and
+  remaining relational-equivalence boundary.
+- Bump package version to `0.4.8`.
+
 ## V 0.4.7 - Runtime Safety and Execution Reliability
 ---------------------------------------------------------
 

@@ -262,9 +262,10 @@ defmodule Selecto.Tenant do
     field = tenant_field(selecto, opts)
     required = required_filter_scope?(selecto, field)
     has_prefix = map_get(tenant_context, :prefix) |> present_string?()
-    has_id = not is_nil(map_get(tenant_context, :tenant_id))
-
-    required or has_prefix or has_id
+    # A context id is intent, not proof that row scope reached the query.
+    # `apply_tenant_scope/2` turns that id into a required filter. Accepting the
+    # id alone lets validation pass while generated SQL remains unscoped.
+    required or has_prefix
   end
 
   defp tenant_field(selecto, opts) do
