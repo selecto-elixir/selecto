@@ -108,6 +108,21 @@ defmodule Selecto.TenantTest do
              Selecto.validate_tenant_scope(query)
   end
 
+  test "tenant context id does not satisfy required scope until it becomes a filter" do
+    query =
+      tenant_required_domain()
+      |> selecto()
+      |> Selecto.with_tenant(%{tenant_id: "acme", required: true})
+
+    assert {:error, %Selecto.Error{type: :validation_error}} =
+             Selecto.validate_tenant_scope(query)
+
+    assert :ok =
+             query
+             |> Selecto.apply_tenant_scope()
+             |> Selecto.validate_tenant_scope()
+  end
+
   test "query_filters raises when tenant is required and missing" do
     query =
       tenant_required_domain()

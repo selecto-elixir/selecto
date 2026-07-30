@@ -2,6 +2,11 @@
 
 > Alpha software. Expect API churn and breaking changes while the core package is still being hardened.
 
+Selecto includes bounded formal-verification suites for tenant query scope and
+provider/consumer domain compatibility. Run `mix selecto.verify`; see
+[`docs/formal_verification.md`](docs/formal_verification.md) for the exact proof
+boundary and JSON artifact support.
+
 `selecto` is the core query engine in the Selecto ecosystem.
 
 It gives you:
